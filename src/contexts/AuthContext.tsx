@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3001/api/auth';
+const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth`;
 
 // Token validation is handled in API interceptor (api.client.ts)
 // No need for duplicate validation here - saves resources

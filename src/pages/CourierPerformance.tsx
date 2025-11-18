@@ -35,7 +35,7 @@ export default function CourierPerformance() {
       const storeId = localStorage.getItem('current_store_id');
 
       // Fetch all couriers performance
-      const allResponse = await fetch('http://localhost:3001/api/couriers/performance/all', {
+      const allResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/all`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
@@ -48,7 +48,7 @@ export default function CourierPerformance() {
       }
 
       // Fetch top performers
-      const topResponse = await fetch('http://localhost:3001/api/couriers/performance/top?limit=3', {
+      const topResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/top?limit=3`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
@@ -61,7 +61,7 @@ export default function CourierPerformance() {
       }
 
       // Fetch underperforming
-      const underResponse = await fetch('http://localhost:3001/api/couriers/performance/underperforming?threshold=85', {
+      const underResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/underperforming?threshold=85`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',

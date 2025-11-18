@@ -41,7 +41,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: Shopi
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch('http://localhost:3001/api/shopify/integration', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/integration`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
@@ -74,7 +74,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: Shopi
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch('http://localhost:3001/api/shopify/manual-sync', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/manual-sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -121,7 +121,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: Shopi
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch(`http://localhost:3001/api/shopify-oauth/disconnect?shop=${integration.shop_domain}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify-oauth/disconnect?shop=${integration.shop_domain}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
