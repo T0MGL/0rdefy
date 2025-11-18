@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ordefy - E-commerce Management Dashboard</title>
+    <meta name="description" content="Professional e-commerce management platform. Manage orders, products, inventory, and analytics all in one place. Developed by Bright Idea." />
+    <meta name="author" content="Bright Idea" />
+    <meta name="theme-color" content="hsl(0, 0%, 98%)" />
+
+    <!-- Prevent flash of unstyled content for dark mode -->
+    <script>
+      (function() {
+        const theme = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        if (theme === 'dark' || (!theme && prefersDark)) {
+          document.documentElement.classList.add('dark');
+          document.querySelector('meta[name="theme-color"]')?.setAttribute('content', 'hsl(240, 10%, 8%)');
+        } else {
+          document.documentElement.classList.add('light');
+        }
+      })();
+    </script>
+
+    <meta property="og:title" content="Ordefy - E-commerce Management Dashboard" />
+    <meta property="og:description" content="Professional e-commerce management platform. Manage orders, products, inventory, and analytics all in one place." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ordefy.app" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Ordefy - E-commerce Management Dashboard" />
+    <meta name="twitter:description" content="Professional e-commerce management platform by Bright Idea" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

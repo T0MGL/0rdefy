@@ -1,0 +1,138 @@
+import { useState } from 'react';
+import { Check, ChevronsUpDown, Store, PlusCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { Badge } from './ui/badge';
+
+interface StoreSwitcherProps {
+  className?: string;
+  collapsed?: boolean;
+}
+
+export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherProps) {
+  const { currentStore, stores, switchStore } = useAuth();
+  const [open, setOpen] = useState(false);
+
+  // If user only has one store, don't show the switcher
+  if (stores.length <= 1) {
+    return null;
+  }
+
+  const handleStoreSwitch = (storeId: string) => {
+    if (storeId !== currentStore?.id) {
+      switchStore(storeId);
+      setOpen(false);
+      // Refresh the page to reload data for the new store
+      window.location.reload();
+    }
+  };
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label="Seleccionar tienda"
+          className={cn(
+            'justify-between h-10 bg-background hover:bg-accent transition-all duration-200',
+            collapsed ? 'w-10 px-0' : 'w-full px-3',
+            className
+          )}
+        >
+          {collapsed ? (
+            <Store size={18} className="mx-auto text-muted-foreground" />
+          ) : (
+            <>
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <Store size={16} className="text-muted-foreground flex-shrink-0" />
+                <div className="flex flex-col items-start min-w-0">
+                  <span className="text-sm font-medium truncate max-w-[180px]">
+                    {currentStore?.name || 'Seleccionar tienda'}
+                  </span>
+                  {currentStore?.role && (
+                    <span className="text-xs text-muted-foreground capitalize">
+                      {currentStore.role === 'owner' ? 'Propietario' :
+                       currentStore.role === 'admin' ? 'Administrador' :
+                       currentStore.role}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
+            </>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align={collapsed ? 'end' : 'start'}
+        className="w-[280px]"
+      >
+        <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+          Tus Tiendas
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="max-h-[300px] overflow-y-auto">
+          {stores.map((store) => (
+            <DropdownMenuItem
+              key={store.id}
+              onClick={() => handleStoreSwitch(store.id)}
+              className="cursor-pointer flex items-center gap-2 py-2.5"
+            >
+              <Check
+                className={cn(
+                  'h-4 w-4 flex-shrink-0',
+                  currentStore?.id === store.id
+                    ? 'opacity-100 text-primary'
+                    : 'opacity-0'
+                )}
+              />
+              <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium truncate">
+                    {store.name}
+                  </span>
+                  {store.role === 'owner' && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] px-1.5 py-0 h-4 bg-primary/10 text-primary border-primary/20"
+                    >
+                      Propietario
+                    </Badge>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {store.country} • {store.currency}
+                </span>
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="cursor-pointer text-muted-foreground hover:text-foreground"
+          disabled
+        >
+          <PlusCircle className="mr-2 h-4 w-4" />
+          <span className="text-sm">Crear nueva tienda</span>
+          <Badge
+            variant="outline"
+            className="ml-auto text-[10px] px-1.5 py-0 h-4"
+          >
+            Próximamente
+          </Badge>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

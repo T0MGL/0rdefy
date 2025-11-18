@@ -1,0 +1,323 @@
+import { Order } from '@/types';
+
+const API_BASE_URL = 'http://localhost:3001/api';
+
+const getHeaders = () => {
+  const token = localStorage.getItem('auth_token');
+  const storeId = localStorage.getItem('current_store_id');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (storeId) {
+    headers['X-Store-ID'] = storeId;
+  }
+  return headers;
+};
+
+export const ordersService = {
+  getAll: async (): Promise<Order[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+      // API returns {data: [], pagination: {...}}, extract the data array
+      return result.data || [];
+    } catch (error) {
+      console.error('Error loading orders:', error);
+      return [];
+    }
+  },
+
+  getById: async (id: string): Promise<Order | undefined> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        if (response.status === 404) return undefined;
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error loading order:', error);
+      return undefined;
+    }
+  },
+
+  create: async (order: Omit<Order, 'id' | 'date'>): Promise<Order> => {
+    try {
+      // Transform frontend format to backend format
+      const [firstName, ...lastNameParts] = (order.customer || '').split(' ');
+      const lastName = lastNameParts.join(' ');
+
+      const backendOrder = {
+        customer_first_name: firstName || 'Cliente',
+        customer_last_name: lastName || '',
+        customer_phone: order.phone,
+        customer_email: '',
+        customer_address: (order as any).address || '',
+        line_items: [{
+          product_id: (order as any).product_id, // ✅ Include product_id
+          product_name: order.product,
+          quantity: order.quantity,
+          price: order.total / order.quantity,
+        }],
+        total_price: order.total,
+        subtotal_price: order.total,
+        total_tax: 0,
+        total_shipping: 0,
+        currency: 'PYG',
+        financial_status: 'pending',
+        payment_status: (order as any).paymentMethod === 'paid' ? 'collected' : 'pending',
+        shipping_address: {
+          company: order.carrier
+        },
+      };
+
+      const response = await fetch(`${API_BASE_URL}/orders`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(backendOrder),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Transform backend response to frontend format
+      return {
+        id: result.data.id,
+        customer: order.customer,
+        product: order.product,
+        quantity: order.quantity,
+        total: order.total,
+        status: order.status,
+        carrier: order.carrier,
+        date: result.data.created_at,
+        phone: order.phone,
+        confirmedByWhatsApp: false,
+      };
+    } catch (error) {
+      console.error('Error creating order:', error);
+      throw error;
+    }
+  },
+
+  update: async (id: string, data: Partial<Order>): Promise<Order | undefined> => {
+    try {
+      // Transform frontend format to backend format
+      const [firstName, ...lastNameParts] = (data.customer || '').split(' ');
+      const lastName = lastNameParts.join(' ');
+
+      const backendData: any = {};
+
+      if (data.customer) {
+        backendData.customer_first_name = firstName || 'Cliente';
+        backendData.customer_last_name = lastName || '';
+      }
+
+      if (data.phone) backendData.customer_phone = data.phone;
+      if ((data as any).address) backendData.customer_address = (data as any).address;
+
+      if (data.product || data.quantity || data.total) {
+        const lineItems = [{
+          product_id: (data as any).product_id, // ✅ Include product_id
+          product_name: data.product,
+          quantity: data.quantity || 1,
+          price: data.total && data.quantity ? data.total / data.quantity : 0,
+        }];
+        backendData.line_items = lineItems;
+        if (data.total) {
+          backendData.total_price = data.total;
+          backendData.subtotal_price = data.total;
+        }
+      }
+
+      if (data.carrier) {
+        backendData.shipping_address = {
+          company: data.carrier
+        };
+      }
+
+      const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(backendData),
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) return undefined;
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const updatedOrder = await response.json();
+      return updatedOrder;
+    } catch (error) {
+      console.error('Error updating order:', error);
+      return undefined;
+    }
+  },
+
+  delete: async (id: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        if (response.status === 404) return false;
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return true;
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      return false;
+    }
+  },
+
+  confirm: async (id: string): Promise<Order | undefined> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          sleeves_status: 'confirmed',
+          confirmed_by: 'manual',
+          confirmation_method: 'whatsapp',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Transform backend response to frontend format
+      const data = result.data;
+      const lineItems = data.line_items || [];
+      const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+
+      return {
+        id: data.id,
+        customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
+        address: data.customer_address || '',
+        product: firstItem?.product_name || firstItem?.title || 'Producto',
+        quantity: firstItem?.quantity || 1,
+        total: data.total_price || 0,
+        status: 'confirmed',
+        carrier: data.shipping_address?.company || 'Sin transportadora',
+        date: data.created_at,
+        phone: data.customer_phone || '',
+        confirmedByWhatsApp: true,
+        confirmationTimestamp: data.confirmed_at,
+        confirmationMethod: data.confirmation_method || 'manual',
+        delivery_link_token: data.delivery_link_token,
+        latitude: data.latitude,
+        longitude: data.longitude,
+      };
+    } catch (error) {
+      console.error('Error confirming order:', error);
+      return undefined;
+    }
+  },
+
+  reject: async (id: string, reason?: string): Promise<Order | undefined> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          sleeves_status: 'rejected',
+          rejection_reason: reason || 'Rechazado manualmente',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Transform backend response to frontend format
+      const data = result.data;
+      const lineItems = data.line_items || [];
+      const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+
+      return {
+        id: data.id,
+        customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
+        address: data.customer_address || '',
+        product: firstItem?.product_name || firstItem?.title || 'Producto',
+        quantity: firstItem?.quantity || 1,
+        total: data.total_price || 0,
+        status: 'cancelled',
+        carrier: data.shipping_address?.company || 'Sin transportadora',
+        date: data.created_at,
+        phone: data.customer_phone || '',
+        confirmedByWhatsApp: false,
+        rejectionReason: data.rejection_reason,
+        delivery_link_token: data.delivery_link_token,
+        latitude: data.latitude,
+        longitude: data.longitude,
+      };
+    } catch (error) {
+      console.error('Error rejecting order:', error);
+      return undefined;
+    }
+  },
+
+  updateStatus: async (id: string, status: Order['status']): Promise<Order | undefined> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          sleeves_status: status,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Transform backend response to frontend format
+      const data = result.data;
+      const lineItems = data.line_items || [];
+      const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+
+      return {
+        id: data.id,
+        customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
+        address: data.customer_address || '',
+        product: firstItem?.product_name || firstItem?.title || 'Producto',
+        quantity: firstItem?.quantity || 1,
+        total: data.total_price || 0,
+        status: data.sleeves_status,
+        payment_status: data.payment_status,
+        carrier: data.shipping_address?.company || 'Sin transportadora',
+        date: data.created_at,
+        phone: data.customer_phone || '',
+        confirmedByWhatsApp: data.sleeves_status === 'confirmed',
+        confirmationTimestamp: data.confirmed_at,
+      };
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      return undefined;
+    }
+  },
+};

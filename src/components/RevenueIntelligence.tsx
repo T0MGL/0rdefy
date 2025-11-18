@@ -1,0 +1,424 @@
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ExportButton } from '@/components/ExportButton';
+import { TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
+import { cn } from '@/lib/utils';
+import { analyticsService } from '@/services/analytics.service';
+import { ordersService } from '@/services/orders.service';
+import type { DashboardOverview, Product } from '@/types';
+
+const getMarginColor = (margin: number) => {
+  if (margin > 40) return 'text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-950';
+  if (margin >= 20) return 'text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-950';
+  return 'text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-950';
+};
+
+export function RevenueIntelligence() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [topProducts, setTopProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        const [overviewData, productsData, ordersData] = await Promise.all([
+          analyticsService.getOverview(),
+          analyticsService.getTopProducts(10),
+          ordersService.getAll(),
+        ]);
+        setOverview(overviewData);
+        setTopProducts(productsData);
+        setOrders(ordersData);
+      } catch (error) {
+        console.error('Error loading revenue intelligence data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  if (isLoading || !overview) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-64 bg-muted animate-pulse rounded" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="p-6">
+              <div className="space-y-4">
+                <div className="h-4 w-32 bg-muted animate-pulse rounded" />
+                <div className="h-24 bg-muted animate-pulse rounded" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Calculate revenue breakdown
+  const totalRevenue = overview.revenue;
+  const totalCOGS = overview.costs;
+  const grossMargin = totalRevenue - totalCOGS;
+  const grossMarginPercent = totalRevenue > 0 ? ((grossMargin / totalRevenue) * 100) : 0;
+
+  const revenueBreakdown = [
+    { name: 'Margen Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
+    { name: 'COGS', value: Math.round(totalCOGS), color: 'hsl(0, 84%, 60%)' },
+  ];
+
+  // Calculate net margin data
+  const marketing = overview.marketing;
+  const shipping = 0; // TODO: Add shipping costs when available
+  const ops = 0; // TODO: Add operational costs when available
+  const netProfit = overview.netProfit;
+
+  const netMarginData = [
+    { name: 'Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
+    { name: 'Marketing', value: Math.round(marketing), color: 'hsl(217, 91%, 60%)' },
+    { name: 'Shipping', value: Math.round(shipping), color: 'hsl(48, 96%, 53%)' },
+    { name: 'Ops', value: Math.round(ops), color: 'hsl(271, 81%, 56%)' },
+    { name: 'NETO', value: Math.round(netProfit), color: 'hsl(84, 81%, 63%)' },
+  ];
+
+  // Calculate product profitability
+  const productProfitability = topProducts.map((product) => {
+    const revenue = product.sales_revenue || (product.sales * Number(product.price));
+    const cogs = product.sales * Number(product.cost || 0);
+    const margin = revenue - cogs;
+    const marginPercent = revenue > 0 ? parseFloat(((margin / revenue) * 100).toFixed(1)) : 0;
+    const roi = cogs > 0 ? parseFloat(((revenue / cogs) * 100).toFixed(1)) : 0;
+
+    return {
+      id: product.id,
+      product: product.name,
+      units: product.sales,
+      revenue: Math.round(revenue),
+      cogs: Math.round(cogs),
+      marginPercent,
+      roi,
+      isTopPerformer: marginPercent > 40,
+    };
+  }).filter(p => p.units > 0);
+
+  // Calculate revenue per customer
+  const totalCustomers = new Set(orders.map(o => o.customer || o.customer_email)).size;
+  const avgRevenuePerCustomer = totalCustomers > 0 ? totalRevenue / totalCustomers : 0;
+  const customerRevenues = orders.map(o => o.total || 0).sort((a, b) => a - b);
+  const medianRevenue = customerRevenues.length > 0
+    ? customerRevenues[Math.floor(customerRevenues.length / 2)]
+    : 0;
+  const minRevenue = customerRevenues.length > 0 ? customerRevenues[0] : 0;
+  const maxRevenue = customerRevenues.length > 0 ? customerRevenues[customerRevenues.length - 1] : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-card-foreground">Revenue Intelligence</h2>
+          <p className="text-sm text-muted-foreground">
+            Análisis detallado de rentabilidad y márgenes
+          </p>
+        </div>
+        <ExportButton
+          data={productProfitability}
+          filename="revenue-intelligence"
+          variant="default"
+        />
+      </div>
+
+      {/* Top Section - 3 Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Card 1: Revenue vs COGS */}
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-base">Ingresos vs Costo de Venta</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0">
+                <ResponsiveContainer width={100} height={100}>
+                  <PieChart>
+                    <Pie
+                      data={revenueBreakdown}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={30}
+                      outerRadius={45}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {revenueBreakdown.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex-1 space-y-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                  <p className="text-2xl font-bold text-card-foreground">Gs. {totalRevenue.toLocaleString()}</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">COGS</span>
+                    <span className="font-semibold text-red-600 dark:text-red-400">
+                      Gs. {totalCOGS.toLocaleString()} ({totalRevenue > 0 ? ((totalCOGS / totalRevenue) * 100).toFixed(1) : 0}%)
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Margen Bruto</span>
+                    <span className="font-semibold text-green-600 dark:text-green-400">
+                      Gs. {grossMargin.toLocaleString()} ({grossMarginPercent.toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 2: Net Margin */}
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-base">Margen Neto Real</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <div className="flex-shrink-0">
+                <ResponsiveContainer width={100} height={140}>
+                  <BarChart data={netMarginData} layout="vertical">
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" hide />
+                    <Bar dataKey="value" radius={[4, 4, 4, 4]}>
+                      {netMarginData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex-1 space-y-1.5">
+                {netMarginData.map((item) => (
+                  <div key={item.name} className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{item.name}</span>
+                    <span className="font-semibold text-card-foreground">
+                      Gs. {item.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 3: Revenue per Customer */}
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-base">Revenue per Customer</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <DollarSign className="text-primary" size={20} />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Promedio</p>
+                  <p className="text-2xl font-bold text-card-foreground">
+                    Gs. {Math.round(avgRevenuePerCustomer).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              <div className="pt-3 border-t border-border space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Mediano</span>
+                  <span className="font-semibold text-card-foreground">
+                    Gs. {Math.round(medianRevenue).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Rango</span>
+                  <span className="font-semibold text-card-foreground">
+                    Gs. {Math.round(minRevenue).toLocaleString()} - {Math.round(maxRevenue).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Detailed Table */}
+      <Card className="border-primary/20">
+        <CardHeader>
+          <CardTitle>Rentabilidad por Producto</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                    Producto
+                  </th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
+                    Unidades
+                  </th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
+                    Ingresos
+                  </th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
+                    COGS
+                  </th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
+                    Margen %
+                  </th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
+                    ROI %
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {productProfitability.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                      No hay datos de rentabilidad disponibles
+                    </td>
+                  </tr>
+                ) : (
+                  productProfitability.map((product) => (
+                    <tr
+                      key={product.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
+                    >
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-card-foreground">
+                            {product.product}
+                          </span>
+                          {product.isTopPerformer && (
+                            <Badge variant="default" className="text-xs">
+                              <TrendingUp size={12} className="mr-1" />
+                              TOP PERFORMER
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="text-right py-4 px-4 text-sm text-card-foreground">
+                        {product.units}
+                      </td>
+                      <td className="text-right py-4 px-4 text-sm text-card-foreground">
+                        Gs. {product.revenue.toLocaleString()}
+                      </td>
+                      <td className="text-right py-4 px-4 text-sm text-card-foreground">
+                        Gs. {product.cogs.toLocaleString()}
+                      </td>
+                      <td className="text-right py-4 px-4">
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm font-semibold',
+                            getMarginColor(product.marginPercent)
+                          )}
+                        >
+                          {product.marginPercent}%
+                        </span>
+                      </td>
+                      <td className="text-right py-4 px-4">
+                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-700 dark:text-green-400">
+                          {product.roi > 100 ? (
+                            <TrendingUp size={14} />
+                          ) : (
+                            <TrendingDown size={14} />
+                          )}
+                          {product.roi}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Cards */}
+          <div className="md:hidden space-y-4">
+            {productProfitability.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground">
+                No hay datos de rentabilidad disponibles
+              </div>
+            ) : (
+              productProfitability.map((product) => (
+                <Card key={product.id} className="border-border">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-card-foreground">{product.product}</h4>
+                      {product.isTopPerformer && (
+                        <Badge variant="default" className="text-xs">
+                          <TrendingUp size={10} className="mr-1" />
+                          TOP
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Unidades</p>
+                        <p className="font-medium text-card-foreground">{product.units}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Ingresos</p>
+                        <p className="font-medium text-card-foreground">
+                          Gs. {product.revenue.toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">COGS</p>
+                        <p className="font-medium text-card-foreground">
+                          Gs. {product.cogs.toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Margen</p>
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold',
+                            getMarginColor(product.marginPercent)
+                          )}
+                        >
+                          {product.marginPercent}%
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">ROI</p>
+                        <p className="font-medium text-green-700 dark:text-green-400">{product.roi}%</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

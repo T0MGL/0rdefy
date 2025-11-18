@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Light theme - main background light */
+    --background: 0 0% 98%;
+    --foreground: 240 10% 10%;
+
+    /* Cards pure white */
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 10%;
+
+    /* LIME GREEN PRIMARY - Restored! */
+    --primary: 84 81% 63%;
+    --primary-foreground: 240 10% 10%;
+
+    /* Secondary neutral gray */
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 10% 10%;
+
+    /* Muted backgrounds and text */
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    /* Accent using lime green */
+    --accent: 84 81% 63%;
+    --accent-foreground: 240 10% 10%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders light gray */
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 84 81% 63%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar dark */
+    --sidebar-background: 240 8% 12%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 84 81% 63%;
+    --sidebar-primary-foreground: 240 10% 10%;
+    --sidebar-accent: 240 6% 18%;
+    --sidebar-accent-foreground: 84 81% 63%;
+    --sidebar-border: 240 6% 20%;
+    --sidebar-ring: 84 81% 63%;
+
+    /* Chart colors */
+    --chart-green: 142 76% 45%;
+    --chart-red: 0 84% 60%;
+    --chart-blue: 217 91% 60%;
+    --chart-purple: 271 81% 56%;
+    --chart-yellow: 48 96% 53%;
+    
+    /* Subtle shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.1);
+    --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.1);
+    --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.1);
+    
+    /* Animations */
+    --transition-smooth: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    /* Dark theme - dark backgrounds */
+    --background: 240 10% 8%;
+    --foreground: 0 0% 95%;
+
+    /* Cards slightly lighter than background */
+    --card: 240 8% 12%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 240 8% 12%;
+    --popover-foreground: 0 0% 95%;
+
+    /* LIME GREEN PRIMARY - same in dark mode */
+    --primary: 84 81% 63%;
+    --primary-foreground: 240 10% 10%;
+
+    /* Secondary dark gray */
+    --secondary: 240 6% 18%;
+    --secondary-foreground: 0 0% 95%;
+
+    /* Muted backgrounds and text */
+    --muted: 240 6% 18%;
+    --muted-foreground: 240 5% 65%;
+
+    /* Accent using lime green */
+    --accent: 84 81% 63%;
+    --accent-foreground: 240 10% 10%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders dark */
+    --border: 240 6% 20%;
+    --input: 240 6% 20%;
+    --ring: 84 81% 63%;
+
+    /* Sidebar even darker */
+    --sidebar-background: 240 10% 6%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 84 81% 63%;
+    --sidebar-primary-foreground: 240 10% 10%;
+    --sidebar-accent: 240 6% 12%;
+    --sidebar-accent-foreground: 84 81% 63%;
+    --sidebar-border: 240 6% 15%;
+    --sidebar-ring: 84 81% 63%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}

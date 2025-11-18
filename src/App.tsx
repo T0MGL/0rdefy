@@ -1,0 +1,135 @@
+import { useState, lazy, Suspense } from "react";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Sidebar } from "@/components/Sidebar";
+import { Header } from "@/components/Header";
+import { OnboardingGuard } from "@/components/OnboardingGuard";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import { PrivateRoute } from "@/components/PrivateRoute";
+import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+// Lazy load pages for code splitting
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Orders = lazy(() => import("./pages/Orders"));
+const Products = lazy(() => import("./pages/Products"));
+const Customers = lazy(() => import("./pages/Customers"));
+const Ads = lazy(() => import("./pages/Ads"));
+const AdditionalValues = lazy(() => import("./pages/AdditionalValues"));
+const Integrations = lazy(() => import("./pages/Integrations"));
+const Suppliers = lazy(() => import("./pages/Suppliers"));
+const Carriers = lazy(() => import("./pages/Carriers"));
+const CarrierDetail = lazy(() => import("./pages/CarrierDetail"));
+const CarrierCompare = lazy(() => import("./pages/CarrierCompare"));
+const CourierPerformance = lazy(() => import("./pages/CourierPerformance"));
+const Support = lazy(() => import("./pages/Support"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Settlements = lazy(() => import("./pages/Settlements"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const LoginDemo = lazy(() => import("./pages/LoginDemo"));
+const SignUp = lazy(() => import("./pages/SignUp"));
+const Delivery = lazy(() => import("./pages/Delivery"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
+// Optimized QueryClient configuration
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      cacheTime: 1000 * 60 * 10, // 10 minutes
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      retry: 1,
+    },
+  },
+});
+
+// Layout wrapper component to avoid duplication
+const AppLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
+  children: React.ReactNode;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}) => (
+  <div className="flex min-h-screen w-full bg-background">
+    <Sidebar collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
+    <div className="flex-1 flex flex-col min-w-0">
+      <Header />
+      <main className="flex-1 p-6 overflow-auto">
+        <Suspense fallback={<CardSkeleton count={3} />}>
+          {children}
+        </Suspense>
+      </main>
+    </div>
+  </div>
+);
+
+// Protected route wrapper
+const ProtectedLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
+  children: React.ReactNode;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}) => (
+  <PrivateRoute>
+    <AppLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={onToggleSidebar}>
+      {children}
+    </AppLayout>
+  </PrivateRoute>
+);
+
+const App = () => {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const toggleSidebar = () => setSidebarCollapsed(prev => !prev);
+
+  return (
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ThemeProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AuthProvider>
+                <ErrorBoundary>
+                  <OnboardingGuard>
+                <Suspense fallback={<CardSkeleton count={1} />}>
+                  <Routes>
+                    {/* Public routes */}
+                    <Route path="/login" element={<LoginDemo />} />
+                    <Route path="/signup" element={<SignUp />} />
+                    <Route path="/onboarding" element={<Onboarding />} />
+                    <Route path="/delivery/:token" element={<Delivery />} />
+
+                    {/* Protected routes with layout */}
+                    <Route path="/" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></ProtectedLayout>} />
+                    <Route path="/orders" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></ProtectedLayout>} />
+                    <Route path="/products" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Products /></ProtectedLayout>} />
+                    <Route path="/customers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Customers /></ProtectedLayout>} />
+                    <Route path="/ads" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Ads /></ProtectedLayout>} />
+                    <Route path="/additional-values" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><AdditionalValues /></ProtectedLayout>} />
+                    <Route path="/integrations" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Integrations /></ProtectedLayout>} />
+                    <Route path="/suppliers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Suppliers /></ProtectedLayout>} />
+                    <Route path="/carriers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Carriers /></ProtectedLayout>} />
+                    <Route path="/carriers/compare" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierCompare /></ProtectedLayout>} />
+                    <Route path="/carriers/:id" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierDetail /></ProtectedLayout>} />
+                    <Route path="/courier-performance" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CourierPerformance /></ProtectedLayout>} />
+                    <Route path="/settlements" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></ProtectedLayout>} />
+                    <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
+                    <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
+                  </Routes>
+                </Suspense>
+                  </OnboardingGuard>
+                </ErrorBoundary>
+              </AuthProvider>
+            </BrowserRouter>
+          </ThemeProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
+  );
+};
+
+export default App;
