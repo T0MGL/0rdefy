@@ -1,0 +1,20 @@
+# Ignore API folder to prevent serverless functions creation
+api/
+api/**
+
+# Ignore documentation
+*.md
+!README.md
+
+# Ignore database files
+db/
+db/**
+
+# Ignore test files
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# Ignore scripts
+*.sh
