@@ -79,7 +79,7 @@ export function OrderConfirmationDialog({
       const storeId = localStorage.getItem('current_store_id');
 
       // Query the couriers endpoint (repartidores)
-      const response = await fetch(`http://localhost:3001/api/couriers?status=active`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers?status=active`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
@@ -163,7 +163,7 @@ export function OrderConfirmationDialog({
         payload.longitude = parseFloat(longitude);
       }
 
-      const response = await fetch(`http://localhost:3001/api/orders/${order.id}/confirm`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}/confirm`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

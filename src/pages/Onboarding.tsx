@@ -127,7 +127,7 @@ export default function Onboarding() {
       }
 
       // Call API endpoint to complete onboarding
-      const response = await fetch('http://localhost:3001/api/auth/onboarding', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth/onboarding`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

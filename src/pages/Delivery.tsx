@@ -51,7 +51,7 @@ export default function Delivery() {
 
   const fetchOrderByToken = async (token: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/token/${token}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/token/${token}`);
       const result = await response.json();
 
       if (result.already_delivered) {
@@ -118,7 +118,7 @@ export default function Delivery() {
         formData.append('order_id', state.data.id);
 
         const uploadResponse = await fetch(
-          `http://localhost:3001/api/delivery-attempts/upload-photo`,
+          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/delivery-attempts/upload-photo`,
           {
             method: 'POST',
             headers: {
@@ -145,7 +145,7 @@ export default function Delivery() {
       }
 
       const response = await fetch(
-        `http://localhost:3001/api/orders/${state.data.id}/delivery-confirm`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data.id}/delivery-confirm`,
         {
           method: 'POST',
           headers: {
@@ -207,7 +207,7 @@ export default function Delivery() {
       }
 
       const response = await fetch(
-        `http://localhost:3001/api/orders/${state.data.id}/delivery-fail`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data.id}/delivery-fail`,
         {
           method: 'POST',
           headers: {
@@ -258,7 +258,7 @@ export default function Delivery() {
       setSubmitting(true);
 
       const response = await fetch(
-        `http://localhost:3001/api/orders/${state.data.id}/rate-delivery`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data.id}/rate-delivery`,
         {
           method: 'POST',
           headers: {

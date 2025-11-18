@@ -104,12 +104,11 @@ validateEnvironment();
 const app = express();
 const PORT = process.env.API_PORT || 3001;
 
-// Production CORS configuration
-const ALLOWED_ORIGINS = [
-    process.env.CORS_ORIGIN,
-    'https://app.ordefy.io',
-    'https://api.ordefy.io'
-].filter(Boolean);
+// CORS configuration - supports multiple origins via comma-separated list
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
 
 // ================================================================
 // MIDDLEWARE

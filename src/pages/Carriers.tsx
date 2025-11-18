@@ -121,7 +121,7 @@ export default function Carriers() {
     try {
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
-      const response = await fetch('http://localhost:3001/api/couriers/performance/all', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/all`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
