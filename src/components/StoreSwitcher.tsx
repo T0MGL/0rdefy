@@ -29,9 +29,6 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
     return null;
   }
 
-  // If user only has one store, show it but make it non-interactive
-  const hasMultipleStores = stores.length > 1;
-
   const handleStoreSwitch = (storeId: string) => {
     if (storeId !== currentStore?.id) {
       switchStore(storeId);
@@ -42,18 +39,15 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
   };
 
   return (
-    <DropdownMenu open={hasMultipleStores ? open : false} onOpenChange={hasMultipleStores ? setOpen : undefined}>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          aria-label={hasMultipleStores ? "Seleccionar tienda" : currentStore?.name || "Tu tienda"}
-          disabled={!hasMultipleStores}
+          aria-label="Seleccionar tienda"
           className={cn(
-            'justify-between h-10 bg-background transition-all duration-200',
-            hasMultipleStores && 'hover:bg-accent cursor-pointer',
-            !hasMultipleStores && 'cursor-default opacity-100',
+            'justify-between h-10 bg-background hover:bg-accent transition-all duration-200 cursor-pointer',
             collapsed ? 'w-10 px-0' : 'w-full px-3',
             className
           )}
@@ -81,9 +75,7 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
                   )}
                 </div>
               </div>
-              {hasMultipleStores && (
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-              )}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
             </>
           )}
         </Button>

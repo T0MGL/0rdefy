@@ -34,46 +34,47 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         const taxRate = Number(storeData?.tax_rate) || 0;
 
-        // Build query
-        let query = supabaseAdmin
-            .from('orders')
-            .select('*')
-            .eq('store_id', req.storeId);
-
-        // Apply date filters if provided
-        if (startDate) {
-            query = query.gte('created_at', startDate);
-        }
-        if (endDate) {
-            query = query.lte('created_at', endDate);
-        }
-
-        const { data: ordersData, error: ordersError } = await query;
-
-        if (ordersError) throw ordersError;
-
-        const orders = ordersData || [];
-        const totalOrders = orders.length;
-
         // Calculate date ranges for comparison (use provided dates or default to 7 days)
         let currentPeriodStart: Date;
         let currentPeriodEnd: Date;
         let previousPeriodStart: Date;
+        let previousPeriodEnd: Date;
 
         if (startDate && endDate) {
             currentPeriodStart = new Date(startDate as string);
             currentPeriodEnd = new Date(endDate as string);
             const periodDuration = currentPeriodEnd.getTime() - currentPeriodStart.getTime();
             previousPeriodStart = new Date(currentPeriodStart.getTime() - periodDuration);
+            previousPeriodEnd = currentPeriodStart;
         } else {
             const now = new Date();
             currentPeriodEnd = now;
             currentPeriodStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
             previousPeriodStart = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+            previousPeriodEnd = currentPeriodStart;
         }
+
+        // Build query - fetch orders from previousPeriodStart to currentPeriodEnd
+        // This ensures we have data for both current and previous periods
+        let query = supabaseAdmin
+            .from('orders')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .gte('created_at', previousPeriodStart.toISOString())
+            .lte('created_at', currentPeriodEnd.toISOString());
+
+        const { data: ordersData, error: ordersError } = await query;
+
+        if (ordersError) throw ordersError;
+
+        const orders = ordersData || [];
 
         const last7DaysStart = currentPeriodStart;
         const previous7DaysStart = previousPeriodStart;
+
+        // Filter orders for current period only (for total counts)
+        const currentPeriodOrdersForTotal = orders.filter(o => new Date(o.created_at) >= currentPeriodStart);
+        const totalOrders = currentPeriodOrdersForTotal.length;
 
         // Split orders into current and previous periods
         const currentPeriodOrders = orders.filter(o => new Date(o.created_at) >= last7DaysStart);
@@ -184,42 +185,20 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         const currentMetrics = await calculateMetrics(currentPeriodOrders, currentMarketingCosts);
         const previousMetrics = await calculateMetrics(previousPeriodOrders, previousMarketingCosts);
 
-        // Calculate overall metrics (all time)
-        const revenue = orders.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
-
-        // Calculate tax collected from overall revenue
-        const taxCollected = taxRate > 0 ? (revenue - (revenue / (1 + taxRate / 100))) : 0;
-
-        let totalCosts = 0;
-        for (const order of orders) {
-            if (order.line_items && Array.isArray(order.line_items)) {
-                for (const item of order.line_items) {
-                    const { data: productData } = await supabaseAdmin
-                        .from('products')
-                        .select('cost')
-                        .eq('id', item.product_id)
-                        .single();
-
-                    if (productData && productData.cost) {
-                        totalCosts += (Number(productData.cost) * Number(item.quantity || 1));
-                    }
-                }
-            }
-        }
-
-        // Use real marketing costs from campaigns table
-        const marketing = Math.round(totalMarketingCosts);
-        const netProfit = revenue - totalCosts - marketing;
-        const profitMargin = revenue > 0 ? ((netProfit / revenue) * 100) : 0;
-        const totalInvestment = totalCosts + marketing;
-        const roi = totalInvestment > 0 ? (revenue / totalInvestment) : 0;
-        const roas = marketing > 0 ? (revenue / marketing) : 0;
-        const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered').length;
-        const deliveryRate = totalOrders > 0 ? ((deliveredOrders / totalOrders) * 100) : 0;
+        // Use current period metrics as the displayed values
+        const revenue = currentMetrics.revenue;
+        const taxCollected = currentMetrics.taxCollected;
+        const totalCosts = currentMetrics.costs;
+        const marketing = currentMetrics.marketing;
+        const netProfit = currentMetrics.netProfit;
+        const profitMargin = currentMetrics.profitMargin;
+        const roi = currentMetrics.roi;
+        const roas = currentMetrics.roas;
+        const deliveryRate = currentMetrics.deliveryRate;
         const costPerOrder = totalOrders > 0 ? (totalCosts / totalOrders) : 0;
         const averageOrderValue = totalOrders > 0 ? (revenue / totalOrders) : 0;
 
-        // ===== CALCULATE PERCENTAGE CHANGES (Last 7 days vs Previous 7 days) =====
+        // ===== CALCULATE PERCENTAGE CHANGES (Current period vs Previous period) =====
         const calculateChange = (current: number, previous: number): number | null => {
             if (previous === 0) return null; // No hay datos previos para comparar
             return parseFloat((((current - previous) / previous) * 100).toFixed(1));
@@ -257,7 +236,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 adRevenue: revenue, // Placeholder
                 conversionRate: deliveryRate, // Placeholder
 
-                // Percentage changes (last 7 days vs previous 7 days)
+                // Percentage changes (current period vs previous period)
                 changes: {
                     totalOrders: changes.totalOrders,
                     revenue: changes.revenue,
