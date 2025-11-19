@@ -95,7 +95,7 @@ export default function Orders() {
       setIsLoading(false);
       return data;
     },
-    interval: 5000, // Poll every 5 seconds when page is visible
+    interval: 15000, // Poll every 15 seconds when page is visible
     enabled: true,
     fetchOnMount: true,
   });

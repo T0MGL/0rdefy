@@ -91,7 +91,7 @@ export function ShopifyConnectDialog({ open, onOpenChange }: ShopifyConnectDialo
             Conectar con Shopify
           </DialogTitle>
           <DialogDescription>
-            Ingresa el dominio de tu tienda Shopify para conectar y sincronizar productos, pedidos y clientes.
+            Ingresa el dominio de tu tienda Shopify para conectar y sincronizar productos y clientes. Las nuevas órdenes se cargarán automáticamente.
           </DialogDescription>
         </DialogHeader>
 

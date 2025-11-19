@@ -549,9 +549,14 @@ shopifyOAuthRouter.get('/status', async (req: Request, res: Response) => {
 shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => {
   try {
     const { shop } = req.query;
+    const authHeader = req.headers['authorization'];
+    const storeIdHeader = req.headers['x-store-id'];
+
+    console.log('🔌 [SHOPIFY-OAUTH] Disconnect request:', { shop, hasAuth: !!authHeader, storeId: storeIdHeader });
 
     if (!shop || typeof shop !== 'string') {
       return res.status(400).json({
+        success: false,
         error: 'Missing shop parameter'
       });
     }
@@ -560,17 +565,22 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
 
     // Update status to disconnected instead of deleting
     // (Keep historical record)
+    // Match by shop_domain (OAuth integrations use shop_domain field)
     const { error } = await supabaseAdmin
       .from('shopify_integrations')
       .update({
         status: 'disconnected',
         updated_at: new Date().toISOString()
       })
-      .eq('shop', shop);
+      .eq('shop_domain', shop);
 
     if (error) {
       console.error('❌ [SHOPIFY-OAUTH] Error disconnecting:', error);
-      throw error;
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to disconnect integration',
+        message: error.message
+      });
     }
 
     console.log('✅ [SHOPIFY-OAUTH] Shop disconnected successfully');
@@ -583,6 +593,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
   } catch (error: any) {
     console.error('💥 [SHOPIFY-OAUTH] Disconnect error:', error);
     res.status(500).json({
+      success: false,
       error: 'Internal server error',
       message: error.message
     });

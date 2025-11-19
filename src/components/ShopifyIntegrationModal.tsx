@@ -221,12 +221,15 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: Shopi
             <div>
               <h3 className="text-sm font-semibold mb-3">Sincronización Manual</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Importa datos manualmente desde tu tienda de Shopify
+                Importa productos y clientes desde tu tienda de Shopify
+              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 p-2 rounded">
+                ℹ️ Las nuevas órdenes se cargan automáticamente vía webhook. No sincronizamos órdenes históricas para mantener la precisión de tus analíticas.
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              {/* Sync All */}
+              {/* Sync All (only products + customers, never orders) */}
               <Button
                 variant="default"
                 className="col-span-2 gap-2"
@@ -241,7 +244,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: Shopi
                 ) : (
                   <>
                     <RefreshCw size={16} />
-                    Sincronizar Todo
+                    Sincronizar Productos y Clientes
                   </>
                 )}
               </Button>
@@ -269,19 +272,6 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: Shopi
                 >
                   <Users size={16} />
                   Clientes
-                </Button>
-              )}
-
-              {/* Orders */}
-              {integration.import_orders && (
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => handleManualSync('orders')}
-                  disabled={isSyncing}
-                >
-                  <ShoppingCart size={16} />
-                  Pedidos
                 </Button>
               )}
             </div>

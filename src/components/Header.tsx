@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { generateNotifications } from '@/utils/notificationEngine';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
 import { Bell, ChevronDown, Calendar, AlertTriangle } from 'lucide-react';
@@ -11,8 +10,10 @@ import { productsService } from '@/services/products.service';
 import { adsService } from '@/services/ads.service';
 import { carriersService } from '@/services/carriers.service';
 import { analyticsService } from '@/services/analytics.service';
+import { notificationsService } from '@/services/notifications.service';
 import type { Order, Product, Ad, DashboardOverview } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
+import type { Notification } from '@/types/notification';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +62,8 @@ export function Header() {
   const [ads, setAds] = useState<Ad[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const currentPage = breadcrumbMap[location.pathname] || 'Dashboard';
 
@@ -80,17 +83,28 @@ export function Header() {
         setAds(adsData);
         setCarriers(carriersData);
         setOverview(overviewData);
+
+        // Update notifications service with new data
+        notificationsService.updateNotifications({
+          orders: ordersData,
+          products: productsData,
+          ads: adsData,
+          carriers: carriersData,
+        });
+
+        // Get updated notifications
+        setNotifications(notificationsService.getAll());
+        setUnreadCount(notificationsService.getUnreadCount());
       } catch (error) {
         console.error('Error loading header data:', error);
       }
     };
     loadData();
-  }, []);
 
-  const notifications = overview
-    ? generateNotifications({ orders, products, ads, carriers })
-    : [];
-  const unreadCount = notifications.filter(n => !n.read).length;
+    // Refresh data every 30 seconds
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const alerts = overview
     ? generateAlerts({ orders, overview, carriers })
@@ -100,6 +114,37 @@ export function Header() {
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
+  };
+
+  // Mark all notifications as read when dropdown opens
+  const handleNotificationOpen = (open: boolean) => {
+    setNotifOpen(open);
+    if (open && unreadCount > 0) {
+      // Mark all visible unread notifications as read
+      const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+      notificationsService.markMultipleAsRead(unreadIds);
+
+      // Update state
+      setNotifications(notificationsService.getAll());
+      setUnreadCount(0);
+    }
+  };
+
+  const handleNotificationClick = (notif: Notification) => {
+    // Mark this specific notification as read if not already
+    if (!notif.read) {
+      notificationsService.markAsRead(notif.id);
+      setNotifications(notificationsService.getAll());
+      setUnreadCount(notificationsService.getUnreadCount());
+    }
+
+    // Navigate to action URL
+    if (notif.actionUrl) {
+      navigate(notif.actionUrl);
+    }
+
+    // Close dropdown
+    setNotifOpen(false);
   };
 
   return (
@@ -163,7 +208,7 @@ export function Header() {
           </Button>
 
           {/* Notifications */}
-          <DropdownMenu open={notifOpen} onOpenChange={setNotifOpen}>
+          <DropdownMenu open={notifOpen} onOpenChange={handleNotificationOpen}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative h-9 w-9">
                 <Bell size={18} className="text-muted-foreground" />
@@ -178,21 +223,42 @@ export function Header() {
               <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <div className="max-h-96 overflow-y-auto">
-                {notifications.map((notif) => (
-                  <DropdownMenuItem 
-                    key={notif.id}
-                    className="cursor-pointer flex-col items-start p-3"
-                    onClick={() => {
-                      if (notif.actionUrl) navigate(notif.actionUrl);
-                      setNotifOpen(false);
-                    }}
-                  >
-                    <p className="text-sm font-medium">{notif.message}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {new Date(notif.timestamp).toLocaleString('es-ES')}
-                    </p>
-                  </DropdownMenuItem>
-                ))}
+                {notifications.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">
+                    No hay notificaciones
+                  </div>
+                ) : (
+                  notifications.map((notif) => (
+                    <DropdownMenuItem
+                      key={notif.id}
+                      className={cn(
+                        "cursor-pointer flex-col items-start p-3 gap-1",
+                        !notif.read && "bg-primary/5"
+                      )}
+                      onClick={() => handleNotificationClick(notif)}
+                    >
+                      <div className="flex items-start justify-between w-full gap-2">
+                        <p className={cn(
+                          "text-sm flex-1",
+                          !notif.read ? "font-semibold" : "font-medium"
+                        )}>
+                          {notif.message}
+                        </p>
+                        {!notif.read && (
+                          <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0 mt-1" />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(notif.timestamp).toLocaleString('es-ES', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    </DropdownMenuItem>
+                  ))
+                )}
               </div>
             </DropdownMenuContent>
           </DropdownMenu>

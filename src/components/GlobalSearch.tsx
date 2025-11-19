@@ -14,11 +14,13 @@ import { productsService } from '@/services/products.service';
 import { adsService } from '@/services/ads.service';
 import { carriersService } from '@/services/carriers.service';
 import { customersService } from '@/services/customers.service';
-import { Search, ShoppingBag, Package, Megaphone, Truck, X, Maximize2, Minimize2, Users, Clock } from 'lucide-react';
+import { Search, ShoppingBag, Package, Megaphone, Truck, X, Maximize2, Minimize2, Users, Clock, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/useDebounce';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 import type { Order, Product, Ad, Customer } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 
@@ -43,6 +45,7 @@ interface FrequentItem {
 }
 
 export function GlobalSearch() {
+  const { currentStore } = useAuth();
   const [open, setOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [query, setQuery] = useState('');
@@ -116,6 +119,9 @@ export function GlobalSearch() {
       setCustomers(customersData);
     } catch (error) {
       console.error('Error loading search data:', error);
+      toast.error('Error al cargar datos de búsqueda', {
+        description: 'Intenta nuevamente más tarde'
+      });
     } finally {
       setIsLoading(false);
     }
@@ -171,7 +177,7 @@ export function GlobalSearch() {
     localStorage.setItem(FREQUENT_ITEMS_KEY, JSON.stringify(updated));
   };
 
-  // Generate auto-complete suggestions based on query
+  // Generate auto-complete suggestions based on query (now uses 'includes' for better matching)
   useEffect(() => {
     if (!query || query.length < 2) {
       setSuggestions([]);
@@ -181,9 +187,9 @@ export function GlobalSearch() {
     const lowerQuery = query.toLowerCase();
     const allSuggestions: string[] = [];
 
-    // Get suggestions from products
+    // Get suggestions from products (now matches anywhere in the name)
     products.forEach(p => {
-      if (p.name?.toLowerCase().startsWith(lowerQuery)) {
+      if (p.name?.toLowerCase().includes(lowerQuery)) {
         allSuggestions.push(p.name);
       }
     });
@@ -191,21 +197,21 @@ export function GlobalSearch() {
     // Get suggestions from customers
     customers.forEach(c => {
       const fullName = `${c.first_name} ${c.last_name}`;
-      if (fullName.toLowerCase().startsWith(lowerQuery)) {
+      if (fullName.toLowerCase().includes(lowerQuery)) {
         allSuggestions.push(fullName);
       }
     });
 
     // Get suggestions from carriers
     carriers.forEach(c => {
-      if (c.carrier_name?.toLowerCase().startsWith(lowerQuery)) {
+      if (c.carrier_name?.toLowerCase().includes(lowerQuery)) {
         allSuggestions.push(c.carrier_name);
       }
     });
 
     // Get suggestions from campaigns
     ads.forEach(a => {
-      if (a.campaign_name?.toLowerCase().startsWith(lowerQuery)) {
+      if (a.campaign_name?.toLowerCase().includes(lowerQuery)) {
         allSuggestions.push(a.campaign_name);
       }
     });
@@ -285,28 +291,35 @@ export function GlobalSearch() {
   // Get status badge color
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'pending':
+      case 'pending_confirmation':
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
       case 'confirmed':
+      case 'prepared':
         return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+      case 'delivered_to_courier':
       case 'in_transit':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
       case 'delivered':
+      case 'reconciled':
         return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
       case 'cancelled':
       case 'rejected':
+      case 'not_delivered':
         return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400';
     }
   };
 
-  // Format currency
+  // Format currency - uses store's currency
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-PY', {
+    const currency = currentStore?.currency || 'USD';
+    const locale = currency === 'PYG' ? 'es-PY' : currency === 'EUR' ? 'es-ES' : currency === 'ARS' ? 'es-AR' : 'en-US';
+
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
-      currency: 'PYG',
-      minimumFractionDigits: 0,
+      currency: currency,
+      minimumFractionDigits: currency === 'PYG' ? 0 : 2,
     }).format(amount);
   };
 
@@ -405,7 +418,18 @@ export function GlobalSearch() {
 
         <CommandList className={cn(isFullscreen && 'max-h-[calc(90vh-100px)]')}>
           <CommandEmpty>
-            {isLoading ? 'Cargando...' : 'No se encontraron resultados.'}
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center py-8 gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Cargando resultados...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 gap-2">
+                <Search className="h-8 w-8 text-muted-foreground/50" />
+                <p className="text-sm font-medium">No se encontraron resultados</p>
+                <p className="text-xs text-muted-foreground">Intenta con otros términos de búsqueda</p>
+              </div>
+            )}
           </CommandEmpty>
 
           {/* Auto-complete Suggestions */}
@@ -434,14 +458,17 @@ export function GlobalSearch() {
                 <CommandItem
                   key={`frequent-${item.type}-${item.id}`}
                   onSelect={() => {
-                    const routes = {
-                      order: '/orders',
-                      product: '/products',
-                      ad: '/ads',
-                      carrier: '/carriers',
-                      customer: '/customers',
-                    };
-                    handleSelect(() => navigate(routes[item.type]));
+                    if (item.type === 'carrier') {
+                      handleSelect(() => navigate(`/carriers/${item.id}`));
+                    } else {
+                      const routes = {
+                        order: '/orders',
+                        product: '/products',
+                        ad: '/ads',
+                        customer: '/customers',
+                      };
+                      handleSelect(() => navigate(routes[item.type], { state: { highlightId: item.id } }));
+                    }
                   }}
                   className="flex items-center justify-between"
                 >
@@ -468,14 +495,17 @@ export function GlobalSearch() {
                 <CommandItem
                   key={`${search.type}-${search.id}`}
                   onSelect={() => {
-                    const routes = {
-                      order: '/orders',
-                      product: '/products',
-                      ad: '/ads',
-                      carrier: '/carriers',
-                      customer: '/customers',
-                    };
-                    handleSelect(() => navigate(routes[search.type]));
+                    if (search.type === 'carrier') {
+                      handleSelect(() => navigate(`/carriers/${search.id}`));
+                    } else {
+                      const routes = {
+                        order: '/orders',
+                        product: '/products',
+                        ad: '/ads',
+                        customer: '/customers',
+                      };
+                      handleSelect(() => navigate(routes[search.type], { state: { highlightId: search.id } }));
+                    }
                   }}
                 >
                   <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -492,7 +522,7 @@ export function GlobalSearch() {
                 <CommandItem
                   key={order.id}
                   onSelect={() => handleSelect(
-                    () => navigate('/orders', { state: { searchId: order.id } }),
+                    () => navigate('/orders', { state: { highlightId: order.id } }),
                     { id: order.id, type: 'order', label: `Pedido ${order.id} - ${order.customer}` }
                   )}
                   className="flex items-center justify-between group"
@@ -509,10 +539,15 @@ export function GlobalSearch() {
                     </div>
                   </div>
                   <Badge variant="secondary" className={cn("text-xs shrink-0", getStatusColor(order.status))}>
-                    {order.status === 'pending' && 'Pendiente'}
+                    {order.status === 'pending_confirmation' && 'Pendiente'}
                     {order.status === 'confirmed' && 'Confirmado'}
+                    {order.status === 'prepared' && 'Preparado'}
+                    {order.status === 'delivered_to_courier' && 'En Courier'}
                     {order.status === 'in_transit' && 'En Tránsito'}
                     {order.status === 'delivered' && 'Entregado'}
+                    {order.status === 'reconciled' && 'Conciliado'}
+                    {order.status === 'not_delivered' && 'No Entregado'}
+                    {order.status === 'rejected' && 'Rechazado'}
                     {order.status === 'cancelled' && 'Cancelado'}
                   </Badge>
                 </CommandItem>
@@ -527,7 +562,7 @@ export function GlobalSearch() {
                 <CommandItem
                   key={product.id}
                   onSelect={() => handleSelect(
-                    () => navigate('/products', { state: { searchId: product.id } }),
+                    () => navigate('/products', { state: { highlightId: product.id } }),
                     { id: product.id, type: 'product', label: `Producto ${product.name}` }
                   )}
                   className="flex items-center justify-between group"
@@ -560,7 +595,7 @@ export function GlobalSearch() {
                 <CommandItem
                   key={customer.id}
                   onSelect={() => handleSelect(
-                    () => navigate('/customers', { state: { searchId: customer.id } }),
+                    () => navigate('/customers', { state: { highlightId: customer.id } }),
                     { id: customer.id, type: 'customer', label: `Cliente ${customer.first_name} ${customer.last_name}` }
                   )}
                   className="flex items-center justify-between group"
@@ -593,7 +628,7 @@ export function GlobalSearch() {
                 <CommandItem
                   key={ad.id}
                   onSelect={() => handleSelect(
-                    () => navigate('/ads', { state: { searchId: ad.id } }),
+                    () => navigate('/ads', { state: { highlightId: ad.id } }),
                     { id: ad.id, type: 'ad', label: `Campaña ${ad.campaign_name || ad.platform}` }
                   )}
                   className="flex items-center justify-between group"
@@ -627,7 +662,7 @@ export function GlobalSearch() {
                 <CommandItem
                   key={carrier.id}
                   onSelect={() => handleSelect(
-                    () => navigate('/carriers', { state: { searchId: carrier.id } }),
+                    () => navigate(`/carriers/${carrier.id}`),
                     { id: carrier.id, type: 'carrier', label: `Transportadora ${carrier.carrier_name}` }
                   )}
                   className="flex items-center justify-between group"
