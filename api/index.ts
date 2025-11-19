@@ -25,6 +25,7 @@ import { shopifyRouter } from './routes/shopify';
 import { shopifyOAuthRouter } from './routes/shopify-oauth';
 import { shopifySyncRouter } from './routes/shopify-sync';
 import shopifyWebhooksRouter from './routes/shopify-webhooks';
+import { shopifyMandatoryWebhooksRouter } from './routes/shopify-mandatory-webhooks';
 import { deliveryAttemptsRouter } from './routes/delivery-attempts';
 import { settlementsRouter } from './routes/settlements';
 import { codMetricsRouter } from './routes/cod-metrics';
@@ -336,6 +337,7 @@ app.use('/api/shopify', shopifyRouter);
 app.use('/api/shopify-oauth', shopifyOAuthRouter);
 app.use('/api/shopify-sync', shopifySyncRouter);
 app.use('/api/shopify/webhooks', shopifyWebhooksRouter);
+app.use('/api/shopify/webhooks', shopifyMandatoryWebhooksRouter);
 
 // COD (Cash on Delivery) routes
 app.use('/api/delivery-attempts', deliveryAttemptsRouter);

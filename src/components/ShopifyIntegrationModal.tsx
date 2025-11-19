@@ -20,9 +20,10 @@ interface ShopifyIntegrationModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  onDisconnect?: () => void;
 }
 
-export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: ShopifyIntegrationModalProps) {
+export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisconnect }: ShopifyIntegrationModalProps) {
   const { toast } = useToast();
   const [integration, setIntegration] = useState<ShopifyIntegration | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -138,7 +139,8 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess }: Shopi
         description: 'Tu tienda de Shopify ha sido desconectada exitosamente',
       });
 
-      onSuccess?.();
+      // Call disconnect callback to update UI
+      onDisconnect?.();
       onOpenChange(false);
     } catch (error: any) {
       toast({

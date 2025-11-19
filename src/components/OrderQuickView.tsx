@@ -198,8 +198,8 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   <div className="text-sm">
                     <p className="font-medium">Confirmado</p>
                     <p className="text-xs text-muted-foreground">
-                      {order.confirmationTimestamp
-                        ? getRelativeTime(order.confirmationTimestamp)
+                      {(order as any).confirmationTimestamp
+                        ? getRelativeTime((order as any).confirmationTimestamp)
                         : 'Sin fecha'}
                     </p>
                   </div>
@@ -211,9 +211,10 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   <div className="text-sm">
                     <p className="font-medium">En tránsito</p>
                     <p className="text-xs text-muted-foreground">
-                      {/* Estimate based on confirmation time + 1 hour if available */}
-                      {order.confirmationTimestamp
-                        ? getRelativeTime(new Date(new Date(order.confirmationTimestamp).getTime() + 3600000).toISOString())
+                      {(order as any).inTransitTimestamp
+                        ? getRelativeTime((order as any).inTransitTimestamp)
+                        : (order as any).confirmationTimestamp
+                        ? getRelativeTime((order as any).confirmationTimestamp)
                         : 'En proceso'}
                     </p>
                   </div>
@@ -225,8 +226,22 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   <div className="text-sm">
                     <p className="font-medium">Entregado</p>
                     <p className="text-xs text-muted-foreground">
-                      {/* Show current time since we don't have delivered_at timestamp */}
-                      Recientemente
+                      {(order as any).deliveredTimestamp
+                        ? getRelativeTime((order as any).deliveredTimestamp)
+                        : 'Recientemente'}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {(currentStatus === 'cancelled' || currentStatus === 'rejected') && (
+                <div className="relative">
+                  <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-red-500" />
+                  <div className="text-sm">
+                    <p className="font-medium">{currentStatus === 'cancelled' ? 'Cancelado' : 'Rechazado'}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(order as any).cancelledTimestamp
+                        ? getRelativeTime((order as any).cancelledTimestamp)
+                        : 'Sin fecha'}
                     </p>
                   </div>
                 </div>

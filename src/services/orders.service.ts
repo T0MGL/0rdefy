@@ -314,6 +314,9 @@ export const ordersService = {
         phone: data.customer_phone || '',
         confirmedByWhatsApp: data.sleeves_status === 'confirmed',
         confirmationTimestamp: data.confirmed_at,
+        inTransitTimestamp: data.in_transit_at,
+        deliveredTimestamp: data.delivered_at,
+        cancelledTimestamp: data.cancelled_at,
       };
     } catch (error) {
       console.error('Error updating order status:', error);

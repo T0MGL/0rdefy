@@ -119,6 +119,11 @@ export default function Integrations() {
     });
   };
 
+  const handleShopifyDisconnect = () => {
+    // Remove shopify from connected integrations after disconnect
+    setConnectedIntegrations(prev => prev.filter(id => id !== 'shopify'));
+  };
+
   const handleIntegrationClick = (integration: Integration) => {
     if (integration.id === 'shopify') {
       if (connectedIntegrations.includes('shopify')) {
@@ -322,6 +327,7 @@ export default function Integrations() {
         open={shopifyModalOpen}
         onOpenChange={setShopifyModalOpen}
         onSuccess={handleShopifySuccess}
+        onDisconnect={handleShopifyDisconnect}
       />
 
       {/* Shopify Connect Dialog (for new OAuth connection) */}
