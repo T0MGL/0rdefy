@@ -53,17 +53,7 @@ export default function Login() {
         if (isEmailNotFound) {
           toast({
             title: "Email no registrado",
-            description: (
-              <div className="flex flex-col gap-2">
-                <p>No encontramos una cuenta con este email.</p>
-                <button
-                  onClick={() => navigate('/signup')}
-                  className="text-sm underline hover:text-primary-foreground/90 text-left font-medium"
-                >
-                  → Crear cuenta nueva
-                </button>
-              </div>
-            ),
+            description: "No encontramos una cuenta con este email. Contacta al administrador para obtener acceso.",
             variant: "destructive",
             duration: 7000,
           });
@@ -300,8 +290,8 @@ export default function Login() {
           </form>
 
 
-          {/* Footer */}
-          <div className="mt-8 text-center">
+          {/* Footer - Registro deshabilitado durante testing */}
+          {/* <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground">
               ¿No tienes cuenta?{' '}
               <button
@@ -312,7 +302,7 @@ export default function Login() {
                 Crear cuenta
               </button>
             </p>
-          </div>
+          </div> */}
 
           <div className="mt-8 pt-6 border-t border-border/50 text-center">
             <p className="text-xs text-muted-foreground">

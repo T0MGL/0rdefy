@@ -77,6 +77,9 @@ export function CarrierTable({ carriers, onEdit, onRefresh }: CarrierTableProps)
                 Tasa Éxito
               </th>
               <th className="text-center py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Rating
+              </th>
+              <th className="text-center py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Acciones
               </th>
             </tr>
@@ -129,6 +132,23 @@ export function CarrierTable({ carriers, onEdit, onRefresh }: CarrierTableProps)
                     <span className="text-sm font-semibold text-muted-foreground">
                       {carrier.delivery_rate ? `${carrier.delivery_rate.toFixed(1)}%` : '0%'}
                     </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <div className="flex items-center justify-center gap-1">
+                      {carrier.average_rating > 0 ? (
+                        <>
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <span className="text-sm font-semibold text-card-foreground">
+                            {carrier.average_rating.toFixed(1)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            ({carrier.total_ratings || 0})
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Sin ratings</span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center justify-center gap-1">

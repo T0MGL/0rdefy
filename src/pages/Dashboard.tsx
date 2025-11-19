@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Package2,
+  Receipt,
 } from 'lucide-react';
 import {
   LineChart,
@@ -249,6 +250,13 @@ export default function Dashboard() {
           change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
           trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
           icon={<TrendingDown className="text-red-600" size={20} />}
+        />
+        <MetricCard
+          title={`IVA Recolectado (${dashboardOverview.taxRate}%)`}
+          value={`Gs. ${dashboardOverview.taxCollected.toLocaleString()}`}
+          change={dashboardOverview.changes?.taxCollected !== null ? Math.abs(dashboardOverview.changes?.taxCollected || 0) : undefined}
+          trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
+          icon={<Receipt className="text-orange-600" size={20} />}
         />
         <MetricCard
           title="Marketing"

@@ -312,10 +312,18 @@ export default function Delivery() {
   // Loading state
   if (state.type === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
+        {/* Logo Ordefy */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
+            <span className="text-primary-foreground font-bold text-2xl">O</span>
+          </div>
+          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        </div>
+
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-gray-400">Cargando información del pedido...</p>
+          <p className="text-muted-foreground">Cargando información del pedido...</p>
         </div>
       </div>
     );
@@ -326,8 +334,16 @@ export default function Delivery() {
     if (state.alreadyRated) {
       // Already rated - show thank you message
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
-          <Card className="max-w-md w-full text-center bg-gray-800 border-gray-700">
+        <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
+          {/* Logo Ordefy */}
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
+              <span className="text-primary-foreground font-bold text-2xl">O</span>
+            </div>
+            <span className="font-bold text-3xl text-foreground">Ordefy</span>
+          </div>
+
+          <Card className="max-w-md w-full text-center bg-card border-border">
             <CardHeader>
               <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
               <CardTitle className="text-2xl">{state.message}</CardTitle>
@@ -363,8 +379,16 @@ export default function Delivery() {
 
     // Not rated yet - show rating form
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
-        <Card className="max-w-md w-full bg-gray-800 border-gray-700">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
+        {/* Logo Ordefy */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
+            <span className="text-primary-foreground font-bold text-2xl">O</span>
+          </div>
+          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        </div>
+
+        <Card className="max-w-md w-full bg-card border-border">
           <CardHeader className="text-center">
             <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">{state.message}</CardTitle>
@@ -420,7 +444,7 @@ export default function Delivery() {
             <Button
               onClick={handleSubmitRating}
               disabled={submitting || rating === 0}
-              className="w-full"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
               size="lg"
             >
               {submitting ? (
@@ -445,8 +469,16 @@ export default function Delivery() {
   // Rated thanks state
   if (state.type === 'rated_thanks') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
-        <Card className="max-w-md w-full text-center bg-gray-800 border-gray-700">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
+        {/* Logo Ordefy */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
+            <span className="text-primary-foreground font-bold text-2xl">O</span>
+          </div>
+          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        </div>
+
+        <Card className="max-w-md w-full text-center bg-card border-border">
           <CardHeader>
             <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">¡Gracias por tu calificación!</CardTitle>
@@ -462,8 +494,16 @@ export default function Delivery() {
   // Failed state - Show retry options
   if (state.type === 'failed') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
-        <Card className="max-w-md w-full bg-gray-800 border-gray-700">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
+        {/* Logo Ordefy */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
+            <span className="text-primary-foreground font-bold text-2xl">O</span>
+          </div>
+          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        </div>
+
+        <Card className="max-w-md w-full bg-card border-border">
           <CardHeader className="text-center">
             <XCircle className="h-20 w-20 text-red-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">{state.message}</CardTitle>
@@ -592,8 +632,16 @@ export default function Delivery() {
   // Not found state
   if (state.type === 'not_found') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
-        <Card className="max-w-md w-full text-center bg-gray-800 border-gray-700">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
+        {/* Logo Ordefy */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
+            <span className="text-primary-foreground font-bold text-2xl">O</span>
+          </div>
+          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        </div>
+
+        <Card className="max-w-md w-full text-center bg-card border-border">
           <CardHeader>
             <AlertCircle className="h-20 w-20 text-orange-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">Pedido no encontrado</CardTitle>
@@ -608,10 +656,18 @@ export default function Delivery() {
   const orderData = state.data;
 
   return (
-    <div className="min-h-screen bg-gray-900 p-4 pb-20">
+    <div className="min-h-screen bg-background dark:bg-background p-4 pb-20">
       <div className="max-w-2xl mx-auto space-y-4">
+        {/* Logo Ordefy */}
+        <div className="flex items-center justify-center gap-3 py-4">
+          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shadow-lg">
+            <span className="text-primary-foreground font-bold text-xl">O</span>
+          </div>
+          <span className="font-bold text-2xl text-foreground">Ordefy</span>
+        </div>
+
         {/* Header */}
-        <Card className="bg-gray-800 border-gray-700">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
@@ -624,7 +680,7 @@ export default function Delivery() {
         </Card>
 
         {/* Customer Info */}
-        <Card className="bg-gray-800 border-gray-700">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Información del Cliente</CardTitle>
           </CardHeader>
@@ -675,7 +731,7 @@ export default function Delivery() {
         </Card>
 
         {/* Order Items */}
-        <Card className="bg-gray-800 border-gray-700">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Productos</CardTitle>
           </CardHeader>
@@ -709,8 +765,30 @@ export default function Delivery() {
           </CardContent>
         </Card>
 
+        {/* COD (Cash on Delivery) Alert */}
+        {orderData.cod_amount > 0 && (
+          <Card className="bg-yellow-500/10 border-yellow-500">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-yellow-500/20 rounded-full">
+                  <svg className="h-6 w-6 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-lg text-yellow-500">Cobro en Efectivo</p>
+                  <p className="text-sm text-muted-foreground">Debes cobrar al cliente:</p>
+                  <p className="text-2xl font-bold text-yellow-400 mt-1">
+                    ${orderData.cod_amount?.toLocaleString()} {orderData.payment_method === 'efectivo' ? 'en efectivo' : ''}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Actions */}
-        <Card className="bg-gray-800 border-gray-700">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Acciones de Entrega</CardTitle>
           </CardHeader>
@@ -755,7 +833,7 @@ export default function Delivery() {
               </div>
 
               <Button
-                className="w-full"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
                 size="lg"
                 onClick={handleConfirmDelivery}
                 disabled={submitting || !paymentMethod}
