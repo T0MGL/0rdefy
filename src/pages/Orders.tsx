@@ -343,6 +343,27 @@ export default function Orders() {
     }
   }, [orderToDelete, toast]);
 
+  // Memoize filtered orders to avoid recalculation on every render
+  const filteredOrders = useMemo(() => {
+    return orders.filter(order => {
+      if (statusFilter !== 'all' && order.status !== statusFilter) return false;
+      if (confirmationFilter === 'pending' && order.confirmedByWhatsApp) return false;
+      if (confirmationFilter === 'confirmed' && !order.confirmedByWhatsApp) return false;
+
+      if (debouncedSearch) {
+        const searchLower = debouncedSearch.toLowerCase();
+        return (
+          order.id.toLowerCase().includes(searchLower) ||
+          order.customer.toLowerCase().includes(searchLower) ||
+          order.phone.includes(debouncedSearch) ||
+          order.product.toLowerCase().includes(searchLower)
+        );
+      }
+
+      return true;
+    });
+  }, [orders, statusFilter, confirmationFilter, debouncedSearch]);
+
   // Selection handlers
   const handleToggleSelectAll = useCallback(() => {
     if (selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length) {
@@ -429,27 +450,6 @@ export default function Orders() {
       setSelectedOrderIds(new Set());
     }
   }, [bulkPrintIndex, bulkPrintOrders, toast]);
-
-  // Memoize filtered orders to avoid recalculation on every render
-  const filteredOrders = useMemo(() => {
-    return orders.filter(order => {
-      if (statusFilter !== 'all' && order.status !== statusFilter) return false;
-      if (confirmationFilter === 'pending' && order.confirmedByWhatsApp) return false;
-      if (confirmationFilter === 'confirmed' && !order.confirmedByWhatsApp) return false;
-
-      if (debouncedSearch) {
-        const searchLower = debouncedSearch.toLowerCase();
-        return (
-          order.id.toLowerCase().includes(searchLower) ||
-          order.customer.toLowerCase().includes(searchLower) ||
-          order.phone.includes(debouncedSearch) ||
-          order.product.toLowerCase().includes(searchLower)
-        );
-      }
-
-      return true;
-    });
-  }, [orders, statusFilter, confirmationFilter, debouncedSearch]);
 
   if (isLoading) {
     return (
