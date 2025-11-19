@@ -3,7 +3,6 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrderQuickView } from '@/components/OrderQuickView';
 import { OrdersCalendar } from '@/components/OrdersCalendar';
-import { FilterChips } from '@/components/FilterChips';
 import { OrderForm } from '@/components/forms/OrderForm';
 import { FollowUpSettings } from '@/components/FollowUpSettings';
 import { ExportButton } from '@/components/ExportButton';
@@ -13,10 +12,12 @@ import { EmptyState } from '@/components/EmptyState';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
+import { carriersService } from '@/services/carriers.service';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { Order } from '@/types';
+import type { Carrier } from '@/services/carriers.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +53,7 @@ const statusLabels = {
 
 export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -80,6 +82,36 @@ export default function Orders() {
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
   const debouncedSearch = useDebounce(search, 300);
   const previousCountRef = useRef(0);
+
+  // Load carriers on mount
+  useEffect(() => {
+    const loadCarriers = async () => {
+      try {
+        const data = await carriersService.getAll();
+        setCarriers(data);
+      } catch (error) {
+        console.error('Error loading carriers:', error);
+      }
+    };
+    loadCarriers();
+  }, []);
+
+  // Helper function to get carrier name by ID
+  const getCarrierName = useCallback((carrierIdOrName: string): string => {
+    if (!carrierIdOrName) return '';
+
+    // Check if it's a UUID (carrier_id)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(carrierIdOrName);
+
+    if (isUUID) {
+      // Find carrier by ID
+      const carrier = carriers.find(c => c.id === carrierIdOrName);
+      return carrier?.name || carrierIdOrName;
+    }
+
+    // It's already a name or something else, return as is
+    return carrierIdOrName;
+  }, [carriers]);
 
   // Smart polling - only polls when page is visible
   useSmartPolling({
@@ -454,10 +486,6 @@ export default function Orders() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <FilterChips 
-          storageKey="orders-filters" 
-          onFilterApply={(filters) => console.log('Aplicar filtros:', filters)} 
-        />
         <Card className="p-4">
           <div className="h-12 bg-muted animate-pulse rounded" />
         </Card>
@@ -548,11 +576,6 @@ export default function Orders() {
           </Button>
         </div>
       </div>
-
-      <FilterChips 
-        storageKey="orders-filters" 
-        onFilterApply={(filters) => console.log('Aplicar filtros:', filters)} 
-      />
 
       {/* Filters */}
       <Card className="p-4">
@@ -922,7 +945,7 @@ export default function Orders() {
               customerName={orderToPrint.customer}
               customerPhone={orderToPrint.phone}
               customerAddress={orderToPrint.address}
-              courierName={orderToPrint.carrier}
+              courierName={getCarrierName(orderToPrint.carrier)}
               products={[
                 {
                   name: orderToPrint.product,
