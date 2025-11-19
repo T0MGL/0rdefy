@@ -16,6 +16,7 @@ interface OrderShippingLabelProps {
     quantity: number;
   }>;
   onClose?: () => void;
+  onPrinted?: () => void; // Callback when label is printed
 }
 
 export function OrderShippingLabel({
@@ -27,6 +28,7 @@ export function OrderShippingLabel({
   courierName,
   products,
   onClose,
+  onPrinted,
 }: OrderShippingLabelProps) {
   const { toast } = useToast();
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
@@ -38,8 +40,8 @@ export function OrderShippingLabel({
   useEffect(() => {
     // Generate QR code
     QRCode.toDataURL(deliveryUrl, {
-      width: 300,
-      margin: 2,
+      width: 200,
+      margin: 1,
       color: {
         dark: '#000000',
         light: '#FFFFFF',
@@ -55,6 +57,10 @@ export function OrderShippingLabel({
 
   const handlePrint = () => {
     window.print();
+    // Call the onPrinted callback after printing
+    if (onPrinted) {
+      onPrinted();
+    }
   };
 
   const handleCopyLink = async () => {
@@ -98,105 +104,93 @@ export function OrderShippingLabel({
         </Button>
       </div>
 
-      {/* Printable Label */}
+      {/* Printable Label - 4x6 inch format (10.16cm x 15.24cm) */}
       <div
         id="print-label"
         ref={printRef}
-        className="bg-white text-black p-8 rounded-lg border-2 border-dashed border-gray-300"
+        className="bg-white text-black p-4 rounded-lg border-2 border-dashed border-gray-300"
         style={{
-          width: '210mm', // A5 width
-          minHeight: '148mm', // A5 height
+          width: '4in', // 4 inches (10.16cm)
+          minHeight: '6in', // 6 inches (15.24cm)
+          fontSize: '10pt',
         }}
       >
-        {/* Header */}
-        <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
-          <h1 className="text-3xl font-bold mb-2">ETIQUETA DE ENTREGA</h1>
-          <p className="text-lg text-gray-600">Pedido #{orderId.slice(0, 8).toUpperCase()}</p>
+        {/* Header - Compact */}
+        <div className="text-center mb-3 pb-2 border-b-2 border-black">
+          <h1 className="text-lg font-bold">ETIQUETA DE ENTREGA</h1>
+          <p className="text-xs font-mono">#{orderId.slice(0, 8).toUpperCase()}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-6">
-          {/* Left Column - QR Code */}
-          <div className="flex flex-col items-center justify-center space-y-4">
-            {qrCodeUrl ? (
-              <>
-                <img src={qrCodeUrl} alt="QR Code" className="w-64 h-64 border-4 border-black" />
-                <div className="text-center">
-                  <p className="text-sm font-semibold mb-1">ESCANEAR PARA CONFIRMAR ENTREGA</p>
-                  <p className="text-xs text-gray-600 font-mono break-all px-4">
-                    Token: {deliveryToken}
-                  </p>
-                </div>
-              </>
+        {/* QR Code - Centered */}
+        <div className="flex flex-col items-center mb-3">
+          {qrCodeUrl ? (
+            <img src={qrCodeUrl} alt="QR Code" className="w-40 h-40 border-2 border-black" />
+          ) : (
+            <div className="w-40 h-40 border-2 border-black bg-gray-100 flex items-center justify-center">
+              <p className="text-xs text-gray-500">Generando QR...</p>
+            </div>
+          )}
+          <p className="text-[8pt] font-bold mt-1 text-center">ESCANEAR AL ENTREGAR</p>
+        </div>
+
+        {/* Customer Info - Compact */}
+        <div className="mb-2 pb-2 border-b border-gray-300">
+          <p className="text-[9pt] font-bold mb-1">CLIENTE:</p>
+          <p className="text-[9pt] font-semibold">{customerName}</p>
+          <p className="text-[8pt]">Tel: {customerPhone}</p>
+          {customerAddress && (
+            <p className="text-[8pt] mt-1 leading-tight">{customerAddress}</p>
+          )}
+        </div>
+
+        {/* Courier Info */}
+        {courierName && (
+          <div className="mb-2 pb-2 border-b border-gray-300">
+            <p className="text-[9pt] font-bold mb-1">REPARTIDOR:</p>
+            <p className="text-[9pt] font-semibold">{courierName}</p>
+          </div>
+        )}
+
+        {/* Products - Compact */}
+        <div className="mb-2 pb-2 border-b border-gray-300">
+          <p className="text-[9pt] font-bold mb-1">PRODUCTOS:</p>
+          <ul className="space-y-0.5">
+            {products && products.length > 0 ? (
+              products.map((product, index) => (
+                <li key={index} className="text-[8pt]">
+                  • {product.name || 'Producto'} <strong>(x{product.quantity || 1})</strong>
+                </li>
+              ))
             ) : (
-              <div className="w-64 h-64 border-4 border-black bg-gray-100 flex items-center justify-center">
-                <p className="text-gray-500">Generando QR...</p>
-              </div>
+              <li className="text-[8pt] text-gray-500">Sin productos</li>
             )}
-          </div>
-
-          {/* Right Column - Order Information */}
-          <div className="space-y-4">
-            {/* Customer Info */}
-            <div className="space-y-2">
-              <h3 className="text-sm font-bold text-gray-600 uppercase border-b border-gray-300 pb-1">
-                CLIENTE
-              </h3>
-              <p className="text-lg font-semibold">{customerName}</p>
-              <p className="text-sm">
-                <span className="font-semibold">Tel:</span> {customerPhone}
-              </p>
-              {customerAddress && (
-                <p className="text-sm">
-                  <span className="font-semibold">Dirección:</span>
-                  <br />
-                  {customerAddress}
-                </p>
-              )}
-            </div>
-
-            {/* Courier Info */}
-            {courierName && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-bold text-gray-600 uppercase border-b border-gray-300 pb-1">
-                  REPARTIDOR
-                </h3>
-                <p className="text-lg font-semibold">{courierName}</p>
-              </div>
-            )}
-
-            {/* Products */}
-            <div className="space-y-2">
-              <h3 className="text-sm font-bold text-gray-600 uppercase border-b border-gray-300 pb-1">
-                PRODUCTOS
-              </h3>
-              <ul className="space-y-1">
-                {products && products.length > 0 ? (
-                  products.map((product, index) => (
-                    <li key={index} className="text-sm">
-                      • {product.name || product.title || 'Producto'}{' '}
-                      <span className="font-semibold">(x{product.quantity || 1})</span>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-sm text-gray-500">Sin productos</li>
-                )}
-              </ul>
-            </div>
-          </div>
+          </ul>
         </div>
 
-        {/* Footer Instructions */}
-        <div className="mt-6 pt-4 border-t-2 border-gray-300 space-y-2">
-          <h3 className="text-sm font-bold text-gray-600 uppercase">INSTRUCCIONES PARA EL REPARTIDOR</h3>
-          <ol className="text-xs space-y-1 list-decimal list-inside">
-            <li>Escanea el código QR con tu celular al momento de entregar el pedido</li>
-            <li>Confirma la entrega en la página que se abre</li>
-            <li>Si hay algún problema, reporta la falla con el motivo correspondiente</li>
-            <li>Puedes tomar una foto como comprobante de entrega (opcional)</li>
+        {/* Instructions for Courier - Compact */}
+        <div className="mb-2 pb-2 border-b border-gray-300">
+          <p className="text-[8pt] font-bold mb-1">INSTRUCCIONES REPARTIDOR:</p>
+          <ol className="text-[7pt] space-y-0.5 list-decimal list-inside leading-tight">
+            <li>Escanea el QR al entregar</li>
+            <li>Confirma entrega en la app</li>
+            <li>Reporta fallas si ocurren</li>
+            <li>Foto opcional como evidencia</li>
           </ol>
-          <p className="text-xs text-gray-600 mt-3">
-            <span className="font-semibold">Link alternativo:</span>{' '}
-            <span className="font-mono break-all">{deliveryUrl}</span>
+        </div>
+
+        {/* Instructions for Customer - NEW */}
+        <div className="bg-blue-50 border-2 border-blue-300 rounded p-2 mb-2">
+          <p className="text-[8pt] font-bold text-blue-900 mb-1">📦 MENSAJE PARA EL CLIENTE:</p>
+          <p className="text-[7pt] text-blue-800 leading-tight">
+            Después de recibir tu pedido, <strong>escanea este QR</strong> o visita el link para{' '}
+            <strong>calificar tu experiencia</strong> y dejarnos tu opinión. ¡Tu feedback nos ayuda a mejorar!
+          </p>
+        </div>
+
+        {/* Footer - Token */}
+        <div className="text-center">
+          <p className="text-[7pt] text-gray-600 font-mono break-all">
+            Token: {deliveryToken}
           </p>
         </div>
       </div>
@@ -208,40 +202,35 @@ export function OrderShippingLabel({
             visibility: hidden;
           }
 
-          ${printRef.current ? `
-            #print-label,
-            #print-label * {
-              visibility: visible;
-            }
+          #print-label,
+          #print-label * {
+            visibility: visible;
+          }
 
-            #print-label {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
-              max-width: 210mm;
-              min-height: 148mm;
-              page-break-after: avoid;
-              overflow: visible !important;
-            }
+          #print-label {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 4in;
+            min-height: 6in;
+            padding: 0.25in;
+            page-break-after: avoid;
+            overflow: visible !important;
+            border: none !important;
+          }
 
-            #print-label img {
-              max-width: 180px !important;
-              max-height: 180px !important;
-              width: 180px !important;
-              height: 180px !important;
-              object-fit: contain;
-              page-break-inside: avoid;
-            }
-
-            #print-label .grid {
-              page-break-inside: avoid;
-            }
-          ` : ''}
+          #print-label img {
+            max-width: 2.5in !important;
+            max-height: 2.5in !important;
+            width: 2.5in !important;
+            height: 2.5in !important;
+            object-fit: contain;
+            page-break-inside: avoid;
+          }
 
           @page {
-            size: A5 landscape;
-            margin: 10mm;
+            size: 4in 6in;
+            margin: 0.1in;
           }
         }
       `}</style>

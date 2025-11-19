@@ -6,11 +6,13 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { EmptyState } from '@/components/EmptyState';
+import { ExportButton } from '@/components/ExportButton';
 import { suppliersService } from '@/services/suppliers.service';
 import { Plus, Star, Edit, Trash2, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { Supplier } from '@/types';
+import { suppliersExportColumns } from '@/utils/exportConfigs';
 
 // Supplier Form Component
 function SupplierForm({ supplier, onSubmit, onCancel }: { supplier?: Supplier; onSubmit: (data: any) => void; onCancel: () => void }) {
@@ -218,9 +220,17 @@ export default function Suppliers() {
             {suppliers.length} proveedor{suppliers.length !== 1 ? 'es' : ''} registrado{suppliers.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <Button
-          onClick={() => {
-            console.log('🖱️ [SUPPLIERS] Button clicked - opening dialog');
+        <div className="flex gap-2">
+          <ExportButton
+            data={suppliers}
+            filename="proveedores"
+            columns={suppliersExportColumns}
+            title="Proveedores - Ordefy"
+            variant="outline"
+          />
+          <Button
+            onClick={() => {
+              console.log('🖱️ [SUPPLIERS] Button clicked - opening dialog');
             handleCreate();
           }}
           className="gap-2 bg-primary hover:bg-primary/90 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 z-50 relative"
@@ -228,6 +238,7 @@ export default function Suppliers() {
           <Plus size={18} />
           Agregar Proveedor
         </Button>
+        </div>
       </div>
 
       {/* Suppliers Table */}

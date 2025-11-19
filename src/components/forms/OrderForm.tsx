@@ -27,7 +27,8 @@ import { Product } from '@/types';
 
 const orderSchema = z.object({
   customer: z.string().trim().min(1, 'El nombre del cliente es requerido').max(100),
-  phone: z.string().trim().regex(/^\+?[0-9]{9,15}$/, 'Formato de teléfono inválido'),
+  countryCode: z.string().min(1, 'Selecciona un código de país'),
+  phone: z.string().trim().regex(/^[0-9]{6,15}$/, 'Formato de teléfono inválido (solo números)'),
   address: z.string().trim().min(1, 'La dirección es requerida').max(300),
   product: z.string().min(1, 'Selecciona un producto'),
   quantity: z.number().int().positive('La cantidad debe ser mayor a 0'),
@@ -75,7 +76,8 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     resolver: zodResolver(orderSchema),
     defaultValues: {
       customer: initialData?.customer || '',
-      phone: initialData?.phone || '',
+      countryCode: '+595', // Default to Paraguay
+      phone: initialData?.phone?.replace(/^\+\d+\s*/, '') || '', // Remove country code if present
       address: initialData?.address || '',
       product: initialData?.product || '',
       quantity: initialData?.quantity || 1,
@@ -85,8 +87,19 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   });
 
   const handleSubmit = (data: OrderFormValues) => {
-    onSubmit(data);
-    form.reset();
+    // Combine country code and phone number
+    const fullPhone = `${data.countryCode}${data.phone}`;
+    onSubmit({ ...data, phone: fullPhone });
+    form.reset({
+      customer: '',
+      countryCode: '+595',
+      phone: '',
+      address: '',
+      product: '',
+      quantity: 1,
+      carrier: '',
+      paymentMethod: 'cod',
+    });
   };
 
   return (
@@ -106,19 +119,50 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="phone"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Teléfono</FormLabel>
-              <FormControl>
-                <Input placeholder="+595981234567" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        <div className="grid grid-cols-3 gap-2">
+          <FormField
+            control={form.control}
+            name="countryCode"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>País</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Código" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="+595">🇵🇾 +595</SelectItem>
+                    <SelectItem value="+54">🇦🇷 +54</SelectItem>
+                    <SelectItem value="+55">🇧🇷 +55</SelectItem>
+                    <SelectItem value="+598">🇺🇾 +598</SelectItem>
+                    <SelectItem value="+56">🇨🇱 +56</SelectItem>
+                    <SelectItem value="+51">🇵🇪 +51</SelectItem>
+                    <SelectItem value="+57">🇨🇴 +57</SelectItem>
+                    <SelectItem value="+52">🇲🇽 +52</SelectItem>
+                    <SelectItem value="+34">🇪🇸 +34</SelectItem>
+                    <SelectItem value="+1">🇺🇸 +1</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="phone"
+            render={({ field }) => (
+              <FormItem className="col-span-2">
+                <FormLabel>Teléfono</FormLabel>
+                <FormControl>
+                  <Input placeholder="981234567" type="tel" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <FormField
           control={form.control}

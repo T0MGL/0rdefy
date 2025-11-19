@@ -141,7 +141,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const investment = costs + mktg;
             const roiValue = investment > 0 ? (rev / investment) : 0;
 
-            // 7. DELIVERY RATE
+            // 7. ROAS (Return on Ad Spend)
+            const roasValue = mktg > 0 ? (rev / mktg) : 0;
+
+            // 8. DELIVERY RATE
             const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
             const delivRate = count > 0 ? ((delivered / count) * 100) : 0;
 
@@ -153,6 +156,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 netProfit: profit,
                 profitMargin: margin,
                 roi: roiValue,
+                roas: roasValue,
                 deliveryRate: delivRate,
             };
         };
@@ -187,6 +191,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         const profitMargin = revenue > 0 ? ((netProfit / revenue) * 100) : 0;
         const totalInvestment = totalCosts + marketing;
         const roi = totalInvestment > 0 ? (revenue / totalInvestment) : 0;
+        const roas = marketing > 0 ? (revenue / marketing) : 0;
         const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered').length;
         const deliveryRate = totalOrders > 0 ? ((deliveredOrders / totalOrders) * 100) : 0;
         const costPerOrder = totalOrders > 0 ? (totalCosts / totalOrders) : 0;
@@ -206,6 +211,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             netProfit: calculateChange(currentMetrics.netProfit, previousMetrics.netProfit),
             profitMargin: calculateChange(currentMetrics.profitMargin, previousMetrics.profitMargin),
             roi: calculateChange(currentMetrics.roi, previousMetrics.roi),
+            roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             deliveryRate: calculateChange(currentMetrics.deliveryRate, previousMetrics.deliveryRate),
         };
 
@@ -218,6 +224,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 netProfit: Math.round(netProfit),
                 profitMargin: parseFloat(profitMargin.toFixed(1)),
                 roi: parseFloat(roi.toFixed(2)),
+                roas: parseFloat(roas.toFixed(2)),
                 deliveryRate: parseFloat(deliveryRate.toFixed(1)),
                 costPerOrder: Math.round(costPerOrder),
                 averageOrderValue: Math.round(averageOrderValue),
@@ -234,6 +241,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     netProfit: changes.netProfit,
                     profitMargin: changes.profitMargin,
                     roi: changes.roi,
+                    roas: changes.roas,
                     deliveryRate: changes.deliveryRate,
                 }
             }
