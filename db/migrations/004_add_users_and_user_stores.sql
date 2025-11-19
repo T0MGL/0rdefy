@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 COMMENT ON TABLE users IS 'NeonFlow: User accounts for authentication';
 COMMENT ON COLUMN users.phone IS 'User phone number for contact and profile';
@@ -43,8 +43,8 @@ CREATE TABLE IF NOT EXISTS user_stores (
     UNIQUE(user_id, store_id)
 );
 
-CREATE INDEX idx_user_stores_user ON user_stores(user_id);
-CREATE INDEX idx_user_stores_store ON user_stores(store_id);
+CREATE INDEX IF NOT EXISTS idx_user_stores_user ON user_stores(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_stores_store ON user_stores(store_id);
 
 COMMENT ON TABLE user_stores IS 'NeonFlow: User-Store relationship with roles';
 COMMENT ON COLUMN user_stores.role IS 'owner, admin, staff, viewer';

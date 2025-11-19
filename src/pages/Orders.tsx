@@ -10,6 +10,7 @@ import { OrderConfirmationDialog } from '@/components/OrderConfirmationDialog';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { FilterChips } from '@/components/FilterChips';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { carriersService } from '@/services/carriers.service';
@@ -30,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, MessageSquare, Map, Package2, Edit, Trash2, Printer } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, MessageSquare, Map, Package2, Edit, Trash2, Printer, Check } from 'lucide-react';
 import { DeliveryMap } from '@/components/DeliveryMap';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
@@ -56,7 +57,7 @@ export default function Orders() {
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [chipFilters, setChipFilters] = useState<Record<string, any>>({});
   const [confirmationFilter, setConfirmationFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
@@ -378,10 +379,14 @@ export default function Orders() {
   // Memoize filtered orders to avoid recalculation on every render
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
-      if (statusFilter !== 'all' && order.status !== statusFilter) return false;
+      // Aplicar filtros de chips (estado del pedido)
+      if (chipFilters.status && order.status !== chipFilters.status) return false;
+
+      // Aplicar filtro de confirmación
       if (confirmationFilter === 'pending' && order.confirmedByWhatsApp) return false;
       if (confirmationFilter === 'confirmed' && !order.confirmedByWhatsApp) return false;
 
+      // Aplicar búsqueda de texto
       if (debouncedSearch) {
         const searchLower = debouncedSearch.toLowerCase();
         return (
@@ -394,7 +399,7 @@ export default function Orders() {
 
       return true;
     });
-  }, [orders, statusFilter, confirmationFilter, debouncedSearch]);
+  }, [orders, chipFilters, confirmationFilter, debouncedSearch]);
 
   // Selection handlers
   const handleToggleSelectAll = useCallback(() => {
@@ -541,6 +546,16 @@ export default function Orders() {
           <p className="text-muted-foreground">{filteredOrders.length} pedidos encontrados</p>
         </div>
         <div className="flex gap-2">
+          {selectedOrderIds.size > 0 && (
+            <Button
+              variant="default"
+              onClick={handleBulkPrint}
+              className="gap-2 bg-blue-600 hover:bg-blue-700"
+            >
+              <Printer size={18} />
+              Imprimir {selectedOrderIds.size} etiqueta{selectedOrderIds.size > 1 ? 's' : ''}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setMapDialogOpen(true)}
@@ -577,8 +592,15 @@ export default function Orders() {
         </div>
       </div>
 
-      {/* Filters */}
-      <Card className="p-4">
+      {/* Filtros con chips de estado */}
+      <Card className="p-4 space-y-4">
+        {/* Chips de filtro rápido por estado */}
+        <FilterChips
+          storageKey="orders_filters"
+          onFilterApply={(filters) => setChipFilters(filters)}
+        />
+
+        {/* Barra de búsqueda y filtros adicionales */}
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
@@ -589,19 +611,6 @@ export default function Orders() {
               className="pl-10"
             />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full md:w-48">
-              <SelectValue placeholder="Estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los estados</SelectItem>
-              <SelectItem value="pending">Pendiente</SelectItem>
-              <SelectItem value="confirmed">Confirmado</SelectItem>
-              <SelectItem value="in_transit">En Tránsito</SelectItem>
-              <SelectItem value="delivered">Entregado</SelectItem>
-              <SelectItem value="cancelled">Cancelado</SelectItem>
-            </SelectContent>
-          </Select>
           <Select value={confirmationFilter} onValueChange={setConfirmationFilter}>
             <SelectTrigger className="w-full md:w-48">
               <SelectValue placeholder="Confirmación" />
@@ -613,20 +622,7 @@ export default function Orders() {
             </SelectContent>
           </Select>
           <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => {
-              toast({
-                title: "Filtros avanzados",
-                description: "Panel de filtros avanzados próximamente disponible.",
-              });
-            }}
-          >
-            <Filter size={18} />
-            Más filtros
-          </Button>
-          <Button 
-            variant={viewMode === 'calendar' ? 'default' : 'outline'} 
+            variant={viewMode === 'calendar' ? 'default' : 'outline'}
             className="gap-2"
             onClick={() => setViewMode(viewMode === 'table' ? 'calendar' : 'table')}
           >
@@ -645,6 +641,25 @@ export default function Orders() {
           <table className="w-full">
             <thead className="bg-muted/50">
               <tr>
+                <th className="text-center py-4 px-3 text-sm font-medium text-muted-foreground w-12">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handleToggleSelectAll}
+                    disabled={filteredOrders.filter(o => o.delivery_link_token).length === 0}
+                  >
+                    <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
+                      selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0
+                        ? 'bg-primary border-primary'
+                        : 'border-muted-foreground/40 hover:border-primary'
+                    }`}>
+                      {selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0 && (
+                        <Check size={12} className="text-primary-foreground" />
+                      )}
+                    </div>
+                  </Button>
+                </th>
                 <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
                   ID Pedido
                 </th>
@@ -674,6 +689,28 @@ export default function Orders() {
             <tbody>
               {filteredOrders.map((order) => (
                 <tr key={order.id} className="border-t border-border hover:bg-muted/30 transition-colors">
+                  <td className="py-4 px-3 text-center">
+                    {order.delivery_link_token ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleToggleSelect(order.id)}
+                      >
+                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
+                          selectedOrderIds.has(order.id)
+                            ? 'bg-primary border-primary'
+                            : 'border-muted-foreground/40 hover:border-primary'
+                        }`}>
+                          {selectedOrderIds.has(order.id) && (
+                            <Check size={12} className="text-primary-foreground" />
+                          )}
+                        </div>
+                      </Button>
+                    ) : (
+                      <div className="h-8 w-8" />
+                    )}
+                  </td>
                   <td className="py-4 px-6 text-sm font-mono">{order.id}</td>
                   <td className="py-4 px-6">
                     <div>
@@ -967,6 +1004,60 @@ export default function Orders() {
         variant="destructive"
         confirmText="Eliminar"
       />
+
+      {/* Bulk Print Dialog */}
+      <Dialog open={isPrintingBulk} onOpenChange={setIsPrintingBulk}>
+        <DialogContent className="max-w-[950px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Impresión Masiva - Etiqueta {bulkPrintIndex + 1} de {bulkPrintOrders.length}
+            </DialogTitle>
+          </DialogHeader>
+          {bulkPrintOrders[bulkPrintIndex] && bulkPrintOrders[bulkPrintIndex].delivery_link_token && (
+            <>
+              <OrderShippingLabel
+                orderId={bulkPrintOrders[bulkPrintIndex].id}
+                deliveryToken={bulkPrintOrders[bulkPrintIndex].delivery_link_token}
+                customerName={bulkPrintOrders[bulkPrintIndex].customer}
+                customerPhone={bulkPrintOrders[bulkPrintIndex].phone}
+                customerAddress={bulkPrintOrders[bulkPrintIndex].address}
+                courierName={getCarrierName(bulkPrintOrders[bulkPrintIndex].carrier)}
+                products={[
+                  {
+                    name: bulkPrintOrders[bulkPrintIndex].product,
+                    quantity: bulkPrintOrders[bulkPrintIndex].quantity,
+                  },
+                ]}
+              />
+              <div className="flex items-center justify-between pt-4 border-t">
+                <div className="text-sm text-muted-foreground">
+                  {bulkPrintIndex < bulkPrintOrders.length - 1 ? (
+                    <p>Imprime esta etiqueta y haz clic en "Siguiente" para continuar</p>
+                  ) : (
+                    <p>Esta es la última etiqueta. Haz clic en "Finalizar" para terminar</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsPrintingBulk(false);
+                      setBulkPrintOrders([]);
+                      setBulkPrintIndex(0);
+                      setSelectedOrderIds(new Set());
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleNextBulkPrint}>
+                    {bulkPrintIndex < bulkPrintOrders.length - 1 ? 'Siguiente' : 'Finalizar'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

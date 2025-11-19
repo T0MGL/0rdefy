@@ -21,6 +21,19 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
 
+        // Get store tax rate
+        const { data: storeData, error: storeError } = await supabaseAdmin
+            .from('stores')
+            .select('tax_rate')
+            .eq('id', req.storeId)
+            .single();
+
+        if (storeError) {
+            console.error('[GET /api/analytics/overview] Store query error:', storeError);
+        }
+
+        const taxRate = Number(storeData?.tax_rate) || 0;
+
         // Build query
         let query = supabaseAdmin
             .from('orders')
@@ -110,7 +123,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // 1. REVENUE
             const rev = ordersList.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
-            // 2. COSTS
+            // 2. TAX COLLECTED (IVA incluido en el precio de venta)
+            // Fórmula: IVA = precio - (precio / (1 + tasa/100))
+            // Ejemplo: Si precio = 11000 y tasa = 10%, entonces IVA = 11000 - (11000 / 1.10) = 1000
+            const taxCollectedValue = taxRate > 0 ? (rev - (rev / (1 + taxRate / 100))) : 0;
+
+            // 3. COSTS
             let costs = 0;
             for (const order of ordersList) {
                 if (order.line_items && Array.isArray(order.line_items)) {
@@ -128,23 +146,23 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 }
             }
 
-            // 3. MARKETING (from campaigns table)
+            // 4. MARKETING (from campaigns table)
             const mktg = marketingCosts;
 
-            // 4. NET PROFIT
+            // 5. NET PROFIT
             const profit = rev - costs - mktg;
 
-            // 5. PROFIT MARGIN
+            // 6. PROFIT MARGIN
             const margin = rev > 0 ? ((profit / rev) * 100) : 0;
 
-            // 6. ROI
+            // 7. ROI
             const investment = costs + mktg;
             const roiValue = investment > 0 ? (rev / investment) : 0;
 
-            // 7. ROAS (Return on Ad Spend)
+            // 8. ROAS (Return on Ad Spend)
             const roasValue = mktg > 0 ? (rev / mktg) : 0;
 
-            // 8. DELIVERY RATE
+            // 9. DELIVERY RATE
             const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
             const delivRate = count > 0 ? ((delivered / count) * 100) : 0;
 
@@ -158,6 +176,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 roi: roiValue,
                 roas: roasValue,
                 deliveryRate: delivRate,
+                taxCollected: taxCollectedValue,
             };
         };
 
@@ -167,6 +186,9 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Calculate overall metrics (all time)
         const revenue = orders.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
+
+        // Calculate tax collected from overall revenue
+        const taxCollected = taxRate > 0 ? (revenue - (revenue / (1 + taxRate / 100))) : 0;
 
         let totalCosts = 0;
         for (const order of orders) {
@@ -213,6 +235,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             roi: calculateChange(currentMetrics.roi, previousMetrics.roi),
             roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             deliveryRate: calculateChange(currentMetrics.deliveryRate, previousMetrics.deliveryRate),
+            taxCollected: calculateChange(currentMetrics.taxCollected, previousMetrics.taxCollected),
         };
 
         res.json({
@@ -228,6 +251,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 deliveryRate: parseFloat(deliveryRate.toFixed(1)),
                 costPerOrder: Math.round(costPerOrder),
                 averageOrderValue: Math.round(averageOrderValue),
+                taxCollected: Math.round(taxCollected), // IVA recolectado
+                taxRate: parseFloat(taxRate.toFixed(2)), // Tasa de IVA configurada
                 adSpend: marketing, // Alias for compatibility
                 adRevenue: revenue, // Placeholder
                 conversionRate: deliveryRate, // Placeholder
@@ -243,6 +268,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     roi: changes.roi,
                     roas: changes.roas,
                     deliveryRate: changes.deliveryRate,
+                    taxCollected: changes.taxCollected,
                 }
             }
         });

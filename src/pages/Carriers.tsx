@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ExportButton } from '@/components/ExportButton';
 import { useToast } from '@/hooks/use-toast';
 import { carriersService, Carrier } from '@/services/carriers.service';
-import { Plus, Package, TrendingUp, Clock, DollarSign, Search } from 'lucide-react';
+import { Plus, Package, TrendingUp, Clock, Star, Search } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 
 // Form Component
@@ -204,6 +204,12 @@ export default function Carriers() {
     ? carriersWithStats.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / carriersWithStats.length
     : 0;
 
+  // Calculate average rating (only from carriers with ratings)
+  const carriersWithRatings = carriersWithStats.filter(c => c.average_rating > 0);
+  const avgRating = carriersWithRatings.length > 0
+    ? carriersWithRatings.reduce((sum, c) => sum + (c.average_rating || 0), 0) / carriersWithRatings.length
+    : 0;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -257,9 +263,9 @@ export default function Carriers() {
           icon={<Clock className="text-blue-600" size={20} />}
         />
         <MetricCard
-          title="Total Repartidores"
-          value={carriersWithStats.length.toString()}
-          icon={<DollarSign className="text-purple-600" size={20} />}
+          title="Rating Promedio"
+          value={avgRating > 0 ? `${avgRating.toFixed(1)} ⭐` : 'Sin ratings'}
+          icon={<Star className="text-yellow-500 fill-yellow-500" size={20} />}
         />
       </div>
 

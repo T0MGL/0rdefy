@@ -7,7 +7,7 @@
 // ================================================================
 
 import { Router, Request, Response } from 'express';
-import { supabase, getStore, getStoreConfig } from '../db/connection';
+import { supabaseAdmin, getStore, getStoreConfig } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 
 export const storesRouter = Router();
@@ -113,6 +113,8 @@ storesRouter.post('/', async (req: AuthRequest, res: Response) => {
             country = 'PY',
             timezone = 'America/Asuncion',
             currency = 'USD',
+            tax_rate = 10.00,
+            admin_fee = 0.00,
             is_active = true
         } = req.body;
 
@@ -124,25 +126,56 @@ storesRouter.post('/', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const { data, error } = await supabaseAdmin
+        if (!req.userId) {
+            return res.status(401).json({
+                error: 'Unauthorized',
+                message: 'User ID not found in token'
+            });
+        }
+
+        // Create the store
+        const { data: newStore, error: storeError } = await supabaseAdmin
             .from('stores')
             .insert([{
                 name,
                 country,
                 timezone,
                 currency,
+                tax_rate,
+                admin_fee,
                 is_active
             }])
             .select()
             .single();
 
-        if (error) {
-            throw error;
+        if (storeError || !newStore) {
+            throw storeError || new Error('Failed to create store');
         }
+
+        // Associate the store with the current user as owner
+        const { error: associationError } = await supabaseAdmin
+            .from('user_stores')
+            .insert([{
+                user_id: req.userId,
+                store_id: newStore.id,
+                role: 'owner'
+            }]);
+
+        if (associationError) {
+            // Rollback: delete the created store
+            await supabaseAdmin
+                .from('stores')
+                .delete()
+                .eq('id', newStore.id);
+
+            throw associationError;
+        }
+
+        console.log(`✅ [POST /api/stores] Store created and associated with user ${req.userId}`);
 
         res.status(201).json({
             message: 'Store created successfully',
-            data
+            data: newStore
         });
     } catch (error: any) {
         console.error('[POST /api/stores] Error:', error);

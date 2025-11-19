@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ChevronsUpDown, Store, PlusCircle } from 'lucide-react';
+import { Check, ChevronsUpDown, PlusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from './ui/button';
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Badge } from './ui/badge';
+import { CreateStoreDialog } from './CreateStoreDialog';
 
 interface StoreSwitcherProps {
   className?: string;
@@ -21,11 +22,15 @@ interface StoreSwitcherProps {
 export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherProps) {
   const { currentStore, stores, switchStore } = useAuth();
   const [open, setOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
-  // If user only has one store, don't show the switcher
-  if (stores.length <= 1) {
+  // If no stores at all, don't show anything
+  if (stores.length === 0) {
     return null;
   }
+
+  // If user only has one store, show it but make it non-interactive
+  const hasMultipleStores = stores.length > 1;
 
   const handleStoreSwitch = (storeId: string) => {
     if (storeId !== currentStore?.id) {
@@ -37,25 +42,32 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={hasMultipleStores ? open : false} onOpenChange={hasMultipleStores ? setOpen : undefined}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          aria-label="Seleccionar tienda"
+          aria-label={hasMultipleStores ? "Seleccionar tienda" : currentStore?.name || "Tu tienda"}
+          disabled={!hasMultipleStores}
           className={cn(
-            'justify-between h-10 bg-background hover:bg-accent transition-all duration-200',
+            'justify-between h-10 bg-background transition-all duration-200',
+            hasMultipleStores && 'hover:bg-accent cursor-pointer',
+            !hasMultipleStores && 'cursor-default opacity-100',
             collapsed ? 'w-10 px-0' : 'w-full px-3',
             className
           )}
         >
           {collapsed ? (
-            <Store size={18} className="mx-auto text-muted-foreground" />
+            <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center shadow-sm">
+              <span className="text-primary-foreground font-bold text-xs">O</span>
+            </div>
           ) : (
             <>
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <Store size={16} className="text-muted-foreground flex-shrink-0" />
+                <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center shadow-sm flex-shrink-0">
+                  <span className="text-primary-foreground font-bold text-xs">O</span>
+                </div>
                 <div className="flex flex-col items-start min-w-0">
                   <span className="text-sm font-medium truncate max-w-[180px]">
                     {currentStore?.name || 'Seleccionar tienda'}
@@ -69,7 +81,9 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
                   )}
                 </div>
               </div>
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              {hasMultipleStores && (
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              )}
             </>
           )}
         </Button>
@@ -121,18 +135,20 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer text-muted-foreground hover:text-foreground"
-          disabled
+          onClick={() => {
+            setOpen(false);
+            setCreateDialogOpen(true);
+          }}
         >
           <PlusCircle className="mr-2 h-4 w-4" />
           <span className="text-sm">Crear nueva tienda</span>
-          <Badge
-            variant="outline"
-            className="ml-auto text-[10px] px-1.5 py-0 h-4"
-          >
-            Próximamente
-          </Badge>
         </DropdownMenuItem>
       </DropdownMenuContent>
+
+      <CreateStoreDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+      />
     </DropdownMenu>
   );
 }

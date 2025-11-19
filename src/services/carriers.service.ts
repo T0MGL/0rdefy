@@ -12,6 +12,9 @@ export interface Carrier {
   successful_deliveries?: number;
   failed_deliveries?: number;
   delivery_rate?: number;
+  // Rating fields
+  average_rating?: number; // Rating promedio 0-5
+  total_ratings?: number; // Número total de calificaciones
   created_at?: string;
   updated_at?: string;
 

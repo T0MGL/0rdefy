@@ -8,6 +8,7 @@ export interface SavedFilter {
   name: string;
   icon: string;
   filters: Record<string, any>;
+  isPermanent?: boolean; // Filtros permanentes no se pueden eliminar
 }
 
 interface FilterChipsProps {
@@ -24,25 +25,42 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
     if (stored) {
       setSavedFilters(JSON.parse(stored));
     } else {
-      // Filtros por defecto
+      // Filtros por defecto para pedidos (permanentes - no se pueden eliminar)
       const defaults: SavedFilter[] = [
         {
-          id: 'pending-today',
-          name: 'Pendientes Hoy',
+          id: 'pending',
+          name: 'Pendientes',
           icon: '⏰',
           filters: { status: 'pending' },
+          isPermanent: true,
         },
         {
-          id: 'low-stock',
-          name: 'Stock Bajo',
-          icon: '📦',
-          filters: { maxStock: 10 },
+          id: 'confirmed',
+          name: 'Confirmados',
+          icon: '✅',
+          filters: { status: 'confirmed' },
+          isPermanent: true,
         },
         {
-          id: 'deliveries-tomorrow',
-          name: 'Entregas Mañana',
+          id: 'in-transit',
+          name: 'En Tránsito',
           icon: '🚚',
-          filters: { deliveryDate: 'tomorrow' },
+          filters: { status: 'in_transit' },
+          isPermanent: true,
+        },
+        {
+          id: 'delivered',
+          name: 'Entregados',
+          icon: '📦',
+          filters: { status: 'delivered' },
+          isPermanent: true,
+        },
+        {
+          id: 'cancelled',
+          name: 'Cancelados',
+          icon: '❌',
+          filters: { status: 'cancelled' },
+          isPermanent: true,
         },
       ];
       setSavedFilters(defaults);
@@ -86,18 +104,18 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
         >
           <span className="mr-2">{filter.icon}</span>
           {filter.name}
-          <button
-            onClick={(e) => handleRemoveFilter(filter.id, e)}
-            className="ml-2 hover:text-destructive"
-          >
-            <X size={12} />
-          </button>
+          {/* Solo mostrar botón X si NO es permanente */}
+          {!filter.isPermanent && (
+            <button
+              onClick={(e) => handleRemoveFilter(filter.id, e)}
+              className="ml-2 hover:text-destructive"
+            >
+              <X size={12} />
+            </button>
+          )}
         </Badge>
       ))}
-      <Button variant="ghost" size="sm" className="h-7 text-xs">
-        <Plus size={14} className="mr-1" />
-        Guardar filtro actual
-      </Button>
+      {/* Ocultar botón de guardar filtro por ahora */}
     </div>
   );
 }

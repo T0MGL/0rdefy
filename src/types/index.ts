@@ -8,6 +8,8 @@ export interface DashboardOverview {
   roi: number;
   roas: number;
   deliveryRate: number;
+  taxCollected: number; // IVA recolectado incluido en los ingresos
+  taxRate: number; // Tasa de IVA configurada en el onboarding (ej: 10 para 10%)
   changes?: {
     totalOrders: number | null;
     revenue: number | null;
@@ -18,6 +20,7 @@ export interface DashboardOverview {
     roi: number | null;
     roas: number | null;
     deliveryRate: number | null;
+    taxCollected: number | null;
   };
 }
 
@@ -56,6 +59,9 @@ export interface Order {
   address_reference?: string;
   neighborhood?: string;
   delivery_notes?: string;
+  // Cash on Delivery (COD)
+  payment_method?: string; // 'cash', 'online', 'card', 'transfer', 'yape', 'plin', 'efectivo', etc.
+  cod_amount?: number; // Monto que debe cobrar la transportadora en efectivo
   // Geolocation for map
   latitude?: number;
   longitude?: number;

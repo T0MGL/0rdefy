@@ -34,6 +34,7 @@ interface AuthContextType {
   updateProfile: (data: { userName?: string; userPhone?: string; storeName?: string }) => Promise<{ error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success?: boolean; error?: string }>;
   deleteAccount: (password: string) => Promise<{ success?: boolean; error?: string }>;
+  createStore: (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => Promise<{ success?: boolean; error?: string; storeId?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -325,6 +326,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const createStore = async (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => {
+    console.log('🏪 [AUTH] Creating new store:', data.name);
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/stores`;
+
+      const response = await axios.post(
+        apiUrl,
+        {
+          name: data.name,
+          country: data.country || 'PY',
+          currency: data.currency || 'USD',
+          tax_rate: data.taxRate || 10.00,
+          admin_fee: data.adminFee || 0.00,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (response.data.data) {
+        const newStore = response.data.data;
+        console.log('✅ [AUTH] Store created successfully:', newStore.id);
+
+        // Update current user with the new store
+        if (user) {
+          const newStoreData: Store = {
+            id: newStore.id,
+            name: newStore.name,
+            country: newStore.country,
+            currency: newStore.currency,
+            role: 'owner'
+          };
+
+          const updatedUser = {
+            ...user,
+            stores: [...user.stores, newStoreData]
+          };
+
+          setUser(updatedUser);
+          setStores(updatedUser.stores);
+          setCurrentStore(newStoreData);
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          localStorage.setItem('current_store_id', newStore.id);
+
+          // Reload the page to ensure all data is fresh
+          window.location.reload();
+        }
+
+        return { success: true, storeId: newStore.id };
+      } else {
+        console.error('❌ [AUTH] Store creation failed:', response.data.error);
+        return { error: response.data.error || 'Error al crear tienda' };
+      }
+    } catch (err: any) {
+      console.error('💥 [AUTH] Store creation error:', err);
+
+      if (err.response) {
+        return { error: err.response.data.error || err.response.data.message || 'Error al crear tienda' };
+      } else if (err.request) {
+        return { error: 'No se pudo conectar con el servidor' };
+      } else {
+        return { error: 'Error inesperado' };
+      }
+    }
+  };
+
   const value = {
     user,
     currentStore,
@@ -337,6 +404,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     updateProfile,
     changePassword,
     deleteAccount,
+    createStore,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

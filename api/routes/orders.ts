@@ -95,6 +95,8 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             latitude: data.latitude,
             longitude: data.longitude,
             total_price: data.total_price,
+            cod_amount: data.cod_amount || 0,
+            payment_method: data.payment_method,
             line_items: data.line_items,
             delivery_status: data.delivery_status,
             carrier_name: data.carriers?.name,
