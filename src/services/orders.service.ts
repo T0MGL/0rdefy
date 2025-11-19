@@ -320,4 +320,42 @@ export const ordersService = {
       return undefined;
     }
   },
+
+  markAsPrinted: async (id: string): Promise<Order | undefined> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/mark-printed`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      console.error('Error marking order as printed:', error);
+      return undefined;
+    }
+  },
+
+  markAsPrintedBulk: async (orderIds: string[]): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/mark-printed-bulk`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ order_ids: orderIds }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error bulk marking orders as printed:', error);
+      return false;
+    }
+  },
 };

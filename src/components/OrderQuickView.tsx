@@ -17,6 +17,25 @@ import {
 import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
+// Helper function to calculate relative time
+function getRelativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'Hace un momento';
+  if (diffMins < 60) return `Hace ${diffMins} min`;
+  if (diffHours < 24) return `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+  if (diffDays === 1) return 'Hace 1 día';
+  if (diffDays < 7) return `Hace ${diffDays} días`;
+
+  // More than a week, show formatted date
+  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+}
+
 interface OrderQuickViewProps {
   order: Order | null;
   open: boolean;
@@ -102,11 +121,29 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 </div>
               )}
               <div className="flex gap-2 mt-3">
-                <Button size="sm" variant="outline" className="flex-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+                    window.location.href = `tel:${cleanPhone}`;
+                  }}
+                >
                   <Phone size={14} className="mr-2" />
                   Llamar
                 </Button>
-                <Button size="sm" variant="outline" className="flex-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+                    // Ensure phone has + prefix for international format
+                    const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone : `+${cleanPhone}`;
+                    window.open(`https://wa.me/${whatsappNumber}`, '_blank');
+                  }}
+                >
                   <MessageCircle size={14} className="mr-2" />
                   WhatsApp
                 </Button>
@@ -152,24 +189,33 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
                 <div className="text-sm">
                   <p className="font-medium">Pedido creado</p>
-                  <p className="text-xs text-muted-foreground">{new Date(order.date).toLocaleString('es-ES')}</p>
+                  <p className="text-xs text-muted-foreground">{getRelativeTime(order.date)}</p>
                 </div>
               </div>
-              {currentStatus !== 'pending' && (
+              {currentStatus !== 'pending' && currentStatus !== 'pending_confirmation' && (
                 <div className="relative">
                   <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
                   <div className="text-sm">
                     <p className="font-medium">Confirmado</p>
-                    <p className="text-xs text-muted-foreground">Hace 2 horas</p>
+                    <p className="text-xs text-muted-foreground">
+                      {order.confirmationTimestamp
+                        ? getRelativeTime(order.confirmationTimestamp)
+                        : 'Sin fecha'}
+                    </p>
                   </div>
                 </div>
               )}
-              {(currentStatus === 'out_for_delivery' || currentStatus === 'delivered' || currentStatus === 'delivery_failed') && (
+              {(currentStatus === 'out_for_delivery' || currentStatus === 'in_transit' || currentStatus === 'delivered' || currentStatus === 'delivery_failed' || currentStatus === 'not_delivered') && (
                 <div className="relative">
                   <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
                   <div className="text-sm">
                     <p className="font-medium">En tránsito</p>
-                    <p className="text-xs text-muted-foreground">Hace 1 hora</p>
+                    <p className="text-xs text-muted-foreground">
+                      {/* Estimate based on confirmation time + 1 hour if available */}
+                      {order.confirmationTimestamp
+                        ? getRelativeTime(new Date(new Date(order.confirmationTimestamp).getTime() + 3600000).toISOString())
+                        : 'En proceso'}
+                    </p>
                   </div>
                 </div>
               )}
@@ -178,7 +224,10 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
                   <div className="text-sm">
                     <p className="font-medium">Entregado</p>
-                    <p className="text-xs text-muted-foreground">Hace 30 min</p>
+                    <p className="text-xs text-muted-foreground">
+                      {/* Show current time since we don't have delivered_at timestamp */}
+                      Recientemente
+                    </p>
                   </div>
                 </div>
               )}

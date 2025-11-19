@@ -11,6 +11,7 @@ const defaultOverview: DashboardOverview = {
   adSpend: 0,
   adRevenue: 0,
   roi: 0,
+  roas: 0,
   conversionRate: 0,
   averageOrderValue: 0,
   deliveryRate: 0,

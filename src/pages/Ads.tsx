@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { Ad } from '@/types';
 import { Plus, TrendingUp, Edit, Trash2 } from 'lucide-react';
+import { campaignsExportColumns } from '@/utils/exportConfigs';
 
 const statusColors = {
   active: 'bg-primary/20 text-primary border-primary/30',
@@ -243,7 +244,13 @@ export default function Ads() {
           <p className="text-muted-foreground">Gestiona tus campañas publicitarias</p>
         </div>
         <div className="flex gap-2">
-          <ExportButton data={ads} filename="anuncios" variant="outline" />
+          <ExportButton
+            data={ads}
+            filename="campanas-publicitarias"
+            columns={campaignsExportColumns}
+            title="Campañas Publicitarias - Ordefy"
+            variant="outline"
+          />
           <Button className="gap-2 bg-primary hover:bg-primary/90" onClick={handleCreate}>
             <Plus size={18} />
             Registrar Anuncio

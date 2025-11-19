@@ -16,6 +16,7 @@ import { useState, useEffect } from 'react';
 import { Product } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { productsExportColumns } from '@/utils/exportConfigs';
 
 export default function Products() {
   const [showCalculator, setShowCalculator] = useState(false);
@@ -239,7 +240,13 @@ export default function Products() {
           <p className="text-muted-foreground">Gestiona tu catálogo de productos</p>
         </div>
         <div className="flex gap-2">
-          <ExportButton data={products} filename="productos" variant="outline" />
+          <ExportButton
+            data={products}
+            filename="productos"
+            columns={productsExportColumns}
+            title="Catálogo de Productos - Ordefy"
+            variant="outline"
+          />
           <Button
             onClick={() => {
               console.log('🖱️ [PRODUCTS] Button clicked');

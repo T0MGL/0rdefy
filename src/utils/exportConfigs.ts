@@ -1,0 +1,299 @@
+import { ExportColumn } from '@/services/export.service';
+
+/**
+ * Export configuration for Orders
+ */
+export const ordersExportColumns: ExportColumn[] = [
+  { header: 'ID Pedido', key: 'id', width: 20 },
+  { header: 'Cliente', key: 'customer', width: 20 },
+  { header: 'Teléfono', key: 'phone', width: 15 },
+  { header: 'Dirección', key: 'address', width: 30 },
+  { header: 'Producto', key: 'product', width: 25 },
+  {
+    header: 'Cantidad',
+    key: 'quantity',
+    width: 10,
+    format: (value) => String(value || 0)
+  },
+  {
+    header: 'Total (Gs.)',
+    key: 'total',
+    width: 15,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'Estado',
+    key: 'status',
+    width: 15,
+    format: (value) => {
+      const statusLabels: Record<string, string> = {
+        pending: 'Pendiente',
+        confirmed: 'Confirmado',
+        in_transit: 'En Tránsito',
+        delivered: 'Entregado',
+        cancelled: 'Cancelado',
+      };
+      return statusLabels[value] || value;
+    }
+  },
+  { header: 'Transportadora', key: 'carrier', width: 20 },
+  {
+    header: 'Confirmado WhatsApp',
+    key: 'confirmedByWhatsApp',
+    width: 15,
+    format: (value) => value ? 'Sí' : 'No'
+  },
+  {
+    header: 'Método de Pago',
+    key: 'paymentMethod',
+    width: 15,
+    format: (value) => {
+      const methodLabels: Record<string, string> = {
+        cash: 'Efectivo',
+        card: 'Tarjeta',
+        transfer: 'Transferencia',
+        pending: 'Pendiente',
+      };
+      return methodLabels[value] || value;
+    }
+  },
+  {
+    header: 'Fecha',
+    key: 'date',
+    width: 20,
+    format: (value) => {
+      if (!value) return '';
+      const date = new Date(value);
+      return date.toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+  },
+];
+
+/**
+ * Export configuration for Products
+ */
+export const productsExportColumns: ExportColumn[] = [
+  { header: 'ID', key: 'id', width: 20 },
+  { header: 'Nombre', key: 'name', width: 25 },
+  {
+    header: 'Precio (Gs.)',
+    key: 'price',
+    width: 15,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'Costo (Gs.)',
+    key: 'cost',
+    width: 15,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'Stock',
+    key: 'stock',
+    width: 10,
+    format: (value) => String(value || 0)
+  },
+  {
+    header: 'Rentabilidad (%)',
+    key: 'profitability',
+    width: 15,
+    format: (value) => `${value || 0}%`
+  },
+  {
+    header: 'Ventas Totales',
+    key: 'sales',
+    width: 15,
+    format: (value) => String(value || 0)
+  },
+  { header: 'Imagen URL', key: 'image', width: 40 },
+];
+
+/**
+ * Export configuration for Customers
+ */
+export const customersExportColumns: ExportColumn[] = [
+  { header: 'ID', key: 'id', width: 20 },
+  { header: 'Nombre', key: 'first_name', width: 20 },
+  { header: 'Apellido', key: 'last_name', width: 20 },
+  { header: 'Email', key: 'email', width: 30 },
+  { header: 'Teléfono', key: 'phone', width: 15 },
+  {
+    header: 'Acepta Marketing',
+    key: 'accepts_marketing',
+    width: 15,
+    format: (value) => value ? 'Sí' : 'No'
+  },
+  {
+    header: 'Total Pedidos',
+    key: 'total_orders',
+    width: 15,
+    format: (value) => String(value || 0)
+  },
+  {
+    header: 'Total Gastado (Gs.)',
+    key: 'total_spent',
+    width: 20,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'Fecha Creación',
+    key: 'created_at',
+    width: 20,
+    format: (value) => {
+      if (!value) return '';
+      const date = new Date(value);
+      return date.toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+  },
+];
+
+/**
+ * Export configuration for Campaigns/Ads
+ */
+export const campaignsExportColumns: ExportColumn[] = [
+  { header: 'ID', key: 'id', width: 20 },
+  { header: 'Nombre', key: 'name', width: 25 },
+  { header: 'Plataforma', key: 'platform', width: 15 },
+  {
+    header: 'Estado',
+    key: 'status',
+    width: 15,
+    format: (value) => {
+      const statusLabels: Record<string, string> = {
+        active: 'Activa',
+        paused: 'Pausada',
+        ended: 'Finalizada',
+      };
+      return statusLabels[value] || value;
+    }
+  },
+  {
+    header: 'Inversión (Gs.)',
+    key: 'investment',
+    width: 20,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'Ingresos (Gs.)',
+    key: 'revenue',
+    width: 20,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'ROI',
+    key: 'roi',
+    width: 10,
+    format: (value) => `${Number(value || 0).toFixed(2)}x`
+  },
+  {
+    header: 'Conversiones',
+    key: 'conversions',
+    width: 15,
+    format: (value) => String(value || 0)
+  },
+  {
+    header: 'Fecha Inicio',
+    key: 'startDate',
+    width: 20,
+    format: (value) => {
+      if (!value) return '';
+      const date = new Date(value);
+      return date.toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+  },
+  {
+    header: 'Fecha Fin',
+    key: 'endDate',
+    width: 20,
+    format: (value) => {
+      if (!value) return '';
+      const date = new Date(value);
+      return date.toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+  },
+];
+
+/**
+ * Export configuration for Suppliers
+ */
+export const suppliersExportColumns: ExportColumn[] = [
+  { header: 'ID', key: 'id', width: 20 },
+  { header: 'Nombre', key: 'name', width: 25 },
+  { header: 'Contacto', key: 'contact', width: 20 },
+  { header: 'Email', key: 'email', width: 30 },
+  { header: 'Teléfono', key: 'phone', width: 15 },
+  {
+    header: 'Productos Suministrados',
+    key: 'productsSupplied',
+    width: 15,
+    format: (value) => String(value || 0)
+  },
+  {
+    header: 'Calificación',
+    key: 'rating',
+    width: 12,
+    format: (value) => `${Number(value || 0).toFixed(1)} / 5.0`
+  },
+];
+
+/**
+ * Export configuration for Carriers/Couriers
+ */
+export const carriersExportColumns: ExportColumn[] = [
+  { header: 'ID', key: 'id', width: 20 },
+  { header: 'Nombre', key: 'name', width: 25 },
+  {
+    header: 'Tarifa Base (Gs.)',
+    key: 'baseRate',
+    width: 20,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'Tarifa/Km (Gs.)',
+    key: 'perKmRate',
+    width: 20,
+    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+  },
+  {
+    header: 'Entregas Totales',
+    key: 'totalDeliveries',
+    width: 15,
+    format: (value) => String(value || 0)
+  },
+  {
+    header: 'Tasa Éxito (%)',
+    key: 'successRate',
+    width: 15,
+    format: (value) => `${Number(value || 0).toFixed(1)}%`
+  },
+  {
+    header: 'Tiempo Promedio (días)',
+    key: 'avgDeliveryTime',
+    width: 20,
+    format: (value) => `${Number(value || 0).toFixed(1)} días`
+  },
+  {
+    header: 'Calificación',
+    key: 'rating',
+    width: 12,
+    format: (value) => `${Number(value || 0).toFixed(1)} / 5.0`
+  },
+];

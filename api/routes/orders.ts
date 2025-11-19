@@ -75,7 +75,13 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
                 delivery_failed: true,
                 message: 'Este pedido no pudo ser entregado',
                 failure_reason: data.delivery_failure_reason,
-                data: null
+                data: {
+                    id: data.id,
+                    customer_name: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim(),
+                    customer_phone: data.customer_phone,
+                    customer_address: data.customer_address,
+                    store_id: data.store_id
+                }
             });
         }
 
@@ -355,6 +361,85 @@ ordersRouter.post('/:id/rate-delivery', async (req: Request, res: Response) => {
         console.error(`[POST /api/orders/${req.params.id}/rate-delivery] Error:`, error);
         res.status(500).json({
             error: 'Failed to save rating',
+            message: error.message
+        });
+    }
+});
+
+// POST /api/orders/:id/cancel - Cancel order after failed delivery (public)
+// This endpoint is accessible without auth for courier/customer to cancel after retry decision
+ordersRouter.post('/:id/cancel', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        console.log(`🚫 [ORDERS] Cancelling order ${id} after failed delivery`);
+
+        // First, get the order to verify it exists
+        const { data: existingOrder, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('id, store_id, sleeves_status, delivery_status')
+            .eq('id', id)
+            .single();
+
+        if (fetchError || !existingOrder) {
+            console.error(`❌ [ORDERS] Order ${id} not found`);
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'El pedido no existe'
+            });
+        }
+
+        // Only allow cancellation if delivery failed
+        if (existingOrder.delivery_status !== 'failed' && existingOrder.sleeves_status !== 'not_delivered') {
+            return res.status(400).json({
+                error: 'Cannot cancel',
+                message: 'Solo se pueden cancelar pedidos con entrega fallida'
+            });
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('orders')
+            .update({
+                sleeves_status: 'cancelled',
+                cancelled_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                delivery_link_token: null, // Delete token
+                qr_code_url: null // Delete QR
+            })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error || !data) {
+            console.error(`❌ [ORDERS] Failed to cancel order ${id}:`, error);
+            return res.status(500).json({
+                error: 'Failed to cancel order'
+            });
+        }
+
+        // Log status change
+        await supabaseAdmin
+            .from('order_status_history')
+            .insert({
+                order_id: id,
+                store_id: existingOrder.store_id,
+                previous_status: existingOrder.sleeves_status || 'not_delivered',
+                new_status: 'cancelled',
+                changed_by: 'customer',
+                change_source: 'delivery_app',
+                notes: 'Order cancelled after failed delivery'
+            });
+
+        console.log(`✅ [ORDERS] Order ${id} cancelled`);
+
+        res.json({
+            message: 'Order cancelled successfully',
+            data
+        });
+    } catch (error: any) {
+        console.error(`[POST /api/orders/${req.params.id}/cancel] Error:`, error);
+        res.status(500).json({
+            error: 'Failed to cancel order',
             message: error.message
         });
     }
@@ -1212,6 +1297,123 @@ ordersRouter.post('/:id/confirm', async (req: AuthRequest, res: Response) => {
         console.error(`[POST /api/orders/${req.params.id}/confirm] Error:`, error);
         res.status(500).json({
             error: 'Failed to confirm order',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/orders/:id/mark-printed - Mark order label as printed
+// ================================================================
+ordersRouter.post('/:id/mark-printed', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const storeId = req.storeId;
+        const userId = req.user?.email || req.user?.name || 'unknown';
+
+        console.log(`🖨️ [ORDERS] Marking order ${id} as printed by ${userId}`);
+
+        // Verify order exists and belongs to store
+        const { data: existingOrder, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('id, printed, printed_at')
+            .eq('id', id)
+            .eq('store_id', storeId)
+            .single();
+
+        if (fetchError || !existingOrder) {
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'El pedido no existe o no pertenece a esta tienda'
+            });
+        }
+
+        // Update order as printed (only if not already printed)
+        const updateData: any = {
+            printed: true,
+            updated_at: new Date().toISOString()
+        };
+
+        // Set printed_at and printed_by only on first print
+        if (!existingOrder.printed) {
+            updateData.printed_at = new Date().toISOString();
+            updateData.printed_by = userId;
+        }
+
+        const { data: updatedOrder, error: updateError } = await supabaseAdmin
+            .from('orders')
+            .update(updateData)
+            .eq('id', id)
+            .eq('store_id', storeId)
+            .select()
+            .single();
+
+        if (updateError) {
+            throw updateError;
+        }
+
+        console.log(`✅ [ORDERS] Order ${id} marked as printed`);
+
+        res.json({
+            success: true,
+            message: 'Pedido marcado como impreso',
+            data: updatedOrder
+        });
+    } catch (error: any) {
+        console.error('❌ [ORDERS] Error marking order as printed:', error);
+        res.status(500).json({
+            error: 'Internal server error',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/orders/mark-printed-bulk - Mark multiple orders as printed
+// ================================================================
+ordersRouter.post('/mark-printed-bulk', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+    try {
+        const { order_ids } = req.body;
+        const storeId = req.storeId;
+        const userId = req.user?.email || req.user?.name || 'unknown';
+
+        if (!Array.isArray(order_ids) || order_ids.length === 0) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'order_ids debe ser un array no vacío'
+            });
+        }
+
+        console.log(`🖨️ [ORDERS] Bulk marking ${order_ids.length} orders as printed by ${userId}`);
+
+        // Update all orders in bulk
+        const { data: updatedOrders, error: updateError } = await supabaseAdmin
+            .from('orders')
+            .update({
+                printed: true,
+                printed_at: new Date().toISOString(),
+                printed_by: userId,
+                updated_at: new Date().toISOString()
+            })
+            .in('id', order_ids)
+            .eq('store_id', storeId)
+            .select();
+
+        if (updateError) {
+            throw updateError;
+        }
+
+        console.log(`✅ [ORDERS] ${updatedOrders?.length || 0} orders marked as printed`);
+
+        res.json({
+            success: true,
+            message: `${updatedOrders?.length || 0} pedidos marcados como impresos`,
+            data: updatedOrders
+        });
+    } catch (error: any) {
+        console.error('❌ [ORDERS] Error in bulk mark printed:', error);
+        res.status(500).json({
+            error: 'Internal server error',
             message: error.message
         });
     }

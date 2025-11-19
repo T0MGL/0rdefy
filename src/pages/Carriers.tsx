@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ExportButton } from '@/components/ExportButton';
 import { useToast } from '@/hooks/use-toast';
 import { carriersService, Carrier } from '@/services/carriers.service';
 import { Plus, Package, TrendingUp, Clock, DollarSign, Search } from 'lucide-react';
+import { carriersExportColumns } from '@/utils/exportConfigs';
 
 // Form Component
 function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSubmit: (data: any) => void; onCancel: () => void }) {
@@ -213,6 +215,13 @@ export default function Carriers() {
           </p>
         </div>
         <div className="flex gap-2">
+          <ExportButton
+            data={carriersWithStats}
+            filename="repartidores"
+            columns={carriersExportColumns}
+            title="Repartidores - Ordefy"
+            variant="outline"
+          />
           <Button
             variant="outline"
             className="gap-2"

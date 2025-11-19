@@ -26,7 +26,7 @@ type DeliveryState =
   | { type: 'loading' }
   | { type: 'delivered'; message: string; deliveredAt: string; alreadyRated: boolean; rating?: number; ratingComment?: string; data: any }
   | { type: 'rated_thanks'; message: string }
-  | { type: 'failed'; message: string; reason: string }
+  | { type: 'failed'; message: string; reason: string; data?: any }
   | { type: 'not_found'; message: string }
   | { type: 'pending'; data: any };
 
@@ -69,6 +69,7 @@ export default function Delivery() {
           type: 'failed',
           message: result.message,
           reason: result.failure_reason,
+          data: result.data,
         });
       } else if (result.error) {
         setState({
@@ -458,12 +459,12 @@ export default function Delivery() {
     );
   }
 
-  // Failed state
+  // Failed state - Show retry options
   if (state.type === 'failed') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="max-w-md w-full text-center">
-          <CardHeader>
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
             <XCircle className="h-20 w-20 text-red-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">{state.message}</CardTitle>
             {state.reason && (
@@ -471,10 +472,81 @@ export default function Delivery() {
                 <span className="font-medium">Motivo:</span> {state.reason}
               </CardDescription>
             )}
-            <CardDescription className="mt-4">
-              Por favor contacta al vendedor para más información
-            </CardDescription>
           </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-200 dark:border-orange-800">
+              <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-2">
+                ¿Qué deseas hacer con este pedido?
+              </p>
+              <p className="text-xs text-orange-700 dark:text-orange-300">
+                Puedes programar un reintento de entrega o cancelar el pedido definitivamente.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Button
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                size="lg"
+                onClick={() => {
+                  // Refresh to show pending state again for retry
+                  window.location.href = window.location.href;
+                }}
+              >
+                🔄 Programar Reintento de Entrega
+              </Button>
+
+              <Button
+                variant="destructive"
+                className="w-full"
+                size="lg"
+                onClick={async () => {
+                  if (confirm('¿Estás seguro de que deseas cancelar este pedido? Esta acción no se puede deshacer.')) {
+                    // Call API to cancel order permanently
+                    try {
+                      const authToken = localStorage.getItem('auth_token');
+                      const response = await fetch(
+                        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data?.id}/cancel`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${authToken}`,
+                            'Content-Type': 'application/json',
+                          },
+                        }
+                      );
+
+                      if (response.ok) {
+                        toast({
+                          title: 'Pedido cancelado',
+                          description: 'El pedido ha sido cancelado permanentemente',
+                        });
+                        // Show cancelled message
+                        setState({
+                          type: 'not_found',
+                          message: 'Este pedido ha sido cancelado',
+                        });
+                      } else {
+                        throw new Error('Failed to cancel order');
+                      }
+                    } catch (error) {
+                      console.error('Error cancelling order:', error);
+                      toast({
+                        title: 'Error',
+                        description: 'No se pudo cancelar el pedido',
+                        variant: 'destructive',
+                      });
+                    }
+                  }
+                }}
+              >
+                ❌ Cancelar Pedido Definitivamente
+              </Button>
+            </div>
+
+            <p className="text-xs text-center text-muted-foreground pt-2">
+              Si tienes dudas, contacta al vendedor antes de tomar una decisión
+            </p>
+          </CardContent>
         </Card>
       </div>
     );

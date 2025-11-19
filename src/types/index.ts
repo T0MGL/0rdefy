@@ -6,6 +6,7 @@ export interface DashboardOverview {
   netProfit: number;
   profitMargin: number;
   roi: number;
+  roas: number;
   deliveryRate: number;
   changes?: {
     totalOrders: number | null;
@@ -15,6 +16,7 @@ export interface DashboardOverview {
     netProfit: number | null;
     profitMargin: number | null;
     roi: number | null;
+    roas: number | null;
     deliveryRate: number | null;
   };
 }
@@ -57,6 +59,10 @@ export interface Order {
   // Geolocation for map
   latitude?: number;
   longitude?: number;
+  // Printing status
+  printed?: boolean;
+  printed_at?: string;
+  printed_by?: string;
 }
 
 export interface Product {

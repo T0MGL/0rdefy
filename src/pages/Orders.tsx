@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { ordersExportColumns } from '@/utils/exportConfigs';
 import {
   Select,
   SelectContent,
@@ -71,7 +72,11 @@ export default function Orders() {
   const [orderToConfirm, setOrderToConfirm] = useState<Order | null>(null);
   const [printLabelDialogOpen, setPrintLabelDialogOpen] = useState(false);
   const [orderToPrint, setOrderToPrint] = useState<Order | null>(null);
-  const { toast } = useToast();
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [isPrintingBulk, setIsPrintingBulk] = useState(false);
+  const [bulkPrintOrders, setBulkPrintOrders] = useState<Order[]>([]);
+  const [bulkPrintIndex, setBulkPrintIndex] = useState(0);
+  const { toast} = useToast();
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
   const debouncedSearch = useDebounce(search, 300);
   const previousCountRef = useRef(0);
@@ -338,6 +343,93 @@ export default function Orders() {
     }
   }, [orderToDelete, toast]);
 
+  // Selection handlers
+  const handleToggleSelectAll = useCallback(() => {
+    if (selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length) {
+      setSelectedOrderIds(new Set());
+    } else {
+      const printableIds = filteredOrders
+        .filter(o => o.delivery_link_token)
+        .map(o => o.id);
+      setSelectedOrderIds(new Set(printableIds));
+    }
+  }, [selectedOrderIds, filteredOrders]);
+
+  const handleToggleSelect = useCallback((orderId: string) => {
+    setSelectedOrderIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Print handlers
+  const handlePrintLabel = useCallback(async (order: Order) => {
+    setOrderToPrint(order);
+    setPrintLabelDialogOpen(true);
+  }, []);
+
+  const handleOrderPrinted = useCallback(async (orderId: string) => {
+    try {
+      const updatedOrder = await ordersService.markAsPrinted(orderId);
+      if (updatedOrder) {
+        setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+        toast({
+          title: 'Etiqueta marcada como impresa',
+          description: 'El pedido ha sido marcado como impreso',
+        });
+      }
+    } catch (error) {
+      console.error('Error marking order as printed:', error);
+    }
+  }, [toast]);
+
+  const handleBulkPrint = useCallback(async () => {
+    const selectedOrders = orders.filter(o => selectedOrderIds.has(o.id));
+    if (selectedOrders.length === 0) {
+      toast({
+        title: 'Sin selección',
+        description: 'Selecciona al menos un pedido para imprimir',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setBulkPrintOrders(selectedOrders);
+    setBulkPrintIndex(0);
+    setIsPrintingBulk(true);
+  }, [orders, selectedOrderIds, toast]);
+
+  const handleNextBulkPrint = useCallback(async () => {
+    if (bulkPrintIndex < bulkPrintOrders.length - 1) {
+      setBulkPrintIndex(prev => prev + 1);
+    } else {
+      // Finished bulk printing - mark all as printed
+      const orderIds = bulkPrintOrders.map(o => o.id);
+      const success = await ordersService.markAsPrintedBulk(orderIds);
+
+      if (success) {
+        // Refresh orders to get updated printed status
+        const refreshedOrders = await ordersService.getAll();
+        setOrders(refreshedOrders);
+
+        toast({
+          title: 'Impresión completada',
+          description: `${orderIds.length} etiquetas marcadas como impresas`,
+        });
+      }
+
+      setIsPrintingBulk(false);
+      setBulkPrintOrders([]);
+      setBulkPrintIndex(0);
+      setSelectedOrderIds(new Set());
+    }
+  }, [bulkPrintIndex, bulkPrintOrders, toast]);
+
   // Memoize filtered orders to avoid recalculation on every render
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
@@ -437,7 +529,13 @@ export default function Orders() {
             <MessageSquare size={18} />
             Follow-ups
           </Button>
-          <ExportButton data={filteredOrders} filename="pedidos" variant="outline" />
+          <ExportButton
+            data={filteredOrders}
+            filename="pedidos"
+            columns={ordersExportColumns}
+            title="Reporte de Pedidos - Ordefy"
+            variant="outline"
+          />
           <Button
             onClick={() => {
               console.log('🖱️ [ORDERS] Button clicked');
@@ -585,6 +683,11 @@ export default function Orders() {
                         <CheckCircle size={14} className="mr-1" />
                         Confirmado
                       </Badge>
+                    ) : order.status === 'cancelled' || order.status === 'rejected' ? (
+                      <Badge variant="outline" className="bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-800">
+                        <XCircle size={14} className="mr-1" />
+                        {order.status === 'cancelled' ? 'Cancelado' : 'Rechazado'}
+                      </Badge>
                     ) : (
                       <div className="flex gap-1 justify-center">
                         <Button
@@ -639,8 +742,11 @@ export default function Orders() {
                         variant="ghost"
                         size="icon"
                         onClick={() => {
-                          const phoneNumber = order.phone.replace(/\s+/g, '');
-                          window.open(`https://wa.me/${phoneNumber}`, '_blank');
+                          // Clean phone number: remove spaces and non-numeric chars except +
+                          const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+                          // Ensure phone has + prefix for international WhatsApp format
+                          const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+                          window.open(`https://wa.me/${whatsappNumber}`, '_blank');
                         }}
                         title="Contactar por WhatsApp"
                       >

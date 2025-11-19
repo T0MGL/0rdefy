@@ -123,10 +123,10 @@ export function DailySummary() {
     },
     {
       label: 'ROAS Promedio',
-      value: `${overview.roi}x`,
-      change: overview.changes?.roi !== null ? overview.changes?.roi : null,
+      value: `${overview.roas.toFixed(2)}x`,
+      change: overview.changes?.roas !== null ? overview.changes?.roas : null,
       icon: CheckCircle,
-      trend: overview.changes?.roi !== null ? (overview.changes?.roi >= 0 ? 'up' as const : 'down' as const) : undefined,
+      trend: overview.changes?.roas !== null ? (overview.changes?.roas >= 0 ? 'up' as const : 'down' as const) : undefined,
     },
   ];
   

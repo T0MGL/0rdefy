@@ -13,6 +13,7 @@ import { Plus, Edit, Trash2, Users, Mail, Phone, ShoppingBag, Search } from 'luc
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Customer } from '@/types';
+import { customersExportColumns } from '@/utils/exportConfigs';
 
 // Customer Form Component
 function CustomerForm({
@@ -297,7 +298,13 @@ export default function Customers() {
           </p>
         </div>
         <div className="flex gap-2">
-          <ExportButton data={customers} filename="clientes" variant="outline" />
+          <ExportButton
+            data={filteredCustomers}
+            filename="clientes"
+            columns={customersExportColumns}
+            title="Base de Clientes - Ordefy"
+            variant="outline"
+          />
           <Button onClick={handleCreate} className="gap-2 bg-primary hover:bg-primary/90">
             <Plus size={18} />
             Agregar Cliente

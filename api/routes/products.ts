@@ -63,8 +63,31 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             throw error;
         }
 
+        // Calculate sales for each product from orders
+        // Fetch all confirmed/delivered orders for this store
+        const { data: orders } = await supabaseAdmin
+            .from('orders')
+            .select('line_items')
+            .eq('store_id', req.storeId)
+            .in('sleeves_status', ['confirmed', 'shipped', 'delivered']);
+
+        // Calculate sales per product
+        const salesByProduct: Record<string, number> = {};
+        orders?.forEach(order => {
+            const lineItems = order.line_items || [];
+            if (Array.isArray(lineItems)) {
+                lineItems.forEach((item: any) => {
+                    const productId = item.product_id;
+                    const quantity = parseInt(item.quantity) || 0;
+                    if (productId) {
+                        salesByProduct[productId] = (salesByProduct[productId] || 0) + quantity;
+                    }
+                });
+            }
+        });
+
         // Transform data to match frontend Product interface
-        const transformedData = data?.map(product => ({
+        const transformedData = (data || []).map(product => ({
             id: product.id,
             name: product.name,
             image: product.image_url || 'https://via.placeholder.com/400x300?text=Product',
@@ -74,8 +97,8 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             profitability: product.cost && product.price
                 ? parseFloat((((product.price - product.cost) / product.price) * 100).toFixed(1))
                 : 0,
-            sales: 0 // TODO: Calculate from orders
-        })) || [];
+            sales: salesByProduct[product.id] || 0
+        }));
 
         res.json({
             data: transformedData,
@@ -115,6 +138,25 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Calculate sales from orders
+        const { data: orders } = await supabaseAdmin
+            .from('orders')
+            .select('line_items')
+            .eq('store_id', req.storeId)
+            .in('sleeves_status', ['confirmed', 'shipped', 'delivered']);
+
+        let sales = 0;
+        orders?.forEach(order => {
+            const lineItems = order.line_items || [];
+            if (Array.isArray(lineItems)) {
+                lineItems.forEach((item: any) => {
+                    if (item.product_id === data.id) {
+                        sales += parseInt(item.quantity) || 0;
+                    }
+                });
+            }
+        });
+
         // Transform data to match frontend Product interface
         const transformedData = {
             id: data.id,
@@ -126,7 +168,7 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
             profitability: data.cost && data.price
                 ? parseFloat((((data.price - data.cost) / data.price) * 100).toFixed(1))
                 : 0,
-            sales: 0 // TODO: Calculate from orders
+            sales
         };
 
         res.json(transformedData);
