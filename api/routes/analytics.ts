@@ -357,10 +357,23 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 // ================================================================
 analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Response) => {
     try {
-        const { data: ordersData, error: ordersError } = await supabaseAdmin
+        const { startDate, endDate } = req.query;
+
+        // Build query
+        let query = supabaseAdmin
             .from('orders')
             .select('*')
             .eq('store_id', req.storeId);
+
+        // Apply date filters if provided
+        if (startDate) {
+            query = query.gte('created_at', startDate);
+        }
+        if (endDate) {
+            query = query.lte('created_at', endDate);
+        }
+
+        const { data: ordersData, error: ordersError } = await query;
 
         if (ordersError) throw ordersError;
 
@@ -464,7 +477,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
 // ================================================================
 analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => {
     try {
-        const { limit = '5' } = req.query;
+        const { limit = '5', startDate, endDate } = req.query;
 
         // Validate storeId
         if (!req.storeId) {
@@ -474,11 +487,21 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             });
         }
 
-        // Get all orders with line_items
-        const { data: ordersData, error: ordersError } = await supabaseAdmin
+        // Build query
+        let query = supabaseAdmin
             .from('orders')
             .select('line_items')
             .eq('store_id', req.storeId);
+
+        // Apply date filters if provided
+        if (startDate) {
+            query = query.gte('created_at', startDate);
+        }
+        if (endDate) {
+            query = query.lte('created_at', endDate);
+        }
+
+        const { data: ordersData, error: ordersError } = await query;
 
         if (ordersError) throw ordersError;
 
@@ -550,10 +573,23 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
 // ================================================================
 analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: Response) => {
     try {
-        const { data: ordersData, error: ordersError } = await supabaseAdmin
+        const { startDate, endDate } = req.query;
+
+        // Build query
+        let query = supabaseAdmin
             .from('orders')
             .select('sleeves_status')
             .eq('store_id', req.storeId);
+
+        // Apply date filters if provided
+        if (startDate) {
+            query = query.gte('created_at', startDate);
+        }
+        if (endDate) {
+            query = query.lte('created_at', endDate);
+        }
+
+        const { data: ordersData, error: ordersError } = await query;
 
         if (ordersError) throw ordersError;
 

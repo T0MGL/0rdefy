@@ -173,12 +173,13 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
     }
 
     // Iniciar importacion en background
+    // IMPORTANTE: Solo productos y clientes, NUNCA ordenes historicas
     const importService = new ShopifyImportService(supabase, integration);
-    const importTypes: Array<'products' | 'customers' | 'orders'> = [];
+    const importTypes: Array<'products' | 'customers'> = [];
 
     if (config.import_products) importTypes.push('products');
     if (config.import_customers) importTypes.push('customers');
-    if (config.import_orders) importTypes.push('orders');
+    // NO importar ordenes historicas - las nuevas se cargan via webhook
 
     const jobIds = await importService.startImport({
       job_type: 'initial',
@@ -208,16 +209,18 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
 });
 
 // POST /api/shopify/manual-sync
-// Iniciar sincronizacion manual
+// Iniciar sincronizacion manual (SOLO productos y clientes, NUNCA ordenes historicas)
 shopifyRouter.post('/manual-sync', async (req: AuthRequest, res: Response) => {
   try {
     const storeId = req.storeId;
     const { sync_type } = req.body;
 
-    if (!sync_type || !['products', 'customers', 'orders', 'all'].includes(sync_type)) {
+    // IMPORTANTE: No permitir sincronizacion de ordenes historicas
+    // Las ordenes nuevas se cargan automaticamente via webhooks
+    if (!sync_type || !['products', 'customers', 'all'].includes(sync_type)) {
       return res.status(400).json({
         success: false,
-        error: 'Tipo de sincronizacion invalido'
+        error: 'Tipo de sincronizacion invalido. Solo se permiten: products, customers, all'
       });
     }
 
@@ -236,16 +239,16 @@ shopifyRouter.post('/manual-sync', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Iniciar sincronizacion
+    // Iniciar sincronizacion (NUNCA incluir ordenes)
     const importService = new ShopifyImportService(supabase, integration);
-    const importTypes: Array<'products' | 'customers' | 'orders'> = [];
+    const importTypes: Array<'products' | 'customers'> = [];
 
     if (sync_type === 'all') {
+      // Solo productos y clientes, NUNCA ordenes
       if (integration.import_products) importTypes.push('products');
       if (integration.import_customers) importTypes.push('customers');
-      if (integration.import_orders) importTypes.push('orders');
     } else {
-      importTypes.push(sync_type);
+      importTypes.push(sync_type as 'products' | 'customers');
     }
 
     const jobIds = await importService.startImport({
@@ -257,7 +260,8 @@ shopifyRouter.post('/manual-sync', async (req: AuthRequest, res: Response) => {
     res.json({
       success: true,
       job_ids: jobIds,
-      message: 'Sincronizacion manual iniciada'
+      message: 'Sincronizacion manual iniciada (productos y clientes)',
+      note: 'Las nuevas ordenes se cargan automaticamente via webhooks'
     });
 
   } catch (error: any) {

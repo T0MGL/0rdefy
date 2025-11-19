@@ -85,9 +85,14 @@ export const analyticsService = {
     }
   },
 
-  getConfirmationMetrics: async (): Promise<ConfirmationMetrics> => {
+  getConfirmationMetrics: async (params?: { startDate?: string; endDate?: string }): Promise<ConfirmationMetrics> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/analytics/confirmation-metrics`, {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const url = `${API_BASE_URL}/analytics/confirmation-metrics${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await fetch(url, {
         headers: getHeaders(),
       });
       if (!response.ok) {
@@ -101,9 +106,14 @@ export const analyticsService = {
     }
   },
 
-  getTopProducts: async (limit: number = 5): Promise<Product[]> => {
+  getTopProducts: async (limit: number = 5, params?: { startDate?: string; endDate?: string }): Promise<Product[]> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/analytics/top-products?limit=${limit}`, {
+      const queryParams = new URLSearchParams();
+      queryParams.append('limit', limit.toString());
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const response = await fetch(`${API_BASE_URL}/analytics/top-products?${queryParams.toString()}`, {
         headers: getHeaders(),
       });
       if (!response.ok) {
@@ -117,9 +127,14 @@ export const analyticsService = {
     }
   },
 
-  getOrderStatusDistribution: async (): Promise<any[]> => {
+  getOrderStatusDistribution: async (params?: { startDate?: string; endDate?: string }): Promise<any[]> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/analytics/order-status-distribution`, {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const url = `${API_BASE_URL}/analytics/order-status-distribution${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await fetch(url, {
         headers: getHeaders(),
       });
       if (!response.ok) {

@@ -2,10 +2,24 @@ import { AdditionalValue } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// Helper to get auth headers
+const getAuthHeaders = (): HeadersInit => {
+  const token = localStorage.getItem('auth_token');
+  const storeId = localStorage.getItem('current_store_id');
+
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+    ...(storeId && { 'X-Store-ID': storeId }),
+  };
+};
+
 export const additionalValuesService = {
   async getAll(): Promise<AdditionalValue[]> {
     try {
-      const response = await fetch(`${API_URL}/api/additional-values`);
+      const response = await fetch(`${API_URL}/api/additional-values`, {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error('Failed to fetch additional values');
       const data = await response.json();
       return data.data || [];
@@ -18,7 +32,9 @@ export const additionalValuesService = {
 
   async getById(id: string): Promise<AdditionalValue | undefined> {
     try {
-      const response = await fetch(`${API_URL}/api/additional-values/${id}`);
+      const response = await fetch(`${API_URL}/api/additional-values/${id}`, {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) return undefined;
       return await response.json();
     } catch (error) {
@@ -29,7 +45,9 @@ export const additionalValuesService = {
 
   async getSummary(): Promise<{ marketing: number; sales: number; employees: number; operational: number }> {
     try {
-      const response = await fetch(`${API_URL}/api/additional-values/summary`);
+      const response = await fetch(`${API_URL}/api/additional-values/summary`, {
+        headers: getAuthHeaders(),
+      });
       if (!response.ok) throw new Error('Failed to fetch summary');
       return await response.json();
     } catch (error) {
@@ -41,7 +59,7 @@ export const additionalValuesService = {
   async create(data: Partial<AdditionalValue>): Promise<AdditionalValue> {
     const response = await fetch(`${API_URL}/api/additional-values`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
 
@@ -57,7 +75,7 @@ export const additionalValuesService = {
   async update(id: string, data: Partial<AdditionalValue>): Promise<AdditionalValue> {
     const response = await fetch(`${API_URL}/api/additional-values/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
 
@@ -73,6 +91,7 @@ export const additionalValuesService = {
   async delete(id: string): Promise<boolean> {
     const response = await fetch(`${API_URL}/api/additional-values/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
 
     if (!response.ok) {

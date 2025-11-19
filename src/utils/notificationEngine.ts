@@ -76,16 +76,35 @@ export function generateNotifications(data: NotificationEngineData): Notificatio
     });
   }
 
-  // Pedidos para entregar mañana
-  notifications.push({
-    id: 'notif-005',
-    type: 'order',
-    message: '12 pedidos programados para entrega mañana',
-    timestamp: new Date().toISOString(),
-    read: false,
-    priority: 'low',
-    actionUrl: '/orders',
+  // Pedidos para entregar mañana (calcula la fecha real)
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+
+  const dayAfterTomorrow = new Date(tomorrow);
+  dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+
+  const tomorrowDeliveries = orders.filter((o) => {
+    if (o.status !== 'confirmed' && o.status !== 'shipped') return false;
+    if (!o.delivery_date) return false;
+
+    const deliveryDate = new Date(o.delivery_date);
+    deliveryDate.setHours(0, 0, 0, 0);
+
+    return deliveryDate >= tomorrow && deliveryDate < dayAfterTomorrow;
   });
+
+  if (tomorrowDeliveries.length > 0) {
+    notifications.push({
+      id: 'notif-005',
+      type: 'order',
+      message: `${tomorrowDeliveries.length} pedido${tomorrowDeliveries.length > 1 ? 's programados' : ' programado'} para entrega mañana`,
+      timestamp: new Date().toISOString(),
+      read: false,
+      priority: 'low',
+      actionUrl: '/orders',
+    });
+  }
 
   return notifications;
 }

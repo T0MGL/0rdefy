@@ -109,9 +109,9 @@ export default function Dashboard() {
       const [overview, chart, products, confirmation, statusDist, codData] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getChartData(getDateRange.days, dateParams),
-        analyticsService.getTopProducts(5),
-        analyticsService.getConfirmationMetrics(),
-        analyticsService.getOrderStatusDistribution(),
+        analyticsService.getTopProducts(5, dateParams),
+        analyticsService.getConfirmationMetrics(dateParams),
+        analyticsService.getOrderStatusDistribution(dateParams),
         codMetricsService.getMetrics({
           start_date: dateParams.startDate, // ✅ Already a string, no need for toISOString()
           end_date: dateParams.endDate, // ✅ Already a string, no need for toISOString()

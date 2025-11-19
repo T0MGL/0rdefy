@@ -24,7 +24,7 @@ const integrations: Integration[] = [
   {
     id: 'shopify',
     name: 'Shopify',
-    description: 'Sincroniza productos, clientes y órdenes de tu tienda Shopify',
+    description: 'Sincroniza productos y clientes. Las nuevas órdenes se cargan automáticamente vía webhook',
     icon: Store,
     status: 'available',
     category: 'ecommerce',
