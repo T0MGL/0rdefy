@@ -314,11 +314,12 @@ export default function Delivery() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
         {/* Logo Ordefy */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-            <span className="text-primary-foreground font-bold text-2xl">O</span>
-          </div>
-          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        <div className="flex items-center justify-center mb-8">
+          <img
+            src="/NO BACKGROUND.png"
+            alt="Ordefy Logo"
+            className="h-20 w-auto object-contain"
+          />
         </div>
 
         <div className="text-center">
@@ -336,11 +337,12 @@ export default function Delivery() {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
           {/* Logo Ordefy */}
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-              <span className="text-primary-foreground font-bold text-2xl">O</span>
-            </div>
-            <span className="font-bold text-3xl text-foreground">Ordefy</span>
+          <div className="flex items-center justify-center mb-8">
+            <img
+              src="/NO BACKGROUND.png"
+              alt="Ordefy Logo"
+              className="h-20 w-auto object-contain"
+            />
           </div>
 
           <Card className="max-w-md w-full text-center bg-card border-border">
@@ -381,11 +383,12 @@ export default function Delivery() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
         {/* Logo Ordefy */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-            <span className="text-primary-foreground font-bold text-2xl">O</span>
-          </div>
-          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        <div className="flex items-center justify-center mb-8">
+          <img
+            src="/NO BACKGROUND.png"
+            alt="Ordefy Logo"
+            className="h-20 w-auto object-contain"
+          />
         </div>
 
         <Card className="max-w-md w-full bg-card border-border">
@@ -471,11 +474,12 @@ export default function Delivery() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
         {/* Logo Ordefy */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-            <span className="text-primary-foreground font-bold text-2xl">O</span>
-          </div>
-          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        <div className="flex items-center justify-center mb-8">
+          <img
+            src="/NO BACKGROUND.png"
+            alt="Ordefy Logo"
+            className="h-20 w-auto object-contain"
+          />
         </div>
 
         <Card className="max-w-md w-full text-center bg-card border-border">
@@ -496,11 +500,12 @@ export default function Delivery() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
         {/* Logo Ordefy */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-            <span className="text-primary-foreground font-bold text-2xl">O</span>
-          </div>
-          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        <div className="flex items-center justify-center mb-8">
+          <img
+            src="/NO BACKGROUND.png"
+            alt="Ordefy Logo"
+            className="h-20 w-auto object-contain"
+          />
         </div>
 
         <Card className="max-w-md w-full bg-card border-border">
@@ -634,11 +639,12 @@ export default function Delivery() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
         {/* Logo Ordefy */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-            <span className="text-primary-foreground font-bold text-2xl">O</span>
-          </div>
-          <span className="font-bold text-3xl text-foreground">Ordefy</span>
+        <div className="flex items-center justify-center mb-8">
+          <img
+            src="/NO BACKGROUND.png"
+            alt="Ordefy Logo"
+            className="h-20 w-auto object-contain"
+          />
         </div>
 
         <Card className="max-w-md w-full text-center bg-card border-border">
@@ -659,11 +665,12 @@ export default function Delivery() {
     <div className="min-h-screen bg-background dark:bg-background p-4 pb-20">
       <div className="max-w-2xl mx-auto space-y-4">
         {/* Logo Ordefy */}
-        <div className="flex items-center justify-center gap-3 py-4">
-          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-            <span className="text-primary-foreground font-bold text-xl">O</span>
-          </div>
-          <span className="font-bold text-2xl text-foreground">Ordefy</span>
+        <div className="flex items-center justify-center py-4">
+          <img
+            src="/NO BACKGROUND.png"
+            alt="Ordefy Logo"
+            className="h-16 w-auto object-contain"
+          />
         </div>
 
         {/* Header */}

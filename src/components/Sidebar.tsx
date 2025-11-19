@@ -19,7 +19,6 @@ import {
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
-import { StoreSwitcher } from './StoreSwitcher';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -48,35 +47,41 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       className="h-screen bg-sidebar border-r border-sidebar-border flex flex-col sticky top-0 overflow-hidden"
     >
       {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-sidebar-border">
-        {!collapsed && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex items-center gap-3"
-          >
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-lg">
-              <span className="text-primary-foreground font-bold text-lg">O</span>
-            </div>
-            <span className="font-bold text-xl text-sidebar-foreground">Ordefy</span>
-          </motion.div>
+      <div className="h-16 flex items-center justify-center px-4 border-b border-sidebar-border relative">
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-2">
+            <img
+              src="/favicon.ico"
+              alt="Ordefy Logo"
+              className="w-8 h-8 object-contain cursor-pointer"
+              onClick={onToggle}
+              title="Expandir sidebar"
+            />
+          </div>
+        ) : (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex items-center gap-3 flex-1"
+            >
+              <img
+                src="/favicon.ico"
+                alt="Ordefy Logo"
+                className="w-8 h-8 object-contain"
+              />
+              <span className="font-bold text-xl text-sidebar-foreground">Ordefy</span>
+            </motion.div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onToggle}
+              className="text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            >
+              <ChevronLeft size={20} />
+            </Button>
+          </>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggle}
-          className={cn(
-            'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
-            collapsed && 'mx-auto'
-          )}
-        >
-          {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-        </Button>
-      </div>
-
-      {/* Store Switcher */}
-      <div className="px-3 py-2 border-b border-sidebar-border">
-        <StoreSwitcher collapsed={collapsed} />
       </div>
 
       {/* Navigation */}
