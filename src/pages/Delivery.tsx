@@ -312,10 +312,10 @@ export default function Delivery() {
   // Loading state
   if (state.type === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Cargando información del pedido...</p>
+          <p className="text-gray-400">Cargando información del pedido...</p>
         </div>
       </div>
     );
@@ -326,8 +326,8 @@ export default function Delivery() {
     if (state.alreadyRated) {
       // Already rated - show thank you message
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-          <Card className="max-w-md w-full text-center">
+        <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+          <Card className="max-w-md w-full text-center bg-gray-800 border-gray-700">
             <CardHeader>
               <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
               <CardTitle className="text-2xl">{state.message}</CardTitle>
@@ -363,8 +363,8 @@ export default function Delivery() {
 
     // Not rated yet - show rating form
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="max-w-md w-full">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+        <Card className="max-w-md w-full bg-gray-800 border-gray-700">
           <CardHeader className="text-center">
             <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">{state.message}</CardTitle>
@@ -445,8 +445,8 @@ export default function Delivery() {
   // Rated thanks state
   if (state.type === 'rated_thanks') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="max-w-md w-full text-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+        <Card className="max-w-md w-full text-center bg-gray-800 border-gray-700">
           <CardHeader>
             <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">¡Gracias por tu calificación!</CardTitle>
@@ -462,8 +462,8 @@ export default function Delivery() {
   // Failed state - Show retry options
   if (state.type === 'failed') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="max-w-md w-full">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+        <Card className="max-w-md w-full bg-gray-800 border-gray-700">
           <CardHeader className="text-center">
             <XCircle className="h-20 w-20 text-red-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">{state.message}</CardTitle>
@@ -485,19 +485,56 @@ export default function Delivery() {
 
             <div className="space-y-2">
               <Button
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                className="w-full bg-primary hover:bg-primary/90 text-black font-semibold"
                 size="lg"
-                onClick={() => {
-                  // Refresh to show pending state again for retry
-                  window.location.href = window.location.href;
+                onClick={async () => {
+                  try {
+                    const authToken = localStorage.getItem('auth_token');
+                    const storeId = state.data?.store_id;
+
+                    // Reactivate order by setting status to 'confirmed'
+                    // This will trigger token regeneration on the backend
+                    const response = await fetch(
+                      `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data?.id}/status`,
+                      {
+                        method: 'PATCH',
+                        headers: {
+                          'Authorization': `Bearer ${authToken}`,
+                          'X-Store-ID': storeId,
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          sleeves_status: 'confirmed',
+                        }),
+                      }
+                    );
+
+                    if (response.ok) {
+                      toast({
+                        title: 'Pedido reactivado',
+                        description: 'El pedido ha sido programado para un nuevo intento de entrega',
+                      });
+                      // Refresh to show pending state
+                      fetchOrderByToken(token!);
+                    } else {
+                      throw new Error('Failed to reactivate order');
+                    }
+                  } catch (error) {
+                    console.error('Error reactivating order:', error);
+                    toast({
+                      title: 'Error',
+                      description: 'No se pudo reagendar el pedido',
+                      variant: 'destructive',
+                    });
+                  }
                 }}
               >
                 🔄 Programar Reintento de Entrega
               </Button>
 
               <Button
-                variant="destructive"
-                className="w-full"
+                variant="outline"
+                className="w-full border-red-500 text-red-500 hover:bg-red-500/10 font-semibold"
                 size="lg"
                 onClick={async () => {
                   if (confirm('¿Estás seguro de que deseas cancelar este pedido? Esta acción no se puede deshacer.')) {
@@ -555,8 +592,8 @@ export default function Delivery() {
   // Not found state
   if (state.type === 'not_found') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <Card className="max-w-md w-full text-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+        <Card className="max-w-md w-full text-center bg-gray-800 border-gray-700">
           <CardHeader>
             <AlertCircle className="h-20 w-20 text-orange-500 mx-auto mb-4" />
             <CardTitle className="text-2xl">Pedido no encontrado</CardTitle>
@@ -571,10 +608,10 @@ export default function Delivery() {
   const orderData = state.data;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 pb-20">
+    <div className="min-h-screen bg-gray-900 p-4 pb-20">
       <div className="max-w-2xl mx-auto space-y-4">
         {/* Header */}
-        <Card>
+        <Card className="bg-gray-800 border-gray-700">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
@@ -587,7 +624,7 @@ export default function Delivery() {
         </Card>
 
         {/* Customer Info */}
-        <Card>
+        <Card className="bg-gray-800 border-gray-700">
           <CardHeader>
             <CardTitle>Información del Cliente</CardTitle>
           </CardHeader>
@@ -638,7 +675,7 @@ export default function Delivery() {
         </Card>
 
         {/* Order Items */}
-        <Card>
+        <Card className="bg-gray-800 border-gray-700">
           <CardHeader>
             <CardTitle>Productos</CardTitle>
           </CardHeader>
@@ -673,7 +710,7 @@ export default function Delivery() {
         </Card>
 
         {/* Actions */}
-        <Card>
+        <Card className="bg-gray-800 border-gray-700">
           <CardHeader>
             <CardTitle>Acciones de Entrega</CardTitle>
           </CardHeader>
