@@ -748,7 +748,7 @@ shopifyRouter.delete('/products/:id', async (req: AuthRequest, res: Response) =>
 });
 
 // GET /api/shopify/integration
-// Obtener configuracion actual de Shopify
+// Obtener configuracion actual de Shopify (solo integraciones activas)
 shopifyRouter.get('/integration', async (req: AuthRequest, res: Response) => {
   try {
     const storeId = req.storeId;
@@ -757,6 +757,7 @@ shopifyRouter.get('/integration', async (req: AuthRequest, res: Response) => {
       .from('shopify_integrations')
       .select('id, shop_domain, shop_name, status, import_products, import_customers, import_orders, import_historical_orders, last_sync_at, shop_data')
       .eq('store_id', storeId)
+      .eq('status', 'active') // Only return active integrations
       .single();
 
     if (error || !integration) {

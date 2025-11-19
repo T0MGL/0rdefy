@@ -81,7 +81,7 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     let query = supabaseAdmin
       .from('delivery_attempts')
-      .select('*, orders!inner(order_number, customer_name)', { count: 'exact' })
+      .select('*, orders!inner(shopify_order_number, customer_first_name, customer_last_name, customer_phone)', { count: 'exact' })
       .eq('store_id', req.storeId)
       .order('created_at', { ascending: false });
 
@@ -129,7 +129,7 @@ deliveryAttemptsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
     const { data, error } = await supabaseAdmin
       .from('delivery_attempts')
-      .select('*, orders!inner(order_number, customer_name, customer_phone)')
+      .select('*, orders!inner(shopify_order_number, customer_first_name, customer_last_name, customer_phone)')
       .eq('id', id)
       .eq('store_id', req.storeId)
       .single();
