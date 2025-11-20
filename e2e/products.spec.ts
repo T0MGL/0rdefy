@@ -9,7 +9,7 @@ test.describe('Products Management', () => {
   // Login helper
   async function login(page) {
     await page.goto('/login');
-    await page.fill('input[name="email"]', 'test@ordefy.app');
+    await page.fill('input[name="email"]', 'test@ordefy.io');
     await page.fill('input[name="password"]', 'test123456');
     await page.click('button[type="submit"]');
     await page.waitForTimeout(3000);

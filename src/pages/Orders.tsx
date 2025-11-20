@@ -17,6 +17,7 @@ import { carriersService } from '@/services/carriers.service';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
+import { useDateRange } from '@/contexts/DateRangeContext';
 import { Order } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 import { Button } from '@/components/ui/button';
@@ -79,8 +80,9 @@ export default function Orders() {
   const [isPrintingBulk, setIsPrintingBulk] = useState(false);
   const [bulkPrintOrders, setBulkPrintOrders] = useState<Order[]>([]);
   const [bulkPrintIndex, setBulkPrintIndex] = useState(0);
-  const { toast} = useToast();
+  const { toast } = useToast();
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
+  const { getDateRange } = useDateRange();
   const debouncedSearch = useDebounce(search, 300);
   const previousCountRef = useRef(0);
 
@@ -114,10 +116,19 @@ export default function Orders() {
     return carrierIdOrName;
   }, [carriers]);
 
+  // Memoize date params to trigger refetch when date range changes
+  const dateParams = useMemo(() => {
+    const dateRange = getDateRange();
+    return {
+      startDate: dateRange.from.toISOString().split('T')[0],
+      endDate: dateRange.to.toISOString().split('T')[0],
+    };
+  }, [getDateRange]);
+
   // Smart polling - only polls when page is visible
-  useSmartPolling({
-    queryFn: async () => {
-      const data = await ordersService.getAll();
+  const { refetch } = useSmartPolling({
+    queryFn: useCallback(async () => {
+      const data = await ordersService.getAll(dateParams);
 
       // Check for new orders
       if (data.length > previousCountRef.current && previousCountRef.current > 0) {
@@ -132,11 +143,16 @@ export default function Orders() {
       previousCountRef.current = data.length;
       setIsLoading(false);
       return data;
-    },
+    }, [dateParams, toast]),
     interval: 15000, // Poll every 15 seconds when page is visible
     enabled: true,
     fetchOnMount: true,
   });
+
+  // Refetch when date range changes
+  useEffect(() => {
+    refetch();
+  }, [dateParams, refetch]);
   
   const handleConfirm = useCallback(async (orderId: string) => {
     // Get original order before confirming

@@ -17,8 +17,9 @@ export const shopifyOAuthRouter = Router();
 // ================================================================
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
-const SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_orders';
+const SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_orders,read_customers,write_customers';
 const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI;
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2024-10';
 const APP_URL = process.env.APP_URL || 'http://localhost:8080';
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 
@@ -49,14 +50,14 @@ async function registerShopifyWebhooks(
   accessToken: string,
   integrationId: string
 ): Promise<void> {
-  const baseUrl = `https://${shop}/admin/api/2024-10/webhooks.json`;
+  const baseUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`;
 
   console.log(`🔧 [SHOPIFY-WEBHOOKS] Registering webhooks for ${shop}...`);
 
   for (const topic of WEBHOOK_TOPICS) {
     try {
       // Construct webhook URL endpoint
-      const webhookUrl = `${API_URL}/api/shopify/webhooks/${topic.replace('/', '-')}`;
+      const webhookUrl = `${API_URL}/api/shopify/webhook/${topic.replace('/', '-')}`;
 
       console.log(`🔗 [SHOPIFY-WEBHOOKS] Registering ${topic} → ${webhookUrl}`);
 
@@ -253,6 +254,45 @@ shopifyOAuthRouter.get('/auth', handleOAuthStart);
 shopifyOAuthRouter.get('/install', handleOAuthStart);
 
 // ================================================================
+// GET /api/shopify-oauth/health - Health check for OAuth configuration
+// ================================================================
+// Returns configuration status and any missing environment variables
+// ================================================================
+shopifyOAuthRouter.get('/health', async (req: Request, res: Response) => {
+  const status = {
+    configured: true,
+    missing_vars: [] as string[],
+    config: {
+      api_key: !!SHOPIFY_API_KEY,
+      api_secret: !!SHOPIFY_API_SECRET,
+      redirect_uri: !!SHOPIFY_REDIRECT_URI,
+      app_url: !!APP_URL,
+      api_url: !!API_URL,
+      scopes: SHOPIFY_SCOPES,
+      api_version: SHOPIFY_API_VERSION
+    }
+  };
+
+  if (!SHOPIFY_API_KEY) status.missing_vars.push('SHOPIFY_API_KEY');
+  if (!SHOPIFY_API_SECRET) status.missing_vars.push('SHOPIFY_API_SECRET');
+  if (!SHOPIFY_REDIRECT_URI) status.missing_vars.push('SHOPIFY_REDIRECT_URI');
+
+  status.configured = status.missing_vars.length === 0;
+
+  if (!status.configured) {
+    return res.status(503).json({
+      ...status,
+      message: 'Shopify OAuth is not fully configured'
+    });
+  }
+
+  res.json({
+    ...status,
+    message: 'Shopify OAuth is properly configured'
+  });
+});
+
+// ================================================================
 // GET /api/shopify-oauth/callback - OAuth callback from Shopify
 // ================================================================
 // Query params: code, hmac, shop, state, timestamp
@@ -345,7 +385,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     let shopName = shop as string; // Default to shop domain
     try {
       const shopInfoResponse = await axios.get(
-        `https://${shop}/admin/api/2024-10/shop.json`,
+        `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`,
         {
           headers: {
             'X-Shopify-Access-Token': access_token,

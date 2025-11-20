@@ -1064,3 +1064,160 @@ shopifyRouter.delete('/webhooks/remove-all', async (req: AuthRequest, res: Respo
     });
   }
 });
+
+// ================================================================
+// GDPR MANDATORY WEBHOOKS FOR PUBLIC SHOPIFY APPS
+// ================================================================
+
+// POST /api/shopify/webhook/customers/data_request
+// Shopify calls this when a customer requests their data (GDPR compliance)
+shopifyRouter.post('/webhook/customers/data_request', async (req: Request, res: Response) => {
+  try {
+    const shopDomain = req.get('X-Shopify-Shop-Domain');
+    const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
+    const rawBody = JSON.stringify(req.body);
+
+    if (!shopDomain || !hmacHeader) {
+      console.error('❌ GDPR webhook missing required headers');
+      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+    }
+
+    // Get integration by domain
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('api_secret_key, webhook_signature')
+      .eq('shop_domain', shopDomain)
+      .eq('status', 'active')
+      .single();
+
+    if (error || !integration) {
+      console.error('❌ Integration not found for GDPR webhook:', shopDomain);
+      return res.status(401).json({ error: 'Unauthorized - integration not found' });
+    }
+
+    // Verify HMAC signature
+    const isValid = ShopifyWebhookService.verifyHmacSignature(
+      rawBody,
+      hmacHeader,
+      integration.webhook_signature || integration.api_secret_key
+    );
+
+    if (!isValid) {
+      console.error('❌ Invalid HMAC signature for customers/data_request');
+      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+    }
+
+    console.log('✅ GDPR customers/data_request webhook received:', req.body);
+
+    // TODO: Implement actual data request handling
+    // This should compile customer data and send it to the provided email
+
+    res.status(200).json({ success: true });
+
+  } catch (error: any) {
+    console.error('❌ Error processing customers/data_request webhook:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/shopify/webhook/customers/redact
+// Shopify calls this when a customer requests deletion of their data (GDPR compliance)
+shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Response) => {
+  try {
+    const shopDomain = req.get('X-Shopify-Shop-Domain');
+    const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
+    const rawBody = JSON.stringify(req.body);
+
+    if (!shopDomain || !hmacHeader) {
+      console.error('❌ GDPR webhook missing required headers');
+      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+    }
+
+    // Get integration by domain
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('api_secret_key, webhook_signature')
+      .eq('shop_domain', shopDomain)
+      .eq('status', 'active')
+      .single();
+
+    if (error || !integration) {
+      console.error('❌ Integration not found for GDPR webhook:', shopDomain);
+      return res.status(401).json({ error: 'Unauthorized - integration not found' });
+    }
+
+    // Verify HMAC signature
+    const isValid = ShopifyWebhookService.verifyHmacSignature(
+      rawBody,
+      hmacHeader,
+      integration.webhook_signature || integration.api_secret_key
+    );
+
+    if (!isValid) {
+      console.error('❌ Invalid HMAC signature for customers/redact');
+      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+    }
+
+    console.log('✅ GDPR customers/redact webhook received:', req.body);
+
+    // TODO: Implement actual customer data redaction
+    // This should anonymize or delete customer PII from the database
+
+    res.status(200).json({ success: true });
+
+  } catch (error: any) {
+    console.error('❌ Error processing customers/redact webhook:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/shopify/webhook/shop/redact
+// Shopify calls this when a shop uninstalls the app (GDPR compliance)
+shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) => {
+  try {
+    const shopDomain = req.get('X-Shopify-Shop-Domain');
+    const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
+    const rawBody = JSON.stringify(req.body);
+
+    if (!shopDomain || !hmacHeader) {
+      console.error('❌ GDPR webhook missing required headers');
+      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+    }
+
+    // Get integration by domain
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('api_secret_key, webhook_signature, store_id')
+      .eq('shop_domain', shopDomain)
+      .single(); // Don't filter by status - shop may already be inactive
+
+    if (error || !integration) {
+      console.error('❌ Integration not found for GDPR webhook:', shopDomain);
+      return res.status(401).json({ error: 'Unauthorized - integration not found' });
+    }
+
+    // Verify HMAC signature
+    const isValid = ShopifyWebhookService.verifyHmacSignature(
+      rawBody,
+      hmacHeader,
+      integration.webhook_signature || integration.api_secret_key
+    );
+
+    if (!isValid) {
+      console.error('❌ Invalid HMAC signature for shop/redact');
+      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+    }
+
+    console.log('✅ GDPR shop/redact webhook received:', req.body);
+
+    // TODO: Implement actual shop data redaction
+    // This should delete or anonymize all data related to the shop
+    // Consider: products, customers, orders, integration config
+
+    res.status(200).json({ success: true });
+
+  } catch (error: any) {
+    console.error('❌ Error processing shop/redact webhook:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});

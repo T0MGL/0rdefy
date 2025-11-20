@@ -277,7 +277,7 @@ export default function Products() {
             transition={{ delay: index * 0.1 }}
           >
             <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50">
-              <div className="aspect-video bg-muted flex items-center justify-center">
+              <div className="aspect-square bg-muted flex items-center justify-center">
                 <img
                   src={product.image}
                   alt={product.name}

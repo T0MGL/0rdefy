@@ -210,6 +210,62 @@ couriersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
+// PATCH /api/couriers/:id/toggle - Toggle courier active status
+// ================================================================
+couriersRouter.patch('/:id/toggle', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // First, get current status
+        const { data: currentData, error: fetchError } = await supabaseAdmin
+            .from('carriers')
+            .select('is_active')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (fetchError || !currentData) {
+            return res.status(404).json({
+                error: 'Courier not found'
+            });
+        }
+
+        // Toggle the status
+        const newStatus = !currentData.is_active;
+
+        const { data, error } = await supabaseAdmin
+            .from('carriers')
+            .update({
+                is_active: newStatus,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .select()
+            .single();
+
+        if (error || !data) {
+            return res.status(404).json({
+                error: 'Courier not found'
+            });
+        }
+
+        console.log(`🔄 [COURIERS] Toggled courier ${id} to ${newStatus ? 'active' : 'inactive'}`);
+
+        res.json({
+            message: `Courier ${newStatus ? 'activated' : 'deactivated'} successfully`,
+            data
+        });
+    } catch (error: any) {
+        console.error(`[PATCH /api/couriers/${req.params.id}/toggle] Error:`, error);
+        res.status(500).json({
+            error: 'Failed to toggle courier status',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
 // DELETE /api/couriers/:id - Delete courier
 // ================================================================
 couriersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {

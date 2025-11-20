@@ -119,7 +119,7 @@ const faqs = [
     category: 'Soporte Técnico',
     question: '¿Qué hago si tengo un problema técnico?',
     answer:
-      'Contacta a nuestro equipo de soporte haciendo clic en "Contactar Soporte". También puedes: 1) Revisar estos FAQs, 2) Ver los tutoriales en video, 3) Enviarnos un mensaje por WhatsApp al número de soporte, 4) Escribirnos a soporte@ordefy.app',
+      'Contacta a nuestro equipo de soporte haciendo clic en "Contactar Soporte". También puedes: 1) Revisar estos FAQs, 2) Ver los tutoriales en video, 3) Enviarnos un mensaje por WhatsApp al número de soporte, 4) Escribirnos a soporte@ordefy.io',
   },
   {
     category: 'Seguridad',

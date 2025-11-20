@@ -9,6 +9,7 @@ import { Header } from "@/components/Header";
 import { OnboardingGuard } from "@/components/OnboardingGuard";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -93,10 +94,11 @@ const App = () => {
             <Sonner />
             <BrowserRouter>
               <AuthProvider>
-                <ErrorBoundary>
-                  <OnboardingGuard>
-                <Suspense fallback={<CardSkeleton count={1} />}>
-                  <Routes>
+                <DateRangeProvider>
+                  <ErrorBoundary>
+                    <OnboardingGuard>
+                  <Suspense fallback={<CardSkeleton count={1} />}>
+                    <Routes>
                     {/* Public routes */}
                     <Route path="/login" element={<LoginDemo />} />
                     <Route path="/signup" element={<SignUp />} />
@@ -119,10 +121,11 @@ const App = () => {
                     <Route path="/settlements" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></ProtectedLayout>} />
                     <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
                     <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
-                  </Routes>
-                </Suspense>
-                  </OnboardingGuard>
-                </ErrorBoundary>
+                    </Routes>
+                  </Suspense>
+                    </OnboardingGuard>
+                  </ErrorBoundary>
+                </DateRangeProvider>
               </AuthProvider>
             </BrowserRouter>
           </ThemeProvider>

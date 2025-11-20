@@ -77,8 +77,12 @@ export function generateRecommendations(data: RecommendationEngineData): Recomme
 
   if (topCarriers.length === 0) return recommendations;
 
+  // Only include carriers with at least 1 delivery for average calculation
+  const carriersWithDeliveries = carriers.filter(c => (c.total_deliveries || c.totalShipments || 0) > 0);
+  if (carriersWithDeliveries.length === 0) return recommendations;
+
   const avgTopRate = topCarriers.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / topCarriers.length;
-  const allAvgRate = carriers.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / carriers.length;
+  const allAvgRate = carriersWithDeliveries.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / carriersWithDeliveries.length;
   
   if (avgTopRate > allAvgRate + 10) {
     recommendations.push({

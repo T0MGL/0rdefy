@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
-import { Bell, ChevronDown, Calendar, AlertTriangle } from 'lucide-react';
+import { useDateRange } from '@/contexts/DateRangeContext';
+import { Bell, ChevronDown, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
 import { ordersService } from '@/services/orders.service';
@@ -25,7 +26,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
-import { AlertsPanel } from './AlertsPanel';
 import { StoreSwitcher } from './StoreSwitcher';
 
 const dateRanges = [
@@ -53,9 +53,8 @@ export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
-  const [selectedRange, setSelectedRange] = useState('7d');
+  const { selectedRange, setSelectedRange } = useDateRange();
   const [notifOpen, setNotifOpen] = useState(false);
-  const [alertsOpen, setAlertsOpen] = useState(false);
   const [profileImage, setProfileImage] = useState('');
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -191,30 +190,18 @@ export function Header() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          
-          {/* Alerts */}
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="relative h-9 w-9"
-            onClick={() => setAlertsOpen(true)}
-          >
-            <AlertTriangle size={18} className="text-muted-foreground" />
-            {criticalAlerts > 0 && (
-              <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] bg-red-600 border-2 border-card">
-                {criticalAlerts}
-              </Badge>
-            )}
-          </Button>
 
           {/* Notifications */}
           <DropdownMenu open={notifOpen} onOpenChange={handleNotificationOpen}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative h-9 w-9">
                 <Bell size={18} className="text-muted-foreground" />
-                {unreadCount > 0 && (
-                  <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] bg-destructive border-2 border-card">
-                    {unreadCount}
+                {(unreadCount > 0 || criticalAlerts > 0) && (
+                  <Badge className={cn(
+                    "absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] border-2 border-card",
+                    criticalAlerts > 0 ? "bg-red-600" : "bg-destructive"
+                  )}>
+                    {unreadCount + criticalAlerts}
                   </Badge>
                 )}
               </Button>
@@ -311,8 +298,6 @@ export function Header() {
           </DropdownMenu>
         </div>
       </div>
-
-      <AlertsPanel open={alertsOpen} onOpenChange={setAlertsOpen} initialAlerts={alerts} />
     </header>
   );
 }
