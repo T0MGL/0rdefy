@@ -6,10 +6,9 @@ import { codMetricsService } from '@/services/cod-metrics.service';
 import { QuickActions } from '@/components/QuickActions';
 import { DailySummary } from '@/components/DailySummary';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
-import { PeriodComparator } from '@/components/PeriodComparator';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { RevenueProjectionCard } from '@/components/RevenueProjectionCard';
-import { PeriodType } from '@/utils/periodComparison';
+import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData, Product, ConfirmationMetrics } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
@@ -44,9 +43,10 @@ import {
 export default function Dashboard() {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('week-lastweek');
-  const [customDates, setCustomDates] = useState<{ start: Date; end: Date } | undefined>();
   const [isLoading, setIsLoading] = useState(true);
+
+  // Use global date range context
+  const { getDateRange } = useDateRange();
 
   // Real analytics data
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
@@ -65,62 +65,41 @@ export default function Dashboard() {
     'pending': { name: 'Pendiente', color: 'hsl(45, 93%, 47%)' },
   }), []);
 
-  // Calculate date ranges based on selected period
-  const getDateRange = useMemo(() => {
-    const now = new Date();
-    let startDate: Date;
-    let endDate: Date = now;
-    let days = 7;
+  // Calculate date ranges from global context
+  const dateRange = useMemo(() => {
+    const range = getDateRange();
+    const diffTime = Math.abs(range.to.getTime() - range.from.getTime());
+    const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-    if (selectedPeriod === 'custom' && customDates) {
-      startDate = customDates.start;
-      endDate = customDates.end;
-      const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-      days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    } else if (selectedPeriod === 'today-yesterday') {
-      startDate = new Date(now);
-      startDate.setHours(0, 0, 0, 0);
-      days = 1;
-    } else if (selectedPeriod === 'week-lastweek') {
-      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      days = 7;
-    } else if (selectedPeriod === 'month-lastmonth') {
-      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      days = 30;
-    } else {
-      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      days = 7;
-    }
-
-    const range = {
-      startDate: startDate.toISOString().split('T')[0],
-      endDate: endDate.toISOString().split('T')[0],
+    const result = {
+      startDate: range.from.toISOString().split('T')[0],
+      endDate: range.to.toISOString().split('T')[0],
       days,
     };
 
-    console.log('📅 Date range calculated:', { period: selectedPeriod, ...range });
-    return range;
-  }, [selectedPeriod, customDates]);
+    console.log('📅 Date range calculated:', result);
+    return result;
+  }, [getDateRange]);
 
   const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const dateParams = {
-        startDate: getDateRange.startDate,
-        endDate: getDateRange.endDate,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
       };
 
       console.log('📊 Loading dashboard data with params:', dateParams);
 
       const [overview, chart, products, confirmation, statusDist, codData] = await Promise.all([
         analyticsService.getOverview(dateParams),
-        analyticsService.getChartData(getDateRange.days, dateParams),
+        analyticsService.getChartData(dateRange.days, dateParams),
         analyticsService.getTopProducts(5, dateParams),
         analyticsService.getConfirmationMetrics(dateParams),
         analyticsService.getOrderStatusDistribution(dateParams),
         codMetricsService.getMetrics({
-          start_date: dateParams.startDate, // ✅ Already a string, no need for toISOString()
-          end_date: dateParams.endDate, // ✅ Already a string, no need for toISOString()
+          start_date: dateParams.startDate,
+          end_date: dateParams.endDate,
         }).catch(() => null), // Fail silently if COD metrics not available
       ]);
 
@@ -156,7 +135,7 @@ export default function Dashboard() {
         setIsLoading(false);
       }
     }
-  }, [statusMap, getDateRange]);
+  }, [statusMap, dateRange]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -167,16 +146,6 @@ export default function Dashboard() {
       abortController.abort();
     };
   }, [loadDashboardData]);
-
-  const handlePeriodChange = useCallback((period: PeriodType, dates?: { start: Date; end: Date }) => {
-    console.log('🔄 Period changed:', period, dates);
-    setSelectedPeriod(period);
-    if (period === 'custom' && dates) {
-      setCustomDates(dates);
-    } else {
-      setCustomDates(undefined);
-    }
-  }, []);
 
   const handleMetricClick = useCallback((metric: string) => {
     setSelectedMetric(metric);
@@ -224,11 +193,6 @@ export default function Dashboard() {
 
       {/* Quick Actions */}
       <QuickActions />
-      
-      {/* Period Comparator */}
-      <div className="flex justify-end">
-        <PeriodComparator value={selectedPeriod} onPeriodChange={handlePeriodChange} />
-      </div>
 
       {/* Revenue Projection Card (only shows with ≥10% growth) */}
       {revenueProjection && <RevenueProjectionCard projection={revenueProjection} />}

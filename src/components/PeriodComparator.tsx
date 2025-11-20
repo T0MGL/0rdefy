@@ -73,16 +73,12 @@ export function PeriodComparator({ value, onPeriodChange }: PeriodComparatorProp
     return 'Rango Personalizado';
   };
 
-  const currentLabel = selected === 'custom' && startDate
-    ? getCustomLabel()
-    : periods.find(p => p.value === selected)?.label || 'Seleccionar período';
-
   return (
     <div className="flex items-center gap-2">
       <Calendar size={18} className="text-muted-foreground" />
       <Select value={selected} onValueChange={handleChange}>
         <SelectTrigger className="w-[280px]">
-          <SelectValue>{currentLabel}</SelectValue>
+          <SelectValue placeholder="Seleccionar período" />
         </SelectTrigger>
         <SelectContent>
           {periods.map(p => (
