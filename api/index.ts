@@ -26,6 +26,7 @@ import { shopifyOAuthRouter } from './routes/shopify-oauth';
 import { shopifySyncRouter } from './routes/shopify-sync';
 import shopifyWebhooksRouter from './routes/shopify-webhooks';
 import { shopifyMandatoryWebhooksRouter } from './routes/shopify-mandatory-webhooks';
+import { shopifyComplianceRouter } from './routes/shopify-compliance';
 import { deliveryAttemptsRouter } from './routes/delivery-attempts';
 import { settlementsRouter } from './routes/settlements';
 import { codMetricsRouter } from './routes/cod-metrics';
@@ -250,7 +251,8 @@ app.use(cors({
 // We need raw body for Shopify webhook signature verification
 // ================================================================
 app.use((req: any, res: Response, next: NextFunction) => {
-    if (req.path.startsWith('/api/shopify/webhooks')) {
+    // Handle both regular webhooks and compliance webhooks
+    if (req.path.startsWith('/api/shopify/webhooks') || req.path.startsWith('/api/shopify/compliance')) {
         let data = '';
         req.setEncoding('utf8');
         req.on('data', (chunk: string) => {
@@ -314,6 +316,7 @@ app.use('/api/auth/delete-account', authLimiter);
 
 // Apply webhook limiter to webhook endpoints
 app.use('/api/shopify/webhooks', webhookLimiter);
+app.use('/api/shopify/compliance', webhookLimiter);
 
 // Apply write operations limiter to all API routes
 app.use('/api/', writeOperationsLimiter);
@@ -338,6 +341,7 @@ app.use('/api/shopify-oauth', shopifyOAuthRouter);
 app.use('/api/shopify-sync', shopifySyncRouter);
 app.use('/api/shopify/webhooks', shopifyWebhooksRouter);
 app.use('/api/shopify/webhooks', shopifyMandatoryWebhooksRouter);
+app.use('/api/shopify/compliance', shopifyComplianceRouter);
 
 // COD (Cash on Delivery) routes
 app.use('/api/delivery-attempts', deliveryAttemptsRouter);

@@ -92,11 +92,14 @@ export default function Dashboard() {
       days = 7;
     }
 
-    return {
+    const range = {
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0],
       days,
     };
+
+    console.log('📅 Date range calculated:', { period: selectedPeriod, ...range });
+    return range;
   }, [selectedPeriod, customDates]);
 
   const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
@@ -106,6 +109,8 @@ export default function Dashboard() {
         startDate: getDateRange.startDate,
         endDate: getDateRange.endDate,
       };
+
+      console.log('📊 Loading dashboard data with params:', dateParams);
 
       const [overview, chart, products, confirmation, statusDist, codData] = await Promise.all([
         analyticsService.getOverview(dateParams),
@@ -164,6 +169,7 @@ export default function Dashboard() {
   }, [loadDashboardData]);
 
   const handlePeriodChange = useCallback((period: PeriodType, dates?: { start: Date; end: Date }) => {
+    console.log('🔄 Period changed:', period, dates);
     setSelectedPeriod(period);
     if (period === 'custom' && dates) {
       setCustomDates(dates);
@@ -221,7 +227,7 @@ export default function Dashboard() {
       
       {/* Period Comparator */}
       <div className="flex justify-end">
-        <PeriodComparator onPeriodChange={handlePeriodChange} />
+        <PeriodComparator value={selectedPeriod} onPeriodChange={handlePeriodChange} />
       </div>
 
       {/* Revenue Projection Card (only shows with ≥10% growth) */}

@@ -19,7 +19,7 @@ const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
 const SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_orders,read_customers,write_customers';
 const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI;
-const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2024-10';
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-10';
 const APP_URL = process.env.APP_URL || 'http://localhost:8080';
 const API_URL = process.env.API_URL || 'http://localhost:3001';
 

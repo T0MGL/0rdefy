@@ -67,7 +67,7 @@ export class ShopifyClientService {
     });
 
     // Create axios client with Shopify configuration
-    const apiVersion = process.env.SHOPIFY_API_VERSION || '2024-10';
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
     this.client = axios.create({
       baseURL: `https://${integration.shop_domain}/admin/api/${apiVersion}`,
       headers: {
