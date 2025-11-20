@@ -180,9 +180,14 @@ export default function CourierPerformance() {
                 <div>
                   <p className="text-xs text-muted-foreground">Tasa de Éxito</p>
                   <p className="text-2xl font-bold">
-                    {(
-                      couriers.reduce((sum, c) => sum + c.delivery_rate, 0) / couriers.length
-                    ).toFixed(1)}%
+                    {(() => {
+                      // Only include couriers with at least 1 delivery for average calculation
+                      const couriersWithDeliveries = couriers.filter(c => c.total_deliveries > 0);
+                      if (couriersWithDeliveries.length === 0) return '0.0';
+                      return (
+                        couriersWithDeliveries.reduce((sum, c) => sum + c.delivery_rate, 0) / couriersWithDeliveries.length
+                      ).toFixed(1);
+                    })()}%
                   </p>
                 </div>
                 <div>

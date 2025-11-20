@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is **Ordefy**, an e-commerce management dashboard built with React, TypeScript, Vite, and shadcn/ui. The application helps manage orders, products, carriers, suppliers, ads, and provides intelligent business analytics with health scoring, alerts, and recommendations.
 
 **Developed by:** Bright Idea
-**Domain:** ordefy.app
+**Domain:** ordefy.io
 **Copyright:** All Rights Reserved
 
 ## Development Commands
@@ -603,14 +603,14 @@ psql -h <host> -U <user> -d <database> \
 
 **Retry Queue Processor** (every 5 minutes):
 ```bash
-*/5 * * * * curl -X POST http://api.ordefy.app/api/shopify/webhook-retry/process \
+*/5 * * * * curl -X POST http://api.ordefy.io/api/shopify/webhook-retry/process \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}"
 ```
 
 **Idempotency Cleanup** (daily at 3 AM):
 ```bash
-0 3 * * * curl -X POST http://api.ordefy.app/api/shopify/webhook-cleanup \
+0 3 * * * curl -X POST http://api.ordefy.io/api/shopify/webhook-cleanup \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}"
 ```

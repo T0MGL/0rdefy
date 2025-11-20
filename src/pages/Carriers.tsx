@@ -200,8 +200,11 @@ export default function Carriers() {
 
   // Calculate global metrics
   const totalDeliveries = carriersWithStats.reduce((sum, c) => sum + (c.total_deliveries || 0), 0);
-  const avgDeliveryRate = carriersWithStats.length > 0
-    ? carriersWithStats.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / carriersWithStats.length
+
+  // Only include carriers with at least 1 delivery for average calculation
+  const carriersWithDeliveries = carriersWithStats.filter(c => (c.total_deliveries || 0) > 0);
+  const avgDeliveryRate = carriersWithDeliveries.length > 0
+    ? carriersWithDeliveries.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / carriersWithDeliveries.length
     : 0;
 
   // Calculate average rating (only from carriers with ratings)

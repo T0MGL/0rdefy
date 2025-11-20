@@ -478,7 +478,9 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             limit = '50',
             offset = '0',
             customer_phone,
-            shopify_order_id
+            shopify_order_id,
+            startDate,
+            endDate
         } = req.query;
 
         // Build query
@@ -506,6 +508,18 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         if (shopify_order_id) {
             query = query.eq('shopify_order_id', shopify_order_id);
+        }
+
+        // Date range filtering
+        if (startDate) {
+            query = query.gte('created_at', startDate as string);
+        }
+
+        if (endDate) {
+            // Add one day to endDate to include the full day
+            const endDateTime = new Date(endDate as string);
+            endDateTime.setDate(endDateTime.getDate() + 1);
+            query = query.lt('created_at', endDateTime.toISOString());
         }
 
         const { data, error, count } = await query;

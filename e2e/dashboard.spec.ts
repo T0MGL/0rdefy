@@ -9,7 +9,7 @@ test.describe('Dashboard', () => {
   // Login helper
   async function login(page) {
     await page.goto('/login');
-    await page.fill('input[name="email"]', 'test@ordefy.app');
+    await page.fill('input[name="email"]', 'test@ordefy.io');
     await page.fill('input[name="password"]', 'test123456');
     await page.click('button[type="submit"]');
     await page.waitForTimeout(3000);
@@ -303,7 +303,7 @@ test.describe('Dashboard', () => {
     await page.waitForTimeout(2000);
 
     // Look for user name or email in header
-    const hasUserInfo = await page.locator('text=/test@ordefy.app|Test User/i').count() > 0;
+    const hasUserInfo = await page.locator('text=/test@ordefy.io|Test User/i').count() > 0;
 
     expect(hasUserInfo).toBeTruthy();
   });

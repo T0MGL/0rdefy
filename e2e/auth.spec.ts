@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Authentication', () => {
   const testUser = {
-    email: `test${Date.now()}@ordefy.app`,
+    email: `test${Date.now()}@ordefy.io`,
     password: 'Test123456!',
     name: 'Test User E2E'
   };
@@ -86,7 +86,7 @@ test.describe('Authentication', () => {
     await page.goto('/login');
 
     // Use a known test account or the one we just created
-    await page.fill('input[name="email"]', 'test@ordefy.app');
+    await page.fill('input[name="email"]', 'test@ordefy.io');
     await page.fill('input[name="password"]', 'test123456');
 
     // Submit form
@@ -103,7 +103,7 @@ test.describe('Authentication', () => {
   test('should logout successfully', async ({ page }) => {
     // First login
     await page.goto('/login');
-    await page.fill('input[name="email"]', 'test@ordefy.app');
+    await page.fill('input[name="email"]', 'test@ordefy.io');
     await page.fill('input[name="password"]', 'test123456');
     await page.click('button[type="submit"]');
     await page.waitForTimeout(3000);
@@ -139,7 +139,7 @@ test.describe('Authentication', () => {
   test('should persist authentication after page reload', async ({ page }) => {
     // Login
     await page.goto('/login');
-    await page.fill('input[name="email"]', 'test@ordefy.app');
+    await page.fill('input[name="email"]', 'test@ordefy.io');
     await page.fill('input[name="password"]', 'test123456');
     await page.click('button[type="submit"]');
     await page.waitForTimeout(3000);

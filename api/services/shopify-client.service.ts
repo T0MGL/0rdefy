@@ -67,8 +67,9 @@ export class ShopifyClientService {
     });
 
     // Create axios client with Shopify configuration
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2024-10';
     this.client = axios.create({
-      baseURL: `https://${integration.shop_domain}/admin/api/2024-01`,
+      baseURL: `https://${integration.shop_domain}/admin/api/${apiVersion}`,
       headers: {
         'X-Shopify-Access-Token': integration.access_token,
         'Content-Type': 'application/json'
@@ -97,18 +98,60 @@ export class ShopifyClientService {
   }
 
   // Test connection to Shopify
-  async testConnection(): Promise<{ success: boolean; shop_data?: any; error?: string }> {
+  async testConnection(): Promise<{ success: boolean; shop_data?: any; error?: string; error_type?: string }> {
     try {
       await this.rateLimiter.consume();
       const response = await this.client.get('/shop.json');
+
+      if (!response.data || !response.data.shop) {
+        return {
+          success: false,
+          error: 'Invalid response from Shopify API',
+          error_type: 'invalid_response'
+        };
+      }
+
       return {
         success: true,
         shop_data: response.data.shop
       };
     } catch (error: any) {
+      // Parse error type for better debugging
+      let errorType = 'unknown_error';
+      let errorMessage = 'Failed to connect to Shopify';
+
+      if (error.response) {
+        const status = error.response.status;
+        if (status === 401 || status === 403) {
+          errorType = 'authentication_error';
+          errorMessage = 'Invalid Shopify credentials. Please check your API key and access token.';
+        } else if (status === 404) {
+          errorType = 'shop_not_found';
+          errorMessage = 'Shop not found. Please check your shop domain.';
+        } else if (status === 429) {
+          errorType = 'rate_limit_exceeded';
+          errorMessage = 'Rate limit exceeded. Please try again later.';
+        } else if (status >= 500) {
+          errorType = 'shopify_server_error';
+          errorMessage = 'Shopify server error. Please try again later.';
+        } else {
+          errorMessage = error.response.data?.errors || error.message;
+        }
+      } else if (error.request) {
+        errorType = 'network_error';
+        errorMessage = 'Unable to reach Shopify. Please check your internet connection.';
+      }
+
+      console.error('❌ [SHOPIFY-CLIENT] Connection test failed:', {
+        error_type: errorType,
+        error_message: errorMessage,
+        shop_domain: this.integration.shop_domain
+      });
+
       return {
         success: false,
-        error: error.message || 'Failed to connect to Shopify'
+        error: errorMessage,
+        error_type: errorType
       };
     }
   }

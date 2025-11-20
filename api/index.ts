@@ -1,5 +1,5 @@
 // ================================================================
-// ECOMLY API - Express Server Entry Point
+// ORDEFY API - Express Server Entry Point
 // ================================================================
 // E-commerce Management API
 // Developed by Bright Idea - All Rights Reserved
@@ -293,7 +293,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.get('/health', (req: Request, res: Response) => {
     res.json({
         status: 'healthy',
-        service: 'Ecomly API',
+        service: 'Ordefy API',
         version: '1.0.0',
         timestamp: new Date().toISOString(),
         database: 'connected',
@@ -347,7 +347,7 @@ app.use('/api/cod-metrics', codMetricsRouter);
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
     res.json({
-        message: 'Ecomly API Server',
+        message: 'Ordefy API Server',
         version: '1.0.0',
         author: 'Bright Idea',
         documentation: '/api/docs',
@@ -424,7 +424,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 app.listen(PORT, () => {
     console.log('================================================================');
-    console.log('🚀 ECOMLY API SERVER STARTED');
+    console.log('🚀 ORDEFY API SERVER STARTED');
     console.log('================================================================');
     console.log(`📡 Server running on: http://localhost:${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);

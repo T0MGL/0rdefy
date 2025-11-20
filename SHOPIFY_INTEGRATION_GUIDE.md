@@ -66,31 +66,31 @@ SHOPIFY_API_SECRET=your_shopify_api_secret
 SHOPIFY_SCOPES=read_products,write_products,read_orders,write_orders,read_customers,write_customers
 
 # OAuth Redirect URI (debe coincidir con la configuración en Shopify)
-SHOPIFY_REDIRECT_URI=https://api.ordefy.app/api/shopify-oauth/callback
+SHOPIFY_REDIRECT_URI=https://api.ordefy.io/api/shopify-oauth/callback
 
 # ================================================================
 # SHOPIFY INTEGRATION - API URLs
 # ================================================================
 
 # URL del frontend (para redirecciones después de OAuth)
-APP_URL=https://ordefy.app
+APP_URL=https://ordefy.io
 
 # URL del backend (para webhooks)
-API_URL=https://api.ordefy.app
+API_URL=https://api.ordefy.io
 
 # ================================================================
 # N8N INTEGRATION (para confirmación de órdenes vía WhatsApp)
 # ================================================================
 
 # Webhook URL de n8n para enviar nuevas órdenes
-N8N_WEBHOOK_URL=https://n8n.ordefy.app/webhook/shopify-order-confirmation
+N8N_WEBHOOK_URL=https://n8n.ordefy.io/webhook/shopify-order-confirmation
 ```
 
 ### Frontend (.env en /src)
 
 ```bash
 # API Backend URL
-VITE_API_URL=https://api.ordefy.app
+VITE_API_URL=https://api.ordefy.io
 ```
 
 ---
@@ -165,7 +165,7 @@ https://{shop}/admin/oauth/authorize?
 https://mystore.myshopify.com/admin/oauth/authorize?
   client_id=abc123&
   scope=read_products,write_products,read_orders,write_orders&
-  redirect_uri=https://api.ordefy.app/api/shopify-oauth/callback&
+  redirect_uri=https://api.ordefy.io/api/shopify-oauth/callback&
   state=e8f2a9c4b1d3f7a6...
 ```
 
@@ -525,7 +525,7 @@ Lista webhooks registrados en Shopify.
     {
       "id": "1234567",
       "topic": "orders/create",
-      "address": "https://api.ordefy.app/api/shopify/webhook/orders-create",
+      "address": "https://api.ordefy.io/api/shopify/webhook/orders-create",
       "format": "json",
       "created_at": "2024-01-15T10:00:00Z"
     }
@@ -1025,7 +1025,7 @@ const validateHmac = (rawBody: string, hmacHeader: string, secret: string): bool
 #### 1. Procesamiento de Reintentos
 ```bash
 # Cada 5 minutos
-*/5 * * * * curl -X POST https://api.ordefy.app/api/shopify/webhook-retry/process \
+*/5 * * * * curl -X POST https://api.ordefy.io/api/shopify/webhook-retry/process \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}"
 ```
@@ -1033,7 +1033,7 @@ const validateHmac = (rawBody: string, hmacHeader: string, secret: string): bool
 #### 2. Limpieza de Idempotency Keys
 ```bash
 # Diario a las 3 AM
-0 3 * * * curl -X POST https://api.ordefy.app/api/shopify/webhook-cleanup \
+0 3 * * * curl -X POST https://api.ordefy.io/api/shopify/webhook-cleanup \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}"
 ```
@@ -1041,7 +1041,7 @@ const validateHmac = (rawBody: string, hmacHeader: string, secret: string): bool
 #### 3. Verificación de Salud de Webhooks
 ```bash
 # Cada hora
-0 * * * * curl https://api.ordefy.app/api/shopify/webhook-health?hours=1 \
+0 * * * * curl https://api.ordefy.io/api/shopify/webhook-health?hours=1 \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}" | jq .
 ```
@@ -1072,17 +1072,17 @@ WHERE hour_bucket < NOW() - INTERVAL '90 days';
 
 ```bash
 # Listar webhooks registrados
-curl https://api.ordefy.app/api/shopify/webhooks/list \
+curl https://api.ordefy.io/api/shopify/webhooks/list \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}"
 
 # Verificar configuración
-curl https://api.ordefy.app/api/shopify/webhooks/verify \
+curl https://api.ordefy.io/api/shopify/webhooks/verify \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}"
 
 # Re-registrar webhooks si hay problemas
-curl -X POST https://api.ordefy.app/api/shopify/webhooks/setup \
+curl -X POST https://api.ordefy.io/api/shopify/webhooks/setup \
   -H "Authorization: Bearer {token}" \
   -H "X-Store-ID: {store_id}"
 ```
@@ -1196,7 +1196,7 @@ LIMIT 24;
 # ============================================================
 
 # Iniciar OAuth
-https://api.ordefy.app/api/shopify-oauth/auth?shop=mystore.myshopify.com&store_id=uuid
+https://api.ordefy.io/api/shopify-oauth/auth?shop=mystore.myshopify.com&store_id=uuid
 
 # Verificar estado
 GET /api/shopify-oauth/status?shop=mystore.myshopify.com

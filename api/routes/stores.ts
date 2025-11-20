@@ -12,7 +12,8 @@ import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 
 export const storesRouter = Router();
 
-storesRouter.use(verifyToken, extractStoreId);
+// Apply verifyToken to all routes, but extractStoreId only where needed
+storesRouter.use(verifyToken);
 
 
 // ================================================================
@@ -53,7 +54,7 @@ storesRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/stores/current - Get current store (hardcoded for MVP)
 // ================================================================
-storesRouter.get('/current', async (req: AuthRequest, res: Response) => {
+storesRouter.get('/current', extractStoreId, async (req: AuthRequest, res: Response) => {
     try {
         const store = await getStore(req.storeId);
 
