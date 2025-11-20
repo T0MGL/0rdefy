@@ -1,63 +1,30 @@
-# Shopify App Configuration for Ordefy
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration
-
 name = "Ordefy"
-client_id = ""  # Will be set by Shopify CLI or environment
+client_id = "e4ac05aaca557fdb387681f0f209335d"
 handle = "ordefy"
 
 application_url = "https://app.ordefy.io"
 embedded = true
 
 [access_scopes]
-# Define any additional scopes your app needs
-scopes = "read_products,write_products,read_orders,write_orders,read_customers,write_customers"
+scopes = "read_products, write_products, read_orders, write_orders, read_customers, write_customers"
 
 [auth]
 redirect_urls = [
   "https://app.ordefy.io/auth/callback",
   "https://app.ordefy.io/auth/shopify/callback",
   "https://api.ordefy.io/api/auth/callback",
-  "https://api.ordefy.io/api/auth/shopify/callback",
+  "https://api.ordefy.io/api/auth/shopify/callback"
 ]
 
 [webhooks]
 api_version = "2025-10"
 
-# ================================================================
-# MANDATORY GDPR COMPLIANCE WEBHOOKS
-# ================================================================
-# These webhooks are required by Shopify for GDPR compliance
-# All endpoints must:
-# - Accept POST requests with application/json
-# - Verify HMAC signature (X-Shopify-Hmac-Sha256 header)
-# - Return 401 if HMAC is invalid
-# - Return 200 OK if webhook is processed successfully
-# ================================================================
-
-[[webhooks.subscriptions]]
-topics = ["customers/data_request"]
-uri = "https://api.ordefy.io/api/shopify/compliance/customers/data_request"
-
-[[webhooks.subscriptions]]
-topics = ["customers/redact"]
-uri = "https://api.ordefy.io/api/shopify/compliance/customers/redact"
-
-[[webhooks.subscriptions]]
-topics = ["shop/redact"]
-uri = "https://api.ordefy.io/api/shopify/compliance/shop/redact"
-
-# ================================================================
-# APP LIFECYCLE WEBHOOKS (Optional but recommended)
-# ================================================================
-
+# APP LIFECYCLE WEBHOOKS
 [[webhooks.subscriptions]]
 topics = ["app/uninstalled"]
 uri = "https://api.ordefy.io/api/shopify/webhooks/app-uninstalled"
 
-# ================================================================
 # BUSINESS WEBHOOKS
-# ================================================================
-
 [[webhooks.subscriptions]]
 topics = ["orders/create"]
 uri = "https://api.ordefy.io/api/shopify/webhooks/orders-create"
