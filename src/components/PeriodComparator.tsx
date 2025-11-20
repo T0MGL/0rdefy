@@ -19,6 +19,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface PeriodComparatorProps {
+  value?: PeriodType;
   onPeriodChange: (period: PeriodType, customDates?: { start: Date; end: Date }) => void;
 }
 
@@ -29,15 +30,15 @@ const periods = [
   { value: 'custom', label: 'Rango Personalizado' },
 ];
 
-export function PeriodComparator({ onPeriodChange }: PeriodComparatorProps) {
-  const [selected, setSelected] = useState<PeriodType>('week-lastweek');
+export function PeriodComparator({ value, onPeriodChange }: PeriodComparatorProps) {
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
   const [showCalendar, setShowCalendar] = useState(false);
 
-  const handleChange = (value: string) => {
-    const period = value as PeriodType;
-    setSelected(period);
+  const selected = value || 'week-lastweek';
+
+  const handleChange = (newValue: string) => {
+    const period = newValue as PeriodType;
 
     if (period !== 'custom') {
       onPeriodChange(period);
@@ -72,12 +73,16 @@ export function PeriodComparator({ onPeriodChange }: PeriodComparatorProps) {
     return 'Rango Personalizado';
   };
 
+  const currentLabel = selected === 'custom' && startDate
+    ? getCustomLabel()
+    : periods.find(p => p.value === selected)?.label || 'Seleccionar período';
+
   return (
     <div className="flex items-center gap-2">
       <Calendar size={18} className="text-muted-foreground" />
       <Select value={selected} onValueChange={handleChange}>
         <SelectTrigger className="w-[280px]">
-          <SelectValue />
+          <SelectValue>{currentLabel}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {periods.map(p => (
