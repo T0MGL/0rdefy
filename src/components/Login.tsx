@@ -106,73 +106,107 @@ export default function Login() {
   return (
     <div className="min-h-screen flex">
       {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary/95 via-primary/80 to-primary/70 relative overflow-hidden">
-        {/* Dark overlay for better text contrast */}
-        <div className="absolute inset-0 bg-black/20"></div>
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-lime-500 via-lime-600 to-green-700 relative overflow-hidden">
+        {/* Animated background blobs */}
+        <div className="absolute inset-0 overflow-hidden">
+          <motion.div
+            animate={{
+              scale: [1, 1.2, 1],
+              rotate: [0, 90, 0],
+            }}
+            transition={{
+              duration: 20,
+              repeat: Infinity,
+              ease: "linear"
+            }}
+            className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-lime-400/30 to-transparent rounded-full blur-3xl"
+          />
+          <motion.div
+            animate={{
+              scale: [1.2, 1, 1.2],
+              rotate: [90, 0, 90],
+            }}
+            transition={{
+              duration: 15,
+              repeat: Infinity,
+              ease: "linear"
+            }}
+            className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-green-400/30 to-transparent rounded-full blur-3xl"
+          />
+        </div>
 
-        {/* Pattern Overlay */}
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItaDJWMzZoLTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bS00IDBoMnYyaC0ydi0yem0tNCAwaC0ydjJoMnYtMnptMTIgMGgydjJoLTJ2LTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-20"></div>
+        {/* Grid pattern */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.05)_1px,transparent_1px)] bg-[size:50px_50px] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
 
         {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
+        <div className="relative z-10 flex flex-col justify-center px-12 xl:px-16 text-white max-w-2xl">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mb-12"
+            transition={{ duration: 0.6 }}
           >
-            <div className="mb-8">
-              <img
-                src="/delivery-illustration.svg"
-                alt="Delivery Illustration"
-                className="w-full max-w-md mx-auto drop-shadow-2xl animate-float"
-              />
+            <div className="mb-12">
+              <h1 className="text-6xl xl:text-7xl font-bold text-white mb-4 tracking-tight">
+                Ordefy
+              </h1>
+              <div className="h-1.5 w-24 bg-white/90 rounded-full mb-6" />
+              <h2 className="text-2xl xl:text-3xl font-semibold text-white/95 mb-4">
+                Gestiona tu comercio electrónico con inteligencia
+              </h2>
+              <p className="text-lg xl:text-xl text-white/90 leading-relaxed">
+                Optimiza pedidos, inventario, campañas y logística en una sola plataforma.
+                Toma decisiones inteligentes con análisis en tiempo real.
+              </p>
             </div>
-            <h1 className="text-5xl font-bold text-white drop-shadow-lg mb-4">Ordefy</h1>
-            <div className="h-1 w-20 bg-white rounded-full shadow-lg"></div>
           </motion.div>
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <h2 className="text-3xl font-semibold mb-4 text-white drop-shadow-md">
-              Gestiona tu comercio electrónico con inteligencia
-            </h2>
-            <p className="text-xl text-white mb-8 leading-relaxed drop-shadow-md">
-              Optimiza pedidos, inventario, campañas y logística en una sola plataforma.
-              Toma decisiones inteligentes con análisis en tiempo real.
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="space-y-4"
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="grid gap-6"
           >
             {[
-              { title: 'Dashboard Inteligente', desc: 'Métricas y KPIs en tiempo real' },
-              { title: 'Gestión de Pedidos', desc: 'Control total de tus órdenes' },
-              { title: 'Analytics Avanzado', desc: 'Recomendaciones basadas en IA' },
+              {
+                icon: '📊',
+                title: 'Dashboard Inteligente',
+                desc: 'Métricas y KPIs en tiempo real con análisis predictivo'
+              },
+              {
+                icon: '📦',
+                title: 'Gestión de Pedidos',
+                desc: 'Control total de tus órdenes y automatización de procesos'
+              },
+              {
+                icon: '🎯',
+                title: 'Analytics Avanzado',
+                desc: 'Recomendaciones inteligentes para optimizar tu negocio'
+              },
             ].map((feature, index) => (
-              <div key={index} className="flex items-start gap-3">
-                <div className="mt-1 rounded-full bg-white/20 backdrop-blur-sm p-2 shadow-md">
-                  <div className="w-2 h-2 bg-white rounded-full shadow-sm" />
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 + index * 0.1 }}
+                className="flex items-start gap-4 bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20 hover:bg-white/15 transition-all duration-300"
+              >
+                <div className="text-3xl">{feature.icon}</div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-lg text-white mb-1">
+                    {feature.title}
+                  </h3>
+                  <p className="text-white/80 text-sm leading-relaxed">
+                    {feature.desc}
+                  </p>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-lg text-white drop-shadow-md">{feature.title}</h3>
-                  <p className="text-white drop-shadow-sm">{feature.desc}</p>
-                </div>
-              </div>
+              </motion.div>
             ))}
           </motion.div>
         </div>
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-background">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -180,18 +214,21 @@ export default function Login() {
           className="w-full max-w-md"
         >
           {/* Mobile Logo */}
-          <div className="lg:hidden flex flex-col items-center justify-center mb-8">
-            <img
-              src="/delivery-illustration.svg"
-              alt="Ordefy"
-              className="w-32 h-32 object-contain mb-4 animate-float"
-            />
-            <h1 className="text-2xl font-bold text-foreground">Ordefy</h1>
+          <div className="lg:hidden flex flex-col items-center justify-center mb-10">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-lime-500 to-green-600 flex items-center justify-center mb-4 shadow-lg">
+              <span className="text-4xl">📦</span>
+            </div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-lime-600 to-green-600 bg-clip-text text-transparent">
+              Ordefy
+            </h1>
+            <p className="text-sm text-muted-foreground mt-2">
+              Gestiona tu negocio con inteligencia
+            </p>
           </div>
 
           <div className="mb-8">
-            <h2 className="text-3xl font-bold mb-2">Iniciar Sesión</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3">Iniciar Sesión</h2>
+            <p className="text-muted-foreground text-base">
               Ingresa tus credenciales para acceder a tu cuenta
             </p>
           </div>
@@ -279,12 +316,12 @@ export default function Login() {
             {/* Submit Button */}
             <Button
               type="submit"
-              className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="w-full h-12 text-base font-semibold bg-gradient-to-r from-lime-600 to-green-600 hover:from-lime-700 hover:to-green-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
               disabled={isLoading}
             >
               {isLoading ? (
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   Iniciando sesión...
                 </div>
               ) : (
