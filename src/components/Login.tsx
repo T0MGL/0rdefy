@@ -106,7 +106,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex">
       {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-lime-500 via-lime-600 to-green-700 relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden" style={{ background: 'linear-gradient(to bottom right, hsl(84 81% 63%), hsl(84 81% 50%), hsl(84 81% 35%))' }}>
         {/* Animated background blobs */}
         <div className="absolute inset-0 overflow-hidden">
           <motion.div
@@ -119,7 +119,8 @@ export default function Login() {
               repeat: Infinity,
               ease: "linear"
             }}
-            className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-lime-400/30 to-transparent rounded-full blur-3xl"
+            className="absolute -top-1/2 -left-1/2 w-full h-full rounded-full blur-3xl"
+            style={{ background: 'linear-gradient(to bottom right, hsl(84 81% 73% / 0.3), transparent)' }}
           />
           <motion.div
             animate={{
@@ -131,7 +132,8 @@ export default function Login() {
               repeat: Infinity,
               ease: "linear"
             }}
-            className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-green-400/30 to-transparent rounded-full blur-3xl"
+            className="absolute -bottom-1/2 -right-1/2 w-full h-full rounded-full blur-3xl"
+            style={{ background: 'linear-gradient(to top left, hsl(84 81% 55% / 0.3), transparent)' }}
           />
         </div>
 
@@ -215,10 +217,10 @@ export default function Login() {
         >
           {/* Mobile Logo */}
           <div className="lg:hidden flex flex-col items-center justify-center mb-10">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-lime-500 to-green-600 flex items-center justify-center mb-4 shadow-lg">
+            <div className="w-20 h-20 rounded-2xl bg-primary flex items-center justify-center mb-4 shadow-lg">
               <span className="text-4xl">📦</span>
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-lime-600 to-green-600 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold text-primary">
               Ordefy
             </h1>
             <p className="text-sm text-muted-foreground mt-2">
@@ -316,12 +318,12 @@ export default function Login() {
             {/* Submit Button */}
             <Button
               type="submit"
-              className="w-full h-12 text-base font-semibold bg-gradient-to-r from-lime-600 to-green-600 hover:from-lime-700 hover:to-green-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+              className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all duration-300"
               disabled={isLoading}
             >
               {isLoading ? (
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
                   Iniciando sesión...
                 </div>
               ) : (
