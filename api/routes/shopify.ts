@@ -174,7 +174,7 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
 
     // Iniciar importacion en background
     // IMPORTANTE: Solo productos y clientes, NUNCA ordenes historicas
-    const importService = new ShopifyImportService(supabase, integration);
+    const importService = new ShopifyImportService(supabaseAdmin, integration);
     const importTypes: Array<'products' | 'customers'> = [];
 
     if (config.import_products) importTypes.push('products');
@@ -240,7 +240,7 @@ shopifyRouter.post('/manual-sync', async (req: AuthRequest, res: Response) => {
     }
 
     // Iniciar sincronizacion (NUNCA incluir ordenes)
-    const importService = new ShopifyImportService(supabase, integration);
+    const importService = new ShopifyImportService(supabaseAdmin, integration);
     const importTypes: Array<'products' | 'customers'> = [];
 
     if (sync_type === 'all') {
@@ -296,7 +296,7 @@ shopifyRouter.get('/import-status/:integration_id', async (req: AuthRequest, res
     }
 
     // Obtener estado de importacion
-    const importService = new ShopifyImportService(supabase, integration);
+    const importService = new ShopifyImportService(supabaseAdmin, integration);
     const status = await importService.getImportStatus(integration_id);
 
     res.json({
@@ -570,7 +570,7 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
       return res.status(401).json({ error: 'Invalid HMAC signature' });
     }
 
-    const webhookService = new ShopifyWebhookService(supabase);
+    const webhookService = new ShopifyWebhookService(supabaseAdmin);
     const result = await webhookService.processOrderUpdatedWebhook(
       req.body,
       integration.store_id,
@@ -618,7 +618,7 @@ shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Respons
       return res.status(401).json({ error: 'Invalid HMAC signature' });
     }
 
-    const webhookService = new ShopifyWebhookService(supabase);
+    const webhookService = new ShopifyWebhookService(supabaseAdmin);
     const result = await webhookService.processProductDeletedWebhook(
       req.body.id,
       integration.store_id,
@@ -667,7 +667,7 @@ shopifyRouter.patch('/products/:id', async (req: AuthRequest, res: Response) => 
         .single();
 
       if (integration) {
-        const syncService = new ShopifyProductSyncService(supabase, integration);
+        const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
         const syncResult = await syncService.updateProductInShopify(id);
 
         if (!syncResult.success) {
@@ -713,7 +713,7 @@ shopifyRouter.delete('/products/:id', async (req: AuthRequest, res: Response) =>
 
     if (integration) {
       // Eliminar de Shopify y localmente
-      const syncService = new ShopifyProductSyncService(supabase, integration);
+      const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
       const result = await syncService.deleteProductFromShopify(id);
 
       if (!result.success) {
