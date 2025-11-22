@@ -13,6 +13,7 @@ import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ShopifyInitializer } from "@/components/ShopifyInitializer";
 
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -93,10 +94,11 @@ const App = () => {
             <Toaster />
             <Sonner />
             <BrowserRouter>
-              <AuthProvider>
-                <DateRangeProvider>
-                  <ErrorBoundary>
-                    <OnboardingGuard>
+              <ShopifyInitializer>
+                <AuthProvider>
+                  <DateRangeProvider>
+                    <ErrorBoundary>
+                      <OnboardingGuard>
                   <Suspense fallback={<CardSkeleton count={1} />}>
                     <Routes>
                     {/* Public routes */}
@@ -122,11 +124,12 @@ const App = () => {
                     <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
                     <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
                     </Routes>
-                  </Suspense>
-                    </OnboardingGuard>
-                  </ErrorBoundary>
-                </DateRangeProvider>
-              </AuthProvider>
+                    </Suspense>
+                      </OnboardingGuard>
+                    </ErrorBoundary>
+                  </DateRangeProvider>
+                </AuthProvider>
+              </ShopifyInitializer>
             </BrowserRouter>
           </ThemeProvider>
         </TooltipProvider>

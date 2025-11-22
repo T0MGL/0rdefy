@@ -8,6 +8,10 @@ if (!JWT_SECRET) {
   throw new Error('FATAL: JWT_SECRET environment variable is required');
 }
 
+// Shopify App Secret for session token validation
+const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
+const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || 'e4ac05aaca557fdb387681f0f209335d';
+
 const JWT_ALGORITHM = 'HS256';
 const JWT_ISSUER = 'ordefy-api';
 const JWT_AUDIENCE = 'ordefy-app';
@@ -21,6 +25,51 @@ export interface AuthRequest extends Request {
     stores: Array<{ id: string; name: string; role: string }>;
   };
   storeId?: string;
+  shopifySession?: {
+    dest: string; // shop domain
+    aud: string; // API key
+    sub: string; // user ID
+    exp: number;
+    nbf: number;
+    iat: number;
+    jti: string;
+    sid: string;
+  };
+}
+
+/**
+ * Verifica un token de sesión de Shopify
+ * Los tokens de sesión son JWTs firmados con el App Secret
+ */
+function verifyShopifySessionToken(token: string): any {
+  if (!SHOPIFY_API_SECRET) {
+    throw new Error('SHOPIFY_API_SECRET not configured');
+  }
+
+  try {
+    // Shopify session tokens use HS256 with the app secret
+    const decoded = jwt.verify(token, SHOPIFY_API_SECRET, {
+      algorithms: ['HS256'],
+      audience: SHOPIFY_API_KEY, // aud should be the API key
+    }) as any;
+
+    // Validate required Shopify claims
+    if (!decoded.dest || !decoded.sub || !decoded.aud) {
+      throw new Error('Invalid Shopify session token claims');
+    }
+
+    // Verify the audience matches our API key
+    if (decoded.aud !== SHOPIFY_API_KEY) {
+      throw new Error('Invalid API key in session token');
+    }
+
+    return decoded;
+  } catch (error: any) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Shopify session token verification failed:', error.message);
+    }
+    throw error;
+  }
 }
 
 export function verifyToken(req: AuthRequest, res: Response, next: NextFunction) {
@@ -31,36 +80,70 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
   }
 
   const token = authHeader.substring(7);
+  const isShopifySession = req.headers['x-shopify-session'] === 'true';
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET, {
-      algorithms: [JWT_ALGORITHM],
-      issuer: JWT_ISSUER,
-      audience: JWT_AUDIENCE,
-      clockTolerance: JWT_CLOCK_TOLERANCE,
-    }) as any;
+    // Si es un token de sesión de Shopify, usar validación de Shopify
+    if (isShopifySession) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Auth] Verifying Shopify session token');
+      }
 
-    // Validate required claims (token uses 'userId' not 'id')
-    if (!decoded.userId || !decoded.email) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      const decoded = verifyShopifySessionToken(token);
+      req.shopifySession = decoded;
+
+      // Para tokens de Shopify, necesitamos obtener o crear el usuario en nuestra DB
+      // usando el shop domain (decoded.dest) como identificador
+      // Por ahora, extraemos la información básica
+
+      // El 'sub' en Shopify session tokens es el user ID de Shopify
+      // El 'dest' es el shop domain (ej: mystore.myshopify.com)
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Auth] Shopify session validated:', {
+          shop: decoded.dest,
+          userId: decoded.sub,
+        });
+      }
+
+      // Aquí deberías buscar o crear el usuario en tu base de datos
+      // basándote en el shop domain. Por ahora, pasamos el token validado.
+
+      // NOTA: Implementa la lógica para mapear el shop de Shopify a tu store_id
+      // Por ejemplo, buscando en la tabla shopify_integrations
+
+      next();
+    } else {
+      // Verificación de token JWT normal (autenticación propia)
+      const decoded = jwt.verify(token, JWT_SECRET, {
+        algorithms: [JWT_ALGORITHM],
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+        clockTolerance: JWT_CLOCK_TOLERANCE,
+      }) as any;
+
+      // Validate required claims (token uses 'userId' not 'id')
+      if (!decoded.userId || !decoded.email) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      // Explicit expiration check (redundant with jwt.verify but more explicit)
+      const now = Math.floor(Date.now() / 1000);
+      if (decoded.exp && decoded.exp < now) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      // Set userId for routes that need it (auth routes use req.userId)
+      req.userId = decoded.userId;
+
+      // Also set user object for compatibility
+      req.user = {
+        id: decoded.userId,
+        email: decoded.email,
+        stores: decoded.stores || []
+      };
+      next();
     }
-
-    // Explicit expiration check (redundant with jwt.verify but more explicit)
-    const now = Math.floor(Date.now() / 1000);
-    if (decoded.exp && decoded.exp < now) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    // Set userId for routes that need it (auth routes use req.userId)
-    req.userId = decoded.userId;
-
-    // Also set user object for compatibility
-    req.user = {
-      id: decoded.userId,
-      email: decoded.email,
-      stores: decoded.stores || []
-    };
-    next();
   } catch (error: any) {
     // Log error internally but don't leak details to client
     if (process.env.NODE_ENV === 'development') {
