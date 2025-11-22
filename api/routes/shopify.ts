@@ -1171,6 +1171,82 @@ shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Respon
   }
 });
 
+// POST /api/shopify/webhook/app-uninstalled
+// Shopify calls this when the app is uninstalled from a store
+shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Response) => {
+  try {
+    const shopDomain = req.get('X-Shopify-Shop-Domain');
+    const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
+    const rawBody = JSON.stringify(req.body);
+
+    if (!shopDomain || !hmacHeader) {
+      console.error('❌ app/uninstalled webhook missing required headers');
+      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+    }
+
+    // Get integration by domain
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('api_secret_key, webhook_signature, id')
+      .eq('shop_domain', shopDomain)
+      .single();
+
+    if (error || !integration) {
+      console.error('❌ Integration not found for app/uninstalled webhook:', shopDomain);
+      // Return 200 even if integration not found to prevent Shopify retries
+      return res.status(200).json({ success: true, message: 'Integration not found' });
+    }
+
+    // Verify HMAC signature
+    const isValid = ShopifyWebhookService.verifyHmacSignature(
+      rawBody,
+      hmacHeader,
+      integration.webhook_signature || integration.api_secret_key
+    );
+
+    if (!isValid) {
+      console.error('❌ Invalid HMAC signature for app/uninstalled');
+      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+    }
+
+    console.log('✅ app/uninstalled webhook received for shop:', shopDomain);
+
+    // Mark integration as uninstalled
+    const { error: updateError } = await supabaseAdmin
+      .from('shopify_integrations')
+      .update({
+        status: 'uninstalled',
+        uninstalled_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', integration.id);
+
+    if (updateError) {
+      console.error('❌ Error marking integration as uninstalled:', updateError);
+      throw updateError;
+    }
+
+    console.log('✅ Integration marked as uninstalled:', integration.id);
+
+    // Delete all registered webhooks from our database
+    const { error: deleteWebhooksError } = await supabaseAdmin
+      .from('shopify_webhooks')
+      .update({ is_active: false })
+      .eq('integration_id', integration.id);
+
+    if (deleteWebhooksError) {
+      console.warn('⚠️ Failed to deactivate webhooks:', deleteWebhooksError);
+    }
+
+    res.status(200).json({ success: true });
+
+  } catch (error: any) {
+    console.error('❌ Error processing app/uninstalled webhook:', error);
+    // Return 200 to prevent Shopify from retrying
+    res.status(200).json({ success: false, error: 'Internal error' });
+  }
+});
+
 // POST /api/shopify/webhook/shop/redact
 // Shopify calls this when a shop uninstalls the app (GDPR compliance)
 shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) => {

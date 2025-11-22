@@ -27,16 +27,15 @@ const API_URL = process.env.API_URL || 'http://localhost:3001';
 // WEBHOOK REGISTRATION
 // ================================================================
 // Topics to register when OAuth is completed
+// IMPORTANT: Must match shopify.app.toml [webhooks.subscriptions]
+// GDPR webhooks (customers/data_request, customers/redact, shop/redact)
+// are configured via shopify.app.toml compliance_topics, NOT here
 // ================================================================
 const WEBHOOK_TOPICS = [
-  'orders/create',      // New order created
-  'orders/updated',     // Order updated
-  'products/create',    // New product created
-  'products/update',    // Product updated
-  'products/delete',    // Product deleted
-  'customers/create',   // New customer created
-  'customers/update',   // Customer updated
-  'app/uninstalled'     // App uninstalled
+  'orders/create',      // New order created → api.ordefy.io/api/shopify/webhook/orders-create
+  'orders/updated',     // Order updated → api.ordefy.io/api/shopify/webhook/orders-updated
+  'products/delete',    // Product deleted → api.ordefy.io/api/shopify/webhook/products-delete
+  'app/uninstalled'     // App uninstalled → api.ordefy.io/api/shopify/webhook/app-uninstalled
 ];
 
 /**
