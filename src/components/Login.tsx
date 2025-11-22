@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Eye, EyeOff, Mail, Lock, Zap } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 import { z } from 'zod';
 
 const loginSchema = z.object({
@@ -121,12 +121,14 @@ export default function Login() {
             transition={{ duration: 0.5 }}
             className="mb-12"
           >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3 shadow-lg">
-                <Zap className="w-8 h-8 text-white drop-shadow-lg" />
-              </div>
-              <h1 className="text-5xl font-bold text-white drop-shadow-lg">Ordefy</h1>
+            <div className="mb-8">
+              <img
+                src="/delivery-illustration.svg"
+                alt="Delivery Illustration"
+                className="w-full max-w-md mx-auto drop-shadow-2xl animate-float"
+              />
             </div>
+            <h1 className="text-5xl font-bold text-white drop-shadow-lg mb-4">Ordefy</h1>
             <div className="h-1 w-20 bg-white rounded-full shadow-lg"></div>
           </motion.div>
 
@@ -178,10 +180,12 @@ export default function Login() {
           className="w-full max-w-md"
         >
           {/* Mobile Logo */}
-          <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
-            <div className="bg-primary/10 rounded-xl p-2">
-              <Zap className="w-6 h-6 text-primary" />
-            </div>
+          <div className="lg:hidden flex flex-col items-center justify-center mb-8">
+            <img
+              src="/delivery-illustration.svg"
+              alt="Ordefy"
+              className="w-32 h-32 object-contain mb-4 animate-float"
+            />
             <h1 className="text-2xl font-bold text-foreground">Ordefy</h1>
           </div>
 
