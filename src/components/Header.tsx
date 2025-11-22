@@ -23,10 +23,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from './ui/popover';
+import { Calendar as CalendarComponent } from './ui/calendar';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
 import { StoreSwitcher } from './StoreSwitcher';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 const dateRanges = [
   { label: 'Hoy', value: 'today' },
@@ -53,7 +61,7 @@ export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
-  const { selectedRange, setSelectedRange } = useDateRange();
+  const { selectedRange, setSelectedRange, customRange, setCustomRange } = useDateRange();
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileImage, setProfileImage] = useState('');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -63,6 +71,9 @@ export function Header() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [startDate, setStartDate] = useState<Date>();
+  const [endDate, setEndDate] = useState<Date>();
 
   const currentPage = breadcrumbMap[location.pathname] || 'Dashboard';
 
@@ -146,6 +157,42 @@ export function Header() {
     setNotifOpen(false);
   };
 
+  const handleDateRangeChange = (value: string) => {
+    if (value !== 'custom') {
+      setSelectedRange(value as any);
+    } else {
+      setShowCalendar(true);
+    }
+  };
+
+  const handleApplyCustomDates = () => {
+    if (startDate && endDate) {
+      setCustomRange({ from: startDate, to: endDate });
+      setSelectedRange('custom');
+      setShowCalendar(false);
+    } else if (startDate && !endDate) {
+      // Si solo hay fecha de inicio, usar el mismo día como fin
+      setCustomRange({ from: startDate, to: startDate });
+      setSelectedRange('custom');
+      setShowCalendar(false);
+    }
+  };
+
+  const handleResetDates = () => {
+    setStartDate(undefined);
+    setEndDate(undefined);
+  };
+
+  const getCustomLabel = () => {
+    if (customRange) {
+      if (format(customRange.from, 'yyyy-MM-dd') === format(customRange.to, 'yyyy-MM-dd')) {
+        return format(customRange.from, 'dd/MM/yyyy', { locale: es });
+      }
+      return `${format(customRange.from, 'dd/MM', { locale: es })} - ${format(customRange.to, 'dd/MM', { locale: es })}`;
+    }
+    return 'Personalizado';
+  };
+
   return (
     <header className="h-16 border-b border-border bg-card sticky top-0 z-40 shadow-sm">
       <div className="h-full px-6 flex items-center justify-between">
@@ -165,31 +212,85 @@ export function Header() {
           <GlobalSearch />
 
           {/* Date Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2 h-9 px-3 bg-card">
-                <Calendar size={16} className="text-muted-foreground" />
-                <span className="text-sm">
-                  {dateRanges.find((r) => r.value === selectedRange)?.label}
-                </span>
-                <ChevronDown size={14} className="text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              {dateRanges.map((range) => (
-                <DropdownMenuItem
-                  key={range.value}
-                  onClick={() => setSelectedRange(range.value)}
-                  className={cn(
-                    'cursor-pointer',
-                    selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
-                  )}
-                >
-                  {range.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2 h-9 px-3 bg-card">
+                  <Calendar size={16} className="text-muted-foreground" />
+                  <span className="text-sm">
+                    {selectedRange === 'custom' && customRange
+                      ? getCustomLabel()
+                      : dateRanges.find((r) => r.value === selectedRange)?.label
+                    }
+                  </span>
+                  <ChevronDown size={14} className="text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                {dateRanges.map((range) => (
+                  <DropdownMenuItem
+                    key={range.value}
+                    onClick={() => handleDateRangeChange(range.value)}
+                    className={cn(
+                      'cursor-pointer',
+                      selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
+                    )}
+                  >
+                    {range.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Custom Date Picker Dialog */}
+            {selectedRange === 'custom' && (
+              <Popover open={showCalendar} onOpenChange={setShowCalendar}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9">
+                    {customRange ? getCustomLabel() : 'Seleccionar fechas'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-4" align="end">
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm font-medium mb-2">Fecha de Inicio</p>
+                      <CalendarComponent
+                        mode="single"
+                        selected={startDate}
+                        onSelect={setStartDate}
+                        locale={es}
+                        initialFocus
+                      />
+                    </div>
+
+                    {startDate && (
+                      <div>
+                        <p className="text-sm font-medium mb-2">
+                          Fecha de Fin <span className="text-muted-foreground text-xs">(opcional)</span>
+                        </p>
+                        <CalendarComponent
+                          mode="single"
+                          selected={endDate}
+                          onSelect={setEndDate}
+                          locale={es}
+                          disabled={(date) => date < startDate}
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button onClick={handleApplyCustomDates} disabled={!startDate} className="flex-1">
+                        Aplicar
+                      </Button>
+                      <Button onClick={handleResetDates} variant="outline">
+                        Reset
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
 
           {/* Notifications */}
           <DropdownMenu open={notifOpen} onOpenChange={handleNotificationOpen}>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ExportButton } from '@/components/ExportButton';
@@ -19,6 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { analyticsService } from '@/services/analytics.service';
 import { ordersService } from '@/services/orders.service';
+import { useDateRange } from '@/contexts/DateRangeContext';
 import type { DashboardOverview, Product } from '@/types';
 
 const getMarginColor = (margin: number) => {
@@ -33,13 +34,30 @@ export function RevenueIntelligence() {
   const [topProducts, setTopProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
 
+  // Use global date range context
+  const { getDateRange } = useDateRange();
+
+  // Calculate date ranges from global context
+  const dateRange = useMemo(() => {
+    const range = getDateRange();
+    return {
+      startDate: range.from.toISOString().split('T')[0],
+      endDate: range.to.toISOString().split('T')[0],
+    };
+  }, [getDateRange]);
+
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
       try {
+        const dateParams = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+        };
+
         const [overviewData, productsData, ordersData] = await Promise.all([
-          analyticsService.getOverview(),
-          analyticsService.getTopProducts(10),
+          analyticsService.getOverview(dateParams),
+          analyticsService.getTopProducts(10, dateParams),
           ordersService.getAll(),
         ]);
         setOverview(overviewData);
@@ -52,7 +70,7 @@ export function RevenueIntelligence() {
       }
     };
     loadData();
-  }, []);
+  }, [dateRange]);
 
   if (isLoading || !overview) {
     return (

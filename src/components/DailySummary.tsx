@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ordersService } from '@/services/orders.service';
 import { analyticsService } from '@/services/analytics.service';
+import { useDateRange } from '@/contexts/DateRangeContext';
 import type { Order, DashboardOverview } from '@/types';
 
 export function DailySummary() {
@@ -27,13 +28,46 @@ export function DailySummary() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Use global date range context
+  const { selectedRange, getDateRange } = useDateRange();
+
+  // Calculate date ranges from global context
+  const dateRange = useMemo(() => {
+    const range = getDateRange();
+    return {
+      startDate: range.from.toISOString().split('T')[0],
+      endDate: range.to.toISOString().split('T')[0],
+    };
+  }, [getDateRange]);
+
+  // Get title based on selected range
+  const getSummaryTitle = () => {
+    switch (selectedRange) {
+      case 'today':
+        return 'Resumen Ejecutivo del Día';
+      case '7d':
+        return 'Resumen Ejecutivo de la Semana';
+      case '30d':
+        return 'Resumen Ejecutivo del Mes';
+      case 'custom':
+        return 'Resumen Ejecutivo Personalizado';
+      default:
+        return 'Resumen Ejecutivo';
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
       try {
+        const dateParams = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+        };
+
         const [ordersData, overviewData] = await Promise.all([
           ordersService.getAll(),
-          analyticsService.getOverview(),
+          analyticsService.getOverview(dateParams),
         ]);
         setOrders(ordersData);
         setOverview(overviewData);
@@ -44,7 +78,7 @@ export function DailySummary() {
       }
     };
     loadData();
-  }, []);
+  }, [dateRange]);
 
   if (isLoading || !overview) {
     return (
@@ -135,14 +169,17 @@ export function DailySummary() {
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold">Resumen Ejecutivo del Día</h3>
+            <h3 className="text-lg font-semibold">{getSummaryTitle()}</h3>
             <p className="text-sm text-muted-foreground">
-              {new Date().toLocaleDateString('es-ES', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
+              {selectedRange === 'custom'
+                ? `${new Date(dateRange.startDate).toLocaleDateString('es-ES')} - ${new Date(dateRange.endDate).toLocaleDateString('es-ES')}`
+                : new Date().toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })
+              }
             </p>
           </div>
           <CollapsibleTrigger asChild>

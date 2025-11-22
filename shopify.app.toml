@@ -19,12 +19,11 @@ redirect_urls = [
 [webhooks]
 api_version = "2025-10"
 
-# APP LIFECYCLE WEBHOOKS
+# WEBHOOKS DE NEGOCIO Y CICLO DE VIDA
 [[webhooks.subscriptions]]
 topics = ["app/uninstalled"]
 uri = "https://api.ordefy.io/api/shopify/webhooks/app-uninstalled"
 
-# BUSINESS WEBHOOKS
 [[webhooks.subscriptions]]
 topics = ["orders/create"]
 uri = "https://api.ordefy.io/api/shopify/webhooks/orders-create"
@@ -36,3 +35,20 @@ uri = "https://api.ordefy.io/api/shopify/webhooks/orders-updated"
 [[webhooks.subscriptions]]
 topics = ["products/delete"]
 uri = "https://api.ordefy.io/api/shopify/webhooks/products-delete"
+
+# ----------------------------------------------------------------------
+# WEBHOOKS DE CUMPLIMIENTO OBLIGATORIO (GDPR)
+# IMPORTANTE: Los webhooks de GDPR usan 'compliance_topics' no 'topics'
+# ----------------------------------------------------------------------
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request"]
+uri = "https://api.ordefy.io/api/shopify/webhook/customers/data_request"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/redact"]
+uri = "https://api.ordefy.io/api/shopify/webhook/customers/redact"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["shop/redact"]
+uri = "https://api.ordefy.io/api/shopify/webhook/shop/redact"
