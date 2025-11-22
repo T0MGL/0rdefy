@@ -106,6 +106,15 @@ validateEnvironment();
 const app = express();
 const PORT = process.env.API_PORT || 3001;
 
+// ================================================================
+// TRUST PROXY CONFIGURATION
+// ================================================================
+// Enable trust proxy to correctly identify client IPs behind reverse proxies
+// This is required for rate limiting to work correctly on hosting platforms
+// (Vercel, Heroku, Railway, etc.)
+// ================================================================
+app.set('trust proxy', 1);
+
 // CORS configuration - supports multiple origins via comma-separated list
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || '')
     .split(',')

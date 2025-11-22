@@ -13,7 +13,8 @@ redirect_urls = [
   "https://app.ordefy.io/auth/callback",
   "https://app.ordefy.io/auth/shopify/callback",
   "https://api.ordefy.io/api/auth/callback",
-  "https://api.ordefy.io/api/auth/shopify/callback"
+  "https://api.ordefy.io/api/auth/shopify/callback",
+  "https://api.ordefy.io/api/shopify-oauth/callback"
 ]
 
 [webhooks]
