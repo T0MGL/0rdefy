@@ -13,11 +13,19 @@ const apiClient = axios.create({
 // Token will last full 7 days without client-side interruptions
 // Server will return 401 if token is actually invalid/expired
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token');
+  // Prioridad: Usar token de sesión de Shopify si está disponible
+  const shopifySessionToken = localStorage.getItem('shopify_session_token');
+  const authToken = localStorage.getItem('auth_token');
   const storeId = localStorage.getItem('current_store_id');
 
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  // Si estamos en contexto de Shopify embedded app, usar el session token
+  if (shopifySessionToken) {
+    config.headers.Authorization = `Bearer ${shopifySessionToken}`;
+    config.headers['X-Shopify-Session'] = 'true'; // Flag para el backend
+  }
+  // Si no, usar el token de autenticación normal
+  else if (authToken) {
+    config.headers.Authorization = `Bearer ${authToken}`;
   }
 
   if (storeId) {
