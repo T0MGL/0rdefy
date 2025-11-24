@@ -18,6 +18,12 @@ export class ShopifyWebhookService {
   // Verificar firma HMAC del webhook de Shopify
   static verifyHmacSignature(body: string, hmacHeader: string, secret: string): boolean {
     try {
+      // Validate that secret exists and is not empty
+      if (!secret || secret.trim() === '') {
+        console.error('Error verificando HMAC: secret is null or empty');
+        return false;
+      }
+
       const hash = crypto
         .createHmac('sha256', secret)
         .update(body, 'utf8')
@@ -387,11 +393,22 @@ export class ShopifyWebhookService {
     storeId: string,
     errorMessage: string
   ): Promise<void> {
+    // First, get the current retry_count
+    const { data: event } = await this.supabaseAdmin
+      .from('shopify_webhook_events')
+      .select('retry_count')
+      .eq('shopify_event_id', shopifyEventId)
+      .eq('store_id', storeId)
+      .single();
+
+    const currentRetryCount = event?.retry_count || 0;
+
+    // Update with incremented retry_count
     await this.supabaseAdmin
       .from('shopify_webhook_events')
       .update({
         processing_error: errorMessage,
-        retry_count: this.supabaseAdmin.sql`retry_count + 1`
+        retry_count: currentRetryCount + 1
       })
       .eq('shopify_event_id', shopifyEventId)
       .eq('store_id', storeId);
