@@ -350,18 +350,18 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
     const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
 
     // Record metric: received
-    await webhookManager.recordMetric(integrationId, storeId, 'received');
+    await webhookManager.recordMetric(integrationId!, storeId!, 'received');
 
-    // Verificar HMAC - usar fallback del .env si no está en la base de datos
-    const webhookSecret = integration.webhook_signature ||
-                          integration.api_secret_key ||
-                          process.env.SHOPIFY_API_SECRET;
+    // Verificar HMAC - SIEMPRE usar .env como fuente de verdad
+    const webhookSecret = process.env.SHOPIFY_API_SECRET?.trim();
 
     if (!webhookSecret) {
-      console.error('❌ No webhook secret available (DB or .env)');
-      await webhookManager.recordMetric(integrationId, storeId, 'failed', Date.now() - startTime, '500');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      console.error('❌ SHOPIFY_API_SECRET not configured in .env (or is empty)');
+      await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
+      return res.status(500).json({ error: 'Webhook secret not configured in environment' });
     }
+
+    console.log('🔐 Using SHOPIFY_API_SECRET from .env for HMAC verification');
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -372,8 +372,8 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
     if (!isValid) {
       console.error('❌ Invalid HMAC signature');
       await webhookManager.recordMetric(
-        integrationId,
-        storeId,
+        integrationId!,
+        storeId!,
         'failed',
         Date.now() - startTime,
         '401'
@@ -388,7 +388,7 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (webhookDate < fiveMinutesAgo) {
         console.warn('⚠️ Webhook rejected: older than 5 minutes');
-        await webhookManager.recordMetric(integrationId, storeId, 'duplicate');
+        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
         return res.status(200).json({ success: true, message: 'Webhook too old' });
       }
     }
@@ -408,13 +408,13 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
 
     // Check for duplicate
     const idempotencyCheck = await webhookManager.checkIdempotency(
-      integrationId,
+      integrationId!,
       idempotencyKey
     );
 
     if (idempotencyCheck.is_duplicate) {
       console.warn(`⚠️ Duplicate webhook: ${idempotencyKey}`);
-      await webhookManager.recordMetric(integrationId, storeId, 'duplicate');
+      await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
       return res.status(200).json({
         success: true,
         message: 'Already processed',
@@ -426,8 +426,8 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
     const webhookService = new ShopifyWebhookService(supabaseAdmin);
     const result = await webhookService.processOrderCreatedWebhook(
       req.body,
-      storeId,
-      integrationId
+      storeId!,
+      integrationId!
     );
 
     const processingTime = Date.now() - startTime;
@@ -435,7 +435,7 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
     if (result.success) {
       // Record successful processing
       await webhookManager.recordIdempotency(
-        integrationId,
+        integrationId!,
         idempotencyKey,
         orderId,
         'orders/create',
@@ -445,8 +445,8 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
       );
 
       await webhookManager.recordMetric(
-        integrationId,
-        storeId,
+        integrationId!,
+        storeId!,
         'processed',
         processingTime
       );
@@ -466,7 +466,7 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
 
       // Record idempotency as failed (but prevent duplicates)
       await webhookManager.recordIdempotency(
-        integrationId,
+        integrationId!,
         idempotencyKey,
         orderId,
         'orders/create',
@@ -481,8 +481,8 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
         const { data: webhookEvent } = await supabaseAdmin
           .from('shopify_webhook_events')
           .insert({
-            integration_id: integrationId,
-            store_id: storeId,
+            integration_id: integrationId!,
+            store_id: storeId!,
             event_type: 'order',
             shopify_topic: 'orders/create',
             shopify_event_id: orderId,
@@ -499,8 +499,8 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
 
         if (webhookEvent) {
           await webhookManager.addToRetryQueue(
-            integrationId,
-            storeId,
+            integrationId!,
+            storeId!,
             webhookEvent.id,
             'orders/create',
             req.body,
@@ -511,8 +511,8 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
       }
 
       await webhookManager.recordMetric(
-        integrationId,
-        storeId,
+        integrationId!,
+        storeId!,
         'failed',
         processingTime,
         '500'
@@ -571,9 +571,11 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
     }
 
     // Usar fallback del .env si no está en la base de datos
-    const webhookSecret = integration.webhook_signature ||
-                          integration.api_secret_key ||
-                          process.env.SHOPIFY_API_SECRET;
+    let webhookSecret = integration.webhook_signature ||
+      integration.api_secret_key ||
+      process.env.SHOPIFY_API_SECRET;
+
+    webhookSecret = webhookSecret?.trim();
 
     if (!webhookSecret) {
       console.error('❌ No webhook secret available for orders/updated');
@@ -630,9 +632,11 @@ shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Respons
     }
 
     // Usar fallback del .env si no está en la base de datos
-    const webhookSecret = integration.webhook_signature ||
-                          integration.api_secret_key ||
-                          process.env.SHOPIFY_API_SECRET;
+    let webhookSecret = integration.webhook_signature ||
+      integration.api_secret_key ||
+      process.env.SHOPIFY_API_SECRET;
+
+    webhookSecret = webhookSecret?.trim();
 
     if (!webhookSecret) {
       console.error('❌ No webhook secret available for products/delete');
@@ -1129,8 +1133,8 @@ shopifyRouter.post('/webhook/customers/data_request', async (req: Request, res: 
 
     // Verify HMAC signature - usar fallback del .env
     const webhookSecret = integration.webhook_signature ||
-                          integration.api_secret_key ||
-                          process.env.SHOPIFY_API_SECRET;
+      integration.api_secret_key ||
+      process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ No webhook secret available for customers/data_request');
@@ -1189,8 +1193,8 @@ shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Respon
 
     // Verify HMAC signature - usar fallback del .env
     const webhookSecret = integration.webhook_signature ||
-                          integration.api_secret_key ||
-                          process.env.SHOPIFY_API_SECRET;
+      integration.api_secret_key ||
+      process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ No webhook secret available for customers/redact');
@@ -1248,9 +1252,11 @@ shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Respons
     }
 
     // Get the webhook secret - usar fallback del .env
-    const webhookSecret = integration.webhook_signature ||
-                          integration.api_secret_key ||
-                          process.env.SHOPIFY_API_SECRET;
+    let webhookSecret = integration.webhook_signature ||
+      integration.api_secret_key ||
+      process.env.SHOPIFY_API_SECRET;
+
+    webhookSecret = webhookSecret?.trim();
 
     // For app/uninstalled, if credentials are missing, we still want to process the uninstall
     // This can happen if the app was already uninstalled and credentials were revoked
@@ -1337,8 +1343,8 @@ shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) =
 
     // Verify HMAC signature - usar fallback del .env
     const webhookSecret = integration.webhook_signature ||
-                          integration.api_secret_key ||
-                          process.env.SHOPIFY_API_SECRET;
+      integration.api_secret_key ||
+      process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ No webhook secret available for shop/redact');
