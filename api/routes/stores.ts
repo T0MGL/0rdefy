@@ -451,37 +451,129 @@ storesRouter.get('/:id/stats', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
-// DELETE /api/stores/:id - Deactivate store (soft delete)
+// DELETE /api/stores/:id - Delete store (with validations)
 // ================================================================
 storesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
-        // Soft delete: set is_active to false
-        const { data, error } = await supabaseAdmin
-            .from('stores')
-            .update({
-                is_active: false,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', id)
-            .select('id')
-            .single();
-
-        if (error || !data) {
-            return res.status(404).json({
-                error: 'Store not found'
+        if (!req.userId) {
+            return res.status(401).json({
+                error: 'Unauthorized',
+                message: 'User ID not found in token'
             });
         }
 
+        // 1. Check if the user owns this store
+        const { data: userStore, error: userStoreError } = await supabaseAdmin
+            .from('user_stores')
+            .select('*')
+            .eq('user_id', req.userId)
+            .eq('store_id', id)
+            .single();
+
+        if (userStoreError || !userStore) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                message: 'No tienes permiso para eliminar esta tienda'
+            });
+        }
+
+        // 2. Check if this is the user's last store
+        const { data: userStores, error: userStoresError } = await supabaseAdmin
+            .from('user_stores')
+            .select('store_id')
+            .eq('user_id', req.userId);
+
+        if (userStoresError) {
+            throw userStoresError;
+        }
+
+        if (!userStores || userStores.length <= 1) {
+            return res.status(400).json({
+                error: 'Cannot delete last store',
+                message: 'No puedes eliminar tu última tienda. Debes tener al menos una tienda activa.'
+            });
+        }
+
+        // 3. Delete the store association first
+        const { error: deleteAssociationError } = await supabaseAdmin
+            .from('user_stores')
+            .delete()
+            .eq('user_id', req.userId)
+            .eq('store_id', id);
+
+        if (deleteAssociationError) {
+            throw deleteAssociationError;
+        }
+
+        // 4. Check if there are other users associated with this store
+        const { data: otherUsers, error: otherUsersError } = await supabaseAdmin
+            .from('user_stores')
+            .select('user_id')
+            .eq('store_id', id);
+
+        if (otherUsersError) {
+            throw otherUsersError;
+        }
+
+        // 5. If no other users, delete the store and all related data
+        if (!otherUsers || otherUsers.length === 0) {
+            // Delete related data in the correct order (respecting foreign keys)
+
+            // Delete store config
+            await supabaseAdmin
+                .from('store_config')
+                .delete()
+                .eq('store_id', id);
+
+            // Delete orders
+            await supabaseAdmin
+                .from('orders')
+                .delete()
+                .eq('store_id', id);
+
+            // Delete products
+            await supabaseAdmin
+                .from('products')
+                .delete()
+                .eq('store_id', id);
+
+            // Delete customers
+            await supabaseAdmin
+                .from('customers')
+                .delete()
+                .eq('store_id', id);
+
+            // Delete campaigns
+            await supabaseAdmin
+                .from('campaigns')
+                .delete()
+                .eq('store_id', id);
+
+            // Finally, delete the store itself
+            const { error: deleteStoreError } = await supabaseAdmin
+                .from('stores')
+                .delete()
+                .eq('id', id);
+
+            if (deleteStoreError) {
+                throw deleteStoreError;
+            }
+
+            console.log(`✅ [DELETE /api/stores/${id}] Store and all related data deleted`);
+        } else {
+            console.log(`✅ [DELETE /api/stores/${id}] User disassociated from store (other users still exist)`);
+        }
+
         res.json({
-            message: 'Store deactivated successfully',
-            id: data.id
+            message: 'Tienda eliminada exitosamente',
+            id
         });
     } catch (error: any) {
         console.error(`[DELETE /api/stores/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to deactivate store',
+            error: 'Failed to delete store',
             message: error.message
         });
     }

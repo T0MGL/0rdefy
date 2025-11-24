@@ -11,12 +11,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut } from 'lucide-react';
+import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle } from 'lucide-react';
 
 export default function Settings() {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { user, currentStore, updateProfile, changePassword, deleteAccount, signOut } = useAuth();
+  const { user, currentStore, stores, updateProfile, changePassword, deleteAccount, deleteStore, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
@@ -44,6 +44,11 @@ export default function Settings() {
   const [deletePassword, setDeletePassword] = useState('');
   const [showDeletePassword, setShowDeletePassword] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  // Delete store state
+  const [deleteStoreDialogOpen, setDeleteStoreDialogOpen] = useState(false);
+  const [storeToDelete, setStoreToDelete] = useState<string | null>(null);
+  const [isDeletingStore, setIsDeletingStore] = useState(false);
 
   // Update form data when user or store changes
   useEffect(() => {
@@ -235,6 +240,37 @@ export default function Settings() {
     navigate('/login');
   };
 
+  const handleDeleteStoreClick = (storeId: string) => {
+    setStoreToDelete(storeId);
+    setDeleteStoreDialogOpen(true);
+  };
+
+  const handleDeleteStore = async () => {
+    if (!storeToDelete) return;
+
+    setIsDeletingStore(true);
+
+    const result = await deleteStore(storeToDelete);
+
+    setIsDeletingStore(false);
+
+    if (result.error) {
+      toast({
+        title: "Error",
+        description: result.error,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Tienda eliminada",
+        description: "La tienda ha sido eliminada exitosamente.",
+      });
+      setDeleteStoreDialogOpen(false);
+      setStoreToDelete(null);
+      // The deleteStore function already handles the page reload
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
@@ -370,6 +406,61 @@ export default function Settings() {
                 </Button>
               </div>
             </form>
+          </Card>
+
+          {/* Store Management */}
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-6">Mis Tiendas</h2>
+
+            <div className="space-y-4">
+              {stores.map((store) => (
+                <div
+                  key={store.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors dark:border-gray-700"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Store className="text-primary" size={24} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">{store.name}</h3>
+                        {currentStore?.id === store.id && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-400">
+                            <CheckCircle size={12} />
+                            Activa
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {store.country} • {store.currency} • {store.role}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {stores.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeleteStoreClick(store.id)}
+                      >
+                        <Trash2 size={16} />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {stores.length === 1 && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg dark:bg-blue-950/20 dark:border-blue-900">
+                  <p className="text-sm text-blue-800 dark:text-blue-300">
+                    Esta es tu única tienda. Debes tener al menos una tienda activa.
+                  </p>
+                </div>
+              )}
+            </div>
           </Card>
         </TabsContent>
 
