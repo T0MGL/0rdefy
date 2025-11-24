@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-// Extend Window interface to include Shopify App Bridge
+// Extend Window interface to include Shopify App Bridge 3.0
 declare global {
   interface Window {
     shopify?: {
@@ -9,14 +9,17 @@ declare global {
         mobile?: boolean;
         pos?: boolean;
       };
+      // App Bridge 3.0 exposes createApp under window.shopify
+      createApp?: (config: {
+        apiKey: string;
+        host: string;
+        forceRedirect?: boolean;
+      }) => {
+        idToken: () => Promise<string>;
+        dispatch: (action: any) => void;
+        subscribe: (callback: (data: any) => void) => () => void;
+      };
     };
-    // App Bridge 3.0 exposes createApp globally
-    createApp?: (config: {
-      apiKey: string;
-      host: string;
-      forceRedirect?: boolean;
-    }) => any;
-    getSessionToken?: (app: any) => Promise<string>;
   }
 }
 
@@ -59,8 +62,8 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         }
 
         // Esperar a que el script de App Bridge esté cargado
-        // App Bridge 3.0 expone createApp y getSessionToken globalmente
-        if (!window.createApp) {
+        // App Bridge 3.0 expone createApp bajo window.shopify
+        if (!window.shopify?.createApp) {
           console.warn('[Shopify] App Bridge script not loaded yet. Retrying...');
           // Reintentar después de un breve delay
           setTimeout(initializeAppBridge, 100);
@@ -71,7 +74,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         // Inicializar App Bridge 3.0 con el client_id
         const CLIENT_ID = 'e4ac05aaca557fdb387681f0f209335d';
-        const shopifyApp = window.createApp({
+        const shopifyApp = window.shopify.createApp({
           apiKey: CLIENT_ID,
           host: host,
           forceRedirect: false, // No forzar redirección
@@ -81,14 +84,14 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         console.log('[Shopify] App Bridge 3.0 initialized successfully');
 
-        // Función para obtener el token de sesión
+        // Función para obtener el token de sesión usando app.idToken()
         const fetchSessionToken = async () => {
-          if (!window.getSessionToken) {
-            throw new Error('getSessionToken not available');
+          if (!shopifyApp.idToken) {
+            throw new Error('idToken method not available on app instance');
           }
 
           console.log('[Shopify] Fetching session token...');
-          const token = await window.getSessionToken(shopifyApp);
+          const token = await shopifyApp.idToken();
 
           if (!token) {
             throw new Error('Failed to get session token from Shopify');
