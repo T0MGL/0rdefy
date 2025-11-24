@@ -35,6 +35,7 @@ interface AuthContextType {
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success?: boolean; error?: string }>;
   deleteAccount: (password: string) => Promise<{ success?: boolean; error?: string }>;
   createStore: (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => Promise<{ success?: boolean; error?: string; storeId?: string }>;
+  deleteStore: (storeId: string) => Promise<{ success?: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -392,6 +393,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const deleteStore = async (storeId: string) => {
+    console.log('🗑️ [AUTH] Deleting store:', storeId);
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/stores/${storeId}`;
+
+      const response = await axios.delete(apiUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data) {
+        console.log('✅ [AUTH] Store deleted successfully');
+
+        // Update user state - remove the deleted store
+        if (user) {
+          const updatedStores = user.stores.filter(s => s.id !== storeId);
+          const updatedUser = {
+            ...user,
+            stores: updatedStores
+          };
+
+          setUser(updatedUser);
+          setStores(updatedStores);
+
+          // If the deleted store was the current store, switch to another one
+          if (currentStore?.id === storeId && updatedStores.length > 0) {
+            setCurrentStore(updatedStores[0]);
+            localStorage.setItem('current_store_id', updatedStores[0].id);
+          } else if (updatedStores.length === 0) {
+            // This shouldn't happen due to backend validation, but just in case
+            setCurrentStore(null);
+            localStorage.removeItem('current_store_id');
+          }
+
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+
+          // Reload the page to ensure all data is fresh
+          window.location.reload();
+        }
+
+        return { success: true };
+      } else {
+        console.error('❌ [AUTH] Store deletion failed');
+        return { error: 'Error al eliminar tienda' };
+      }
+    } catch (err: any) {
+      console.error('💥 [AUTH] Store deletion error:', err);
+
+      if (err.response?.status === 400) {
+        return { error: err.response.data.message || 'No puedes eliminar tu última tienda' };
+      } else if (err.response?.status === 403) {
+        return { error: err.response.data.message || 'No tienes permiso para eliminar esta tienda' };
+      } else if (err.response) {
+        return { error: err.response.data.error || err.response.data.message || 'Error al eliminar tienda' };
+      } else if (err.request) {
+        return { error: 'No se pudo conectar con el servidor' };
+      } else {
+        return { error: 'Error inesperado' };
+      }
+    }
+  };
+
   const value = {
     user,
     currentStore,
@@ -405,6 +469,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     changePassword,
     deleteAccount,
     createStore,
+    deleteStore,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

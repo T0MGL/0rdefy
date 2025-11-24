@@ -43,22 +43,46 @@ const WEBHOOK_TOPICS = [
  * @param shop Shop domain (e.g., mystore.myshopify.com)
  * @param accessToken OAuth access token
  * @param integrationId UUID of the shopify_integrations record
+ * @param grantedScopes Scopes granted by Shopify (comma-separated)
+ * @returns Object with success count, failed count, and error details
  */
 async function registerShopifyWebhooks(
   shop: string,
   accessToken: string,
-  integrationId: string
-): Promise<void> {
+  integrationId: string,
+  grantedScopes?: string
+): Promise<{ success: number; failed: number; errors: string[] }> {
   const baseUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`;
+  const results = {
+    success: 0,
+    failed: 0,
+    errors: [] as string[]
+  };
 
-  console.log(`🔧 [SHOPIFY-WEBHOOKS] Registering webhooks for ${shop}...`);
+  console.log(`🔧 [SHOPIFY-WEBHOOKS] Starting webhook registration for ${shop}...`);
+  console.log(`🔐 [SHOPIFY-WEBHOOKS] Granted scopes: ${grantedScopes || 'unknown'}`);
+  console.log(`🔗 [SHOPIFY-WEBHOOKS] API URL: ${API_URL}`);
+  console.log(`📋 [SHOPIFY-WEBHOOKS] Topics to register: ${WEBHOOK_TOPICS.join(', ')}`);
+
+  // Verify required scopes are present
+  const requiredScopes = ['write_orders', 'write_products'];
+  if (grantedScopes) {
+    const scopeArray = grantedScopes.split(',').map(s => s.trim());
+    const missingScopes = requiredScopes.filter(scope => !scopeArray.includes(scope));
+
+    if (missingScopes.length > 0) {
+      console.warn(`⚠️  [SHOPIFY-WEBHOOKS] Missing required scopes: ${missingScopes.join(', ')}`);
+      console.warn(`⚠️  [SHOPIFY-WEBHOOKS] Webhook registration may fail`);
+    }
+  }
 
   for (const topic of WEBHOOK_TOPICS) {
     try {
       // Construct webhook URL endpoint
       const webhookUrl = `${API_URL}/api/shopify/webhook/${topic.replace('/', '-')}`;
 
-      console.log(`🔗 [SHOPIFY-WEBHOOKS] Registering ${topic} → ${webhookUrl}`);
+      console.log(`🔗 [SHOPIFY-WEBHOOKS] [${topic}] Attempting registration...`);
+      console.log(`   └─ URL: ${webhookUrl}`);
 
       // Register webhook with Shopify
       const response = await axios.post(
@@ -74,38 +98,89 @@ async function registerShopifyWebhooks(
           headers: {
             'X-Shopify-Access-Token': accessToken,
             'Content-Type': 'application/json'
-          }
+          },
+          timeout: 10000 // 10 second timeout
         }
       );
 
       const webhookId = response.data.webhook.id;
+
+      console.log(`   └─ Shopify webhook ID: ${webhookId}`);
 
       // Save webhook_id in database for later management
       const { error } = await supabaseAdmin
         .from('shopify_webhooks')
         .insert({
           integration_id: integrationId,
-          webhook_id: webhookId,
+          webhook_id: webhookId.toString(),
           topic: topic,
           shop_domain: shop,
           is_active: true
         });
 
       // Ignore duplicate key errors (webhook already registered)
-      if (error && !error.message.includes('duplicate')) {
-        throw error;
+      if (error && !error.message.includes('duplicate') && !error.message.includes('unique')) {
+        console.error(`   └─ ⚠️  Database save failed: ${error.message}`);
+        // Don't fail the whole process if DB save fails
       }
 
-      console.log(`✅ [SHOPIFY-WEBHOOKS] ${topic} registered (ID: ${webhookId})`);
+      console.log(`✅ [SHOPIFY-WEBHOOKS] [${topic}] Successfully registered`);
+      results.success++;
 
     } catch (error: any) {
-      // Log error but continue with other webhooks
-      console.error(`❌ [SHOPIFY-WEBHOOKS] Failed to register ${topic}:`,
-        error.response?.data || error.message);
+      results.failed++;
+
+      // Detailed error logging
+      console.error(`❌ [SHOPIFY-WEBHOOKS] [${topic}] Registration FAILED`);
+
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const data = error.response?.data;
+        const headers = error.response?.headers;
+
+        console.error(`   └─ HTTP Status: ${status}`);
+        console.error(`   └─ Response Data:`, JSON.stringify(data, null, 2));
+
+        // Specific error handling
+        if (status === 401) {
+          console.error(`   └─ ⚠️  AUTHENTICATION ERROR - Access token may be invalid`);
+          results.errors.push(`${topic}: Invalid access token (401)`);
+        } else if (status === 403) {
+          console.error(`   └─ ⚠️  PERMISSION ERROR - Missing required scope for ${topic}`);
+          console.error(`   └─ Required: write_orders or write_products`);
+          console.error(`   └─ Granted: ${grantedScopes}`);
+          results.errors.push(`${topic}: Missing scope permission (403)`);
+        } else if (status === 422) {
+          console.error(`   └─ ⚠️  VALIDATION ERROR - Invalid webhook data`);
+          console.error(`   └─ Error details:`, data?.errors || data);
+          results.errors.push(`${topic}: Validation error (422) - ${JSON.stringify(data?.errors)}`);
+        } else if (status === 429) {
+          console.error(`   └─ ⚠️  RATE LIMIT - Too many requests`);
+          results.errors.push(`${topic}: Rate limited (429)`);
+        } else {
+          console.error(`   └─ Unexpected error: ${error.message}`);
+          results.errors.push(`${topic}: ${error.message}`);
+        }
+      } else {
+        console.error(`   └─ Non-HTTP error:`, error.message);
+        results.errors.push(`${topic}: ${error.message}`);
+      }
     }
   }
 
-  console.log(`✨ [SHOPIFY-WEBHOOKS] All webhooks registered for ${shop}`);
+  // Summary
+  console.log(`\n📊 [SHOPIFY-WEBHOOKS] Registration Summary:`);
+  console.log(`   ✅ Success: ${results.success}/${WEBHOOK_TOPICS.length}`);
+  console.log(`   ❌ Failed: ${results.failed}/${WEBHOOK_TOPICS.length}`);
+
+  if (results.failed > 0) {
+    console.error(`\n⚠️  [SHOPIFY-WEBHOOKS] ${results.failed} webhook(s) failed to register!`);
+    console.error(`   Errors:`, results.errors);
+  } else {
+    console.log(`\n✨ [SHOPIFY-WEBHOOKS] All webhooks registered successfully!`);
+  }
+
+  return results;
 }
 
 // ================================================================
@@ -501,9 +576,37 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       }
     }
 
-    // Register webhooks automatically
-    await registerShopifyWebhooks(shop as string, access_token, integrationIdForWebhooks);
-    console.log('✅ [SHOPIFY-OAUTH] Webhooks registered successfully');
+    // ================================================================
+    // CRITICAL: Register webhooks automatically
+    // ================================================================
+    // This is the main reason webhooks might not appear in Shopify
+    // If this fails, we still complete OAuth but warn the user
+    // ================================================================
+    console.log('\n🎯 [SHOPIFY-OAUTH] ===== STARTING WEBHOOK REGISTRATION =====');
+    console.log(`[SHOPIFY-OAUTH] Shop: ${shop}`);
+    console.log(`[SHOPIFY-OAUTH] Integration ID: ${integrationIdForWebhooks}`);
+    console.log(`[SHOPIFY-OAUTH] Scopes: ${scope}`);
+    console.log(`[SHOPIFY-OAUTH] API URL: ${API_URL}`);
+
+    const webhookResults = await registerShopifyWebhooks(
+      shop as string,
+      access_token,
+      integrationIdForWebhooks,
+      scope // Pass granted scopes for verification
+    );
+
+    console.log('🎯 [SHOPIFY-OAUTH] ===== WEBHOOK REGISTRATION COMPLETE =====\n');
+
+    // Save webhook registration results to integration record
+    await supabaseAdmin
+      .from('shopify_integrations')
+      .update({
+        webhook_registration_success: webhookResults.success,
+        webhook_registration_failed: webhookResults.failed,
+        webhook_registration_errors: webhookResults.errors.length > 0 ? webhookResults.errors : null,
+        last_webhook_attempt: new Date().toISOString()
+      })
+      .eq('id', integrationIdForWebhooks);
 
     // Clean up used state
     await supabaseAdmin
@@ -513,8 +616,20 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
     console.log('🧹 [SHOPIFY-OAUTH] State cleaned up');
 
-    // Redirect to frontend integrations page with success status
-    const redirectUrl = `${APP_URL}/integrations?status=success&integration=shopify&shop=${shop}`;
+    // Build redirect URL with webhook status
+    let redirectUrl = `${APP_URL}/integrations?status=success&integration=shopify&shop=${shop}`;
+
+    // Add webhook status to redirect URL
+    if (webhookResults.failed > 0) {
+      redirectUrl += `&webhooks_failed=${webhookResults.failed}`;
+      redirectUrl += `&webhooks_success=${webhookResults.success}`;
+      console.warn(`⚠️  [SHOPIFY-OAUTH] ${webhookResults.failed} webhooks failed to register`);
+      console.warn(`   User will be notified via redirect URL`);
+    } else {
+      redirectUrl += '&webhooks=ok';
+      console.log('✅ [SHOPIFY-OAUTH] All webhooks registered successfully');
+    }
+
     console.log('🔗 [SHOPIFY-OAUTH] APP_URL env var:', process.env.APP_URL);
     console.log('🔗 [SHOPIFY-OAUTH] Final APP_URL:', APP_URL);
     console.log('🔗 [SHOPIFY-OAUTH] Redirecting to:', redirectUrl);

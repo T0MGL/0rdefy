@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -106,68 +105,33 @@ export default function Login() {
   return (
     <div className="min-h-screen flex">
       {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden" style={{ background: 'linear-gradient(to bottom right, hsl(84 81% 63%), hsl(84 81% 50%), hsl(84 81% 35%))' }}>
-        {/* Animated background blobs */}
-        <div className="absolute inset-0 overflow-hidden">
-          <motion.div
-            animate={{
-              scale: [1, 1.2, 1],
-              rotate: [0, 90, 0],
-            }}
-            transition={{
-              duration: 20,
-              repeat: Infinity,
-              ease: "linear"
-            }}
-            className="absolute -top-1/2 -left-1/2 w-full h-full rounded-full blur-3xl"
-            style={{ background: 'linear-gradient(to bottom right, hsl(84 81% 73% / 0.3), transparent)' }}
-          />
-          <motion.div
-            animate={{
-              scale: [1.2, 1, 1.2],
-              rotate: [90, 0, 90],
-            }}
-            transition={{
-              duration: 15,
-              repeat: Infinity,
-              ease: "linear"
-            }}
-            className="absolute -bottom-1/2 -right-1/2 w-full h-full rounded-full blur-3xl"
-            style={{ background: 'linear-gradient(to top left, hsl(84 81% 55% / 0.3), transparent)' }}
-          />
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, hsl(84 81% 63%), hsl(84 81% 50%), hsl(84 81% 35%))' }}>
+        {/* Static background decoration */}
+        <div className="absolute inset-0 opacity-20">
+          <div className="absolute top-0 left-0 w-96 h-96 bg-white rounded-full -translate-x-1/2 -translate-y-1/2" />
+          <div className="absolute bottom-0 right-0 w-96 h-96 bg-white rounded-full translate-x-1/2 translate-y-1/2" />
         </div>
 
-        {/* Grid pattern */}
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.05)_1px,transparent_1px)] bg-[size:50px_50px] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
+        {/* Simple grid pattern */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.05)_1px,transparent_1px)] bg-[size:40px_40px]" />
 
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-center px-12 xl:px-16 text-white max-w-2xl">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <div className="mb-12">
-              <h1 className="text-6xl xl:text-7xl font-bold text-white mb-4 tracking-tight">
-                Ordefy
-              </h1>
-              <div className="h-1.5 w-24 bg-white/90 rounded-full mb-6" />
-              <h2 className="text-2xl xl:text-3xl font-semibold text-white/95 mb-4">
-                Gestiona tu comercio electrónico con inteligencia
-              </h2>
-              <p className="text-lg xl:text-xl text-white/90 leading-relaxed">
-                Optimiza pedidos, inventario, campañas y logística en una sola plataforma.
-                Toma decisiones inteligentes con análisis en tiempo real.
-              </p>
-            </div>
-          </motion.div>
+          <div className="mb-12">
+            <h1 className="text-6xl xl:text-7xl font-bold text-white mb-4 tracking-tight">
+              Ordefy
+            </h1>
+            <div className="h-1.5 w-24 bg-white/90 rounded-full mb-6" />
+            <h2 className="text-2xl xl:text-3xl font-semibold text-white/95 mb-4">
+              Gestiona tu comercio electrónico con inteligencia
+            </h2>
+            <p className="text-lg xl:text-xl text-white/90 leading-relaxed">
+              Optimiza pedidos, inventario, campañas y logística en una sola plataforma.
+              Toma decisiones inteligentes con análisis en tiempo real.
+            </p>
+          </div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="grid gap-6"
-          >
+          <div className="grid gap-4">
             {[
               {
                 icon: '📊',
@@ -185,12 +149,9 @@ export default function Login() {
                 desc: 'Recomendaciones inteligentes para optimizar tu negocio'
               },
             ].map((feature, index) => (
-              <motion.div
+              <div
                 key={index}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.5, delay: 0.3 + index * 0.1 }}
-                className="flex items-start gap-4 bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20 hover:bg-white/15 transition-all duration-300"
+                className="flex items-start gap-4 bg-white/10 rounded-xl p-4 border border-white/20 hover:bg-white/15 transition-colors duration-200"
               >
                 <div className="text-3xl">{feature.icon}</div>
                 <div className="flex-1">
@@ -201,20 +162,15 @@ export default function Login() {
                     {feature.desc}
                   </p>
                 </div>
-              </motion.div>
+              </div>
             ))}
-          </motion.div>
+          </div>
         </div>
       </div>
 
       {/* Right Side - Login Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-background">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="w-full max-w-md"
-        >
+        <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden flex flex-col items-center justify-center mb-10">
             <div className="w-20 h-20 rounded-2xl bg-primary flex items-center justify-center mb-4 shadow-lg">
@@ -352,7 +308,7 @@ export default function Login() {
               © 2025 Bright Idea - Ordefy. Todos los derechos reservados.
             </p>
           </div>
-        </motion.div>
+        </div>
       </div>
     </div>
   );
