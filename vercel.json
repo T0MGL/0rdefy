@@ -5,7 +5,11 @@
   "installCommand": "npm install",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/:path*",
+      "destination": "https://api.ordefy.io/api/:path*"
+    },
+    {
+      "source": "/:path((?!api).*)",
       "destination": "/index.html"
     }
   ]

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 // Extend Window interface to include Shopify App Bridge 3.0
 declare global {
@@ -40,9 +40,15 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [app, setApp] = useState<any>(null);
+  const retryCountRef = useRef(0);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | undefined;
+    const MAX_RETRIES = 20; // Máximo 20 reintentos = 2 segundos
+    const RETRY_DELAY = 100; // 100ms entre reintentos
+
+    // Reset retry count on mount
+    retryCountRef.current = 0;
 
     const initializeAppBridge = async () => {
       try {
@@ -56,7 +62,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         // Si no hay parámetro 'host' o 'embedded', no estamos en Shopify
         if (!host || embedded !== '1') {
-          console.log('[Shopify] Not running in Shopify embedded app context');
+          console.log('[Shopify] Not running in Shopify embedded app context - standalone mode');
           setIsLoading(false);
           return;
         }
@@ -64,9 +70,20 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         // Esperar a que el script de App Bridge esté cargado
         // App Bridge 3.0 expone createApp bajo window.shopify
         if (!window.shopify?.createApp) {
-          console.warn('[Shopify] App Bridge script not loaded yet. Retrying...');
+          retryCountRef.current++;
+
+          if (retryCountRef.current >= MAX_RETRIES) {
+            console.error(`[Shopify] App Bridge failed to load after ${MAX_RETRIES} attempts (${MAX_RETRIES * RETRY_DELAY}ms). Running in standalone mode.`);
+            setIsLoading(false);
+            return;
+          }
+
+          if (retryCountRef.current <= 3) {
+            console.warn(`[Shopify] App Bridge script not loaded yet. Retrying (${retryCountRef.current}/${MAX_RETRIES})...`);
+          }
+
           // Reintentar después de un breve delay
-          setTimeout(initializeAppBridge, 100);
+          setTimeout(initializeAppBridge, RETRY_DELAY);
           return;
         }
 
