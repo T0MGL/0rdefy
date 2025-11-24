@@ -323,7 +323,8 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    const rawBody = JSON.stringify(req.body);
+    // Use rawBody from middleware if available, otherwise fallback to stringified body (which might fail HMAC)
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
     if (!shopDomain || !hmacHeader) {
       console.error('❌ Webhook missing required headers');
@@ -553,7 +554,8 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    const rawBody = JSON.stringify(req.body);
+    // Use rawBody from middleware if available
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
     if (!shopDomain || !hmacHeader) {
       return res.status(400).json({ error: 'Missing headers' });
@@ -570,17 +572,15 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    // Usar fallback del .env si no está en la base de datos
-    let webhookSecret = integration.webhook_signature ||
-      integration.api_secret_key ||
-      process.env.SHOPIFY_API_SECRET;
-
-    webhookSecret = webhookSecret?.trim();
+    // SIEMPRE usar .env para HMAC
+    const webhookSecret = process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
-      console.error('❌ No webhook secret available for orders/updated');
+      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
+
+    console.log('🔐 Using SHOPIFY_API_SECRET from .env for orders/updated');
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -614,7 +614,8 @@ shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Respons
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    const rawBody = JSON.stringify(req.body);
+    // Use rawBody from middleware if available
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
     if (!shopDomain || !hmacHeader) {
       return res.status(400).json({ error: 'Missing headers' });
@@ -631,17 +632,15 @@ shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Respons
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    // Usar fallback del .env si no está en la base de datos
-    let webhookSecret = integration.webhook_signature ||
-      integration.api_secret_key ||
-      process.env.SHOPIFY_API_SECRET;
-
-    webhookSecret = webhookSecret?.trim();
+    // SIEMPRE usar .env para HMAC
+    const webhookSecret = process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
-      console.error('❌ No webhook secret available for products/delete');
+      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
+
+    console.log('🔐 Using SHOPIFY_API_SECRET from .env for products/delete');
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1131,15 +1130,15 @@ shopifyRouter.post('/webhook/customers/data_request', async (req: Request, res: 
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // Verify HMAC signature - usar fallback del .env
-    const webhookSecret = integration.webhook_signature ||
-      integration.api_secret_key ||
-      process.env.SHOPIFY_API_SECRET;
+    // SIEMPRE usar .env para HMAC
+    const webhookSecret = process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
-      console.error('❌ No webhook secret available for customers/data_request');
+      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
+
+    console.log('🔐 Using SHOPIFY_API_SECRET from .env for customers/data_request');
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1191,15 +1190,15 @@ shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Respon
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // Verify HMAC signature - usar fallback del .env
-    const webhookSecret = integration.webhook_signature ||
-      integration.api_secret_key ||
-      process.env.SHOPIFY_API_SECRET;
+    // SIEMPRE usar .env para HMAC
+    const webhookSecret = process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
-      console.error('❌ No webhook secret available for customers/redact');
+      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
+
+    console.log('🔐 Using SHOPIFY_API_SECRET from .env for customers/redact');
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1251,20 +1250,18 @@ shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Respons
       return res.status(200).json({ success: true, message: 'Integration not found' });
     }
 
-    // Get the webhook secret - usar fallback del .env
-    let webhookSecret = integration.webhook_signature ||
-      integration.api_secret_key ||
-      process.env.SHOPIFY_API_SECRET;
-
-    webhookSecret = webhookSecret?.trim();
+    // SIEMPRE usar .env para HMAC
+    const webhookSecret = process.env.SHOPIFY_API_SECRET;
 
     // For app/uninstalled, if credentials are missing, we still want to process the uninstall
     // This can happen if the app was already uninstalled and credentials were revoked
     if (!webhookSecret || webhookSecret.trim() === '') {
-      console.warn('⚠️ Webhook secret missing for app/uninstalled, processing anyway:', shopDomain);
+      console.warn('⚠️ SHOPIFY_API_SECRET missing in .env for app/uninstalled, processing anyway:', shopDomain);
       console.warn('⚠️ This may indicate the app was already uninstalled or credentials were revoked');
       // Skip HMAC verification and proceed to mark as uninstalled
     } else {
+      console.log('🔐 Using SHOPIFY_API_SECRET from .env for app/uninstalled');
+
       // Verify HMAC signature if secret is available
       const isValid = ShopifyWebhookService.verifyHmacSignature(
         rawBody,
@@ -1341,15 +1338,15 @@ shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) =
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // Verify HMAC signature - usar fallback del .env
-    const webhookSecret = integration.webhook_signature ||
-      integration.api_secret_key ||
-      process.env.SHOPIFY_API_SECRET;
+    // SIEMPRE usar .env para HMAC
+    const webhookSecret = process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
-      console.error('❌ No webhook secret available for shop/redact');
+      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
+
+    console.log('🔐 Using SHOPIFY_API_SECRET from .env for shop/redact');
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
