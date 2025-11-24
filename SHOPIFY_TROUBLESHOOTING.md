@@ -1,271 +1,453 @@
+# Shopify Integration Troubleshooting Guide
 
-# Shopify Webhook 401 Error Troubleshooting Guide
+## 🔍 Quick Diagnosis
 
-## Problem: All Shopify webhooks returning 401 Unauthorized
+### Check Integration Status
 
-### Symptoms
-- ✅ Webhooks are being received from Shopify
-- ❌ All webhook deliveries fail with 401 (Unauthorized)
-- ❌ Topics affected: `orders/create`, `orders/updated`, `products/delete`, `app/uninstalled`
-- ❌ Shopify shows "Error" status with 401 response code
+1. **En la UI**: Ve a Integraciones → Panel de Diagnósticos de Shopify
+2. **Via API**:
+```bash
+curl -X GET "https://api.ordefy.io/api/shopify/integration" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
 
-### Root Cause
+### Test Connection Script
 
-The webhooks are failing **HMAC signature verification**. Here's why:
+Run the test script to verify your Shopify configuration:
 
+```bash
+./test-shopify-connection.sh yourstore.myshopify.com
+```
+
+If you have an access token:
+
+```bash
+./test-shopify-connection.sh yourstore.myshopify.com YOUR_ACCESS_TOKEN
+```
+
+---
+
+## 🐛 Common Problems & Solutions
+
+### Problem 1: OAuth Fails with "Invalid HMAC Signature"
+
+**Síntomas**:
+- Redirect de Shopify muestra error `invalid_signature`
+- Console logs muestran "❌ [SHOPIFY-OAUTH] Invalid HMAC signature"
+
+**Causa**:
+- Mismatch entre `SHOPIFY_API_SECRET` en `.env` y el secret de la app en Shopify
+
+**Solución**:
+1. Ve a Shopify Partners → Apps → Tu App → Client Credentials
+2. Verifica que `SHOPIFY_API_SECRET` en `.env` coincida con el "API secret key"
+3. Reinicia el servidor API: `npm run api:dev`
+
+---
+
+### Problem 2: Webhooks No Se Registran (401 Unauthorized)
+
+**Síntomas**:
+- Panel de diagnósticos muestra "0 webhooks registrados"
+- Console logs muestran "❌ [SHOPIFY-WEBHOOKS] [topic] Registration FAILED" con HTTP 401
+
+**Causa**:
+- Access token inválido o expirado
+- Credenciales incorrectas en `.env`
+
+**Solución**:
+1. Verifica las credenciales en `.env`:
+```bash
+SHOPIFY_API_KEY=your_api_key_here
+SHOPIFY_API_SECRET=shpss_your_api_secret_here
+```
+
+2. Verifica que `shopify.app.toml` tenga el mismo `client_id`:
+```toml
+client_id = "your_api_key_here"
+```
+
+3. Re-autoriza la app:
+   - Desconecta Shopify en Integraciones
+   - Vuelve a conectar con OAuth
+
+4. Registra webhooks manualmente:
+   - Click en "Configurar Webhooks" en el panel de diagnósticos
+
+---
+
+### Problem 3: Webhooks No Se Registran (403 Forbidden)
+
+**Síntomas**:
+- Console logs muestran "⚠️ PERMISSION ERROR - Missing required scope for topic"
+
+**Causa**:
+- Scopes insuficientes en la autorización OAuth
+
+**Solución**:
+1. Verifica scopes en `.env`:
+```bash
+SHOPIFY_SCOPES=read_products,write_products,read_orders,write_orders,read_customers,write_customers
+```
+
+2. Verifica scopes en `shopify.app.toml`:
+```toml
+[access_scopes]
+scopes = "read_products, write_products, read_orders, write_orders, read_customers, write_customers"
+```
+
+3. Re-instala la app para solicitar nuevos scopes:
+   - Desinstala la app desde Shopify Admin → Apps
+   - Vuelve a instalar desde Ordefy → Integraciones
+
+---
+
+### Problem 4: Webhooks No Se Registran (422 Already Exists)
+
+**Síntomas**:
+- Console logs muestran "⚠️ DUPLICATE ERROR - Webhook already exists for this topic"
+
+**Causa**:
+- Webhooks ya existen en Shopify pero no se detectaron en la verificación
+
+**Solución**:
+1. **Opción A: Eliminar duplicados manualmente**
+   - Ve a Shopify Admin → Settings → Notifications
+   - Elimina webhooks duplicados de Ordefy
+   - Click en "Configurar Webhooks" en panel de diagnósticos
+
+2. **Opción B: Eliminar todos los webhooks via API**
+```bash
+curl -X DELETE "https://api.ordefy.io/api/shopify/webhooks/remove-all" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+   - Luego click en "Configurar Webhooks"
+
+---
+
+### Problem 5: Productos/Clientes NO Se Sincronizan Después de OAuth
+
+**Síntomas**:
+- OAuth exitoso pero no aparecen productos/clientes
+- Panel de sincronización muestra "0 trabajos"
+
+**Causa**:
+- La sincronización inicial no se inició automáticamente
+- Error en el proceso de importación
+
+**Solución**:
+1. Verifica que la integración esté activa:
+```bash
+curl -X GET "https://api.ordefy.io/api/shopify/integration" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+
+2. Inicia sincronización manual:
+   - Click en "Sincronizar Productos y Clientes" en panel de sincronización
+
+3. Verifica estado de importación:
+```bash
+curl -X GET "https://api.ordefy.io/api/shopify/import-status/INTEGRATION_ID" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+
+4. Revisa logs del servidor:
+```bash
+tail -f logs/api.log | grep SHOPIFY-IMPORT
+```
+
+---
+
+### Problem 6: App No Carga en Shopify Admin (Embedded Mode)
+
+**Síntomas**:
+- Blank screen al abrir la app desde Shopify Admin
+- Error de CORS en console del navegador
+
+**Causa**:
+- `embedded = true` en `shopify.app.toml` pero App Bridge no está implementado
+
+**Solución**:
+Ya corregido en este commit. El `shopify.app.toml` ahora tiene `embedded = false` ya que no usamos App Bridge.
+
+Si quieres habilitar embedded mode en el futuro, necesitas implementar App Bridge:
+
+1. Instalar @shopify/app-bridge-react:
+```bash
+npm install @shopify/app-bridge @shopify/app-bridge-react
+```
+
+2. Configurar App Bridge en `src/App.tsx`:
 ```typescript
-// api/services/shopify-webhook.service.ts:19-40
-static verifyHmacSignature(body: string, hmacHeader: string, secret: string): boolean {
-  const hash = crypto
-    .createHmac('sha256', secret)
-    .update(body, 'utf8')
-    .digest('base64');
+import { AppProvider } from '@shopify/app-bridge-react';
 
-  return crypto.timingSafeEqual(
-    Buffer.from(hash),
-    Buffer.from(hmacHeader)
-  );
-}
+const config = {
+  apiKey: import.meta.env.VITE_SHOPIFY_API_KEY,
+  host: new URLSearchParams(location.search).get("host") || "",
+  forceRedirect: true,
+};
+
+<AppProvider config={config}>
+  {/* Your app */}
+</AppProvider>
 ```
 
-The verification compares:
-1. **Expected**: HMAC generated using the secret from your database
-2. **Actual**: HMAC sent by Shopify in the `X-Shopify-Hmac-Sha256` header
+---
 
-When these don't match → 401 Unauthorized
+### Problem 7: Redirect URL Mismatch
 
-### Where the secret comes from
+**Síntomas**:
+- Error después de autorizar en Shopify: "redirect_uri_mismatch"
 
-```typescript
-// api/routes/shopify.ts:563-567 (orders/updated endpoint)
-const isValid = ShopifyWebhookService.verifyHmacSignature(
-  rawBody,
-  hmacHeader,
-  integration.webhook_signature || integration.api_secret_key  // ← HERE
-);
+**Causa**:
+- La URL de redirect no está registrada en Shopify Partners
+
+**Solución**:
+1. Ve a Shopify Partners → Apps → Tu App → App Setup
+2. En "App URL" y "Allowed redirection URL(s)", agrega:
+```
+https://api.ordefy.io/api/shopify-oauth/callback
 ```
 
-The secret is pulled from your database:
-- **First choice**: `integration.webhook_signature`
-- **Fallback**: `integration.api_secret_key`
-
-## Diagnosis Steps
-
-### Step 1: Check your database
-
-Run this query to see what secrets are stored:
-
-```sql
-SELECT 
-  shop_domain,
-  api_secret_key,
-  webhook_signature,
-  status,
-  created_at
-FROM shopify_integrations
-WHERE shop_domain = 'your-store.myshopify.com';
+3. Verifica que `SHOPIFY_REDIRECT_URI` en `.env` coincida:
+```bash
+SHOPIFY_REDIRECT_URI=https://api.ordefy.io/api/shopify-oauth/callback
 ```
 
-Expected result:
-- `api_secret_key` should be: `shpss_YOUR_SHOPIFY_API_SECRET_HERE` (from .env)
-- `webhook_signature` can be NULL or the same value
+---
 
-### Step 2: Verify your Shopify App credentials
+### Problem 8: Webhooks Llegan pero No Se Procesan
 
-1. Go to: https://partners.shopify.com
-2. Navigate to your app
-3. Go to "App setup" → "Client credentials"
-4. Find:
-   - **API key**: `YOUR_SHOPIFY_API_KEY`
-   - **API secret key**: `shpss_YOUR_SHOPIFY_API_SECRET_HERE`
+**Síntomas**:
+- Webhooks aparecen en Shopify como "delivered"
+- Pero órdenes no aparecen en Ordefy
 
-The API secret key must match what's in your database!
+**Causa**:
+- Error en verificación HMAC de webhook
+- Error en procesamiento del payload
 
-### Step 3: Check your .env file
+**Solución**:
+1. Revisa logs de webhooks:
+```bash
+tail -f logs/api.log | grep SHOPIFY-WEBHOOK
+```
+
+2. Verifica métricas de webhooks:
+```bash
+curl -X GET "https://api.ordefy.io/api/shopify/webhook-health?hours=24" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+
+3. Procesa cola de reintentos manualmente:
+```bash
+curl -X POST "https://api.ordefy.io/api/shopify/webhook-retry/process" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+
+---
+
+## 🔧 Debugging Tools
+
+### 1. Check OAuth Health
 
 ```bash
-cat .env | grep SHOPIFY
+curl -X GET "https://api.ordefy.io/api/shopify-oauth/health"
 ```
 
-Expected:
-```env
-SHOPIFY_API_KEY=YOUR_SHOPIFY_API_KEY
-SHOPIFY_API_SECRET=shpss_YOUR_SHOPIFY_API_SECRET_HERE
-```
-
-## Solutions
-
-### Solution 1: Update database directly (Quick Fix)
-
-```sql
-UPDATE shopify_integrations
-SET 
-  api_secret_key = 'shpss_YOUR_SHOPIFY_API_SECRET_HERE',
-  webhook_signature = 'shpss_YOUR_SHOPIFY_API_SECRET_HERE'
-WHERE shop_domain = 'your-store.myshopify.com';
-```
-
-### Solution 2: Reconfigure integration (Recommended)
-
-1. In your Ordefy dashboard, go to **Integrations** → **Shopify**
-2. Click "Disconnect" or "Remove Integration"
-3. Click "Connect" and re-enter your Shopify credentials:
-   - **Shop Domain**: `your-store.myshopify.com`
-   - **API Key**: `YOUR_SHOPIFY_API_KEY`
-   - **API Secret**: `shpss_YOUR_SHOPIFY_API_SECRET_HERE`
-   - **Access Token**: [Your admin access token]
-4. Complete the setup
-
-This will ensure all credentials are correctly stored and webhooks are re-registered.
-
-### Solution 3: Use the API directly
-
-```bash
-# Get your auth token and store ID first
-export AUTH_TOKEN="your_jwt_token"
-export STORE_ID="your_store_id"
-
-# Reconfigure Shopify integration
-curl -X POST https://api.ordefy.io/api/shopify/configure \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "X-Store-ID: $STORE_ID" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shop_domain": "your-store.myshopify.com",
-    "api_key": "YOUR_SHOPIFY_API_KEY",
-    "api_secret_key": "shpss_YOUR_SHOPIFY_API_SECRET_HERE",
-    "access_token": "YOUR_ACCESS_TOKEN",
-    "import_products": true,
-    "import_customers": true,
-    "import_orders": false
-  }'
-```
-
-## Verification
-
-After applying a solution, verify webhooks are working:
-
-### 1. Check webhook health
-
-```bash
-curl -H "Authorization: Bearer $AUTH_TOKEN" \
-     -H "X-Store-ID: $STORE_ID" \
-     "https://api.ordefy.io/api/shopify/webhook-health?hours=1"
-```
-
-Expected:
+Expected response:
 ```json
 {
-  "status": "healthy",
-  "metrics": {
-    "success_rate": 100,
-    "error_breakdown": {
-      "401_unauthorized": 0
-    }
-  }
+  "configured": true,
+  "missing_vars": [],
+  "config": {
+    "api_key": true,
+    "api_secret": true,
+    "redirect_uri": true,
+    "scopes": "read_products,write_products,read_orders,write_orders,read_customers,write_customers",
+    "api_version": "2025-10"
+  },
+  "message": "Shopify OAuth is properly configured"
 }
 ```
 
-### 2. Trigger a test webhook
+### 2. List Registered Webhooks
 
-Option A: Create a test order in Shopify
-Option B: Update an existing order (change tags, add note)
-Option C: Use Shopify's webhook testing tool
-
-### 3. Monitor webhook deliveries
-
-In Shopify admin:
-1. Go to **Settings** → **Notifications**
-2. Scroll to **Webhooks** section
-3. Click on any webhook to see delivery history
-4. Look for recent deliveries with 200 status code (success)
-
-## Common Mistakes
-
-### ❌ Using the wrong secret
-
-```typescript
-// WRONG: Using SHOPIFY_API_KEY (this is public)
-const secret = 'YOUR_SHOPIFY_API_KEY';
-
-// CORRECT: Using SHOPIFY_API_SECRET
-const secret = 'shpss_YOUR_SHOPIFY_API_SECRET_HERE';
+```bash
+curl -X GET "https://api.ordefy.io/api/shopify/webhooks/list" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
 ```
 
-### ❌ Storing empty or NULL secrets
+### 3. Verify Webhooks Configuration
+
+```bash
+curl -X GET "https://api.ordefy.io/api/shopify/webhooks/verify" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+
+### 4. Manually Setup Webhooks
+
+```bash
+curl -X POST "https://api.ordefy.io/api/shopify/webhooks/setup" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+
+### 5. Test Shopify API Directly
+
+```bash
+# Replace with your values
+SHOP_DOMAIN="yourstore.myshopify.com"
+ACCESS_TOKEN="shpat_xxxxx"
+API_VERSION="2025-10"
+
+# Get shop info
+curl -X GET "https://${SHOP_DOMAIN}/admin/api/${API_VERSION}/shop.json" \
+  -H "X-Shopify-Access-Token: ${ACCESS_TOKEN}"
+
+# List webhooks
+curl -X GET "https://${SHOP_DOMAIN}/admin/api/${API_VERSION}/webhooks.json" \
+  -H "X-Shopify-Access-Token: ${ACCESS_TOKEN}"
+
+# List products
+curl -X GET "https://${SHOP_DOMAIN}/admin/api/${API_VERSION}/products.json?limit=5" \
+  -H "X-Shopify-Access-Token: ${ACCESS_TOKEN}"
+```
+
+---
+
+## 📊 Monitoring
+
+### Webhook Health Dashboard
+
+Ve a Integraciones → Panel de Diagnósticos de Shopify para ver:
+
+- ✅ Webhooks registrados (4 esperados)
+- 📊 Tasa de éxito de webhooks
+- ⚠️ Errores recientes
+- 🔄 Reintentos pendientes
+
+### Database Queries
+
+Check integration status:
+```sql
+SELECT * FROM shopify_integrations WHERE store_id = 'YOUR_STORE_ID';
+```
+
+Check registered webhooks:
+```sql
+SELECT * FROM shopify_webhooks WHERE integration_id = 'INTEGRATION_ID';
+```
+
+Check webhook metrics:
+```sql
+SELECT * FROM shopify_webhook_metrics
+WHERE integration_id = 'INTEGRATION_ID'
+ORDER BY created_at DESC
+LIMIT 24;
+```
+
+Check import jobs:
+```sql
+SELECT * FROM shopify_import_jobs
+WHERE integration_id = 'INTEGRATION_ID'
+ORDER BY created_at DESC;
+```
+
+---
+
+## 🚨 Emergency Reset
+
+Si nada funciona, haz un reset completo:
+
+### 1. Disconnect Shopify Integration
+
+```bash
+curl -X DELETE "https://api.ordefy.io/api/shopify-oauth/disconnect?shop=yourstore.myshopify.com" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID"
+```
+
+### 2. Clean Database
 
 ```sql
--- BAD
-api_secret_key = NULL
-webhook_signature = NULL
-
--- GOOD
-api_secret_key = 'shpss_YOUR_SHOPIFY_API_SECRET_HERE'
-webhook_signature = 'shpss_YOUR_SHOPIFY_API_SECRET_HERE'
+-- Backup first!
+DELETE FROM shopify_webhooks WHERE integration_id = 'INTEGRATION_ID';
+DELETE FROM shopify_import_jobs WHERE integration_id = 'INTEGRATION_ID';
+DELETE FROM shopify_integrations WHERE id = 'INTEGRATION_ID';
 ```
 
-### ❌ Using the wrong shop domain
+### 3. Uninstall App from Shopify
 
-Make sure the shop domain in your database exactly matches what Shopify sends in the `X-Shopify-Shop-Domain` header.
+- Go to Shopify Admin → Apps
+- Find Ordefy
+- Click "Uninstall"
 
-## Understanding the Webhook Flow
+### 4. Re-install
 
+- Go to Ordefy → Integraciones
+- Click "Conectar tienda" en Shopify
+- Follow OAuth flow
+- Verify webhooks are registered in panel de diagnósticos
+
+---
+
+## 📝 Checklist Before Going Live
+
+- [ ] SHOPIFY_API_KEY matches shopify.app.toml client_id
+- [ ] SHOPIFY_API_SECRET is correct
+- [ ] SHOPIFY_REDIRECT_URI is whitelisted in Shopify Partners
+- [ ] shopify.app.toml has embedded = false (or App Bridge implemented)
+- [ ] All 4 webhooks registered successfully
+- [ ] OAuth health check returns "configured": true
+- [ ] Test products sync manually
+- [ ] Test customers sync manually
+- [ ] Create test order in Shopify → verify it arrives via webhook
+- [ ] Webhook health dashboard shows 100% success rate
+
+---
+
+## 📚 Resources
+
+- [Shopify API Documentation](https://shopify.dev/docs/api)
+- [Shopify OAuth Flow](https://shopify.dev/docs/apps/auth/oauth)
+- [Shopify Webhooks](https://shopify.dev/docs/apps/webhooks)
+- [App Bridge Documentation](https://shopify.dev/docs/apps/tools/app-bridge)
+- [ORDEFY WEBHOOK_RELIABILITY.md](./WEBHOOK_RELIABILITY.md)
+- [ORDEFY SHOPIFY_SETUP.md](./SHOPIFY_SETUP.md)
+
+---
+
+## 🆘 Getting Help
+
+If you still have issues after following this guide:
+
+1. Run the test script and save output:
+```bash
+./test-shopify-connection.sh yourstore.myshopify.com > shopify-test.log 2>&1
 ```
-┌─────────────────┐
-│   Shopify       │
-│   (creates      │
-│   webhook)      │
-└────────┬────────┘
-         │
-         │ 1. Event occurs (order created, etc.)
-         │
-         ▼
-┌─────────────────────────────────────┐
-│ Shopify signs payload with:        │
-│ HMAC-SHA256(payload, API_SECRET)   │
-└────────┬────────────────────────────┘
-         │
-         │ 2. POST to webhook URL
-         │    Headers:
-         │    - X-Shopify-Shop-Domain: your-store.myshopify.com
-         │    - X-Shopify-Hmac-Sha256: [signature]
-         │
-         ▼
-┌──────────────────────────────────────────────────────┐
-│ Your API: api.ordefy.io/api/shopify/webhook/...    │
-│                                                      │
-│ 1. Get shop_domain from header                      │
-│ 2. Look up integration in database                  │
-│ 3. Get api_secret_key from database                 │
-│ 4. Calculate HMAC using YOUR secret                 │
-│ 5. Compare with Shopify's HMAC                      │
-│                                                      │
-│ If match:    ✅ 200 OK (process webhook)            │
-│ If mismatch: ❌ 401 Unauthorized                     │
-└──────────────────────────────────────────────────────┘
+
+2. Export webhook health metrics:
+```bash
+curl -X GET "https://api.ordefy.io/api/shopify/webhook-health?hours=24" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-Store-ID: YOUR_STORE_ID" > webhook-health.json
 ```
 
-## Additional Resources
+3. Check API logs:
+```bash
+tail -100 logs/api.log | grep SHOPIFY > shopify-errors.log
+```
 
-- [Shopify Webhook Documentation](https://shopify.dev/docs/apps/webhooks)
-- [HMAC Verification Guide](https://shopify.dev/docs/apps/webhooks/configuration/https#verify-webhook-requests)
-- Ordefy Webhook Reliability: `WEBHOOK_RELIABILITY.md`
-- Shopify Integration Setup: `SHOPIFY_SETUP.md`
-
-## Need More Help?
-
-1. Check the API logs for detailed error messages:
-   ```bash
-   pm2 logs api
-   ```
-
-2. Enable debug logging:
-   ```env
-   LOG_LEVEL=debug
-   ENABLE_QUERY_LOGGING=true
-   ```
-
-3. Run the connection test script:
-   ```bash
-   ./test-shopify-connection.sh your-store.myshopify.com YOUR_ACCESS_TOKEN
-   ```
+4. Create GitHub issue with:
+   - shopify-test.log
+   - webhook-health.json
+   - shopify-errors.log
+   - Screenshots from panel de diagnósticos
