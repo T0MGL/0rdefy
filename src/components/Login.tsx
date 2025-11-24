@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, Zap } from 'lucide-react';
 import { z } from 'zod';
 
 const loginSchema = z.object({
@@ -105,93 +106,93 @@ export default function Login() {
   return (
     <div className="min-h-screen flex">
       {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, hsl(84 81% 63%), hsl(84 81% 50%), hsl(84 81% 35%))' }}>
-        {/* Static background decoration */}
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute top-0 left-0 w-96 h-96 bg-white rounded-full -translate-x-1/2 -translate-y-1/2" />
-          <div className="absolute bottom-0 right-0 w-96 h-96 bg-white rounded-full translate-x-1/2 translate-y-1/2" />
-        </div>
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary/95 via-primary/80 to-primary/70 relative overflow-hidden">
+        {/* Dark overlay for better text contrast */}
+        <div className="absolute inset-0 bg-black/20"></div>
 
-        {/* Simple grid pattern */}
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.05)_1px,transparent_1px)] bg-[size:40px_40px]" />
+        {/* Pattern Overlay */}
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItaDJWMzZoLTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bS00IDBoMnYyaC0ydi0yem0tNCAwaC0ydjJoMnYtMnptMTIgMGgydjJoLTJ2LTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-20"></div>
 
         {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center px-12 xl:px-16 text-white max-w-2xl">
-          <div className="mb-12">
-            <h1 className="text-6xl xl:text-7xl font-bold text-white mb-4 tracking-tight">
-              Ordefy
-            </h1>
-            <div className="h-1.5 w-24 bg-white/90 rounded-full mb-6" />
-            <h2 className="text-2xl xl:text-3xl font-semibold text-white/95 mb-4">
+        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="mb-12"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3 shadow-lg">
+                <Zap className="w-8 h-8 text-white drop-shadow-lg" />
+              </div>
+              <h1 className="text-5xl font-bold text-white drop-shadow-lg">Ordefy</h1>
+            </div>
+            <div className="h-1 w-20 bg-white rounded-full shadow-lg"></div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+          >
+            <h2 className="text-3xl font-semibold mb-4 text-white drop-shadow-md">
               Gestiona tu comercio electrónico con inteligencia
             </h2>
-            <p className="text-lg xl:text-xl text-white/90 leading-relaxed">
+            <p className="text-xl text-white mb-8 leading-relaxed drop-shadow-md">
               Optimiza pedidos, inventario, campañas y logística en una sola plataforma.
               Toma decisiones inteligentes con análisis en tiempo real.
             </p>
-          </div>
+          </motion.div>
 
-          <div className="grid gap-4">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.4 }}
+            className="space-y-4"
+          >
             {[
-              {
-                icon: '📊',
-                title: 'Dashboard Inteligente',
-                desc: 'Métricas y KPIs en tiempo real con análisis predictivo'
-              },
-              {
-                icon: '📦',
-                title: 'Gestión de Pedidos',
-                desc: 'Control total de tus órdenes y automatización de procesos'
-              },
-              {
-                icon: '🎯',
-                title: 'Analytics Avanzado',
-                desc: 'Recomendaciones inteligentes para optimizar tu negocio'
-              },
+              { title: 'Dashboard Inteligente', desc: 'Métricas y KPIs en tiempo real con análisis predictivo' },
+              { title: 'Gestión de Pedidos', desc: 'Control total de tus órdenes y automatización de procesos' },
+              { title: 'Analytics Avanzado', desc: 'Recomendaciones inteligentes para optimizar tu negocio' },
             ].map((feature, index) => (
-              <div
-                key={index}
-                className="flex items-start gap-4 bg-white/10 rounded-xl p-4 border border-white/20 hover:bg-white/15 transition-colors duration-200"
-              >
-                <div className="text-3xl">{feature.icon}</div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-lg text-white mb-1">
-                    {feature.title}
-                  </h3>
-                  <p className="text-white/80 text-sm leading-relaxed">
-                    {feature.desc}
-                  </p>
+              <div key={index} className="flex items-start gap-3">
+                <div className="mt-1 rounded-full bg-white/20 backdrop-blur-sm p-2 shadow-md">
+                  <div className="w-2 h-2 bg-white rounded-full shadow-sm" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg text-white drop-shadow-md">{feature.title}</h3>
+                  <p className="text-white drop-shadow-sm">{feature.desc}</p>
                 </div>
               </div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-background">
-        <div className="w-full max-w-md">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="w-full max-w-md"
+        >
           {/* Mobile Logo */}
-          <div className="lg:hidden flex flex-col items-center justify-center mb-10">
-            <div className="w-20 h-20 rounded-2xl bg-primary flex items-center justify-center mb-4 shadow-lg">
-              <span className="text-4xl">📦</span>
+          <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
+            <div className="bg-primary/10 rounded-xl p-2">
+              <Zap className="w-6 h-6 text-primary" />
             </div>
-            <h1 className="text-3xl font-bold text-primary">
-              Ordefy
-            </h1>
-            <p className="text-sm text-muted-foreground mt-2">
-              Gestiona tu negocio con inteligencia
-            </p>
+            <h1 className="text-2xl font-bold text-foreground">Ordefy</h1>
           </div>
 
           <div className="mb-8">
-            <h2 className="text-3xl sm:text-4xl font-bold mb-3">Iniciar Sesión</h2>
-            <p className="text-muted-foreground text-base">
+            <h2 className="text-3xl font-bold mb-2">Iniciar Sesión</h2>
+            <p className="text-muted-foreground">
               Ingresa tus credenciales para acceder a tu cuenta
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email Field */}
             <div className="space-y-2">
               <Label htmlFor="email" className="text-base font-medium">
@@ -288,27 +289,26 @@ export default function Login() {
             </Button>
           </form>
 
-
-          {/* Footer - Registro deshabilitado durante testing */}
-          {/* <div className="mt-8 text-center">
+          {/* Footer */}
+          <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
               ¿No tienes cuenta?{' '}
               <button
                 type="button"
-                onClick={() => navigate('/signup')}
-                className="text-primary hover:underline font-medium"
+                disabled
+                className="text-muted-foreground/50 cursor-not-allowed font-medium opacity-50"
               >
                 Crear cuenta
               </button>
             </p>
-          </div> */}
+          </div>
 
           <div className="mt-8 pt-6 border-t border-border/50 text-center">
             <p className="text-xs text-muted-foreground">
               © 2025 Bright Idea - Ordefy. Todos los derechos reservados.
             </p>
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );
