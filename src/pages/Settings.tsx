@@ -752,6 +752,58 @@ export default function Settings() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Delete Store Dialog */}
+      <Dialog open={deleteStoreDialogOpen} onOpenChange={setDeleteStoreDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Eliminar tienda?</DialogTitle>
+            <DialogDescription>
+              Esta acción no se puede deshacer. Esto eliminará permanentemente la tienda y todos sus datos asociados.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+              <div className="flex gap-3">
+                <AlertCircle className="text-destructive flex-shrink-0 mt-0.5" size={20} />
+                <div className="space-y-2 text-sm">
+                  <p className="font-semibold text-destructive">
+                    Se eliminarán los siguientes datos:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li>Todos los pedidos de esta tienda</li>
+                    <li>Todos los productos de esta tienda</li>
+                    <li>Todos los clientes de esta tienda</li>
+                    <li>Todas las campañas de esta tienda</li>
+                    <li>Todas las configuraciones e integraciones</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            {storeToDelete && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm font-medium">
+                  Tienda a eliminar: <span className="font-bold">{stores.find(s => s.id === storeToDelete)?.name}</span>
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteStoreDialogOpen(false);
+                setStoreToDelete(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteStore} disabled={isDeletingStore}>
+              {isDeletingStore ? 'Eliminando...' : 'Sí, eliminar tienda'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

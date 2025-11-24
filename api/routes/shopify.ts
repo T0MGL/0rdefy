@@ -1197,16 +1197,27 @@ shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Respons
       return res.status(200).json({ success: true, message: 'Integration not found' });
     }
 
-    // Verify HMAC signature
-    const isValid = ShopifyWebhookService.verifyHmacSignature(
-      rawBody,
-      hmacHeader,
-      integration.webhook_signature || integration.api_secret_key
-    );
+    // Get the webhook secret (webhook_signature or api_secret_key)
+    const webhookSecret = integration.webhook_signature || integration.api_secret_key;
 
-    if (!isValid) {
-      console.error('❌ Invalid HMAC signature for app/uninstalled');
-      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+    // For app/uninstalled, if credentials are missing, we still want to process the uninstall
+    // This can happen if the app was already uninstalled and credentials were revoked
+    if (!webhookSecret || webhookSecret.trim() === '') {
+      console.warn('⚠️ Webhook secret missing for app/uninstalled, processing anyway:', shopDomain);
+      console.warn('⚠️ This may indicate the app was already uninstalled or credentials were revoked');
+      // Skip HMAC verification and proceed to mark as uninstalled
+    } else {
+      // Verify HMAC signature if secret is available
+      const isValid = ShopifyWebhookService.verifyHmacSignature(
+        rawBody,
+        hmacHeader,
+        webhookSecret
+      );
+
+      if (!isValid) {
+        console.error('❌ Invalid HMAC signature for app/uninstalled');
+        return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+      }
     }
 
     console.log('✅ app/uninstalled webhook received for shop:', shopDomain);

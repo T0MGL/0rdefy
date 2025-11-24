@@ -76,15 +76,108 @@ async function registerShopifyWebhooks(
     }
   }
 
+  // ================================================================
+  // STEP 1: List existing webhooks from Shopify
+  // ================================================================
+  console.log(`\n📋 [SHOPIFY-WEBHOOKS] Fetching existing webhooks from Shopify...`);
+  let existingWebhooks: any[] = [];
+
+  try {
+    const listResponse = await axios.get(
+      `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`,
+      {
+        headers: {
+          'X-Shopify-Access-Token': accessToken
+        },
+        timeout: 10000
+      }
+    );
+
+    existingWebhooks = listResponse.data.webhooks || [];
+    console.log(`✅ [SHOPIFY-WEBHOOKS] Found ${existingWebhooks.length} existing webhooks in Shopify`);
+
+    // Log each existing webhook
+    existingWebhooks.forEach((webhook: any) => {
+      console.log(`   └─ ${webhook.topic}: ${webhook.address} (ID: ${webhook.id})`);
+    });
+  } catch (error: any) {
+    console.warn(`⚠️  [SHOPIFY-WEBHOOKS] Could not fetch existing webhooks:`, error.message);
+    console.warn(`   └─ Will attempt to create all webhooks (may get 422 errors)`);
+  }
+
   for (const topic of WEBHOOK_TOPICS) {
     try {
       // Construct webhook URL endpoint
       const webhookUrl = `${API_URL}/api/shopify/webhook/${topic.replace('/', '-')}`;
 
-      console.log(`🔗 [SHOPIFY-WEBHOOKS] [${topic}] Attempting registration...`);
-      console.log(`   └─ URL: ${webhookUrl}`);
+      console.log(`\n🔗 [SHOPIFY-WEBHOOKS] [${topic}] Processing...`);
+      console.log(`   └─ Expected URL: ${webhookUrl}`);
 
-      // Register webhook with Shopify
+      // ================================================================
+      // STEP 2: Check if webhook already exists
+      // ================================================================
+      const existingWebhook = existingWebhooks.find((w: any) => w.topic === topic);
+
+      if (existingWebhook) {
+        console.log(`   └─ Found existing webhook in Shopify (ID: ${existingWebhook.id})`);
+        console.log(`   └─ Existing URL: ${existingWebhook.address}`);
+
+        // Check if URL matches
+        if (existingWebhook.address === webhookUrl) {
+          console.log(`   └─ ✅ URL matches - using existing webhook`);
+
+          // Save existing webhook to our database
+          const { error } = await supabaseAdmin
+            .from('shopify_webhooks')
+            .upsert({
+              integration_id: integrationId,
+              webhook_id: existingWebhook.id.toString(),
+              topic: topic,
+              shop_domain: shop,
+              is_active: true
+            }, {
+              onConflict: 'integration_id,topic'
+            });
+
+          if (error && !error.message.includes('duplicate') && !error.message.includes('unique')) {
+            console.warn(`   └─ ⚠️  Database save warning: ${error.message}`);
+          }
+
+          console.log(`✅ [SHOPIFY-WEBHOOKS] [${topic}] Verified existing webhook`);
+          results.success++;
+          continue; // Skip creation, use existing
+        } else {
+          console.warn(`   └─ ⚠️  URL mismatch!`);
+          console.warn(`   └─ Expected: ${webhookUrl}`);
+          console.warn(`   └─ Got: ${existingWebhook.address}`);
+          console.log(`   └─ Deleting old webhook and creating new one...`);
+
+          // Delete old webhook
+          try {
+            await axios.delete(
+              `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks/${existingWebhook.id}.json`,
+              {
+                headers: {
+                  'X-Shopify-Access-Token': accessToken
+                },
+                timeout: 10000
+              }
+            );
+            console.log(`   └─ ✅ Old webhook deleted`);
+          } catch (deleteError: any) {
+            console.error(`   └─ ❌ Failed to delete old webhook:`, deleteError.message);
+            // Continue anyway, try to create new one
+          }
+        }
+      } else {
+        console.log(`   └─ No existing webhook found for ${topic}`);
+      }
+
+      // ================================================================
+      // STEP 3: Create new webhook
+      // ================================================================
+      console.log(`   └─ Creating new webhook...`);
+
       const response = await axios.post(
         baseUrl,
         {
@@ -99,7 +192,7 @@ async function registerShopifyWebhooks(
             'X-Shopify-Access-Token': accessToken,
             'Content-Type': 'application/json'
           },
-          timeout: 10000 // 10 second timeout
+          timeout: 10000
         }
       );
 
@@ -151,9 +244,20 @@ async function registerShopifyWebhooks(
           console.error(`   └─ Granted: ${grantedScopes}`);
           results.errors.push(`${topic}: Missing scope permission (403)`);
         } else if (status === 422) {
-          console.error(`   └─ ⚠️  VALIDATION ERROR - Invalid webhook data`);
-          console.error(`   └─ Error details:`, data?.errors || data);
-          results.errors.push(`${topic}: Validation error (422) - ${JSON.stringify(data?.errors)}`);
+          const errorMessage = data?.errors?.address?.[0] || JSON.stringify(data?.errors);
+
+          if (errorMessage.includes('already been taken')) {
+            console.error(`   └─ ⚠️  DUPLICATE ERROR - Webhook already exists for this topic`);
+            console.error(`   └─ This usually means:`);
+            console.error(`      1. Webhook exists in Shopify but wasn't detected in the list`);
+            console.error(`      2. Another integration is using the same URL`);
+            console.error(`   └─ Solution: Go to Shopify admin and manually delete duplicate webhooks`);
+            results.errors.push(`${topic}: Webhook already exists (422) - manually delete in Shopify admin`);
+          } else {
+            console.error(`   └─ ⚠️  VALIDATION ERROR - Invalid webhook data`);
+            console.error(`   └─ Error details:`, data?.errors || data);
+            results.errors.push(`${topic}: Validation error (422) - ${JSON.stringify(data?.errors)}`);
+          }
         } else if (status === 429) {
           console.error(`   └─ ⚠️  RATE LIMIT - Too many requests`);
           results.errors.push(`${topic}: Rate limited (429)`);
