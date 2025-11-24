@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ShopifyIntegrationModal } from '@/components/ShopifyIntegrationModal';
 import { ShopifyConnectDialog } from '@/components/ShopifyConnectDialog';
 import { ShopifySyncStatus } from '@/components/ShopifySyncStatus';
+import { ShopifyDiagnostics } from '@/components/ShopifyDiagnostics';
 import { Store, Package, Clock, CheckCircle2, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
@@ -73,12 +74,30 @@ export default function Integrations() {
     const status = searchParams.get('status');
     const error = searchParams.get('error');
     const shop = searchParams.get('shop');
+    const webhooksFailed = searchParams.get('webhooks_failed');
+    const webhooksSuccess = searchParams.get('webhooks_success');
+    const webhooksOk = searchParams.get('webhooks');
 
     if (status === 'success' && shop) {
-      toast({
-        title: '✅ Shopify conectado',
-        description: `Tu tienda ${shop} se ha conectado exitosamente`,
-      });
+      // Check webhook registration status
+      if (webhooksFailed && parseInt(webhooksFailed) > 0) {
+        toast({
+          title: '⚠️ Shopify conectado con advertencias',
+          description: `Tu tienda ${shop} se conectó, pero ${webhooksFailed} webhook(s) fallaron. Revisa el panel de diagnósticos.`,
+          variant: 'destructive',
+        });
+      } else if (webhooksOk === 'ok') {
+        toast({
+          title: '✅ Shopify conectado exitosamente',
+          description: `Tu tienda ${shop} y todos los webhooks se configuraron correctamente`,
+        });
+      } else {
+        toast({
+          title: '✅ Shopify conectado',
+          description: `Tu tienda ${shop} se ha conectado exitosamente`,
+        });
+      }
+
       setConnectedIntegrations(prev =>
         prev.includes('shopify') ? prev : [...prev, 'shopify']
       );
@@ -86,6 +105,9 @@ export default function Integrations() {
       searchParams.delete('status');
       searchParams.delete('shop');
       searchParams.delete('integration');
+      searchParams.delete('webhooks_failed');
+      searchParams.delete('webhooks_success');
+      searchParams.delete('webhooks');
       setSearchParams(searchParams);
     } else if (error) {
       const errorMessages: Record<string, string> = {
@@ -263,7 +285,10 @@ export default function Integrations() {
 
       {/* Estado de sincronizacion de Shopify */}
       {connectedIntegrations.includes('shopify') && (
-        <ShopifySyncStatus />
+        <>
+          <ShopifySyncStatus />
+          <ShopifyDiagnostics />
+        </>
       )}
 
       {/* E-commerce Platforms Category */}
