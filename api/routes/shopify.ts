@@ -352,11 +352,21 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
     // Record metric: received
     await webhookManager.recordMetric(integrationId, storeId, 'received');
 
-    // Verificar HMAC
+    // Verificar HMAC - usar fallback del .env si no está en la base de datos
+    const webhookSecret = integration.webhook_signature ||
+                          integration.api_secret_key ||
+                          process.env.SHOPIFY_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('❌ No webhook secret available (DB or .env)');
+      await webhookManager.recordMetric(integrationId, storeId, 'failed', Date.now() - startTime, '500');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
-      integration.webhook_signature || integration.api_secret_key
+      webhookSecret
     );
 
     if (!isValid) {
@@ -560,13 +570,24 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    // Usar fallback del .env si no está en la base de datos
+    const webhookSecret = integration.webhook_signature ||
+                          integration.api_secret_key ||
+                          process.env.SHOPIFY_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('❌ No webhook secret available for orders/updated');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
-      integration.webhook_signature || integration.api_secret_key
+      webhookSecret
     );
 
     if (!isValid) {
+      console.error('❌ HMAC verification failed for orders/updated');
       return res.status(401).json({ error: 'Invalid HMAC signature' });
     }
 
@@ -608,13 +629,24 @@ shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Respons
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    // Usar fallback del .env si no está en la base de datos
+    const webhookSecret = integration.webhook_signature ||
+                          integration.api_secret_key ||
+                          process.env.SHOPIFY_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('❌ No webhook secret available for products/delete');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
-      integration.webhook_signature || integration.api_secret_key
+      webhookSecret
     );
 
     if (!isValid) {
+      console.error('❌ HMAC verification failed for products/delete');
       return res.status(401).json({ error: 'Invalid HMAC signature' });
     }
 
@@ -1095,11 +1127,20 @@ shopifyRouter.post('/webhook/customers/data_request', async (req: Request, res: 
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // Verify HMAC signature
+    // Verify HMAC signature - usar fallback del .env
+    const webhookSecret = integration.webhook_signature ||
+                          integration.api_secret_key ||
+                          process.env.SHOPIFY_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('❌ No webhook secret available for customers/data_request');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
-      integration.webhook_signature || integration.api_secret_key
+      webhookSecret
     );
 
     if (!isValid) {
@@ -1146,11 +1187,20 @@ shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Respon
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // Verify HMAC signature
+    // Verify HMAC signature - usar fallback del .env
+    const webhookSecret = integration.webhook_signature ||
+                          integration.api_secret_key ||
+                          process.env.SHOPIFY_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('❌ No webhook secret available for customers/redact');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
-      integration.webhook_signature || integration.api_secret_key
+      webhookSecret
     );
 
     if (!isValid) {
@@ -1197,8 +1247,10 @@ shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Respons
       return res.status(200).json({ success: true, message: 'Integration not found' });
     }
 
-    // Get the webhook secret (webhook_signature or api_secret_key)
-    const webhookSecret = integration.webhook_signature || integration.api_secret_key;
+    // Get the webhook secret - usar fallback del .env
+    const webhookSecret = integration.webhook_signature ||
+                          integration.api_secret_key ||
+                          process.env.SHOPIFY_API_SECRET;
 
     // For app/uninstalled, if credentials are missing, we still want to process the uninstall
     // This can happen if the app was already uninstalled and credentials were revoked
@@ -1283,11 +1335,20 @@ shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) =
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // Verify HMAC signature
+    // Verify HMAC signature - usar fallback del .env
+    const webhookSecret = integration.webhook_signature ||
+                          integration.api_secret_key ||
+                          process.env.SHOPIFY_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('❌ No webhook secret available for shop/redact');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
-      integration.webhook_signature || integration.api_secret_key
+      webhookSecret
     );
 
     if (!isValid) {
