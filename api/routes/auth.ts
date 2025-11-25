@@ -18,6 +18,15 @@ const TOKEN_EXPIRY = '7d';
 const SALT_ROUNDS = 10;
 
 authRouter.post('/register', async (req: Request, res: Response) => {
+    // Registration is currently disabled
+    console.warn('⚠️ [REGISTER] Registration attempt blocked - feature is disabled');
+    return res.status(403).json({
+        success: false,
+        error: 'Registration is currently disabled',
+        message: 'New user registration is not available at this time'
+    });
+
+    /* COMMENTED OUT - Uncomment to re-enable registration
     try {
         const { email, password, name } = req.body;
 
@@ -118,6 +127,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
         });
     }
+    */
 });
 
 authRouter.post('/login', async (req: Request, res: Response) => {

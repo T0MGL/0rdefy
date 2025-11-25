@@ -108,6 +108,102 @@ export class ShopifyWebhookService {
     }
   }
 
+  // Procesar webhook de producto actualizado
+  async processProductUpdatedWebhook(
+    shopifyProduct: any,
+    storeId: string,
+    integrationId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Registrar evento de webhook
+      await this.logWebhookEvent({
+        integration_id: integrationId,
+        store_id: storeId,
+        event_type: 'product',
+        shopify_topic: 'products/update',
+        shopify_event_id: shopifyProduct.id.toString(),
+        payload: shopifyProduct
+      });
+
+      // Buscar producto en la base de datos local
+      const { data: existingProduct, error: fetchError } = await this.supabaseAdmin
+        .from('products')
+        .select('*')
+        .eq('shopify_product_id', shopifyProduct.id.toString())
+        .eq('store_id', storeId)
+        .maybeSingle();
+
+      if (fetchError) {
+        throw new Error(`Error buscando producto: ${fetchError.message}`);
+      }
+
+      // Preparar datos del producto actualizados
+      const variant = shopifyProduct.variants?.[0] || {};
+      const productData = {
+        name: shopifyProduct.title,
+        description: shopifyProduct.body_html || '',
+        sku: variant.sku || '',
+        price: parseFloat(variant.price) || 0,
+        cost: parseFloat(variant.cost) || 0,
+        stock: variant.inventory_quantity || 0,
+        category: shopifyProduct.product_type || '',
+        image_url: shopifyProduct.image?.src || shopifyProduct.images?.[0]?.src || '',
+        shopify_variant_id: variant.id?.toString() || null,
+        last_synced_at: new Date().toISOString(),
+        sync_status: 'synced',
+        updated_at: new Date().toISOString()
+      };
+
+      if (existingProduct) {
+        // Actualizar producto existente
+        const { error: updateError } = await this.supabaseAdmin
+          .from('products')
+          .update(productData)
+          .eq('id', existingProduct.id);
+
+        if (updateError) {
+          throw new Error(`Error actualizando producto: ${updateError.message}`);
+        }
+
+        console.log(`Producto ${shopifyProduct.id} actualizado en el dashboard por webhook de Shopify`);
+      } else {
+        // Crear nuevo producto si no existe (puede ocurrir si el producto se creó en Shopify)
+        const { error: insertError } = await this.supabaseAdmin
+          .from('products')
+          .insert({
+            store_id: storeId,
+            shopify_product_id: shopifyProduct.id.toString(),
+            ...productData
+          });
+
+        if (insertError) {
+          throw new Error(`Error creando producto: ${insertError.message}`);
+        }
+
+        console.log(`Producto ${shopifyProduct.id} creado en el dashboard por webhook de Shopify`);
+      }
+
+      // Marcar webhook como procesado
+      await this.markWebhookProcessed(shopifyProduct.id.toString(), storeId);
+
+      return { success: true };
+
+    } catch (error: any) {
+      console.error('Error procesando actualización de producto:', error);
+
+      await this.logWebhookError(
+        shopifyProduct.id.toString(),
+        storeId,
+        error.message
+      );
+
+      return {
+        success: false,
+        error: error.message || 'Error procesando webhook'
+      };
+    }
+  }
+
   // Procesar webhook de producto eliminado
   async processProductDeletedWebhook(
     productId: number,

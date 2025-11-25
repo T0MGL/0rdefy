@@ -156,7 +156,8 @@ export const productsService = {
 
   delete: async (id: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/products/${id}`, {
+      // Use hard delete to permanently remove product from database
+      const response = await fetch(`${API_BASE_URL}/products/${id}?hard_delete=true`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
