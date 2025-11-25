@@ -29,6 +29,14 @@ export class ShopifyImportService {
     import_types: Array<'products' | 'customers' | 'orders'>;
     force_full_sync?: boolean;
   }): Promise<string[]> {
+    console.log('🔄 [SHOPIFY-IMPORT] Starting import:', {
+      job_type: params.job_type,
+      import_types: params.import_types,
+      force_full_sync: params.force_full_sync,
+      integration_id: this.integration.id,
+      shop_domain: this.integration.shop_domain
+    });
+
     const jobIds: string[] = [];
 
     for (const import_type of params.import_types) {
@@ -39,13 +47,16 @@ export class ShopifyImportService {
       });
       jobIds.push(jobId);
 
+      console.log(`✅ [SHOPIFY-IMPORT] Created job ${jobId} for ${import_type}`);
+
       // Start background processing
       this.processImportJob(jobId).catch(error => {
-        console.error(`Error processing job ${jobId}:`, error);
+        console.error(`❌ [SHOPIFY-IMPORT] Error processing job ${jobId}:`, error);
         this.markJobFailed(jobId, error.message);
       });
     }
 
+    console.log(`🎯 [SHOPIFY-IMPORT] Started ${jobIds.length} import jobs:`, jobIds);
     return jobIds;
   }
 
@@ -75,25 +86,38 @@ export class ShopifyImportService {
 
   // Process import job with pagination
   private async processImportJob(jobId: string): Promise<void> {
+    console.log(`🚀 [SHOPIFY-IMPORT] Processing job ${jobId}`);
+
     // Update job to running status
     await this.updateJobStatus(jobId, 'running', { started_at: new Date().toISOString() });
 
     try {
       const job = await this.getJob(jobId);
+      console.log(`📋 [SHOPIFY-IMPORT] Job details:`, {
+        id: job.id,
+        type: job.import_type,
+        status: job.status,
+        page_size: job.page_size
+      });
 
       switch (job.import_type) {
         case 'products':
+          console.log(`📦 [SHOPIFY-IMPORT] Starting products import for job ${jobId}`);
           await this.importProducts(job);
           break;
         case 'customers':
+          console.log(`👥 [SHOPIFY-IMPORT] Starting customers import for job ${jobId}`);
           await this.importCustomers(job);
           break;
         case 'orders':
+          console.log(`🛒 [SHOPIFY-IMPORT] Starting orders import for job ${jobId}`);
           await this.importOrders(job);
           break;
         default:
           throw new Error(`Unknown import type: ${job.import_type}`);
       }
+
+      console.log(`✅ [SHOPIFY-IMPORT] Job ${jobId} completed successfully`);
 
       // Mark job as completed
       await this.updateJobStatus(jobId, 'completed', {
@@ -108,13 +132,20 @@ export class ShopifyImportService {
         .eq('id', this.integration.id);
 
     } catch (error: any) {
-      console.error(`Import job ${jobId} failed:`, error);
+      console.error(`❌ [SHOPIFY-IMPORT] Import job ${jobId} failed:`, error);
+      console.error(`❌ [SHOPIFY-IMPORT] Error details:`, {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
       await this.markJobFailed(jobId, error.message);
     }
   }
 
   // Import products with pagination
   private async importProducts(job: ShopifyImportJob): Promise<void> {
+    console.log(`📦 [SHOPIFY-IMPORT] Starting product import with pagination (page_size: ${job.page_size})`);
+
     let hasMore = true;
     let pageInfo: string | undefined;
     let processedCount = 0;
@@ -122,26 +153,37 @@ export class ShopifyImportService {
     // Get total count estimate
     let totalEstimate = 0;
     try {
+      console.log(`📊 [SHOPIFY-IMPORT] Getting product count estimate...`);
       const { products: sampleProducts } = await this.shopifyClient.getProducts({ limit: 1 });
       if (sampleProducts.length > 0) {
         totalEstimate = sampleProducts[0].id;
+        console.log(`📊 [SHOPIFY-IMPORT] Estimated total products: ~${totalEstimate}`);
       }
     } catch (error) {
-      console.warn('Could not estimate product count');
+      console.warn('⚠️  [SHOPIFY-IMPORT] Could not estimate product count:', error);
     }
 
     if (totalEstimate > 0) {
       await this.updateJobProgress(job.id, { total_items: totalEstimate });
     }
 
+    console.log(`🔄 [SHOPIFY-IMPORT] Starting product pagination loop...`);
+    let pageCount = 0;
+
     while (hasMore) {
       try {
+        pageCount++;
+        console.log(`📄 [SHOPIFY-IMPORT] Fetching page ${pageCount} (cursor: ${pageInfo || 'initial'})...`);
+
         const { products, pagination } = await this.shopifyClient.getProducts({
           limit: job.page_size,
           page_info: pageInfo
         });
 
+        console.log(`📦 [SHOPIFY-IMPORT] Received ${products.length} products from Shopify API`);
+
         if (products.length === 0) {
+          console.log(`✅ [SHOPIFY-IMPORT] No more products to fetch. Ending pagination.`);
           hasMore = false;
           break;
         }
@@ -168,6 +210,8 @@ export class ShopifyImportService {
         // Update pagination state
         hasMore = pagination.has_next;
         pageInfo = pagination.next_cursor;
+
+        console.log(`📊 [SHOPIFY-IMPORT] Page ${pageCount} complete. Processed: ${processedCount} total. Has more: ${hasMore}`);
 
         await this.updateJobProgress(job.id, {
           last_cursor: pageInfo,
@@ -198,18 +242,27 @@ export class ShopifyImportService {
 
   // Import customers with pagination
   private async importCustomers(job: ShopifyImportJob): Promise<void> {
+    console.log(`👥 [SHOPIFY-IMPORT] Starting customer import with pagination (page_size: ${job.page_size})`);
+
     let hasMore = true;
     let pageInfo: string | undefined;
     let processedCount = 0;
+    let pageCount = 0;
 
     while (hasMore) {
       try {
+        pageCount++;
+        console.log(`📄 [SHOPIFY-IMPORT] Fetching customer page ${pageCount} (cursor: ${pageInfo || 'initial'})...`);
+
         const { customers, pagination } = await this.shopifyClient.getCustomers({
           limit: job.page_size,
           page_info: pageInfo
         });
 
+        console.log(`👥 [SHOPIFY-IMPORT] Received ${customers.length} customers from Shopify API`);
+
         if (customers.length === 0) {
+          console.log(`✅ [SHOPIFY-IMPORT] No more customers to fetch. Ending pagination.`);
           hasMore = false;
           break;
         }
@@ -235,6 +288,8 @@ export class ShopifyImportService {
         hasMore = pagination.has_next;
         pageInfo = pagination.next_cursor;
 
+        console.log(`📊 [SHOPIFY-IMPORT] Customer page ${pageCount} complete. Processed: ${processedCount} total. Has more: ${hasMore}`);
+
         await this.updateJobProgress(job.id, {
           last_cursor: pageInfo,
           has_more: hasMore
@@ -243,7 +298,7 @@ export class ShopifyImportService {
         await new Promise(resolve => setTimeout(resolve, 100));
 
       } catch (error: any) {
-        console.error('Error fetching customers page:', error);
+        console.error('❌ [SHOPIFY-IMPORT] Error fetching customers page:', error);
 
         if (job.retry_count < job.max_retries) {
           await this.supabaseAdmin
