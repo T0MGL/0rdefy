@@ -622,6 +622,72 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
   }
 });
 
+// POST /api/shopify/webhook/products-update
+// Webhook para productos actualizados en Shopify
+shopifyRouter.post('/webhook/products-update', async (req: Request, res: Response) => {
+  try {
+    const shopDomain = req.get('X-Shopify-Shop-Domain');
+    const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available for products-update webhook');
+      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+    }
+
+    if (!shopDomain || !hmacHeader) {
+      return res.status(400).json({ error: 'Missing headers' });
+    }
+
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('shop_domain', shopDomain)
+      .eq('status', 'active')
+      .single();
+
+    if (error || !integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    // SIEMPRE usar .env para HMAC
+    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+
+    if (!webhookSecret) {
+      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
+    console.log('🔐 Using SHOPIFY_API_SECRET from .env for products/update');
+
+    const isValid = ShopifyWebhookService.verifyHmacSignature(
+      rawBody,
+      hmacHeader,
+      webhookSecret
+    );
+
+    if (!isValid) {
+      console.error('❌ HMAC verification failed for products/update');
+      return res.status(401).json({ error: 'Invalid HMAC signature' });
+    }
+
+    const webhookService = new ShopifyWebhookService(supabaseAdmin);
+    const result = await webhookService.processProductUpdatedWebhook(
+      req.body,
+      integration.store_id,
+      integration.id
+    );
+
+    res.json(result);
+
+  } catch (error: any) {
+    console.error('Error procesando webhook de actualización de producto:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/shopify/webhook/products-delete
 // Webhook para productos eliminados en Shopify
 shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Response) => {

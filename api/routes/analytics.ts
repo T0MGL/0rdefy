@@ -13,6 +13,13 @@ export const analyticsRouter = Router();
 
 analyticsRouter.use(verifyToken, extractStoreId);
 
+// Helper function to convert date string to end of day ISO string
+const toEndOfDay = (dateString: string): string => {
+    const date = new Date(dateString);
+    date.setHours(23, 59, 59, 999);
+    return date.toISOString();
+};
+
 
 // ================================================================
 // GET /api/analytics/overview - Dashboard overview metrics
@@ -42,7 +49,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         if (startDate && endDate) {
             currentPeriodStart = new Date(startDate as string);
-            currentPeriodEnd = new Date(endDate as string);
+            // Convert endDate to end of day to include all orders from that day
+            currentPeriodEnd = new Date(toEndOfDay(endDate as string));
             const periodDuration = currentPeriodEnd.getTime() - currentPeriodStart.getTime();
             previousPeriodStart = new Date(currentPeriodStart.getTime() - periodDuration);
             previousPeriodEnd = currentPeriodStart;
@@ -274,7 +282,8 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         // Apply date filters
         if (startDateParam && endDateParam) {
-            query = query.gte('created_at', startDateParam).lte('created_at', endDateParam);
+            // Convert endDate to end of day to include all orders from that day
+            query = query.gte('created_at', startDateParam).lte('created_at', toEndOfDay(endDateParam as string));
         } else {
             const daysCount = parseInt(days as string);
             const startDate = new Date();
@@ -383,7 +392,8 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             query = query.gte('created_at', startDate);
         }
         if (endDate) {
-            query = query.lte('created_at', endDate);
+            // Convert endDate to end of day to include all orders from that day
+            query = query.lte('created_at', toEndOfDay(endDate as string));
         }
 
         const { data: ordersData, error: ordersError } = await query;
@@ -511,7 +521,8 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             query = query.gte('created_at', startDate);
         }
         if (endDate) {
-            query = query.lte('created_at', endDate);
+            // Convert endDate to end of day to include all orders from that day
+            query = query.lte('created_at', toEndOfDay(endDate as string));
         }
 
         const { data: ordersData, error: ordersError } = await query;
@@ -599,7 +610,8 @@ analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: 
             query = query.gte('created_at', startDate);
         }
         if (endDate) {
-            query = query.lte('created_at', endDate);
+            // Convert endDate to end of day to include all orders from that day
+            query = query.lte('created_at', toEndOfDay(endDate as string));
         }
 
         const { data: ordersData, error: ordersError } = await query;

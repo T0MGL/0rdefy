@@ -9,6 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { ShopifyProductSyncService } from '../services/shopify-product-sync.service';
 
 export const productsRouter = Router();
 
@@ -29,11 +30,12 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             is_active
         } = req.query;
 
-        // Build query
+        // Build query - only show active products by default
         let query = supabaseAdmin
             .from('products')
             .select('*', { count: 'exact' })
             .eq('store_id', req.storeId)
+            .eq('is_active', true)
             .order('created_at', { ascending: false })
             .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 
@@ -53,8 +55,30 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             query = query.lte('price', parseFloat(max_price as string));
         }
 
+        // Allow overriding the default is_active filter with query parameter
         if (is_active !== undefined) {
-            query = query.eq('is_active', is_active === 'true');
+            // Remove the default filter and apply the one from query param
+            query = supabaseAdmin
+                .from('products')
+                .select('*', { count: 'exact' })
+                .eq('store_id', req.storeId)
+                .eq('is_active', is_active === 'true')
+                .order('created_at', { ascending: false })
+                .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+
+            // Reapply other filters
+            if (search) {
+                query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
+            }
+            if (category) {
+                query = query.eq('category', category);
+            }
+            if (min_price) {
+                query = query.gte('price', parseFloat(min_price as string));
+            }
+            if (max_price) {
+                query = query.lte('price', parseFloat(max_price as string));
+            }
         }
 
         const { data, error, count } = await query;
@@ -297,6 +321,41 @@ productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Auto-sync to Shopify if integration exists and product has shopify_product_id
+        if (data.shopify_product_id) {
+            const { data: integration } = await supabaseAdmin
+                .from('shopify_integrations')
+                .select('*')
+                .eq('store_id', req.storeId)
+                .eq('status', 'active')
+                .maybeSingle();
+
+            if (integration) {
+                try {
+                    const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
+                    const syncResult = await syncService.updateProductInShopify(data.id);
+
+                    if (!syncResult.success) {
+                        console.warn(`Product updated locally but sync to Shopify failed: ${syncResult.error}`);
+                        return res.json({
+                            message: 'Product updated successfully',
+                            data,
+                            sync_warning: syncResult.error
+                        });
+                    }
+
+                    console.log(`Product ${data.id} successfully synced to Shopify`);
+                } catch (syncError: any) {
+                    console.error('Error syncing to Shopify:', syncError);
+                    return res.json({
+                        message: 'Product updated successfully',
+                        data,
+                        sync_warning: 'Failed to sync to Shopify'
+                    });
+                }
+            }
+        }
+
         res.json({
             message: 'Product updated successfully',
             data
@@ -369,6 +428,31 @@ productsRouter.patch('/:id/stock', async (req: AuthRequest, res: Response) => {
                 throw error || new Error('Failed to update stock');
             }
 
+            // Auto-sync to Shopify if integration exists and product has shopify_product_id
+            if (data.shopify_product_id) {
+                const { data: integration } = await supabaseAdmin
+                    .from('shopify_integrations')
+                    .select('*')
+                    .eq('store_id', req.storeId)
+                    .eq('status', 'active')
+                    .maybeSingle();
+
+                if (integration) {
+                    try {
+                        const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
+                        const syncResult = await syncService.updateProductInShopify(data.id);
+
+                        if (!syncResult.success) {
+                            console.warn(`Stock updated locally but sync to Shopify failed: ${syncResult.error}`);
+                        } else {
+                            console.log(`Stock for product ${data.id} successfully synced to Shopify`);
+                        }
+                    } catch (syncError: any) {
+                        console.error('Error syncing stock to Shopify:', syncError);
+                    }
+                }
+            }
+
             return res.json({
                 message: 'Stock updated successfully',
                 data
@@ -393,6 +477,31 @@ productsRouter.patch('/:id/stock', async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Auto-sync to Shopify if integration exists and product has shopify_product_id
+        if (data.shopify_product_id) {
+            const { data: integration } = await supabaseAdmin
+                .from('shopify_integrations')
+                .select('*')
+                .eq('store_id', req.storeId)
+                .eq('status', 'active')
+                .maybeSingle();
+
+            if (integration) {
+                try {
+                    const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
+                    const syncResult = await syncService.updateProductInShopify(data.id);
+
+                    if (!syncResult.success) {
+                        console.warn(`Stock updated locally but sync to Shopify failed: ${syncResult.error}`);
+                    } else {
+                        console.log(`Stock for product ${data.id} successfully synced to Shopify`);
+                    }
+                } catch (syncError: any) {
+                    console.error('Error syncing stock to Shopify:', syncError);
+                }
+            }
+        }
+
         res.json({
             message: 'Stock updated successfully',
             data
@@ -415,7 +524,52 @@ productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
         const { hard_delete = 'false' } = req.query;
 
         if (hard_delete === 'true') {
-            // Hard delete
+            // Check if product has Shopify integration first
+            const { data: product } = await supabaseAdmin
+                .from('products')
+                .select('shopify_product_id')
+                .eq('id', id)
+                .eq('store_id', req.storeId)
+                .maybeSingle();
+
+            if (product && product.shopify_product_id) {
+                // Check for active Shopify integration
+                const { data: integration } = await supabaseAdmin
+                    .from('shopify_integrations')
+                    .select('*')
+                    .eq('store_id', req.storeId)
+                    .eq('status', 'active')
+                    .maybeSingle();
+
+                if (integration) {
+                    try {
+                        const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
+                        const syncResult = await syncService.deleteProductFromShopify(id);
+
+                        if (!syncResult.success) {
+                            console.warn(`Product delete failed on Shopify: ${syncResult.error}`);
+                            return res.status(500).json({
+                                error: 'Failed to delete product from Shopify',
+                                details: syncResult.error
+                            });
+                        }
+
+                        console.log(`Product ${id} successfully deleted from Shopify and locally`);
+                        return res.json({
+                            message: 'Product deleted from Shopify and locally',
+                            id
+                        });
+                    } catch (syncError: any) {
+                        console.error('Error deleting from Shopify:', syncError);
+                        return res.status(500).json({
+                            error: 'Failed to delete product from Shopify',
+                            details: syncError.message
+                        });
+                    }
+                }
+            }
+
+            // Hard delete (no Shopify integration or no shopify_product_id)
             const { data, error } = await supabaseAdmin
                 .from('products')
                 .delete()
