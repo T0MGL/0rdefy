@@ -323,8 +323,16 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    // Use rawBody from middleware if available, otherwise fallback to stringified body (which might fail HMAC)
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available - middleware not working correctly');
+      console.error('   Path:', req.path);
+      console.error('   This will cause HMAC verification to fail');
+      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+    }
 
     if (!shopDomain || !hmacHeader) {
       console.error('❌ Webhook missing required headers');
@@ -554,8 +562,14 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    // Use rawBody from middleware if available
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available for orders-updated webhook');
+      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+    }
 
     if (!shopDomain || !hmacHeader) {
       return res.status(400).json({ error: 'Missing headers' });
@@ -614,8 +628,14 @@ shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Respons
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    // Use rawBody from middleware if available
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available for products-delete webhook');
+      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+    }
 
     if (!shopDomain || !hmacHeader) {
       return res.status(400).json({ error: 'Missing headers' });
@@ -1110,7 +1130,14 @@ shopifyRouter.post('/webhook/customers/data_request', async (req: Request, res: 
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    const rawBody = JSON.stringify(req.body);
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available for customers/data_request webhook');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
 
     if (!shopDomain || !hmacHeader) {
       console.error('❌ GDPR webhook missing required headers');
@@ -1170,7 +1197,14 @@ shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Respon
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    const rawBody = JSON.stringify(req.body);
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available for customers/redact webhook');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
 
     if (!shopDomain || !hmacHeader) {
       console.error('❌ GDPR webhook missing required headers');
@@ -1230,7 +1264,14 @@ shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Respons
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    const rawBody = JSON.stringify(req.body);
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available for app-uninstalled webhook');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
 
     if (!shopDomain || !hmacHeader) {
       console.error('❌ app/uninstalled webhook missing required headers');
@@ -1319,7 +1360,14 @@ shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) =
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
-    const rawBody = JSON.stringify(req.body);
+
+    // CRITICAL: Must use rawBody from middleware for correct HMAC verification
+    const rawBody = (req as any).rawBody;
+
+    if (!rawBody) {
+      console.error('❌ CRITICAL: rawBody not available for shop/redact webhook');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
 
     if (!shopDomain || !hmacHeader) {
       console.error('❌ GDPR webhook missing required headers');

@@ -258,10 +258,12 @@ app.use(cors({
 // ================================================================
 // IMPORTANT: This must come BEFORE express.json()
 // We need raw body for Shopify webhook signature verification
+// FIX: Changed from '/webhooks' to '/webhook/' to match actual routes
 // ================================================================
 app.use((req: any, res: Response, next: NextFunction) => {
-    // Handle both regular webhooks and compliance webhooks
-    if (req.path.startsWith('/api/shopify/webhooks') || req.path.startsWith('/api/shopify/compliance')) {
+    // Handle all Shopify webhook routes (including GDPR and app uninstall)
+    // Routes are: /api/shopify/webhook/orders-create, /webhook/customers/data_request, etc.
+    if (req.path.startsWith('/api/shopify/webhook/')) {
         let data = '';
         req.setEncoding('utf8');
         req.on('data', (chunk: string) => {
@@ -273,6 +275,7 @@ app.use((req: any, res: Response, next: NextFunction) => {
             try {
                 req.body = JSON.parse(data);
             } catch (e) {
+                console.error('❌ Failed to parse webhook JSON:', e);
                 req.body = {};
             }
             next();
@@ -324,8 +327,8 @@ app.use('/api/auth/change-password', authLimiter);
 app.use('/api/auth/delete-account', authLimiter);
 
 // Apply webhook limiter to webhook endpoints
-app.use('/api/shopify/webhooks', webhookLimiter);
-app.use('/api/shopify/compliance', webhookLimiter);
+// FIX: Changed from '/webhooks' to '/webhook/' to match actual routes
+app.use('/api/shopify/webhook/', webhookLimiter);
 
 // Apply write operations limiter to all API routes
 app.use('/api/', writeOperationsLimiter);
