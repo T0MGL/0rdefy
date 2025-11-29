@@ -4,7 +4,7 @@
 // Daily cash reconciliation and settlement management
 // ================================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { DailySettlement } from '@/types';
 import { settlementsService } from '@/services/settlements.service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,7 +32,7 @@ export default function Settlements() {
   });
   const { toast } = useToast();
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [settlementsResponse, todayResponse, statsResponse] = await Promise.all([
@@ -53,11 +53,11 @@ export default function Settlements() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleCompleteSettlement = async () => {
     if (!selectedSettlement) return;
@@ -187,9 +187,8 @@ export default function Settlements() {
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${
-                stats && stats.total_difference >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}
+              className={`text-2xl font-bold ${stats && stats.total_difference >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}
             >
               {stats ? formatCurrency(stats.total_difference) : '₲0'}
             </div>
@@ -261,11 +260,10 @@ export default function Settlements() {
                   <div>
                     <p className="text-sm text-muted-foreground">Diferencia</p>
                     <p
-                      className={`text-lg font-semibold ${
-                        todaySettlement.settlement.difference >= 0
-                          ? 'text-green-600'
-                          : 'text-red-600'
-                      }`}
+                      className={`text-lg font-semibold ${todaySettlement.settlement.difference >= 0
+                        ? 'text-green-600'
+                        : 'text-red-600'
+                        }`}
                     >
                       {formatCurrency(todaySettlement.settlement.difference)}
                     </p>
@@ -333,9 +331,8 @@ export default function Settlements() {
                       <div>
                         <p className="text-xs text-muted-foreground">Diferencia</p>
                         <p
-                          className={`font-semibold ${
-                            settlement.difference >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}
+                          className={`font-semibold ${settlement.difference >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}
                         >
                           {formatCurrency(settlement.difference)}
                         </p>
@@ -383,11 +380,10 @@ export default function Settlements() {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Diferencia:</span>
                   <span
-                    className={`text-lg font-bold ${
-                      parseFloat(formData.collected_cash) - selectedSettlement.expected_cash >= 0
-                        ? 'text-green-600'
-                        : 'text-red-600'
-                    }`}
+                    className={`text-lg font-bold ${parseFloat(formData.collected_cash) - selectedSettlement.expected_cash >= 0
+                      ? 'text-green-600'
+                      : 'text-red-600'
+                      }`}
                   >
                     {formatCurrency(
                       parseFloat(formData.collected_cash) - selectedSettlement.expected_cash

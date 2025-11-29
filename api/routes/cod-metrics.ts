@@ -39,7 +39,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     // Calculate confirmation rate
     const confirmedOrders = orders?.filter(o =>
-      ['confirmed', 'preparing', 'out_for_delivery', 'delivered'].includes(o.status)
+      ['confirmed', 'preparing', 'out_for_delivery', 'delivered'].includes(o.sleeves_status)
     ).length || 0;
     const totalOrders = orders?.length || 0;
     const confirmation_rate = totalOrders > 0
@@ -47,7 +47,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
       : 0;
 
     // Calculate payment success rate
-    const deliveredOrders = orders?.filter(o => o.status === 'delivered').length || 0;
+    const deliveredOrders = orders?.filter(o => o.sleeves_status === 'delivered').length || 0;
     const paidOrders = orders?.filter(o => o.payment_status === 'collected').length || 0;
     const payment_success_rate = deliveredOrders > 0
       ? Math.round((paidOrders / deliveredOrders) * 100)
@@ -62,7 +62,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     // Calculate failed deliveries loss
     const failedOrders = orders?.filter(o =>
-      o.status === 'delivery_failed' || o.payment_status === 'failed'
+      o.sleeves_status === 'delivery_failed' || o.payment_status === 'failed'
     ) || [];
     const failed_deliveries_loss = failedOrders.reduce((sum, o) =>
       sum + Number(o.total_price || 0), 0
@@ -70,7 +70,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     // Calculate pending cash (out_for_delivery orders)
     const outForDeliveryOrders = orders?.filter(o =>
-      o.status === 'out_for_delivery' && o.payment_status === 'pending'
+      o.sleeves_status === 'out_for_delivery' && o.payment_status === 'pending'
     ) || [];
     const pending_cash = outForDeliveryOrders.reduce((sum, o) =>
       sum + Number(o.total_price || 0), 0
@@ -162,11 +162,11 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
 
       dailyMetrics[date].total_orders++;
 
-      if (['confirmed', 'preparing', 'out_for_delivery', 'delivered'].includes(order.status)) {
+      if (['confirmed', 'preparing', 'out_for_delivery', 'delivered'].includes(order.sleeves_status)) {
         dailyMetrics[date].confirmed++;
       }
 
-      if (order.status === 'delivered') {
+      if (order.sleeves_status === 'delivered') {
         dailyMetrics[date].delivered++;
         dailyMetrics[date].revenue += Number(order.total_price || 0);
       }
@@ -243,15 +243,15 @@ codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
 
       carrierMetrics[carrierId].total_orders++;
 
-      if (order.status === 'delivered') {
+      if (order.sleeves_status === 'delivered') {
         carrierMetrics[carrierId].delivered++;
       }
 
-      if (order.status === 'delivery_failed') {
+      if (order.sleeves_status === 'delivery_failed') {
         carrierMetrics[carrierId].failed++;
       }
 
-      if (order.status === 'out_for_delivery') {
+      if (order.sleeves_status === 'out_for_delivery') {
         carrierMetrics[carrierId].in_delivery++;
       }
 

@@ -18,9 +18,10 @@ export function MetricCard({
     : parseFloat(String(value).replace(/[^0-9.-]/g, '')) || 0;
 
   // Only show percentage indicator if:
-  // 1. change is defined
-  // 2. The metric value is not zero
-  const shouldShowChange = change !== undefined && numericValue !== 0;
+  // 1. change is defined and not null (null means no previous data to compare)
+  // 2. trend is defined
+  // 3. The metric value is not zero
+  const shouldShowChange = change !== undefined && change !== null && trend !== undefined && numericValue !== 0;
 
   return (
     <Card

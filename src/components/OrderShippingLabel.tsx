@@ -10,7 +10,11 @@ interface OrderShippingLabelProps {
   customerName: string;
   customerPhone: string;
   customerAddress?: string;
+  addressReference?: string;
+  neighborhood?: string;
+  deliveryNotes?: string;
   courierName?: string;
+  codAmount?: number;
   products: Array<{
     name: string;
     quantity: number;
@@ -25,7 +29,11 @@ export function OrderShippingLabel({
   customerName,
   customerPhone,
   customerAddress,
+  addressReference,
+  neighborhood,
+  deliveryNotes,
   courierName,
+  codAmount,
   products,
   onClose,
   onPrinted,
@@ -144,6 +152,15 @@ export function OrderShippingLabel({
               {customerAddress && (
                 <p className="text-[7pt] mt-0.5 leading-tight">{customerAddress}</p>
               )}
+              {neighborhood && (
+                <p className="text-[7pt] leading-tight">Barrio: {neighborhood}</p>
+              )}
+              {addressReference && (
+                <p className="text-[7pt] leading-tight">Ref: {addressReference}</p>
+              )}
+              {deliveryNotes && (
+                <p className="text-[6pt] leading-tight italic text-gray-600">Nota: {deliveryNotes}</p>
+              )}
             </div>
 
             {/* Courier Info */}
@@ -151,6 +168,11 @@ export function OrderShippingLabel({
               <div className="mb-2 pb-1 border-b border-gray-300">
                 <p className="text-[8pt] font-bold mb-0.5">REPARTIDOR:</p>
                 <p className="text-[8pt] font-semibold">{courierName}</p>
+                {codAmount && codAmount > 0 && (
+                  <p className="text-[8pt] font-bold text-red-700 mt-0.5">
+                    💰 COBRAR: Gs. {codAmount.toLocaleString()}
+                  </p>
+                )}
               </div>
             )}
 
@@ -192,6 +214,7 @@ export function OrderShippingLabel({
       {/* Print-specific styles */}
       <style>{`
         @media print {
+          /* Hide everything except the label */
           body * {
             visibility: hidden;
           }
@@ -201,27 +224,75 @@ export function OrderShippingLabel({
             visibility: visible;
           }
 
+          /* Reset body/html for printing */
+          html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: visible;
+          }
+
+          /* Label container */
           #print-label {
             position: absolute;
             left: 0;
             top: 0;
-            width: 6in;
-            min-height: 4in;
-            padding: 0.2in;
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            padding: 0.15in;
+            margin: 0;
             page-break-after: avoid;
+            page-break-inside: avoid;
             overflow: visible !important;
             border: none !important;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: row;
+            gap: 0.15in;
           }
 
+          /* QR Code container */
+          #print-label > div:first-child {
+            width: 35%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+          }
+
+          /* QR Code image */
           #print-label img {
-            max-width: 2in !important;
-            max-height: 2in !important;
-            width: 2in !important;
-            height: 2in !important;
+            max-width: 1.8in !important;
+            max-height: 1.8in !important;
+            width: 1.8in !important;
+            height: 1.8in !important;
             object-fit: contain;
             page-break-inside: avoid;
+            border: 2px solid black;
           }
 
+          /* Info container */
+          #print-label > div:last-child {
+            width: 65%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+          }
+
+          /* Adjust font sizes for print */
+          #print-label h1 {
+            font-size: 10pt !important;
+          }
+
+          #print-label p {
+            margin: 0;
+            padding: 0;
+          }
+
+          /* Page setup - 6x4 inches landscape */
           @page {
             size: 6in 4in landscape;
             margin: 0.1in;

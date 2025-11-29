@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MetricCard } from '@/components/MetricCard';
 import { CarrierTable } from '@/components/carriers/CarrierTable';
+import { CarrierZonesDialog } from '@/components/CarrierZonesDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { ExportButton } from '@/components/ExportButton';
 import { useToast } from '@/hooks/use-toast';
 import { carriersService, Carrier } from '@/services/carriers.service';
@@ -19,6 +21,7 @@ function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSub
     phone: carrier?.phone || '',
     email: carrier?.email || '',
     notes: carrier?.notes || '',
+    carrier_type: carrier?.carrier_type || 'internal',
     is_active: carrier?.is_active ?? true,
   });
 
@@ -37,6 +40,25 @@ function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSub
           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
           required
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="carrier_type">Tipo de Repartidor *</Label>
+        <Select
+          value={formData.carrier_type}
+          onValueChange={(value) => setFormData({ ...formData, carrier_type: value })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Seleccionar tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="internal">Interno (Rendición Diaria)</SelectItem>
+            <SelectItem value="external">Externo (Liquidación Semanal)</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Interno: cobra efectivo y rinde diario. Externo: cobra y liquida semanalmente.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -106,6 +128,8 @@ export default function Carriers() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedCarrier, setSelectedCarrier] = useState<Carrier | null>(null);
   const [performanceStats, setPerformanceStats] = useState<any>(null);
+  const [zonesDialogOpen, setZonesDialogOpen] = useState(false);
+  const [zonesCarrier, setZonesCarrier] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     loadCarriers();
@@ -146,6 +170,11 @@ export default function Carriers() {
   const handleEdit = (carrier: Carrier) => {
     setSelectedCarrier(carrier);
     setDialogOpen(true);
+  };
+
+  const handleManageZones = (carrier: any) => {
+    setZonesCarrier({ id: carrier.id, name: carrier.name || carrier.carrier_name });
+    setZonesDialogOpen(true);
   };
 
   const handleSubmit = async (data: any) => {
@@ -299,6 +328,7 @@ export default function Carriers() {
       <CarrierTable
         carriers={filteredCarriers}
         onEdit={handleEdit}
+        onManageZones={handleManageZones}
         onRefresh={async () => {
           await loadCarriers();
           await loadPerformanceStats();
@@ -320,6 +350,16 @@ export default function Carriers() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Zones Dialog */}
+      {zonesCarrier && (
+        <CarrierZonesDialog
+          open={zonesDialogOpen}
+          onOpenChange={setZonesDialogOpen}
+          carrierId={zonesCarrier.id}
+          carrierName={zonesCarrier.name}
+        />
+      )}
     </div>
   );
 }

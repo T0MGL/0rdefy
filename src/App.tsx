@@ -18,7 +18,9 @@ import { ShopifyInitializer } from "@/components/ShopifyInitializer";
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Orders = lazy(() => import("./pages/Orders"));
+const Warehouse = lazy(() => import("./pages/Warehouse"));
 const Products = lazy(() => import("./pages/Products"));
+const Merchandise = lazy(() => import("./pages/Merchandise"));
 const Customers = lazy(() => import("./pages/Customers"));
 const Ads = lazy(() => import("./pages/Ads"));
 const AdditionalValues = lazy(() => import("./pages/AdditionalValues"));
@@ -110,7 +112,9 @@ const App = () => {
                     {/* Protected routes with layout */}
                     <Route path="/" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></ProtectedLayout>} />
                     <Route path="/orders" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></ProtectedLayout>} />
+                    <Route path="/warehouse" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Warehouse /></ProtectedLayout>} />
                     <Route path="/products" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Products /></ProtectedLayout>} />
+                    <Route path="/merchandise" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Merchandise /></ProtectedLayout>} />
                     <Route path="/customers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Customers /></ProtectedLayout>} />
                     <Route path="/ads" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Ads /></ProtectedLayout>} />
                     <Route path="/additional-values" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><AdditionalValues /></ProtectedLayout>} />

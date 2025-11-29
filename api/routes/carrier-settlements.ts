@@ -1,0 +1,495 @@
+// ================================================================
+// ORDEFY API - CARRIER SETTLEMENTS ROUTES
+// ================================================================
+// Manages deferred payments to external carriers (weekly/monthly)
+// Business Logic: Net Amount = Total COD - Total Shipping Cost
+// ================================================================
+
+import { Router, Response } from 'express';
+import { supabaseAdmin } from '../db/connection';
+import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+
+export const carrierSettlementsRouter = Router();
+
+carrierSettlementsRouter.use(verifyToken, extractStoreId);
+
+// ================================================================
+// GET /api/carrier-settlements - List all settlements
+// Query params: carrier_id, status, start_date, end_date, limit, offset
+// ================================================================
+carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
+    try {
+        const {
+            carrier_id,
+            status,
+            start_date,
+            end_date,
+            limit = '50',
+            offset = '0'
+        } = req.query;
+
+        console.log('💰 [CARRIER-SETTLEMENTS] Fetching settlements:', {
+            store_id: req.storeId,
+            carrier_id,
+            status,
+            start_date,
+            end_date
+        });
+
+        let query = supabaseAdmin
+            .from('carrier_settlements')
+            .select(`
+                *,
+                carriers(id, name, carrier_type)
+            `, { count: 'exact' })
+            .eq('store_id', req.storeId)
+            .order('created_at', { ascending: false });
+
+        // Apply filters
+        if (carrier_id) {
+            query = query.eq('carrier_id', carrier_id);
+        }
+
+        if (status) {
+            query = query.eq('status', status);
+        }
+
+        if (start_date) {
+            query = query.gte('settlement_period_start', start_date);
+        }
+
+        if (end_date) {
+            query = query.lte('settlement_period_end', end_date);
+        }
+
+        // Apply pagination
+        query = query.range(
+            parseInt(offset as string),
+            parseInt(offset as string) + parseInt(limit as string) - 1
+        );
+
+        const { data, error, count } = await query;
+
+        if (error) {
+            console.error('❌ [CARRIER-SETTLEMENTS] Error:', error);
+            return res.status(500).json({ error: 'Failed to fetch settlements' });
+        }
+
+        res.json({
+            data,
+            pagination: {
+                total: count || 0,
+                limit: parseInt(limit as string),
+                offset: parseInt(offset as string),
+                hasMore: count ? count > parseInt(offset as string) + parseInt(limit as string) : false
+            }
+        });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Unexpected error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ================================================================
+// GET /api/carrier-settlements/pending - Get pending settlements summary
+// Returns carriers with delivered orders not yet settled
+// ================================================================
+carrierSettlementsRouter.get('/pending', async (req: AuthRequest, res: Response) => {
+    try {
+        console.log('📊 [CARRIER-SETTLEMENTS] Fetching pending summary for store:', req.storeId);
+
+        // Use the view we created in the migration
+        const { data, error } = await supabaseAdmin
+            .from('pending_carrier_settlements_summary')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .order('oldest_delivery_date', { ascending: true });
+
+        if (error) {
+            console.error('❌ [CARRIER-SETTLEMENTS] Error:', error);
+            return res.status(500).json({ error: 'Failed to fetch pending settlements' });
+        }
+
+        console.log(`✅ [CARRIER-SETTLEMENTS] Found ${data?.length || 0} carriers with pending deliveries`);
+
+        res.json({
+            data: data || [],
+            count: data?.length || 0
+        });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ================================================================
+// GET /api/carrier-settlements/:id - Get settlement details with orders
+// ================================================================
+carrierSettlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        console.log('🔍 [CARRIER-SETTLEMENTS] Fetching settlement:', id);
+
+        // Get settlement
+        const { data: settlement, error: settlementError } = await supabaseAdmin
+            .from('carrier_settlements')
+            .select(`
+                *,
+                carriers(id, name, phone, email, carrier_type)
+            `)
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (settlementError || !settlement) {
+            return res.status(404).json({ error: 'Settlement not found' });
+        }
+
+        // Get orders included in this settlement
+        const { data: orders, error: ordersError } = await supabaseAdmin
+            .from('orders')
+            .select(`
+                id,
+                shopify_order_number,
+                customer_first_name,
+                customer_last_name,
+                total_price,
+                shipping_cost,
+                delivery_zone,
+                delivered_at,
+                sleeves_status
+            `)
+            .eq('carrier_settlement_id', id)
+            .order('delivered_at', { ascending: false });
+
+        if (ordersError) {
+            console.error('⚠️ [CARRIER-SETTLEMENTS] Error fetching orders:', ordersError);
+        }
+
+        res.json({
+            ...settlement,
+            orders: orders || []
+        });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ================================================================
+// POST /api/carrier-settlements - Create new settlement (bulk)
+// Body: { carrier_id, period_start, period_end }
+// Uses create_carrier_settlement() function from migration
+// ================================================================
+carrierSettlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
+    try {
+        const {
+            carrier_id,
+            period_start,
+            period_end,
+            notes
+        } = req.body;
+
+        // Validation
+        if (!carrier_id) {
+            return res.status(400).json({ error: 'carrier_id is required' });
+        }
+
+        if (!period_start || !period_end) {
+            return res.status(400).json({ error: 'period_start and period_end are required' });
+        }
+
+        console.log('💰 [CARRIER-SETTLEMENTS] Creating settlement:', {
+            carrier_id,
+            period_start,
+            period_end
+        });
+
+        // Verify carrier exists and is external type
+        const { data: carrier, error: carrierError } = await supabaseAdmin
+            .from('carriers')
+            .select('id, name, carrier_type')
+            .eq('id', carrier_id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (carrierError || !carrier) {
+            return res.status(404).json({ error: 'Carrier not found' });
+        }
+
+        if (carrier.carrier_type !== 'external') {
+            return res.status(400).json({
+                error: 'Invalid carrier type',
+                message: 'Settlements can only be created for external carriers. Use daily settlements for internal carriers.'
+            });
+        }
+
+        // Check for existing settlement in same period
+        const { data: existing, error: existingError } = await supabaseAdmin
+            .from('carrier_settlements')
+            .select('id')
+            .eq('store_id', req.storeId)
+            .eq('carrier_id', carrier_id)
+            .eq('settlement_period_start', period_start)
+            .eq('settlement_period_end', period_end)
+            .single();
+
+        if (existing) {
+            return res.status(409).json({
+                error: 'Duplicate settlement',
+                message: 'A settlement for this carrier and period already exists',
+                existing_settlement_id: existing.id
+            });
+        }
+
+        // Call the database function to create settlement
+        const { data: result, error: functionError } = await supabaseAdmin
+            .rpc('create_carrier_settlement', {
+                p_store_id: req.storeId,
+                p_carrier_id: carrier_id,
+                p_period_start: period_start,
+                p_period_end: period_end,
+                p_created_by: req.userId || null
+            });
+
+        if (functionError) {
+            console.error('❌ [CARRIER-SETTLEMENTS] Function error:', functionError);
+            return res.status(500).json({
+                error: 'Failed to create settlement',
+                message: functionError.message
+            });
+        }
+
+        const settlementId = result;
+
+        // Update notes if provided
+        if (notes) {
+            await supabaseAdmin
+                .from('carrier_settlements')
+                .update({ notes })
+                .eq('id', settlementId);
+        }
+
+        // Fetch created settlement
+        const { data: settlement, error: fetchError } = await supabaseAdmin
+            .from('carrier_settlements')
+            .select(`
+                *,
+                carriers(id, name, carrier_type)
+            `)
+            .eq('id', settlementId)
+            .single();
+
+        if (fetchError) {
+            console.error('⚠️ [CARRIER-SETTLEMENTS] Error fetching created settlement:', fetchError);
+        }
+
+        console.log('✅ [CARRIER-SETTLEMENTS] Settlement created:', settlementId);
+
+        res.status(201).json({
+            message: 'Settlement created successfully',
+            data: settlement
+        });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        res.status(500).json({ error: 'Internal server error', message: error.message });
+    }
+});
+
+// ================================================================
+// PATCH /api/carrier-settlements/:id - Update settlement
+// ================================================================
+carrierSettlementsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        console.log('📝 [CARRIER-SETTLEMENTS] Updating settlement:', id);
+
+        // Remove fields that shouldn't be updated
+        delete updates.id;
+        delete updates.store_id;
+        delete updates.carrier_id;
+        delete updates.created_at;
+        delete updates.net_amount; // This is a generated column
+        delete updates.total_orders; // Calculated from orders
+        delete updates.total_cod_collected; // Calculated from orders
+        delete updates.total_shipping_cost; // Calculated from orders
+
+        updates.updated_at = new Date().toISOString();
+
+        const { data, error } = await supabaseAdmin
+            .from('carrier_settlements')
+            .update(updates)
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .select(`
+                *,
+                carriers(id, name, carrier_type)
+            `)
+            .single();
+
+        if (error || !data) {
+            return res.status(404).json({ error: 'Settlement not found' });
+        }
+
+        console.log('✅ [CARRIER-SETTLEMENTS] Settlement updated:', id);
+
+        res.json({
+            message: 'Settlement updated successfully',
+            data
+        });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ================================================================
+// POST /api/carrier-settlements/:id/mark-paid - Mark settlement as paid
+// ================================================================
+carrierSettlementsRouter.post('/:id/mark-paid', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { payment_date, payment_method, payment_reference } = req.body;
+
+        console.log('💵 [CARRIER-SETTLEMENTS] Marking settlement as paid:', id);
+
+        const { data, error } = await supabaseAdmin
+            .from('carrier_settlements')
+            .update({
+                status: 'paid',
+                payment_date: payment_date || new Date().toISOString().split('T')[0],
+                payment_method: payment_method || null,
+                payment_reference: payment_reference || null,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .select(`
+                *,
+                carriers(id, name, carrier_type)
+            `)
+            .single();
+
+        if (error || !data) {
+            return res.status(404).json({ error: 'Settlement not found' });
+        }
+
+        console.log('✅ [CARRIER-SETTLEMENTS] Settlement marked as paid:', id);
+
+        res.json({
+            message: 'Settlement marked as paid',
+            data
+        });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ================================================================
+// DELETE /api/carrier-settlements/:id - Cancel/delete settlement
+// WARNING: This will unlink all orders from this settlement
+// ================================================================
+carrierSettlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        console.log('🗑️ [CARRIER-SETTLEMENTS] Deleting settlement:', id);
+
+        // First, unlink all orders
+        await supabaseAdmin
+            .from('orders')
+            .update({ carrier_settlement_id: null })
+            .eq('carrier_settlement_id', id);
+
+        // Delete settlement
+        const { error } = await supabaseAdmin
+            .from('carrier_settlements')
+            .delete()
+            .eq('id', id)
+            .eq('store_id', req.storeId);
+
+        if (error) {
+            console.error('❌ [CARRIER-SETTLEMENTS] Error deleting:', error);
+            return res.status(500).json({ error: 'Failed to delete settlement' });
+        }
+
+        console.log('✅ [CARRIER-SETTLEMENTS] Settlement deleted:', id);
+
+        res.json({ message: 'Settlement deleted successfully' });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ================================================================
+// GET /api/carrier-settlements/preview - Preview settlement before creating
+// Query params: carrier_id, period_start, period_end
+// Returns order list and calculated totals without creating record
+// ================================================================
+carrierSettlementsRouter.get('/preview/calculate', async (req: AuthRequest, res: Response) => {
+    try {
+        const { carrier_id, period_start, period_end } = req.query;
+
+        if (!carrier_id || !period_start || !period_end) {
+            return res.status(400).json({
+                error: 'Missing parameters',
+                message: 'carrier_id, period_start, and period_end are required'
+            });
+        }
+
+        console.log('👀 [CARRIER-SETTLEMENTS] Previewing settlement:', {
+            carrier_id,
+            period_start,
+            period_end
+        });
+
+        // Get delivered orders in period (not yet settled)
+        const { data: orders, error: ordersError } = await supabaseAdmin
+            .from('orders')
+            .select(`
+                id,
+                shopify_order_number,
+                customer_first_name,
+                customer_last_name,
+                total_price,
+                shipping_cost,
+                delivery_zone,
+                delivered_at
+            `)
+            .eq('store_id', req.storeId)
+            .eq('courier_id', carrier_id)
+            .eq('sleeves_status', 'delivered')
+            .gte('delivered_at', period_start)
+            .lt('delivered_at', `${period_end}T23:59:59`)
+            .is('carrier_settlement_id', null)
+            .order('delivered_at', { ascending: false });
+
+        if (ordersError) {
+            throw ordersError;
+        }
+
+        // Calculate totals
+        const total_orders = orders?.length || 0;
+        const total_cod = orders?.reduce((sum, o) => sum + Number(o.total_price || 0), 0) || 0;
+        const total_shipping = orders?.reduce((sum, o) => sum + Number(o.shipping_cost || 0), 0) || 0;
+        const net_amount = total_cod - total_shipping;
+
+        res.json({
+            preview: {
+                total_orders,
+                total_cod_collected: total_cod,
+                total_shipping_cost: total_shipping,
+                net_amount
+            },
+            orders: orders || []
+        });
+    } catch (error: any) {
+        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});

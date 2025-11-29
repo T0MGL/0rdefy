@@ -449,16 +449,28 @@ export default function Orders() {
 
   const handleOrderPrinted = useCallback(async (orderId: string) => {
     try {
+      // Mark order as printed
       const updatedOrder = await ordersService.markAsPrinted(orderId);
       if (updatedOrder) {
         setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      }
+
+      // Update status to in_transit
+      const transitOrder = await ordersService.updateStatus(orderId, 'in_transit');
+      if (transitOrder) {
+        setOrders(prev => prev.map(o => o.id === orderId ? transitOrder : o));
         toast({
-          title: 'Etiqueta marcada como impresa',
-          description: 'El pedido ha sido marcado como impreso',
+          title: 'Pedido en tránsito',
+          description: 'El pedido ha sido marcado como en tránsito',
         });
       }
     } catch (error) {
-      console.error('Error marking order as printed:', error);
+      console.error('Error updating order after print:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo actualizar el estado del pedido',
+        variant: 'destructive',
+      });
     }
   }, [toast]);
 
@@ -479,23 +491,30 @@ export default function Orders() {
   }, [orders, selectedOrderIds, toast]);
 
   const handleNextBulkPrint = useCallback(async () => {
+    // Update current order status to in_transit before moving to next
+    const currentOrder = bulkPrintOrders[bulkPrintIndex];
+    if (currentOrder) {
+      try {
+        await ordersService.markAsPrinted(currentOrder.id);
+        await ordersService.updateStatus(currentOrder.id, 'in_transit');
+        setOrders(prev => prev.map(o =>
+          o.id === currentOrder.id
+            ? { ...o, status: 'in_transit' }
+            : o
+        ));
+      } catch (error) {
+        console.error('Error updating order:', error);
+      }
+    }
+
     if (bulkPrintIndex < bulkPrintOrders.length - 1) {
       setBulkPrintIndex(prev => prev + 1);
     } else {
-      // Finished bulk printing - mark all as printed
-      const orderIds = bulkPrintOrders.map(o => o.id);
-      const success = await ordersService.markAsPrintedBulk(orderIds);
-
-      if (success) {
-        // Refresh orders to get updated printed status
-        const refreshedOrders = await ordersService.getAll();
-        setOrders(refreshedOrders);
-
-        toast({
-          title: 'Impresión completada',
-          description: `${orderIds.length} etiquetas marcadas como impresas`,
-        });
-      }
+      // Finished bulk printing
+      toast({
+        title: 'Impresión completada',
+        description: `${bulkPrintOrders.length} pedidos marcados como en tránsito`,
+      });
 
       setIsPrintingBulk(false);
       setBulkPrintOrders([]);
@@ -997,14 +1016,19 @@ export default function Orders() {
               deliveryToken={orderToPrint.delivery_link_token}
               customerName={orderToPrint.customer}
               customerPhone={orderToPrint.phone}
-              customerAddress={orderToPrint.address}
+              customerAddress={orderToPrint.address || orderToPrint.customer_address}
+              addressReference={orderToPrint.address_reference}
+              neighborhood={orderToPrint.neighborhood}
+              deliveryNotes={orderToPrint.delivery_notes}
               courierName={getCarrierName(orderToPrint.carrier)}
+              codAmount={orderToPrint.cod_amount}
               products={[
                 {
                   name: orderToPrint.product,
                   quantity: orderToPrint.quantity,
                 },
               ]}
+              onPrinted={() => handleOrderPrinted(orderToPrint.id)}
             />
           )}
         </DialogContent>
@@ -1036,8 +1060,12 @@ export default function Orders() {
                 deliveryToken={bulkPrintOrders[bulkPrintIndex].delivery_link_token}
                 customerName={bulkPrintOrders[bulkPrintIndex].customer}
                 customerPhone={bulkPrintOrders[bulkPrintIndex].phone}
-                customerAddress={bulkPrintOrders[bulkPrintIndex].address}
+                customerAddress={bulkPrintOrders[bulkPrintIndex].address || bulkPrintOrders[bulkPrintIndex].customer_address}
+                addressReference={bulkPrintOrders[bulkPrintIndex].address_reference}
+                neighborhood={bulkPrintOrders[bulkPrintIndex].neighborhood}
+                deliveryNotes={bulkPrintOrders[bulkPrintIndex].delivery_notes}
                 courierName={getCarrierName(bulkPrintOrders[bulkPrintIndex].carrier)}
+                codAmount={bulkPrintOrders[bulkPrintIndex].cod_amount}
                 products={[
                   {
                     name: bulkPrintOrders[bulkPrintIndex].product,

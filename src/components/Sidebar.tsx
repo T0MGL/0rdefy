@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Package,
+  PackageOpen,
   Megaphone,
   PlusCircle,
   Link2,
@@ -15,6 +16,7 @@ import {
   HelpCircle,
   ChevronLeft,
   ChevronRight,
+  Warehouse,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -28,7 +30,9 @@ interface SidebarProps {
 const menuItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/orders', label: 'Pedidos', icon: ShoppingCart },
+  { path: '/warehouse', label: 'Almacén', icon: Warehouse },
   { path: '/products', label: 'Productos', icon: Package },
+  { path: '/merchandise', label: 'Mercadería', icon: PackageOpen },
   { path: '/customers', label: 'Clientes', icon: UserCircle },
   { path: '/ads', label: 'Anuncios', icon: Megaphone },
   { path: '/additional-values', label: 'Valores Adicionales', icon: PlusCircle },
