@@ -292,7 +292,7 @@ function DashboardView({
             Manage order preparation and packing
           </p>
         </div>
-        <Package className="h-10 w-10 text-blue-600 dark:text-blue-400" />
+        <Package className="h-10 w-10 text-primary" />
       </div>
 
       {/* Active Sessions */}
@@ -337,7 +337,6 @@ function DashboardView({
           <Button
             onClick={onCreateSession}
             disabled={selectedOrders.size === 0 || loading}
-            className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
           >
             <PackageCheck className="h-4 w-4 mr-2" />
             Start Preparation ({selectedOrders.size})
@@ -447,7 +446,6 @@ function PickingView({
         <Button
           onClick={onFinish}
           disabled={!allPicked || loading}
-          className="bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600"
         >
           <Check className="h-4 w-4 mr-2" />
           Finish Picking
@@ -502,8 +500,8 @@ function PickingView({
                     </p>
                   )}
                   {item.shelf_location && (
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                      Location: {item.shelf_location}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      📍 {item.shelf_location}
                     </p>
                   )}
                 </div>
@@ -623,9 +621,9 @@ function PackingView({
                 <Card
                   key={item.product_id}
                   className={`p-3 cursor-pointer transition-all ${!hasRemaining
-                    ? 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-900'
+                    ? 'opacity-50 cursor-not-allowed bg-muted'
                     : isSelected
-                      ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900 bg-blue-50 dark:bg-blue-950/20'
+                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
                       : 'hover:shadow-md dark:bg-gray-750 dark:border-gray-600'
                     }`}
                   onClick={() => hasRemaining && onSelectItem(isSelected ? null : item.product_id)}
@@ -690,7 +688,7 @@ function PackingView({
                   className={`p-4 transition-all ${order.is_complete
                     ? 'border-green-500 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
                     : needsSelectedItem
-                      ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900 shadow-lg cursor-pointer'
+                      ? 'border-primary ring-2 ring-primary/20 shadow-lg cursor-pointer'
                       : 'dark:bg-gray-800 dark:border-gray-700'
                     }`}
                   onClick={() => {
@@ -742,10 +740,10 @@ function PackingView({
                         <div
                           key={item.product_id}
                           className={`flex items-center gap-2 p-2 rounded ${isHighlighted
-                            ? 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'
+                            ? 'bg-primary/10 border border-primary/30'
                             : itemComplete
-                              ? 'bg-gray-50 dark:bg-gray-750'
-                              : 'bg-white dark:bg-gray-800'
+                              ? 'bg-muted'
+                              : 'bg-card'
                             }`}
                         >
                           {item.product_image ? (
