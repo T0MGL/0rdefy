@@ -6,6 +6,7 @@ export interface Carrier {
   email?: string;
   phone: string;
   status: 'active' | 'inactive';
+  carrier_type?: 'internal' | 'external'; // internal = daily cash, external = deferred payment
 
   // Performance metrics
   totalShipments?: number;
@@ -51,6 +52,7 @@ export interface Carrier {
   is_active?: boolean;
   notes?: string;
   store_id?: string;
+  default_zone?: string;
 }
 
 export interface ShipmentTracking {

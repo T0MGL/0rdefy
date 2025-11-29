@@ -1,7 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Star, Eye, Edit, Power } from 'lucide-react';
+import { Star, Eye, Edit, Power, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { carriersService } from '@/services/carriers.service';
@@ -10,9 +10,10 @@ interface CarrierTableProps {
   carriers: any[];
   onEdit?: (carrier: any) => void;
   onRefresh?: () => void;
+  onManageZones?: (carrier: any) => void;
 }
 
-export function CarrierTable({ carriers, onEdit, onRefresh }: CarrierTableProps) {
+export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones }: CarrierTableProps) {
   const { toast } = useToast();
 
   const handleEdit = (carrier: any) => {
@@ -155,8 +156,18 @@ export function CarrierTable({ carriers, onEdit, onRefresh }: CarrierTableProps)
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="h-8 w-8 hover:bg-blue-50 dark:hover:bg-blue-950"
+                        onClick={() => onManageZones && onManageZones(carrier)}
+                        title="Gestionar zonas"
+                      >
+                        <MapPin size={16} className="text-blue-600 dark:text-blue-400" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-8 w-8"
                         onClick={() => handleEdit(carrier)}
+                        title="Editar repartidor"
                       >
                         <Edit size={16} />
                       </Button>
@@ -167,6 +178,7 @@ export function CarrierTable({ carriers, onEdit, onRefresh }: CarrierTableProps)
                           carrier.is_active ? 'text-primary hover:text-primary' : 'text-muted-foreground'
                         }`}
                         onClick={() => handleToggleStatus(carrier)}
+                        title={carrier.is_active ? 'Desactivar' : 'Activar'}
                       >
                         <Power size={16} />
                       </Button>

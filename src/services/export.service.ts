@@ -4,18 +4,18 @@ import autoTable from 'jspdf-autotable';
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 
-export interface ExportColumn {
+export interface ExportColumn<T = any> {
   header: string;
-  key: string;
+  key: keyof T | string;
   width?: number;
   format?: (value: any) => string;
 }
 
-export interface ExportOptions {
+export interface ExportOptions<T = any> {
   filename: string;
   format: ExportFormat;
-  columns: ExportColumn[];
-  data: any[];
+  columns: ExportColumn<T>[];
+  data: T[];
   title?: string;
   orientation?: 'portrait' | 'landscape';
 }
@@ -24,7 +24,7 @@ class ExportService {
   /**
    * Export data to CSV format
    */
-  private exportToCSV(options: ExportOptions): void {
+  private exportToCSV<T>(options: ExportOptions<T>): void {
     const { filename, columns, data } = options;
 
     // Create header row
@@ -33,7 +33,7 @@ class ExportService {
     // Create data rows
     const rows = data.map(item =>
       columns.map(col => {
-        const value = this.getNestedValue(item, col.key);
+        const value = this.getNestedValue(item, col.key as string);
         return col.format ? col.format(value) : this.formatValue(value);
       })
     );
@@ -51,7 +51,7 @@ class ExportService {
   /**
    * Export data to Excel format (.xlsx)
    */
-  private exportToExcel(options: ExportOptions): void {
+  private exportToExcel<T>(options: ExportOptions<T>): void {
     const { filename, columns, data, title } = options;
 
     // Create header row
@@ -60,7 +60,7 @@ class ExportService {
     // Create data rows
     const rows = data.map(item =>
       columns.map(col => {
-        const value = this.getNestedValue(item, col.key);
+        const value = this.getNestedValue(item, col.key as string);
         return col.format ? col.format(value) : value;
       })
     );
@@ -96,7 +96,7 @@ class ExportService {
   /**
    * Export data to PDF format
    */
-  private exportToPDF(options: ExportOptions): void {
+  private exportToPDF<T>(options: ExportOptions<T>): void {
     const { filename, columns, data, title, orientation = 'landscape' } = options;
 
     // Create PDF document
@@ -119,7 +119,7 @@ class ExportService {
     // Prepare table data
     const rows = data.map(item =>
       columns.map(col => {
-        const value = this.getNestedValue(item, col.key);
+        const value = this.getNestedValue(item, col.key as string);
         return col.format ? col.format(value) : this.formatValue(value);
       })
     );
@@ -180,7 +180,7 @@ class ExportService {
   /**
    * Main export function
    */
-  export(options: ExportOptions): void {
+  export<T>(options: ExportOptions<T>): void {
     try {
       switch (options.format) {
         case 'csv':

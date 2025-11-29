@@ -1,0 +1,792 @@
+/**
+ * Warehouse Page
+ * Manages picking and packing workflow for confirmed orders
+ * Optimized for manual input without barcode scanners
+ */
+
+import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
+import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import * as warehouseService from '@/services/warehouse.service';
+import type {
+  PickingSession,
+  PickingSessionItem,
+  ConfirmedOrder,
+  OrderForPacking,
+  PackingListResponse
+} from '@/services/warehouse.service';
+
+type View = 'dashboard' | 'picking' | 'packing';
+
+export default function Warehouse() {
+  const [view, setView] = useState<View>('dashboard');
+  const [currentSession, setCurrentSession] = useState<PickingSession | null>(null);
+
+  // Dashboard state
+  const [confirmedOrders, setConfirmedOrders] = useState<ConfirmedOrder[]>([]);
+  const [activeSessions, setActiveSessions] = useState<PickingSession[]>([]);
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+
+  // Picking state
+  const [pickingList, setPickingList] = useState<PickingSessionItem[]>([]);
+
+  // Packing state
+  const [packingData, setPackingData] = useState<PackingListResponse | null>(null);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+
+  const loadDashboardData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [orders, sessions] = await Promise.all([
+        warehouseService.getConfirmedOrders(),
+        warehouseService.getActiveSessions()
+      ]);
+      setConfirmedOrders(orders);
+      setActiveSessions(sessions);
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      toast.error('Error loading warehouse data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadPickingList = useCallback(async () => {
+    if (!currentSession) return;
+    setLoading(true);
+    try {
+      const list = await warehouseService.getPickingList(currentSession.id);
+      setPickingList(list);
+    } catch (error) {
+      console.error('Error loading picking list:', error);
+      toast.error('Error loading picking list');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentSession]);
+
+  const loadPackingList = useCallback(async () => {
+    if (!currentSession) return;
+    setLoading(true);
+    try {
+      const data = await warehouseService.getPackingList(currentSession.id);
+      setPackingData(data);
+    } catch (error) {
+      console.error('Error loading packing list:', error);
+      toast.error('Error loading packing list');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentSession]);
+
+  // Load dashboard data
+  useEffect(() => {
+    if (view === 'dashboard') {
+      loadDashboardData();
+    }
+  }, [view, loadDashboardData]);
+
+  // Load picking list when entering picking mode
+  useEffect(() => {
+    if (view === 'picking' && currentSession) {
+      loadPickingList();
+    }
+  }, [view, currentSession, loadPickingList]);
+
+  // Load packing list when entering packing mode
+  useEffect(() => {
+    if (view === 'packing' && currentSession) {
+      loadPackingList();
+    }
+  }, [view, currentSession, loadPackingList]);
+
+  async function handleCreateSession() {
+    if (selectedOrders.size === 0) {
+      toast.error('Please select at least one order');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const session = await warehouseService.createSession(Array.from(selectedOrders));
+      setCurrentSession(session);
+      setSelectedOrders(new Set());
+      setView('picking');
+      toast.success(`Session ${session.code} created successfully`);
+    } catch (error: any) {
+      console.error('Error creating session:', error);
+      toast.error(error.response?.data?.details || 'Error creating session');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResumeSession(session: PickingSession) {
+    setCurrentSession(session);
+    if (session.status === 'picking') {
+      setView('picking');
+    } else if (session.status === 'packing') {
+      setView('packing');
+    }
+  }
+
+  async function handleUpdatePickingProgress(productId: string, newQuantity: number) {
+    if (!currentSession) return;
+    try {
+      await warehouseService.updatePickingProgress(currentSession.id, productId, newQuantity);
+      // Update local state
+      setPickingList(prev =>
+        prev.map(item =>
+          item.product_id === productId
+            ? { ...item, quantity_picked: newQuantity }
+            : item
+        )
+      );
+    } catch (error: any) {
+      console.error('Error updating picking progress:', error);
+      toast.error(error.response?.data?.details || 'Error updating progress');
+    }
+  }
+
+  async function handleFinishPicking() {
+    if (!currentSession) return;
+
+    // Check if all items are picked
+    const allPicked = pickingList.every(
+      item => item.quantity_picked >= item.total_quantity_needed
+    );
+
+    if (!allPicked) {
+      toast.error('All items must be picked before finishing');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const updated = await warehouseService.finishPicking(currentSession.id);
+      setCurrentSession(updated);
+      setView('packing');
+      toast.success('Picking completed! Ready for packing.');
+    } catch (error: any) {
+      console.error('Error finishing picking:', error);
+      toast.error(error.response?.data?.details || 'Error finishing picking');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePackItem(orderId: string, productId: string) {
+    if (!currentSession) return;
+    try {
+      await warehouseService.updatePackingProgress(currentSession.id, orderId, productId);
+      toast.success('Item added to order');
+      // Reload packing list to update state
+      await loadPackingList();
+      // Clear selection
+      setSelectedItem(null);
+    } catch (error: any) {
+      console.error('Error packing item:', error);
+      toast.error(error.response?.data?.details || 'Error packing item');
+    }
+  }
+
+  function handleBackToDashboard() {
+    setView('dashboard');
+    setCurrentSession(null);
+    setPickingList([]);
+    setPackingData(null);
+    setSelectedItem(null);
+  }
+
+  function toggleOrderSelection(orderId: string) {
+    const newSelected = new Set(selectedOrders);
+    if (newSelected.has(orderId)) {
+      newSelected.delete(orderId);
+    } else {
+      newSelected.add(orderId);
+    }
+    setSelectedOrders(newSelected);
+  }
+
+  // Calculate progress for picking
+  const pickingProgress = pickingList.length > 0
+    ? (pickingList.filter(item => item.quantity_picked >= item.total_quantity_needed).length / pickingList.length) * 100
+    : 0;
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {view === 'dashboard' && (
+        <DashboardView
+          confirmedOrders={confirmedOrders}
+          activeSessions={activeSessions}
+          selectedOrders={selectedOrders}
+          loading={loading}
+          onToggleOrder={toggleOrderSelection}
+          onCreateSession={handleCreateSession}
+          onResumeSession={handleResumeSession}
+        />
+      )}
+
+      {view === 'picking' && currentSession && (
+        <PickingView
+          session={currentSession}
+          pickingList={pickingList}
+          progress={pickingProgress}
+          onBack={handleBackToDashboard}
+          onUpdateProgress={handleUpdatePickingProgress}
+          onFinish={handleFinishPicking}
+          loading={loading}
+        />
+      )}
+
+      {view === 'packing' && currentSession && packingData && (
+        <PackingView
+          session={currentSession}
+          packingData={packingData}
+          selectedItem={selectedItem}
+          onBack={handleBackToDashboard}
+          onSelectItem={setSelectedItem}
+          onPackItem={handlePackItem}
+        />
+      )}
+    </div>
+  );
+}
+
+// ================================================================
+// DASHBOARD VIEW COMPONENT
+// ================================================================
+
+interface DashboardViewProps {
+  confirmedOrders: ConfirmedOrder[];
+  activeSessions: PickingSession[];
+  selectedOrders: Set<string>;
+  loading: boolean;
+  onToggleOrder: (orderId: string) => void;
+  onCreateSession: () => void;
+  onResumeSession: (session: PickingSession) => void;
+}
+
+function DashboardView({
+  confirmedOrders,
+  activeSessions,
+  selectedOrders,
+  loading,
+  onToggleOrder,
+  onCreateSession,
+  onResumeSession
+}: DashboardViewProps) {
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Warehouse</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Manage order preparation and packing
+          </p>
+        </div>
+        <Package className="h-10 w-10 text-blue-600 dark:text-blue-400" />
+      </div>
+
+      {/* Active Sessions */}
+      {activeSessions.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            Active Sessions
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activeSessions.map(session => (
+              <Card
+                key={session.id}
+                className="p-4 cursor-pointer hover:shadow-lg transition-shadow dark:bg-gray-800 dark:border-gray-700"
+                onClick={() => onResumeSession(session)}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-mono font-bold text-lg text-gray-900 dark:text-white">
+                    {session.code}
+                  </span>
+                  <Badge
+                    variant={session.status === 'picking' ? 'default' : 'secondary'}
+                    className="capitalize"
+                  >
+                    {session.status}
+                  </Badge>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Created {new Date(session.created_at).toLocaleString()}
+                </p>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Orders Ready for Preparation */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            Orders Ready ({confirmedOrders.length})
+          </h2>
+          <Button
+            onClick={onCreateSession}
+            disabled={selectedOrders.size === 0 || loading}
+            className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+          >
+            <PackageCheck className="h-4 w-4 mr-2" />
+            Start Preparation ({selectedOrders.size})
+          </Button>
+        </div>
+
+        {confirmedOrders.length === 0 ? (
+          <Card className="p-8 text-center dark:bg-gray-800 dark:border-gray-700">
+            <PackageCheck className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <p className="text-gray-600 dark:text-gray-400">
+              No confirmed orders ready for preparation
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            {confirmedOrders.map(order => (
+              <Card
+                key={order.id}
+                className="p-4 hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700"
+              >
+                <div className="flex items-center gap-4">
+                  <Checkbox
+                    checked={selectedOrders.has(order.id)}
+                    onCheckedChange={() => onToggleOrder(order.id)}
+                    className="h-5 w-5"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold text-gray-900 dark:text-white">
+                        #{order.order_number}
+                      </span>
+                      <Badge variant="outline" className="dark:border-gray-600">
+                        {order.total_items} items
+                      </Badge>
+                      {order.carrier && (
+                        <Badge variant="secondary" className="dark:bg-gray-700">
+                          {order.carrier.name}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                      {order.customer_name} • {order.customer_phone}
+                    </p>
+                  </div>
+                  <span className="text-sm text-gray-500 dark:text-gray-500">
+                    {new Date(order.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
+// PICKING VIEW COMPONENT
+// ================================================================
+
+interface PickingViewProps {
+  session: PickingSession;
+  pickingList: PickingSessionItem[];
+  progress: number;
+  onBack: () => void;
+  onUpdateProgress: (productId: string, newQuantity: number) => void;
+  onFinish: () => void;
+  loading: boolean;
+}
+
+function PickingView({
+  session,
+  pickingList,
+  progress,
+  onBack,
+  onUpdateProgress,
+  onFinish,
+  loading
+}: PickingViewProps) {
+  const allPicked = pickingList.every(
+    item => item.quantity_picked >= item.total_quantity_needed
+  );
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            onClick={onBack}
+            className="dark:border-gray-600 dark:text-gray-300"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Picking: {session.code}
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              Collect all items for this batch
+            </p>
+          </div>
+        </div>
+        <Button
+          onClick={onFinish}
+          disabled={!allPicked || loading}
+          className="bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600"
+        >
+          <Check className="h-4 w-4 mr-2" />
+          Finish Picking
+        </Button>
+      </div>
+
+      {/* Progress Bar */}
+      <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Overall Progress
+          </span>
+          <span className="text-sm font-bold text-gray-900 dark:text-white">
+            {Math.round(progress)}%
+          </span>
+        </div>
+        <Progress value={progress} className="h-3" />
+      </Card>
+
+      {/* Picking List */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {pickingList.map(item => {
+          const isComplete = item.quantity_picked >= item.total_quantity_needed;
+          return (
+            <Card
+              key={item.id}
+              className={`p-4 transition-all ${isComplete
+                ? 'border-green-500 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
+                : 'dark:bg-gray-800 dark:border-gray-700'
+                }`}
+            >
+              {/* Product Info */}
+              <div className="flex gap-3 mb-4">
+                {item.product_image ? (
+                  <img
+                    src={item.product_image}
+                    alt={item.product_name}
+                    className="w-16 h-16 object-cover rounded-lg"
+                  />
+                ) : (
+                  <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                    <Package className="h-8 w-8 text-gray-400" />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 dark:text-white line-clamp-2">
+                    {item.product_name}
+                  </h3>
+                  {item.product_sku && (
+                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                      SKU: {item.product_sku}
+                    </p>
+                  )}
+                  {item.shelf_location && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      Location: {item.shelf_location}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Counter Controls */}
+              <div className="flex items-center justify-between gap-2">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => onUpdateProgress(item.product_id, Math.max(0, item.quantity_picked - 1))}
+                  disabled={item.quantity_picked === 0}
+                  className="h-12 w-12 p-0 dark:border-gray-600"
+                >
+                  <Minus className="h-5 w-5" />
+                </Button>
+
+                <div className="flex-1 text-center">
+                  <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                    {item.quantity_picked} / {item.total_quantity_needed}
+                  </div>
+                  {isComplete && (
+                    <Check className="h-5 w-5 text-green-600 dark:text-green-400 mx-auto mt-1" />
+                  )}
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => onUpdateProgress(item.product_id, Math.min(item.total_quantity_needed, item.quantity_picked + 1))}
+                  disabled={item.quantity_picked >= item.total_quantity_needed}
+                  className="h-12 w-12 p-0 dark:border-gray-600"
+                >
+                  <Plus className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* MAX Button */}
+              <Button
+                variant="secondary"
+                className="w-full mt-2 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                onClick={() => onUpdateProgress(item.product_id, item.total_quantity_needed)}
+                disabled={isComplete}
+              >
+                MAX
+              </Button>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
+// PACKING VIEW COMPONENT
+// ================================================================
+
+interface PackingViewProps {
+  session: PickingSession;
+  packingData: PackingListResponse;
+  selectedItem: string | null;
+  onBack: () => void;
+  onSelectItem: (productId: string | null) => void;
+  onPackItem: (orderId: string, productId: string) => void;
+}
+
+function PackingView({
+  session,
+  packingData,
+  selectedItem,
+  onBack,
+  onSelectItem,
+  onPackItem
+}: PackingViewProps) {
+  const { orders, availableItems } = packingData;
+
+  return (
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Header */}
+      <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              onClick={onBack}
+              className="dark:border-gray-600 dark:text-gray-300"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Packing: {session.code}
+              </h1>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Distribute items into order boxes
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Split View */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Column: Available Items (Basket) */}
+        <div className="w-1/3 border-r dark:border-gray-700 p-4 overflow-y-auto bg-white dark:bg-gray-800">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 sticky top-0 bg-white dark:bg-gray-800 pb-2">
+            Items to Pack
+          </h2>
+          <div className="space-y-3">
+            {availableItems.map(item => {
+              const isSelected = selectedItem === item.product_id;
+              const hasRemaining = item.remaining > 0;
+
+              return (
+                <Card
+                  key={item.product_id}
+                  className={`p-3 cursor-pointer transition-all ${!hasRemaining
+                    ? 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-900'
+                    : isSelected
+                      ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900 bg-blue-50 dark:bg-blue-950/20'
+                      : 'hover:shadow-md dark:bg-gray-750 dark:border-gray-600'
+                    }`}
+                  onClick={() => hasRemaining && onSelectItem(isSelected ? null : item.product_id)}
+                >
+                  <div className="flex gap-3">
+                    {item.product_image ? (
+                      <img
+                        src={item.product_image}
+                        alt={item.product_name}
+                        className="w-12 h-12 object-cover rounded"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center">
+                        <Package className="h-6 w-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <h3 className="font-medium text-sm text-gray-900 dark:text-white line-clamp-1">
+                        {item.product_name}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge
+                          variant={hasRemaining ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {item.remaining} remaining
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                        Picked: {item.total_picked} • Packed: {item.total_packed}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right Column: Orders (Boxes) */}
+        <div className="flex-1 p-4 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 sticky top-0 bg-gray-50 dark:bg-gray-900 pb-2">
+            Orders ({orders.length})
+          </h2>
+          <div className="space-y-4">
+            {orders.map(order => {
+              const needsSelectedItem = selectedItem
+                ? order.items.some(
+                  item =>
+                    item.product_id === selectedItem &&
+                    item.quantity_packed < item.quantity_needed
+                )
+                : false;
+
+              const selectedItemInOrder = selectedItem
+                ? order.items.find(item => item.product_id === selectedItem)
+                : null;
+
+              return (
+                <Card
+                  key={order.id}
+                  className={`p-4 transition-all ${order.is_complete
+                    ? 'border-green-500 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
+                    : needsSelectedItem
+                      ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900 shadow-lg cursor-pointer'
+                      : 'dark:bg-gray-800 dark:border-gray-700'
+                    }`}
+                  onClick={() => {
+                    if (needsSelectedItem && selectedItemInOrder) {
+                      onPackItem(order.id, selectedItem);
+                    }
+                  }}
+                >
+                  {/* Order Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="font-bold text-gray-900 dark:text-white">
+                        Order #{order.order_number}
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {order.customer_name}
+                      </p>
+                    </div>
+                    {order.is_complete ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-green-600 dark:bg-green-500">
+                          <Check className="h-3 w-3 mr-1" />
+                          Ready
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="dark:border-gray-600"
+                        >
+                          <Printer className="h-4 w-4 mr-1" />
+                          Print Label
+                        </Button>
+                      </div>
+                    ) : (
+                      <Badge variant="secondary" className="dark:bg-gray-700">
+                        In Progress
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Order Items */}
+                  <div className="space-y-2">
+                    {order.items.map(item => {
+                      const itemComplete = item.quantity_packed >= item.quantity_needed;
+                      const isHighlighted =
+                        selectedItem === item.product_id && !itemComplete;
+
+                      return (
+                        <div
+                          key={item.product_id}
+                          className={`flex items-center gap-2 p-2 rounded ${isHighlighted
+                            ? 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'
+                            : itemComplete
+                              ? 'bg-gray-50 dark:bg-gray-750'
+                              : 'bg-white dark:bg-gray-800'
+                            }`}
+                        >
+                          {item.product_image ? (
+                            <img
+                              src={item.product_image}
+                              alt={item.product_name}
+                              className="w-10 h-10 object-cover rounded"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center">
+                              <Package className="h-5 w-5 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">
+                              {item.product_name}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-xs font-semibold ${itemComplete
+                                  ? 'text-green-600 dark:text-green-400'
+                                  : 'text-gray-600 dark:text-gray-400'
+                                  }`}
+                              >
+                                {item.quantity_packed} / {item.quantity_needed}
+                              </span>
+                              {itemComplete && (
+                                <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

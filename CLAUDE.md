@@ -64,16 +64,20 @@ src/
 │   ├── Onboarding.tsx  # Multi-step onboarding with user/store setup
 │   ├── Settings.tsx    # User settings with dark mode toggle
 │   ├── Integrations.tsx # E-commerce platform integrations
-│   └── Orders.tsx      # Orders with follow-up dialog
+│   ├── Orders.tsx      # Orders with follow-up dialog
+│   ├── Warehouse.tsx   # Warehouse operations (added by user)
+│   └── Merchandise.tsx # Inbound shipments/supplier purchases management
 ├── contexts/           # React contexts
 │   ├── AuthContext.tsx  # Authentication and user state
 │   └── ThemeContext.tsx # Dark/light theme management
 ├── services/           # Data service layer
-│   ├── orders.service.ts    # Orders CRUD with API
-│   ├── products.service.ts  # Products CRUD
-│   ├── customers.service.ts # Customers CRUD with auth headers
-│   ├── ads.service.ts       # Campaigns CRUD with auth headers
-│   └── api.client.ts        # Axios client with auth interceptors
+│   ├── orders.service.ts      # Orders CRUD with API
+│   ├── products.service.ts    # Products CRUD
+│   ├── customers.service.ts   # Customers CRUD with auth headers
+│   ├── ads.service.ts         # Campaigns CRUD with auth headers
+│   ├── merchandise.service.ts # Inbound shipments CRUD with receive endpoint
+│   ├── warehouse.service.ts   # Warehouse picking/packing operations
+│   └── api.client.ts          # Axios client with auth interceptors
 ├── utils/              # Business logic utilities
 │   ├── alertEngine.ts       # Generates alerts based on business metrics
 │   ├── recommendationEngine.ts  # Generates actionable recommendations
@@ -97,18 +101,23 @@ api/
 ├── routes/
 │   ├── auth.ts         # Authentication endpoints (login, register, onboarding)
 │   ├── customers.ts    # Customers API with auth middleware
-│   └── campaigns.ts    # Campaigns API with auth middleware
+│   ├── campaigns.ts    # Campaigns API with auth middleware
+│   ├── merchandise.ts  # Inbound shipments/supplier purchases API
+│   ├── warehouse.ts    # Warehouse operations (added by user)
+│   └── shopify.ts      # Shopify integration and webhooks
 ├── middleware/
 │   └── auth.ts         # JWT verification and store ID extraction
+├── services/
+│   ├── shopify-*.service.ts        # Shopify integration services
+│   ├── warehouse.service.ts        # Warehouse picking/packing business logic
+│   └── delivery-photo-cleanup.service.ts
 └── db/
-    ├── connection.ts   # Supabase client
-    └── migrations/     # Database migrations
-        ├── 001_create_base_schema.sql
-        ├── 002_create_triggers.sql
-        ├── 003_create_additional_values.sql
-        └── 004_add_users_and_user_stores.sql
+    └── connection.ts   # Supabase client
 
 db/
+├── migrations/
+│   ├── 000_MASTER_MIGRATION.sql  # ⭐ Migración maestra (usa solo esta)
+│   └── README.md                 # Documentación de migraciones
 └── seed.sql            # Database seed data
 ```
 
@@ -129,6 +138,8 @@ Services in `src/services/` provide CRUD operations with API integration:
 - `productsService`: Manages product inventory
 - `customersService`: Customer management with auth headers (Bearer token + X-Store-ID)
 - `adsService`: Campaign management with auth headers
+- `merchandiseService`: Inbound shipments from suppliers with receive endpoint
+- `warehouseService`: Picking and packing operations for order preparation
 - `api.client.ts`: Axios instance with automatic auth header injection
 
 **Authentication Pattern** (for customers & campaigns):
@@ -270,6 +281,69 @@ import { ordersService } from '@/services/orders.service'
 - Accessible via "Follow-ups" button in Orders page header
 - Located next to Export and Import buttons
 
+### Warehouse Module (Picking & Packing)
+
+**Purpose**: Manages order preparation workflow without barcode scanners. Optimized for manual input with touch-friendly interface.
+
+**Location**:
+- Frontend: `src/pages/Warehouse.tsx`, `src/services/warehouse.service.ts`
+- Backend: `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`
+- Database: `db/migrations/015_warehouse_picking.sql`
+
+**Core Workflow**:
+1. **Dashboard View**: Select multiple "confirmed" orders to create a preparation batch (picking session)
+2. **Picking Mode**: Collect aggregated quantities of products for the entire batch
+3. **Packing Mode**: Distribute collected items into their respective order boxes
+
+**Features**:
+- ✅ **Batch Processing**: Group multiple orders into sessions with unique codes (e.g., "PREP-2505-01")
+- ✅ **Aggregated Picking**: Shows total quantities needed across all orders in the batch
+- ✅ **Manual Controls**: Large `[-] 0/5 [+]` buttons and "MAX" shortcuts (no barcode scanner needed)
+- ✅ **Visual Feedback**: Green backgrounds for completed items, progress bars, checkmarks
+- ✅ **Smart Packing**: Split-view interface with item basket (left) and order boxes (right)
+- ✅ **Intelligent Highlighting**: System highlights only orders that need the selected item
+- ✅ **Progress Tracking**: Real-time tracking of picked/packed quantities
+- ✅ **Order State Management**: Automatic transitions: confirmed → in_preparation → ready_to_ship
+- ✅ **Print Labels**: "Print Label" button appears when order is fully packed
+- ✅ **Dark Mode Support**: Full theme compatibility
+- ✅ **Touch Optimized**: Large buttons and tap targets for tablet/mobile use
+
+**Database Schema** (`015_warehouse_picking.sql`):
+- `picking_sessions` - Tracks preparation batches with status (picking/packing/completed)
+- `picking_session_orders` - Links orders to sessions (junction table)
+- `picking_session_items` - Aggregated picking list with quantity_picked tracking
+- `packing_progress` - Tracks packing progress per order line item
+- New order statuses: `in_preparation`, `ready_to_ship`
+- Auto-generated session codes via `generate_session_code()` function
+
+**API Endpoints** (all require auth headers):
+- `GET /api/warehouse/orders/confirmed` - Lists orders ready for preparation
+- `GET /api/warehouse/sessions/active` - Lists active sessions (picking/packing)
+- `POST /api/warehouse/sessions` - Creates new batch from order IDs
+- `GET /api/warehouse/sessions/:id/picking-list` - Returns aggregated items to pick
+- `POST /api/warehouse/sessions/:id/picking-progress` - Updates picked quantities
+- `POST /api/warehouse/sessions/:id/finish-picking` - Transitions to packing phase
+- `GET /api/warehouse/sessions/:id/packing-list` - Returns orders with items and basket
+- `POST /api/warehouse/sessions/:id/packing-progress` - Assigns item to order
+- `POST /api/warehouse/sessions/:id/complete` - Marks session as completed
+
+**Usage Pattern**:
+```typescript
+// Create session
+const session = await warehouseService.createSession(['order-id-1', 'order-id-2']);
+
+// Update picking progress
+await warehouseService.updatePickingProgress(sessionId, productId, 5);
+
+// Finish picking and start packing
+await warehouseService.finishPicking(sessionId);
+
+// Pack item into order
+await warehouseService.updatePackingProgress(sessionId, orderId, productId);
+```
+
+**Navigation**: Accessible via "Almacén" in sidebar (between "Pedidos" and "Productos")
+
 ### Integrations
 
 **Shopify Integration (Production-Ready)**
@@ -333,14 +407,20 @@ If you get CORS errors:
 - Check that services include `getAuthHeaders()` in all requests
 - Verify backend middleware is properly configured
 
-### Database Migration Issues
-Run migrations in order:
+### Database Setup
+
+Para configurar una nueva base de datos, ejecuta **SOLO** la migración maestra:
 ```bash
-psql -h <host> -U <user> -d <database> -f db/migrations/001_create_base_schema.sql
-psql -h <host> -U <user> -d <database> -f db/migrations/002_create_triggers.sql
-psql -h <host> -U <user> -d <database> -f db/migrations/003_create_additional_values.sql
-psql -h <host> -U <user> -d <database> -f db/migrations/004_add_users_and_user_stores.sql
+psql -h <host> -U <user> -d <database> -f db/migrations/000_MASTER_MIGRATION.sql
 ```
+
+La migración maestra es idempotente (puede ejecutarse múltiples veces sin errores) y contiene TODAS las tablas, funciones y triggers necesarios. Ver `db/migrations/README.md` para más detalles.
+
+**Migraciones Adicionales** (para funcionalidades específicas):
+- `011_merchandise_system.sql` - Sistema de mercadería/inbound shipments
+- `015_warehouse_picking.sql` - Sistema de picking y packing para warehouse
+
+Estas migraciones se ejecutan de forma independiente según las funcionalidades que necesites activar.
 
 ### Dark Mode Not Working
 - Clear localStorage and refresh
@@ -370,11 +450,25 @@ If you receive "Too Many Requests" errors:
 - Webhooks: 60 requests/min
 - Write operations: 200/15 min
 
-See `RATE_LIMITING.md` for detailed documentation.
-
 ## Recent Updates
 
 ### Latest Features (January 2025)
+
+#### Warehouse Management (Picking & Packing)
+- ✅ **Complete Warehouse Module**:
+  - Batch order preparation workflow (no barcode scanners required)
+  - **Dashboard**: Multi-select confirmed orders to create picking sessions
+  - **Picking Interface**: Aggregated product list with manual `[-] 0/5 [+]` controls and "MAX" button
+  - **Packing Interface**: Split-view design with item basket (left) and order boxes (right)
+  - **Smart Highlighting**: System highlights only orders needing the selected item
+  - **Auto-generated Session Codes**: Unique batch references (e.g., "PREP-2505-01")
+  - **Progress Tracking**: Real-time visual feedback with progress bars and color coding
+  - **Order State Management**: Automatic transitions (confirmed → in_preparation → ready_to_ship)
+  - **Touch Optimized**: Large buttons and tap targets for tablet/mobile use
+  - **Dark Mode Support**: Full theme compatibility with green/blue highlighting
+  - Database: 4 new tables in `015_warehouse_picking.sql` (picking_sessions, picking_session_orders, picking_session_items, packing_progress)
+  - Backend: 8 API endpoints with auth middleware + comprehensive business logic
+  - Frontend: 3 integrated views (Dashboard, Picking, Packing) in single component
 
 #### Security Enhancements
 - ✅ **Comprehensive Rate Limiting**:
@@ -471,10 +565,21 @@ See `RATE_LIMITING.md` for detailed documentation.
 - ✅ **Loading Skeletons**: Seamless loading experience
 - ✅ **CORS Fixed**: Added localhost:8081 support
 
-### Database Schema Updates
-- Migration 004: Added `users` table with phone field
-- Migration 004: Added `user_stores` many-to-many relationship
-- Migration 004: Added `tax_rate` and `admin_fee` to stores table
+### Database Schema
+
+La base de datos está completamente definida en `db/migrations/000_MASTER_MIGRATION.sql`:
+- **Tablas Base**: stores, users, user_stores, store_config
+- **Negocio**: products, customers, carriers, suppliers, campaigns, shipping_integrations, additional_values
+- **Pedidos**: orders (con COD, delivery, rating, Shopify sync, warehouse statuses: in_preparation, ready_to_ship)
+- **Historial**: order_status_history, follow_up_log
+- **Delivery**: delivery_attempts, daily_settlements, settlement_orders
+- **Mercadería**: inbound_shipments, inbound_shipment_items (ver `db/migrations/011_merchandise_system.sql`)
+- **Warehouse**: picking_sessions, picking_session_orders, picking_session_items, packing_progress (ver `db/migrations/015_warehouse_picking.sql`)
+- **Shopify**: shopify_integrations, shopify_oauth_states, shopify_import_jobs, shopify_webhook_events, shopify_sync_conflicts
+- **Webhook Reliability**: shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
+- **Vistas**: courier_performance, shopify_integrations_with_webhook_issues, inbound_shipments_summary
+- **Triggers**: Actualización automática de stats de clientes, carriers, log de estados, delivery tokens, COD calculation, warehouse updated_at timestamps
+- **Funciones**: generate_inbound_reference, receive_shipment_items (inventory updates), generate_session_code (warehouse batch codes)
 
 ## Current State (January 2025)
 
@@ -483,6 +588,8 @@ See `RATE_LIMITING.md` for detailed documentation.
 - ✅ Real-time analytics with period-over-period comparisons
 - ✅ Order management with WhatsApp confirmation
 - ✅ Product inventory management
+- ✅ **Merchandise/Inbound Shipments** (supplier purchases, inventory reception, product creation)
+- ✅ **Warehouse/Picking & Packing** (batch order preparation, manual picking, split-view packing, no barcode scanners required)
 - ✅ Customer relationship management
 - ✅ Supplier management
 - ✅ Carrier tracking and comparison
@@ -499,178 +606,215 @@ See `RATE_LIMITING.md` for detailed documentation.
 
 ## Webhook Reliability System
 
-### Overview
+La integración de Shopify incluye un sistema de confiabilidad de webhooks de grado producción:
 
-The Shopify integration includes a production-grade webhook reliability system that solves the 3 critical problems:
+### Características Principales
+1. **Idempotencia**: Previene procesamiento duplicado (TTL 24h)
+2. **Reintentos automáticos**: Backoff exponencial (60s → 960s, max 5 intentos)
+3. **Monitoreo**: Métricas en tiempo real con dashboard visual
 
-1. **Deduplicación**: Prevents processing duplicate webhooks using idempotency keys
-2. **Reintentos automáticos**: Automatic retry with exponential backoff for failed webhooks
-3. **Monitoreo**: Real-time health metrics with visual dashboard
+### Componentes de Base de Datos
+- `shopify_webhook_idempotency` - Previene duplicados
+- `shopify_webhook_retry_queue` - Cola de reintentos
+- `shopify_webhook_metrics` - Métricas por hora (received, processed, failed, success_rate)
 
-### Architecture Components
+### Servicios Backend
+- `api/services/shopify-webhook-manager.service.ts` - Gestión de webhooks
+- Endpoints: `/api/shopify/webhook-health`, `/api/shopify/webhook-retry/process`, `/api/shopify/webhook-cleanup`
 
-#### 1. Idempotency Layer
-- **Table**: `shopify_webhook_idempotency`
-- **Key Format**: `{order_id}:{topic}:{timestamp_hash}`
-- **TTL**: 24 hours (auto-cleanup)
-- **Purpose**: Prevents duplicate webhook processing
+### Configuración de Producción
 
-#### 2. Retry Queue
-- **Table**: `shopify_webhook_retry_queue`
-- **Backoff Schedule**: 60s → 120s → 240s → 480s → 960s
-- **Max Retries**: 5 attempts
-- **Status**: pending, processing, success, failed
-- **Error History**: Full JSON array of all retry attempts
+**Cron Jobs Recomendados**:
+```bash
+# Procesamiento de reintentos (cada 5 min)
+*/5 * * * * curl -X POST https://api.ordefy.io/api/shopify/webhook-retry/process
 
-#### 3. Metrics System
-- **Table**: `shopify_webhook_metrics`
-- **Granularity**: Hourly aggregation
-- **Metrics**: received, processed, failed, duplicates, success_rate, processing_time
-- **Error Breakdown**: 401, 404, 500, timeout, other
+# Limpieza de idempotency keys (diario 3 AM)
+0 3 * * * curl -X POST https://api.ordefy.io/api/shopify/webhook-cleanup
+```
 
-#### 4. Webhook Manager Service
-- **File**: `api/services/shopify-webhook-manager.service.ts`
-- **Methods**:
-  - `checkIdempotency()`: Verify if webhook was already processed
-  - `recordIdempotency()`: Save idempotency key
-  - `addToRetryQueue()`: Add failed webhook to retry queue
-  - `processRetryQueue()`: Process pending retries
-  - `recordMetric()`: Record webhook metrics
-  - `getWebhookHealth()`: Get health status and metrics
-  - `cleanupExpiredKeys()`: Remove expired idempotency keys
+**Alertas Sugeridas**:
+- Success rate < 95% (24h)
+- Pending retries > 50
+- 401 errors > 5 (1h)
+- Processing time > 2000ms (1h avg)
+
+### Métricas Objetivo
+- **Success Rate**: ≥ 99% (crítico < 80%)
+- **Processing Time**: < 500ms (aceptable < 1000ms)
+- **Pending Retries**: < 10 (crítico > 50)
+
+## Merchandise System (Inbound Shipments)
+
+Sistema completo de gestión de mercadería entrante desde proveedores con actualización automática de inventario.
+
+### Características Principales
+
+**1. Gestión de Envíos**
+- Crear envíos de proveedores con múltiples productos
+- Auto-generación de referencias internas: `ISH-YYYYMMDD-XXX`
+- Auto-generación de códigos de seguimiento: `TRACK-YYYYMMDD-XXXX`
+- Tracking opcional de transportadora, ETA, costos
+- Soporte para notas y evidencia fotográfica
+
+**2. Creación de Productos en Línea**
+- Botón `📦+` junto a cada selector de producto
+- Formulario inline para crear productos nuevos al vuelo
+- Auto-selección y auto-fill del costo unitario
+- Campos: Nombre (req), Costo (req), Precio de Venta (opt), Imagen (opt)
+- Stock inicial: 0 (se actualiza solo en recepción)
+
+**3. Flujo de Recepción**
+- Modal de verificación para confirmar cantidades recibidas
+- Campos por producto:
+  - Cantidad Aceptada (updates inventory)
+  - Cantidad Rechazada (no updates inventory)
+  - Notas de Discrepancia (requeridas si qty_rejected > 0)
+- Estados automáticos:
+  - `pending`: Creado, inventario NO actualizado
+  - `partial`: Recibido parcialmente con discrepancias
+  - `received`: Completamente recibido y verificado
+- **Crucial**: El inventario se actualiza SOLO con qty_received (accepted)
+
+**4. Protecciones y Validaciones**
+- No se puede eliminar envíos `received` o `partial` (integridad de datos)
+- Solo envíos `pending` son eliminables
+- Validación de cantidades: `qty_received + qty_rejected ≤ qty_ordered`
+- Triggers automáticos actualizan `total_cost` del envío
+
+### Base de Datos
+
+**Migración**: `db/migrations/011_merchandise_system.sql`
+
+**Tablas**:
+```sql
+inbound_shipments
+  - id, store_id, internal_reference (unique per store)
+  - supplier_id, carrier_id, tracking_code
+  - estimated_arrival_date, received_date
+  - status (pending/partial/received)
+  - shipping_cost, total_cost (auto-calculated)
+  - evidence_photo_url, notes
+  - created_by, received_by
+
+inbound_shipment_items
+  - id, shipment_id, product_id
+  - qty_ordered, qty_received, qty_rejected
+  - unit_cost, total_cost (generated column)
+  - discrepancy_notes
+  - has_discrepancy (generated column)
+```
+
+**Funciones**:
+- `generate_inbound_reference(store_id)` - Auto-gen reference
+- `receive_shipment_items(shipment_id, items[], received_by)` - Updates inventory
+
+**Vista**:
+- `inbound_shipments_summary` - Enriched view with supplier/carrier names and aggregated stats
 
 ### API Endpoints
 
-#### Health Check
-```http
-GET /api/shopify/webhook-health?hours=24
-Authorization: Bearer {token}
-X-Store-ID: {store_id}
-```
-
-Returns:
-- Status: healthy, degraded, unhealthy
-- Metrics: total_received, success_rate, processing_time, pending_retries
-- Error breakdown: 401, 404, 500, timeout, other
-
-#### Process Retry Queue
-```http
-POST /api/shopify/webhook-retry/process
-Authorization: Bearer {token}
-X-Store-ID: {store_id}
-```
-
-Manually trigger retry processing (also runs via cron job).
-
-#### Cleanup Expired Keys
-```http
-POST /api/shopify/webhook-cleanup
-Authorization: Bearer {token}
-X-Store-ID: {store_id}
-```
-
-Remove expired idempotency keys (should run daily).
-
-### UI Component
-
-**WebhookHealthMonitor** (`src/components/WebhookHealthMonitor.tsx`):
-- Real-time health status with visual indicators
-- Metrics cards: total webhooks, success rate, processing time, pending retries
-- Error breakdown chart
-- Auto-refresh every 30 seconds
-- Manual retry processing button
-- Dark mode support
-
-Usage:
-```tsx
-import { WebhookHealthMonitor } from '@/components/WebhookHealthMonitor';
-
-<WebhookHealthMonitor
-  autoRefresh={true}
-  refreshInterval={30}
-/>
-```
-
-### Production Setup
-
-#### 1. Database Migration
 ```bash
-psql -h <host> -U <user> -d <database> \
-  -f db/migrations/009_webhook_reliability.sql
+# List shipments
+GET /api/merchandise?status=pending&limit=50
+
+# Get shipment with items
+GET /api/merchandise/:id
+
+# Create shipment
+POST /api/merchandise
+{
+  "supplier_id": "uuid",
+  "tracking_code": "TRACK-20251128-1234",
+  "estimated_arrival_date": "2025-12-01",
+  "items": [
+    {"product_id": "uuid", "qty_ordered": 100, "unit_cost": 25.50}
+  ]
+}
+
+# Receive shipment (UPDATES INVENTORY)
+POST /api/merchandise/:id/receive
+{
+  "items": [
+    {
+      "item_id": "uuid",
+      "qty_received": 95,
+      "qty_rejected": 5,
+      "discrepancy_notes": "5 units damaged"
+    }
+  ]
+}
+
+# Update shipment header
+PATCH /api/merchandise/:id
+
+# Delete shipment (pending only)
+DELETE /api/merchandise/:id
+
+# Get statistics
+GET /api/merchandise/stats/summary
 ```
 
-#### 2. Cron Jobs
+### Frontend Components
 
-**Retry Queue Processor** (every 5 minutes):
-```bash
-*/5 * * * * curl -X POST http://api.ordefy.io/api/shopify/webhook-retry/process \
-  -H "Authorization: Bearer {token}" \
-  -H "X-Store-ID: {store_id}"
-```
+**Página**: `src/pages/Merchandise.tsx` (18.84 kB)
 
-**Idempotency Cleanup** (daily at 3 AM):
-```bash
-0 3 * * * curl -X POST http://api.ordefy.io/api/shopify/webhook-cleanup \
-  -H "Authorization: Bearer {token}" \
-  -H "X-Store-ID: {store_id}"
-```
+**Características UI**:
+- Lista con búsqueda y filtros (por estado)
+- Badges de estado con colores (pending/partial/received)
+- Modal de creación con:
+  - Auto-generación de tracking code
+  - Creación inline de productos (botón 📦+)
+  - Items dinámicos (agregar/quitar productos)
+- Modal de recepción con:
+  - Verificación de cantidades
+  - Campos de discrepancia condicionales
+  - Preview de cantidades restantes
+- Soporte completo de Dark Mode
 
-#### 3. Monitoring Alerts
+**Servicio**: `src/services/merchandise.service.ts`
+- Métodos: `getAll`, `getById`, `create`, `update`, `delete`, `receive`, `getStats`
+- Auth headers automáticos (Bearer token + X-Store-ID)
 
-Set up alerts for:
-- Success rate < 95% (24h window)
-- Pending retries > 50
-- 401 errors > 5 (1h window)
-- Processing time > 2000ms (1h avg)
+### Flujo de Uso
 
-### Testing
+1. **Crear Mercadería**:
+   - Click "Nueva Mercadería"
+   - Opcional: Seleccionar proveedor, agregar tracking
+   - Click "Generar" para auto-tracking code
+   - Agregar productos:
+     - Seleccionar existente O
+     - Click 📦+ → Crear nuevo producto inline
+   - Submit → Envío creado con status `pending`
 
-Run the test suite:
-```bash
-AUTH_TOKEN='your_token' STORE_ID='your_store_id' ./test-webhook-reliability.sh
-```
+2. **Recibir Mercadería**:
+   - Click "Recibir" en envío pendiente
+   - Para cada producto:
+     - Ingresar cantidad aceptada
+     - Ingresar cantidad rechazada (si aplica)
+     - Agregar notas de discrepancia (si qty_rejected > 0)
+   - Confirmar → Inventario actualizado, status cambia a `received` o `partial`
 
-Tests:
-1. Health check endpoint
-2. Retry queue processing
-3. Cleanup expired keys
-4. Database schema verification (requires DATABASE_URL)
+3. **Verificar Inventario**:
+   - Ir a Productos
+   - Stock aumentado por qty_received (NO por qty_ordered)
 
-### Documentation
+### Reglas de Negocio
 
-- **Complete Guide**: `WEBHOOK_RELIABILITY.md` - 30+ pages with architecture, API, troubleshooting
-- **Executive Summary**: `WEBHOOK_RELIABILITY_SUMMARY.md` - Quick reference guide
-- **Test Script**: `test-webhook-reliability.sh` - Automated testing
-- **Migration**: `db/migrations/009_webhook_reliability.sql` - Database schema
+- ✅ Inventory update: **ONLY on reception**, not on creation
+- ✅ Stock increase: **ONLY by qty_received** (accepted items)
+- ✅ Status logic: All complete → `received`, Some missing → `partial`
+- ✅ Delete protection: Cannot delete `received` or `partial` shipments
+- ✅ Reference uniqueness: Per store per day (ISH-YYYYMMDD-XXX)
+- ✅ Auto-calculations: total_cost updated via triggers
 
-### Metrics to Monitor
+### Testing Checklist
 
-#### Success Rate
-- **Goal**: ≥ 99%
-- **Acceptable**: ≥ 95%
-- **Critical**: < 80%
-
-#### Processing Time
-- **Excellent**: < 500ms
-- **Good**: < 1000ms
-- **Slow**: > 1000ms
-
-#### Pending Retries
-- **Good**: < 10
-- **Warning**: 10-50
-- **Critical**: > 50
-
-### Security Features
-
-1. **HMAC Verification**: All webhooks verified with HMAC-SHA256
-2. **Replay Protection**: Webhooks older than 5 minutes rejected
-3. **Idempotency**: Prevents duplicate processing
-4. **Error Isolation**: Returns 200 to Shopify even on failure to prevent retry storms
-
-### Troubleshooting
-
-Common issues:
-- **High 401 errors**: Check Shopify credentials in database
-- **Stuck retries**: Process queue manually, check n8n availability
-- **Growing idempotency table**: Verify cleanup job is running
-- **Low success rate**: Check error breakdown for patterns
+- [ ] Crear envío con productos existentes
+- [ ] Crear envío con productos nuevos (inline creation)
+- [ ] Auto-generar tracking code
+- [ ] Recibir envío completo (100/100) → Status `received`, stock +100
+- [ ] Recibir envío parcial (80/100, 10 rejected) → Status `partial`, stock +80
+- [ ] Verificar que no se puede eliminar envíos received/partial
+- [ ] Verificar búsqueda y filtros
+- [ ] Verificar Dark Mode

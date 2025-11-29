@@ -166,6 +166,45 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
             </div>
           </div>
 
+          {/* Pago */}
+          <div className="space-y-3">
+            <h4 className="font-semibold text-sm text-muted-foreground">PAGO</h4>
+            <div className="p-3 bg-muted rounded-lg space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Total del Pedido:</span>
+                <span className="text-lg font-bold">Gs. {order.total.toLocaleString()}</span>
+              </div>
+              {order.payment_method && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Método de Pago:</span>
+                  <span className="text-sm font-medium capitalize">{order.payment_method}</span>
+                </div>
+              )}
+              {order.cod_amount && order.cod_amount > 0 && (
+                <div className="flex justify-between items-center pt-2 border-t border-border">
+                  <span className="text-sm text-muted-foreground">Monto a Cobrar (COD):</span>
+                  <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                    Gs. {order.cod_amount.toLocaleString()}
+                  </span>
+                </div>
+              )}
+              {order.payment_status && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Estado de Pago:</span>
+                  <Badge variant="outline" className={
+                    order.payment_status === 'collected' ? 'bg-green-50 text-green-700 border-green-300' :
+                    order.payment_status === 'failed' ? 'bg-red-50 text-red-700 border-red-300' :
+                    'bg-yellow-50 text-yellow-700 border-yellow-300'
+                  }>
+                    {order.payment_status === 'collected' ? 'Cobrado' :
+                     order.payment_status === 'failed' ? 'Fallido' :
+                     'Pendiente'}
+                  </Badge>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Envío */}
           <div className="space-y-3">
             <h4 className="font-semibold text-sm text-muted-foreground">ENVÍO</h4>

@@ -313,9 +313,10 @@ shopifyRouter.get('/import-status/:integration_id', async (req: AuthRequest, res
   }
 });
 
-// POST /api/shopify/webhook/orders-create
+// POST /api/shopify/webhook/orders-create OR /webhooks/orders-create
 // Webhook para nuevos pedidos de Shopify (con retry automático y deduplicación)
-shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response) => {
+// IMPORTANT: Support both /webhook/ (singular) and /webhooks/ (plural) for Shopify compatibility
+const ordersCreateHandler = async (req: Request, res: Response) => {
   const startTime = Date.now();
   let integrationId: string | null = null;
   let storeId: string | null = null;
@@ -554,11 +555,15 @@ shopifyRouter.post('/webhook/orders-create', async (req: Request, res: Response)
       error: 'Internal error - will retry',
     });
   }
-});
+};
 
-// POST /api/shopify/webhook/orders-updated
+// Register handler for both /webhook/ (singular) and /webhooks/ (plural)
+shopifyRouter.post('/webhook/orders-create', ordersCreateHandler);
+shopifyRouter.post('/webhooks/orders-create', ordersCreateHandler);
+
+// POST /api/shopify/webhook/orders-updated OR /webhooks/orders-updated
 // Webhook para actualizacion de pedidos
-shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response) => {
+const ordersUpdatedHandler = async (req: Request, res: Response) => {
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -620,11 +625,14 @@ shopifyRouter.post('/webhook/orders-updated', async (req: Request, res: Response
     console.error('Error procesando webhook de actualizacion:', error);
     res.status(500).json({ error: error.message });
   }
-});
+};
 
-// POST /api/shopify/webhook/products-update
+shopifyRouter.post('/webhook/orders-updated', ordersUpdatedHandler);
+shopifyRouter.post('/webhooks/orders-updated', ordersUpdatedHandler);
+
+// POST /api/shopify/webhook/products-update OR /webhooks/products-update
 // Webhook para productos actualizados en Shopify
-shopifyRouter.post('/webhook/products-update', async (req: Request, res: Response) => {
+const productsUpdateHandler = async (req: Request, res: Response) => {
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -686,11 +694,14 @@ shopifyRouter.post('/webhook/products-update', async (req: Request, res: Respons
     console.error('Error procesando webhook de actualización de producto:', error);
     res.status(500).json({ error: error.message });
   }
-});
+};
 
-// POST /api/shopify/webhook/products-delete
+shopifyRouter.post('/webhook/products-update', productsUpdateHandler);
+shopifyRouter.post('/webhooks/products-update', productsUpdateHandler);
+
+// POST /api/shopify/webhook/products-delete OR /webhooks/products-delete
 // Webhook para productos eliminados en Shopify
-shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Response) => {
+const productsDeleteHandler = async (req: Request, res: Response) => {
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -752,7 +763,10 @@ shopifyRouter.post('/webhook/products-delete', async (req: Request, res: Respons
     console.error('Error procesando webhook de eliminacion:', error);
     res.status(500).json({ error: error.message });
   }
-});
+};
+
+shopifyRouter.post('/webhook/products-delete', productsDeleteHandler);
+shopifyRouter.post('/webhooks/products-delete', productsDeleteHandler);
 
 // PATCH /api/shopify/products/:id
 // Actualizar producto y sincronizar con Shopify
@@ -1190,9 +1204,9 @@ shopifyRouter.delete('/webhooks/remove-all', async (req: AuthRequest, res: Respo
 // GDPR MANDATORY WEBHOOKS FOR PUBLIC SHOPIFY APPS
 // ================================================================
 
-// POST /api/shopify/webhook/customers/data_request
+// POST /api/shopify/webhook/customers/data_request OR /webhooks/customers/data_request
 // Shopify calls this when a customer requests their data (GDPR compliance)
-shopifyRouter.post('/webhook/customers/data_request', async (req: Request, res: Response) => {
+const customersDataRequestHandler = async (req: Request, res: Response) => {
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -1255,11 +1269,14 @@ shopifyRouter.post('/webhook/customers/data_request', async (req: Request, res: 
     console.error('❌ Error processing customers/data_request webhook:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
 
-// POST /api/shopify/webhook/customers/redact
+shopifyRouter.post('/webhook/customers/data_request', customersDataRequestHandler);
+shopifyRouter.post('/webhooks/customers/data_request', customersDataRequestHandler);
+
+// POST /api/shopify/webhook/customers/redact OR /webhooks/customers/redact
 // Shopify calls this when a customer requests deletion of their data (GDPR compliance)
-shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Response) => {
+const customersRedactHandler = async (req: Request, res: Response) => {
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -1322,11 +1339,14 @@ shopifyRouter.post('/webhook/customers/redact', async (req: Request, res: Respon
     console.error('❌ Error processing customers/redact webhook:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
 
-// POST /api/shopify/webhook/app-uninstalled
+shopifyRouter.post('/webhook/customers/redact', customersRedactHandler);
+shopifyRouter.post('/webhooks/customers/redact', customersRedactHandler);
+
+// POST /api/shopify/webhook/app-uninstalled OR /webhooks/app-uninstalled
 // Shopify calls this when the app is uninstalled from a store
-shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Response) => {
+const appUninstalledHandler = async (req: Request, res: Response) => {
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -1418,11 +1438,14 @@ shopifyRouter.post('/webhook/app-uninstalled', async (req: Request, res: Respons
     // Return 200 to prevent Shopify from retrying
     res.status(200).json({ success: false, error: 'Internal error' });
   }
-});
+};
 
-// POST /api/shopify/webhook/shop/redact
+shopifyRouter.post('/webhook/app-uninstalled', appUninstalledHandler);
+shopifyRouter.post('/webhooks/app-uninstalled', appUninstalledHandler);
+
+// POST /api/shopify/webhook/shop/redact OR /webhooks/shop/redact
 // Shopify calls this when a shop uninstalls the app (GDPR compliance)
-shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) => {
+const shopRedactHandler = async (req: Request, res: Response) => {
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -1485,4 +1508,7 @@ shopifyRouter.post('/webhook/shop/redact', async (req: Request, res: Response) =
     console.error('❌ Error processing shop/redact webhook:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+shopifyRouter.post('/webhook/shop/redact', shopRedactHandler);
+shopifyRouter.post('/webhooks/shop/redact', shopRedactHandler);

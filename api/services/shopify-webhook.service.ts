@@ -69,8 +69,11 @@ export class ShopifyWebhookService {
         return { success: true, order_id: existingOrder.id };
       }
 
+      // Buscar o crear cliente basándose en el número de teléfono
+      const customerId = await this.findOrCreateCustomer(shopifyOrder, storeId);
+
       // Mapear pedido de Shopify a formato local
-      const orderData = this.mapShopifyOrderToLocal(shopifyOrder, storeId);
+      const orderData = this.mapShopifyOrderToLocal(shopifyOrder, storeId, customerId);
 
       // Insertar pedido en la base de datos
       const { data: newOrder, error: insertError } = await this.supabaseAdmin
@@ -272,8 +275,11 @@ export class ShopifyWebhookService {
         payload: shopifyOrder
       });
 
+      // Buscar o crear cliente basándose en el número de teléfono
+      const customerId = await this.findOrCreateCustomer(shopifyOrder, storeId);
+
       // Actualizar pedido existente
-      const orderData = this.mapShopifyOrderToLocal(shopifyOrder, storeId);
+      const orderData = this.mapShopifyOrderToLocal(shopifyOrder, storeId, customerId);
 
       const { error: updateError } = await this.supabaseAdmin
         .from('orders')
@@ -306,8 +312,124 @@ export class ShopifyWebhookService {
     }
   }
 
+  // Buscar o crear cliente basándose en el número de teléfono
+  private async findOrCreateCustomer(
+    shopifyOrder: ShopifyOrder,
+    storeId: string
+  ): Promise<string | null> {
+    try {
+      // Extraer información del cliente del pedido
+      const phone = shopifyOrder.phone || shopifyOrder.customer?.phone || '';
+      const email = shopifyOrder.email || shopifyOrder.customer?.email || '';
+      const firstName = shopifyOrder.customer?.first_name ||
+                       shopifyOrder.billing_address?.first_name || '';
+      const lastName = shopifyOrder.customer?.last_name ||
+                      shopifyOrder.billing_address?.last_name || '';
+      const shopifyCustomerId = shopifyOrder.customer?.id?.toString() || null;
+
+      // Si no hay teléfono ni email, no podemos crear/buscar el cliente
+      if (!phone && !email) {
+        console.warn(`Pedido ${shopifyOrder.id} no tiene teléfono ni email, no se puede crear cliente`);
+        return null;
+      }
+
+      // Buscar cliente existente por teléfono (prioridad) o email
+      let existingCustomer = null;
+
+      if (phone) {
+        const { data } = await this.supabaseAdmin
+          .from('customers')
+          .select('*')
+          .eq('store_id', storeId)
+          .eq('phone', phone)
+          .maybeSingle();
+
+        existingCustomer = data;
+      }
+
+      // Si no se encontró por teléfono, buscar por email
+      if (!existingCustomer && email) {
+        const { data } = await this.supabaseAdmin
+          .from('customers')
+          .select('*')
+          .eq('store_id', storeId)
+          .eq('email', email)
+          .maybeSingle();
+
+        existingCustomer = data;
+      }
+
+      if (existingCustomer) {
+        console.log(`Cliente encontrado: ${existingCustomer.id} (${phone || email})`);
+
+        // Actualizar información del cliente si ha cambiado
+        const updateData: any = {};
+        if (shopifyCustomerId && existingCustomer.shopify_customer_id !== shopifyCustomerId) {
+          updateData.shopify_customer_id = shopifyCustomerId;
+        }
+        if (firstName && existingCustomer.first_name !== firstName) {
+          updateData.first_name = firstName;
+        }
+        if (lastName && existingCustomer.last_name !== lastName) {
+          updateData.last_name = lastName;
+        }
+        if (phone && existingCustomer.phone !== phone) {
+          updateData.phone = phone;
+        }
+        if (email && existingCustomer.email !== email) {
+          updateData.email = email;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          updateData.updated_at = new Date().toISOString();
+          await this.supabaseAdmin
+            .from('customers')
+            .update(updateData)
+            .eq('id', existingCustomer.id);
+
+          console.log(`Cliente ${existingCustomer.id} actualizado con nueva información`);
+        }
+
+        return existingCustomer.id;
+      }
+
+      // Cliente no existe, crear uno nuevo
+      const newCustomerData = {
+        store_id: storeId,
+        shopify_customer_id: shopifyCustomerId,
+        email: email || null,
+        phone: phone || null,
+        first_name: firstName || null,
+        last_name: lastName || null,
+        total_orders: 0, // Se actualizará con el trigger
+        total_spent: 0, // Se actualizará con el trigger
+        accepts_marketing: shopifyOrder.customer?.accepts_marketing || false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: newCustomer, error: insertError } = await this.supabaseAdmin
+        .from('customers')
+        .insert(newCustomerData)
+        .select('id')
+        .single();
+
+      if (insertError) {
+        console.error('Error creando cliente:', insertError);
+        return null;
+      }
+
+      console.log(`✅ Nuevo cliente creado: ${newCustomer.id} (${phone || email})`);
+      return newCustomer.id;
+
+    } catch (error: any) {
+      console.error('Error en findOrCreateCustomer:', error);
+      return null;
+    }
+  }
+
   // Mapear pedido de Shopify a formato local
-  private mapShopifyOrderToLocal(shopifyOrder: ShopifyOrder, storeId: string): any {
+  private mapShopifyOrderToLocal(shopifyOrder: ShopifyOrder, storeId: string, customerId: string | null = null): any {
     const customerName = shopifyOrder.customer
       ? `${shopifyOrder.customer.first_name} ${shopifyOrder.customer.last_name}`.trim()
       : shopifyOrder.billing_address
@@ -323,6 +445,7 @@ export class ShopifyWebhookService {
 
     return {
       store_id: storeId,
+      customer_id: customerId, // Vincular pedido al cliente
       shopify_order_id: shopifyOrder.id.toString(),
       shopify_order_number: shopifyOrder.order_number.toString(),
       customer: customerName,

@@ -111,8 +111,8 @@ export function Header() {
     };
     loadData();
 
-    // Refresh data every 30 seconds
-    const interval = setInterval(loadData, 30000);
+    // Refresh data every 5 minutes (optimized from 30 seconds)
+    const interval = setInterval(loadData, 300000);
     return () => clearInterval(interval);
   }, []);
 

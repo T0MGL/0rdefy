@@ -41,6 +41,9 @@ export interface Order {
   confirmedByWhatsApp?: boolean;
   confirmationTimestamp?: string;
   confirmationMethod?: 'whatsapp' | 'phone' | 'manual';
+  inTransitTimestamp?: string;
+  deliveredTimestamp?: string;
+  cancelledTimestamp?: string;
   rejectionReason?: string;
   // New confirmation flow fields
   upsell_added?: boolean;
@@ -70,6 +73,21 @@ export interface Order {
   printed_at?: string;
   printed_by?: string;
 }
+
+export interface CreateOrderInput {
+  customer: string;
+  phone: string;
+  address?: string;
+  product: string;
+  product_id?: string;
+  quantity: number;
+  total: number;
+  status: Order['status'];
+  carrier: string;
+  paymentMethod?: 'paid' | 'cod';
+}
+
+export interface UpdateOrderInput extends Partial<CreateOrderInput> { }
 
 export interface Product {
   id: string;
@@ -247,6 +265,96 @@ export interface CODMetrics {
   pending_cash: number;
   collected_today: number;
   orders_in_delivery: number;
+}
+
+// ================================================================
+// Merchandise / Inbound Shipments Types
+// ================================================================
+
+export interface InboundShipment {
+  id: string;
+  store_id: string;
+  internal_reference: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  carrier_id?: string;
+  carrier_name?: string;
+  tracking_code?: string;
+  estimated_arrival_date?: string;
+  received_date?: string;
+  status: 'pending' | 'partial' | 'received';
+  shipping_cost: number;
+  total_cost: number;
+  evidence_photo_url?: string;
+  notes?: string;
+  created_by?: string;
+  received_by?: string;
+  created_at: string;
+  updated_at: string;
+  // Summary fields (from view)
+  total_items?: number;
+  total_qty_ordered?: number;
+  total_qty_received?: number;
+  total_qty_rejected?: number;
+  items_with_discrepancies?: number;
+  // Items array for details
+  items?: InboundShipmentItem[];
+}
+
+export interface InboundShipmentItem {
+  id: string;
+  shipment_id: string;
+  product_id: string;
+  product_name?: string;
+  product_image?: string;
+  qty_ordered: number;
+  qty_received: number;
+  qty_rejected: number;
+  unit_cost: number;
+  total_cost: number;
+  discrepancy_notes?: string;
+  has_discrepancy?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateShipmentDTO {
+  supplier_id?: string;
+  carrier_id?: string;
+  tracking_code?: string;
+  estimated_arrival_date?: string;
+  shipping_cost?: number;
+  evidence_photo_url?: string;
+  notes?: string;
+  items: CreateShipmentItemDTO[];
+}
+
+export interface CreateShipmentItemDTO {
+  product_id: string;
+  qty_ordered: number;
+  unit_cost: number;
+}
+
+export interface ReceiveShipmentDTO {
+  items: ReceiveShipmentItemDTO[];
+}
+
+export interface ReceiveShipmentItemDTO {
+  item_id: string;
+  qty_received: number;
+  qty_rejected?: number;
+  discrepancy_notes?: string;
+}
+
+export interface ShopifyIntegration {
+  id: string;
+  shop: string;
+  scope: string;
+  access_token?: string; // Usually not exposed to frontend
+  status: 'active' | 'inactive' | 'disconnected';
+  installed_at: string;
+  last_sync_at?: string;
+  updated_at: string;
 }
 
 export * from './notification';

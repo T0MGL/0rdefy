@@ -279,8 +279,12 @@ export function OrderConfirmationDialog({
               deliveryToken={confirmedOrder.delivery_link_token}
               customerName={`${confirmedOrder.customer_first_name || ''} ${confirmedOrder.customer_last_name || ''}`.trim() || order?.customer || 'Cliente'}
               customerPhone={confirmedOrder.customer_phone || order?.phone || ''}
-              customerAddress={confirmedOrder.customer_address || order?.address}
+              customerAddress={confirmedOrder.customer_address || confirmedOrder.address || order?.address || order?.customer_address}
+              addressReference={confirmedOrder.address_reference || order?.address_reference}
+              neighborhood={confirmedOrder.neighborhood || order?.neighborhood}
+              deliveryNotes={confirmedOrder.delivery_notes || order?.delivery_notes}
               courierName={carriers.find(c => c.id === courierId)?.name}
+              codAmount={confirmedOrder.cod_amount || order?.cod_amount}
               products={
                 confirmedOrder.line_items && confirmedOrder.line_items.length > 0
                   ? confirmedOrder.line_items.map((item: any) => ({
@@ -301,7 +305,7 @@ export function OrderConfirmationDialog({
               <div className="rounded-lg border p-3 bg-muted/50">
                 <p className="text-sm font-medium">Pedido #{order.id.slice(0, 8)}</p>
                 <p className="text-sm text-muted-foreground">Cliente: {order.customer}</p>
-                <p className="text-sm text-muted-foreground">Total: ${order.total.toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">Total: Gs. {order.total.toLocaleString()}</p>
               </div>
             )}
 

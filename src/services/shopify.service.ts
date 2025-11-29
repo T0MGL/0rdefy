@@ -4,6 +4,8 @@
 // Handles Shopify OAuth integration API calls
 // ================================================================
 
+import { ShopifyIntegration } from '@/types';
+
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const getAuthHeaders = (): HeadersInit => {
@@ -23,7 +25,7 @@ const getAuthHeaders = (): HeadersInit => {
 // ================================================================
 export const getShopifyIntegration = async (): Promise<{
   success: boolean;
-  integration?: any;
+  integration?: ShopifyIntegration;
   message?: string;
 }> => {
   try {
@@ -39,7 +41,7 @@ export const getShopifyIntegration = async (): Promise<{
     }
 
     return response.json();
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[SHOPIFY-SERVICE] Error getting integration:', error);
     throw error;
   }
@@ -71,7 +73,7 @@ export const getShopifyIntegrationByShop = async (shop: string): Promise<{
     }
 
     return response.json();
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[SHOPIFY-SERVICE] Error getting integration by shop:', error);
     throw error;
   }
@@ -96,7 +98,7 @@ export const disconnectShopify = async (shop: string): Promise<void> => {
       const error = await response.json();
       throw new Error(error.message || 'Failed to disconnect Shopify');
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[SHOPIFY-SERVICE] Error disconnecting:', error);
     throw error;
   }

@@ -66,7 +66,7 @@ export function DailySummary() {
         };
 
         const [ordersData, overviewData] = await Promise.all([
-          ordersService.getAll(),
+          ordersService.getAll(dateParams), // ✅ Pasar parámetros de fecha
           analyticsService.getOverview(dateParams),
         ]);
         setOrders(ordersData);
@@ -102,56 +102,47 @@ export function DailySummary() {
     );
   }
 
-  // Calcular métricas del día y del día anterior
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  // ===== USAR DATOS DEL OVERVIEW (YA FILTRADOS POR FECHA) =====
+  // El overview ya contiene las métricas del período seleccionado y las comparativas con el período anterior
 
-  const todayOrders = orders.filter(o => {
-    const orderDate = new Date(o.date);
-    orderDate.setHours(0, 0, 0, 0);
-    return orderDate.getTime() === today.getTime();
-  });
-
-  const yesterdayOrders = orders.filter(o => {
-    const orderDate = new Date(o.date);
-    orderDate.setHours(0, 0, 0, 0);
-    return orderDate.getTime() === yesterday.getTime();
-  });
-
+  // Contar pedidos pendientes en el período seleccionado
   const pendingConfirmation = orders.filter(o => o.status === 'pending' && !o.confirmedByWhatsApp);
-  const todaySales = todayOrders.reduce((sum, o) => sum + o.total, 0);
-  const yesterdaySales = yesterdayOrders.reduce((sum, o) => sum + o.total, 0);
 
-  // Calcular cambios porcentuales
-  const calculateChange = (current: number, previous: number): number | null => {
-    if (previous === 0) return null;
-    return parseFloat((((current - previous) / previous) * 100).toFixed(1));
+  // Obtener el label correcto basado en el período seleccionado
+  const getMetricLabel = (baseLabel: string) => {
+    switch (selectedRange) {
+      case 'today':
+        return baseLabel.replace('Nuevos', 'del Día').replace('del Período', 'del Día');
+      case '7d':
+        return baseLabel.replace('Nuevos', 'de la Semana').replace('del Período', 'de la Semana');
+      case '30d':
+        return baseLabel.replace('Nuevos', 'del Mes').replace('del Período', 'del Mes');
+      case 'custom':
+        return baseLabel.replace('Nuevos', 'del Período').replace('del Día', 'del Período');
+      default:
+        return baseLabel;
+    }
   };
-
-  const ordersChange = calculateChange(todayOrders.length, yesterdayOrders.length);
-  const salesChange = calculateChange(todaySales, yesterdaySales);
 
   const metrics = [
     {
-      label: 'Pedidos Nuevos',
-      value: todayOrders.length,
-      change: ordersChange,
+      label: getMetricLabel('Pedidos Nuevos'),
+      value: overview.totalOrders,
+      change: overview.changes?.totalOrders !== null ? overview.changes?.totalOrders : null,
       icon: ShoppingBag,
-      trend: ordersChange !== null ? (ordersChange >= 0 ? 'up' as const : 'down' as const) : undefined,
+      trend: overview.changes?.totalOrders !== null ? (overview.changes.totalOrders >= 0 ? 'up' as const : 'down' as const) : undefined,
     },
     {
-      label: 'Ventas del Día',
-      value: `Gs. ${todaySales.toLocaleString()}`,
-      change: salesChange,
+      label: getMetricLabel('Ventas del Período'),
+      value: `Gs. ${overview.revenue.toLocaleString()}`,
+      change: overview.changes?.revenue !== null ? overview.changes?.revenue : null,
       icon: DollarSign,
-      trend: salesChange !== null ? (salesChange >= 0 ? 'up' as const : 'down' as const) : undefined,
+      trend: overview.changes?.revenue !== null ? (overview.changes.revenue >= 0 ? 'up' as const : 'down' as const) : undefined,
     },
     {
       label: 'Pendientes Confirmar',
       value: pendingConfirmation.length,
-      change: null, // No tiene sentido comparar pendientes con día anterior
+      change: null, // No tiene sentido comparar pendientes con período anterior
       icon: AlertTriangle,
       trend: undefined,
     },

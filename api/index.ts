@@ -21,6 +21,7 @@ import { additionalValuesRouter } from './routes/additional-values';
 import { campaignsRouter } from './routes/campaigns';
 import { carriersRouter } from './routes/carriers';
 import { couriersRouter } from './routes/couriers';
+import { merchandiseRouter } from './routes/merchandise';
 import { shopifyRouter } from './routes/shopify';
 import { shopifyOAuthRouter } from './routes/shopify-oauth';
 import { shopifySyncRouter } from './routes/shopify-sync';
@@ -29,7 +30,9 @@ import { shopifyMandatoryWebhooksRouter } from './routes/shopify-mandatory-webho
 import { shopifyComplianceRouter } from './routes/shopify-compliance';
 import { deliveryAttemptsRouter } from './routes/delivery-attempts';
 import { settlementsRouter } from './routes/settlements';
+import { carrierSettlementsRouter } from './routes/carrier-settlements';
 import { codMetricsRouter } from './routes/cod-metrics';
+import warehouseRouter from './routes/warehouse';
 
 // Load environment variables
 dotenv.config();
@@ -348,6 +351,7 @@ app.use('/api/additional-values', additionalValuesRouter);
 app.use('/api/campaigns', campaignsRouter);
 app.use('/api/carriers', carriersRouter);
 app.use('/api/couriers', couriersRouter); // Repartidores (delivery personnel)
+app.use('/api/merchandise', merchandiseRouter); // Inbound shipments / supplier purchases
 app.use('/api/shopify', shopifyRouter);
 app.use('/api/shopify-oauth', shopifyOAuthRouter);
 app.use('/api/shopify-sync', shopifySyncRouter);
@@ -358,7 +362,11 @@ app.use('/api/shopify/compliance', shopifyComplianceRouter);
 // COD (Cash on Delivery) routes
 app.use('/api/delivery-attempts', deliveryAttemptsRouter);
 app.use('/api/settlements', settlementsRouter);
+app.use('/api/carrier-settlements', carrierSettlementsRouter); // Carrier deferred payments
 app.use('/api/cod-metrics', codMetricsRouter);
+
+// Warehouse routes
+app.use('/api/warehouse', warehouseRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {

@@ -1,4 +1,4 @@
-import { Order } from '@/types';
+import { Order, CreateOrderInput, UpdateOrderInput } from '@/types';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api`;
 
@@ -57,7 +57,7 @@ export const ordersService = {
     }
   },
 
-  create: async (order: Omit<Order, 'id' | 'date'>): Promise<Order> => {
+  create: async (order: CreateOrderInput): Promise<Order> => {
     try {
       // Transform frontend format to backend format
       const [firstName, ...lastNameParts] = (order.customer || '').split(' ');
@@ -68,9 +68,9 @@ export const ordersService = {
         customer_last_name: lastName || '',
         customer_phone: order.phone,
         customer_email: '',
-        customer_address: (order as any).address || '',
+        customer_address: order.address || '',
         line_items: [{
-          product_id: (order as any).product_id, // ✅ Include product_id
+          product_id: order.product_id,
           product_name: order.product,
           quantity: order.quantity,
           price: order.total / order.quantity,
@@ -81,7 +81,7 @@ export const ordersService = {
         total_shipping: 0,
         currency: 'PYG',
         financial_status: 'pending',
-        payment_status: (order as any).paymentMethod === 'paid' ? 'collected' : 'pending',
+        payment_status: order.paymentMethod === 'paid' ? 'collected' : 'pending',
         shipping_address: {
           company: order.carrier
         },
@@ -119,7 +119,7 @@ export const ordersService = {
     }
   },
 
-  update: async (id: string, data: Partial<Order>): Promise<Order | undefined> => {
+  update: async (id: string, data: UpdateOrderInput): Promise<Order | undefined> => {
     try {
       // Transform frontend format to backend format
       const [firstName, ...lastNameParts] = (data.customer || '').split(' ');
@@ -133,11 +133,11 @@ export const ordersService = {
       }
 
       if (data.phone) backendData.customer_phone = data.phone;
-      if ((data as any).address) backendData.customer_address = (data as any).address;
+      if (data.address) backendData.customer_address = data.address;
 
       if (data.product || data.quantity || data.total) {
         const lineItems = [{
-          product_id: (data as any).product_id, // ✅ Include product_id
+          product_id: data.product_id,
           product_name: data.product,
           quantity: data.quantity || 1,
           price: data.total && data.quantity ? data.total / data.quantity : 0,
