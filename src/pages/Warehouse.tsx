@@ -287,9 +287,9 @@ function DashboardView({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Warehouse</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Almacén</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Manage order preparation and packing
+            Gestiona la preparación y empaquetado de pedidos
           </p>
         </div>
         <Package className="h-10 w-10 text-primary" />
@@ -299,7 +299,7 @@ function DashboardView({
       {activeSessions.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            Active Sessions
+            Sesiones Activas
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {activeSessions.map(session => (
@@ -314,13 +314,12 @@ function DashboardView({
                   </span>
                   <Badge
                     variant={session.status === 'picking' ? 'default' : 'secondary'}
-                    className="capitalize"
                   >
-                    {session.status}
+                    {session.status === 'picking' ? 'Recolección' : 'Empaque'}
                   </Badge>
                 </div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Created {new Date(session.created_at).toLocaleString()}
+                  Creado {new Date(session.created_at).toLocaleString('es-ES')}
                 </p>
               </Card>
             ))}
@@ -332,14 +331,14 @@ function DashboardView({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            Orders Ready ({confirmedOrders.length})
+            Pedidos Listos ({confirmedOrders.length})
           </h2>
           <Button
             onClick={onCreateSession}
             disabled={selectedOrders.size === 0 || loading}
           >
             <PackageCheck className="h-4 w-4 mr-2" />
-            Start Preparation ({selectedOrders.size})
+            Iniciar Preparación ({selectedOrders.size})
           </Button>
         </div>
 
@@ -347,7 +346,7 @@ function DashboardView({
           <Card className="p-8 text-center dark:bg-gray-800 dark:border-gray-700">
             <PackageCheck className="h-12 w-12 text-gray-400 mx-auto mb-3" />
             <p className="text-gray-600 dark:text-gray-400">
-              No confirmed orders ready for preparation
+              No hay pedidos confirmados listos para preparación
             </p>
           </Card>
         ) : (
@@ -369,7 +368,7 @@ function DashboardView({
                         #{order.order_number}
                       </span>
                       <Badge variant="outline" className="dark:border-gray-600">
-                        {order.total_items} items
+                        {order.total_items} artículos
                       </Badge>
                       {order.carrier && (
                         <Badge variant="secondary" className="dark:bg-gray-700">
@@ -382,7 +381,7 @@ function DashboardView({
                     </p>
                   </div>
                   <span className="text-sm text-gray-500 dark:text-gray-500">
-                    {new Date(order.created_at).toLocaleDateString()}
+                    {new Date(order.created_at).toLocaleDateString('es-ES')}
                   </span>
                 </div>
               </Card>
@@ -432,14 +431,14 @@ function PickingView({
             className="dark:border-gray-600 dark:text-gray-300"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            Volver
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              Picking: {session.code}
+              Recolección: {session.code}
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Collect all items for this batch
+              Recolecta todos los artículos de este lote
             </p>
           </div>
         </div>
@@ -448,7 +447,7 @@ function PickingView({
           disabled={!allPicked || loading}
         >
           <Check className="h-4 w-4 mr-2" />
-          Finish Picking
+          Finalizar Recolección
         </Button>
       </div>
 
@@ -456,7 +455,7 @@ function PickingView({
       <Card className="p-4 dark:bg-gray-800 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Overall Progress
+            Progreso General
           </span>
           <span className="text-sm font-bold text-gray-900 dark:text-white">
             {Math.round(progress)}%
@@ -546,7 +545,7 @@ function PickingView({
                 onClick={() => onUpdateProgress(item.product_id, item.total_quantity_needed)}
                 disabled={isComplete}
               >
-                MAX
+                MÁX
               </Button>
             </Card>
           );
@@ -591,14 +590,14 @@ function PackingView({
               className="dark:border-gray-600 dark:text-gray-300"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              Volver
             </Button>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Packing: {session.code}
+                Empaque: {session.code}
               </h1>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Distribute items into order boxes
+                Distribuye los artículos en las cajas de pedidos
               </p>
             </div>
           </div>
@@ -610,7 +609,7 @@ function PackingView({
         {/* Left Column: Available Items (Basket) */}
         <div className="w-1/3 border-r dark:border-gray-700 p-4 overflow-y-auto bg-white dark:bg-gray-800">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 sticky top-0 bg-white dark:bg-gray-800 pb-2">
-            Items to Pack
+            Artículos para Empaquetar
           </h2>
           <div className="space-y-3">
             {availableItems.map(item => {
@@ -649,11 +648,11 @@ function PackingView({
                           variant={hasRemaining ? 'default' : 'secondary'}
                           className="text-xs"
                         >
-                          {item.remaining} remaining
+                          {item.remaining} restantes
                         </Badge>
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                        Picked: {item.total_picked} • Packed: {item.total_packed}
+                        Recolectado: {item.total_picked} • Empacado: {item.total_packed}
                       </p>
                     </div>
                   </div>
@@ -666,7 +665,7 @@ function PackingView({
         {/* Right Column: Orders (Boxes) */}
         <div className="flex-1 p-4 overflow-y-auto bg-gray-50 dark:bg-gray-900">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 sticky top-0 bg-gray-50 dark:bg-gray-900 pb-2">
-            Orders ({orders.length})
+            Pedidos ({orders.length})
           </h2>
           <div className="space-y-4">
             {orders.map(order => {
@@ -701,7 +700,7 @@ function PackingView({
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className="font-bold text-gray-900 dark:text-white">
-                        Order #{order.order_number}
+                        Pedido #{order.order_number}
                       </h3>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
                         {order.customer_name}
@@ -711,7 +710,7 @@ function PackingView({
                       <div className="flex items-center gap-2">
                         <Badge className="bg-green-600 dark:bg-green-500">
                           <Check className="h-3 w-3 mr-1" />
-                          Ready
+                          Listo
                         </Badge>
                         <Button
                           size="sm"
@@ -719,12 +718,12 @@ function PackingView({
                           className="dark:border-gray-600"
                         >
                           <Printer className="h-4 w-4 mr-1" />
-                          Print Label
+                          Imprimir Etiqueta
                         </Button>
                       </div>
                     ) : (
                       <Badge variant="secondary" className="dark:bg-gray-700">
-                        In Progress
+                        En Proceso
                       </Badge>
                     )}
                   </div>
