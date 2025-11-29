@@ -106,8 +106,8 @@ async function testTableStructure() {
 
     const existingTables = data ? data.map((t: any) => t.table_name) : [];
 
-    let missingTables = [];
-    let foundTables = [];
+    const missingTables = [];
+    const foundTables = [];
 
     for (const table of expectedTables) {
       if (existingTables.includes(table)) {

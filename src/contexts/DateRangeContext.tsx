@@ -36,21 +36,23 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
           from: today,
           to: now,
         };
-      case '7d':
+      case '7d': {
         const sevenDaysAgo = new Date(today);
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         return {
           from: sevenDaysAgo,
           to: now,
         };
-      case '30d':
+      }
+      case '30d': {
         const thirtyDaysAgo = new Date(today);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         return {
           from: thirtyDaysAgo,
           to: now,
         };
-      default:
+      }
+      default: {
         // Default to 7 days
         const defaultSevenDaysAgo = new Date(today);
         defaultSevenDaysAgo.setDate(defaultSevenDaysAgo.getDate() - 7);
@@ -58,6 +60,7 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
           from: defaultSevenDaysAgo,
           to: now,
         };
+      }
     }
   };
 

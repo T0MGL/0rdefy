@@ -48,7 +48,7 @@ export function ShopifyConnectDialog({ open, onOpenChange }: ShopifyConnectDialo
     }
 
     // Validate format: *.myshopify.com
-    const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/;
+    const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
     if (!shopRegex.test(cleanDomain)) {
       setError('Formato inválido. Usa: mi-tienda.myshopify.com');
       return;
