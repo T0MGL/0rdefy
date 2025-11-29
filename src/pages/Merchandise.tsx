@@ -108,11 +108,18 @@ export default function Merchandise() {
       if (shipment) {
         setSelectedShipment(shipment);
         setShowReceiveModal(true);
+      } else {
+        toast({
+          title: 'Error',
+          description: 'No se pudo cargar el envío',
+          variant: 'destructive',
+        });
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error loading shipment:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load shipment details',
+        description: error.message || 'No se pudo cargar los detalles del envío',
         variant: 'destructive',
       });
     }
@@ -345,13 +352,13 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
   const [carrierId, setCarrierId] = useState('');
   const [trackingCode, setTrackingCode] = useState('');
   const [eta, setEta] = useState('');
-  const [shippingCost, setShippingCost] = useState('0');
+  const [shippingCost, setShippingCost] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<CreateShipmentItemDTO[]>([{
     product_id: '',
     qty_ordered: 1,
-    unit_cost: 0,
-  }]);
+    unit_cost: '',
+  } as any]);
 
   // New product creation state
   const [creatingProductIndex, setCreatingProductIndex] = useState<number | null>(null);
@@ -362,7 +369,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
   const [createProductLoading, setCreateProductLoading] = useState(false);
 
   const handleAddItem = () => {
-    setItems([...items, { product_id: '', qty_ordered: 1, unit_cost: 0 }]);
+    setItems([...items, { product_id: '', qty_ordered: 1, unit_cost: '' } as any]);
   };
 
   const handleRemoveItem = (index: number) => {
@@ -448,9 +455,23 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
 
   const handleSubmit = () => {
     // Validation
-    const validItems = items.filter(item => item.product_id && item.qty_ordered > 0 && item.unit_cost >= 0);
+    const validItems = items
+      .filter(item => {
+        const cost = typeof item.unit_cost === 'string' ? parseFloat(item.unit_cost) : item.unit_cost;
+        return item.product_id && item.qty_ordered > 0 && !isNaN(cost) && cost >= 0;
+      })
+      .map(item => ({
+        product_id: item.product_id,
+        qty_ordered: item.qty_ordered,
+        unit_cost: typeof item.unit_cost === 'string' ? parseFloat(item.unit_cost) : item.unit_cost,
+      }));
+
     if (validItems.length === 0) {
-      alert('Debes agregar al menos un producto válido');
+      toast({
+        title: 'Error',
+        description: 'Debes agregar al menos un producto válido con cantidad y costo',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -523,6 +544,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                 type="number"
                 step="0.01"
                 min="0"
+                placeholder="0.00"
                 value={shippingCost}
                 onChange={(e) => setShippingCost(e.target.value)}
               />
@@ -591,10 +613,11 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                         type="number"
                         step="0.01"
                         min="0"
-                      value={item.unit_cost}
-                      onChange={(e) => handleItemChange(index, 'unit_cost', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
+                        placeholder="0.00"
+                        value={item.unit_cost}
+                        onChange={(e) => handleItemChange(index, 'unit_cost', e.target.value)}
+                      />
+                    </div>
 
                   <Button
                     type="button"
