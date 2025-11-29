@@ -64,7 +64,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Build query - fetch orders from previousPeriodStart to currentPeriodEnd
         // This ensures we have data for both current and previous periods
-        let query = supabaseAdmin
+        const query = supabaseAdmin
             .from('orders')
             .select('*')
             .eq('store_id', req.storeId)

@@ -945,7 +945,7 @@ shopifyRouter.get('/webhook-health', async (req: AuthRequest, res: Response) => 
 
     // Determine health status
     let status = 'healthy';
-    let issues: string[] = [];
+    const issues: string[] = [];
 
     if (health.success_rate < 95 && health.total_received > 10) {
       status = 'degraded';

@@ -332,7 +332,7 @@ const validateHmac = (query: any, secret: string): boolean => {
 // HELPER: Validate shop domain format
 // ================================================================
 const isValidShopDomain = (shop: string): boolean => {
-  const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/;
+  const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
   return shopRegex.test(shop);
 };
 
