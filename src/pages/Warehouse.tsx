@@ -622,7 +622,7 @@ function PackingView({
                   className={`p-3 cursor-pointer transition-all ${!hasRemaining
                     ? 'opacity-50 cursor-not-allowed bg-muted'
                     : isSelected
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
+                      ? 'border-green-500 dark:border-green-600 ring-2 ring-green-500/20 bg-green-50 dark:bg-green-950/20'
                       : 'hover:shadow-md dark:bg-gray-750 dark:border-gray-600'
                     }`}
                   onClick={() => hasRemaining && onSelectItem(isSelected ? null : item.product_id)}
@@ -687,7 +687,7 @@ function PackingView({
                   className={`p-4 transition-all ${order.is_complete
                     ? 'border-green-500 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
                     : needsSelectedItem
-                      ? 'border-primary ring-2 ring-primary/20 shadow-lg cursor-pointer'
+                      ? 'border-green-500 dark:border-green-600 ring-2 ring-green-500/20 shadow-lg cursor-pointer bg-green-50/50 dark:bg-green-950/10'
                       : 'dark:bg-gray-800 dark:border-gray-700'
                     }`}
                   onClick={() => {
@@ -739,7 +739,7 @@ function PackingView({
                         <div
                           key={item.product_id}
                           className={`flex items-center gap-2 p-2 rounded ${isHighlighted
-                            ? 'bg-primary/10 border border-primary/30'
+                            ? 'bg-green-100 dark:bg-green-950/30 border border-green-500/30 dark:border-green-600/30'
                             : itemComplete
                               ? 'bg-muted'
                               : 'bg-card'
