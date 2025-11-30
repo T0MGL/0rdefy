@@ -10,7 +10,7 @@ if (!JWT_SECRET) {
 
 // Shopify App Secret for session token validation
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
-const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || 'e4ac05aaca557fdb387681f0f209335d';
+const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || '75123c29296179fbd8f253db4196c83b';
 
 const JWT_ALGORITHM = 'HS256';
 const JWT_ISSUER = 'ordefy-api';
@@ -154,34 +154,73 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
 }
 
 export async function extractStoreId(req: AuthRequest, res: Response, next: NextFunction) {
-  const storeId = req.headers['x-store-id'] as string;
+  let storeId = req.headers['x-store-id'] as string;
 
+  // Si es una sesión de Shopify y no hay store_id en headers, buscarlo por shop domain
+  if (!storeId && req.shopifySession) {
+    try {
+      const shopDomain = req.shopifySession.dest;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Auth] Looking up store_id for Shopify shop:', shopDomain);
+      }
+
+      // Buscar la integración de Shopify por shop_domain
+      const { data: integration, error } = await supabaseAdmin
+        .from('shopify_integrations')
+        .select('store_id')
+        .eq('shop_domain', shopDomain)
+        .eq('status', 'active')
+        .single();
+
+      if (error || !integration) {
+        console.error('[Auth] No active Shopify integration found for shop:', shopDomain);
+        return res.status(403).json({
+          error: 'No active integration found for this Shopify store',
+          details: 'Please connect your Shopify store first'
+        });
+      }
+
+      storeId = integration.store_id;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Auth] Found store_id from Shopify integration:', storeId);
+      }
+    } catch (error) {
+      console.error('[Auth] Error looking up Shopify store:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Ahora verificamos que storeId esté presente
   if (!storeId) {
     return res.status(400).json({ error: 'X-Store-ID header is required' });
   }
 
-  // Verify user has access to this store by checking database
-  try {
-    const { data: userStore, error } = await supabaseAdmin
-      .from('user_stores')
-      .select('role')
-      .eq('user_id', req.userId)
-      .eq('store_id', storeId)
-      .single();
+  // Verificar acceso del usuario a este store (solo para autenticación normal, no Shopify)
+  if (!req.shopifySession && req.userId) {
+    try {
+      const { data: userStore, error } = await supabaseAdmin
+        .from('user_stores')
+        .select('role')
+        .eq('user_id', req.userId)
+        .eq('store_id', storeId)
+        .single();
 
-    if (error || !userStore) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Store access check failed:', error?.message || 'No access found');
+      if (error || !userStore) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Store access check failed:', error?.message || 'No access found');
+        }
+        return res.status(403).json({ error: 'Access denied to this store' });
       }
-      return res.status(403).json({ error: 'Access denied to this store' });
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Store access verification error:', error);
+      }
+      return res.status(500).json({ error: 'Internal server error' });
     }
-
-    req.storeId = storeId;
-    next();
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Store access verification error:', error);
-    }
-    return res.status(500).json({ error: 'Internal server error' });
   }
+
+  req.storeId = storeId;
+  next();
 }

@@ -134,9 +134,17 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
+            scriptSrc: ["'self'", "https://cdn.shopify.com"],
             imgSrc: ["'self'", "data:", "https:"],
             connectSrc: ["'self'", process.env.VITE_API_URL || 'http://localhost:3001'],
+            // Frame ancestors: Allow Shopify admin to embed this app
+            // CRITICAL for embedded apps - prevents clickjacking while allowing Shopify embedding
+            frameAncestors: [
+                "'self'",
+                "https://*.myshopify.com",
+                "https://admin.shopify.com",
+                "https://*.shopify.com"
+            ],
         },
     },
     hsts: {
@@ -261,12 +269,15 @@ app.use(cors({
 // ================================================================
 // IMPORTANT: This must come BEFORE express.json()
 // We need raw body for Shopify webhook signature verification
-// FIX: Changed from '/webhooks' to '/webhook/' to match actual routes
+// CRITICAL FIX: Support both /webhook/ AND /webhooks/ (Shopify uses plural in URLs)
 // ================================================================
 app.use((req: any, res: Response, next: NextFunction) => {
     // Handle all Shopify webhook routes (including GDPR and app uninstall)
-    // Routes are: /api/shopify/webhook/orders-create, /webhook/customers/data_request, etc.
-    if (req.path.startsWith('/api/shopify/webhook/')) {
+    // Support both singular and plural: /api/shopify/webhook/ AND /api/shopify/webhooks/
+    const isWebhookRoute = req.path.startsWith('/api/shopify/webhook/') ||
+                          req.path.startsWith('/api/shopify/webhooks/');
+
+    if (isWebhookRoute) {
         let data = '';
         req.setEncoding('utf8');
         req.on('data', (chunk: string) => {
@@ -330,8 +341,9 @@ app.use('/api/auth/change-password', authLimiter);
 app.use('/api/auth/delete-account', authLimiter);
 
 // Apply webhook limiter to webhook endpoints
-// FIX: Changed from '/webhooks' to '/webhook/' to match actual routes
+// Support both /webhook/ (singular) and /webhooks/ (plural)
 app.use('/api/shopify/webhook/', webhookLimiter);
+app.use('/api/shopify/webhooks/', webhookLimiter);
 
 // Apply write operations limiter to all API routes
 app.use('/api/', writeOperationsLimiter);

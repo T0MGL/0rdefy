@@ -26,6 +26,8 @@ export interface DashboardOverview {
 
 export interface Order {
   id: string;
+  shopify_order_id?: string; // ID de Shopify (ej: "5678901234")
+  shopify_order_number?: string; // Número de orden de Shopify (ej: "1001")
   customer: string;
   address?: string;
   product: string;
