@@ -103,7 +103,7 @@ merchandiseRouter.get('/:id', async (req: AuthRequest, res: Response) => {
         products:product_id (
           id,
           name,
-          image,
+          image_url,
           stock
         )
       `)
@@ -117,7 +117,7 @@ merchandiseRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     const enrichedItems = items?.map(item => ({
       ...item,
       product_name: item.products?.name,
-      product_image: item.products?.image,
+      product_image: item.products?.image_url,
       product_stock: item.products?.stock
     })) || [];
 
