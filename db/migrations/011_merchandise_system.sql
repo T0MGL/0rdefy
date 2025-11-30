@@ -123,11 +123,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_inbound_shipment_timestamp ON inbound_shipments;
 CREATE TRIGGER trigger_update_inbound_shipment_timestamp
   BEFORE UPDATE ON inbound_shipments
   FOR EACH ROW
   EXECUTE FUNCTION update_inbound_shipment_timestamp();
 
+DROP TRIGGER IF EXISTS trigger_update_inbound_item_timestamp ON inbound_shipment_items;
 CREATE TRIGGER trigger_update_inbound_item_timestamp
   BEFORE UPDATE ON inbound_shipment_items
   FOR EACH ROW
@@ -151,6 +153,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_shipment_total_after_item_change ON inbound_shipment_items;
 CREATE TRIGGER trigger_update_shipment_total_after_item_change
   AFTER INSERT OR UPDATE OR DELETE ON inbound_shipment_items
   FOR EACH ROW

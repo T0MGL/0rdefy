@@ -131,19 +131,27 @@ export async function createSession(
 
     if (updateError) throw updateError;
 
-    // 6. Aggregate order items for picking list
-    const { data: orderItems, error: itemsError } = await supabase
-      .from('order_items')
-      .select('product_id, quantity')
-      .in('order_id', orderIds);
+    // 6. Fetch orders with line_items to aggregate for picking list
+    const { data: ordersWithItems, error: itemsError } = await supabase
+      .from('orders')
+      .select('id, line_items')
+      .in('id', orderIds);
 
     if (itemsError) throw itemsError;
 
-    // Aggregate quantities by product
+    // Aggregate quantities by product from JSONB line_items
     const productQuantities = new Map<string, number>();
-    orderItems?.forEach(item => {
-      const currentQty = productQuantities.get(item.product_id) || 0;
-      productQuantities.set(item.product_id, currentQty + item.quantity);
+    ordersWithItems?.forEach(order => {
+      if (Array.isArray(order.line_items)) {
+        order.line_items.forEach((item: any) => {
+          const productId = item.product_id;
+          const quantity = parseInt(item.quantity) || 0;
+          if (productId) {
+            const currentQty = productQuantities.get(productId) || 0;
+            productQuantities.set(productId, currentQty + quantity);
+          }
+        });
+      }
     });
 
     // Insert aggregated picking list
@@ -324,23 +332,42 @@ export async function finishPicking(
 
     const orderIdsInSession = sessionOrders?.map(so => so.order_id) || [];
 
-    // Now get the order items for those orders
-    const { data: orderItems, error: orderItemsError } = await supabase
-      .from('order_items')
-      .select('order_id, product_id, quantity')
-      .in('order_id', orderIdsInSession);
+    // Now get the orders with their line_items
+    const { data: ordersWithItems, error: orderItemsError } = await supabase
+      .from('orders')
+      .select('id, line_items')
+      .in('id', orderIdsInSession);
 
     if (orderItemsError) throw orderItemsError;
 
-    if (orderItems && orderItems.length > 0) {
-      const packingRecords = orderItems.map(item => ({
-        picking_session_id: sessionId,
-        order_id: item.order_id,
-        product_id: item.product_id,
-        quantity_needed: item.quantity,
-        quantity_packed: 0
-      }));
+    // Extract and flatten order items from JSONB line_items
+    const packingRecords: Array<{
+      picking_session_id: string;
+      order_id: string;
+      product_id: string;
+      quantity_needed: number;
+      quantity_packed: number;
+    }> = [];
 
+    ordersWithItems?.forEach(order => {
+      if (Array.isArray(order.line_items)) {
+        order.line_items.forEach((item: any) => {
+          const productId = item.product_id;
+          const quantity = parseInt(item.quantity) || 0;
+          if (productId) {
+            packingRecords.push({
+              picking_session_id: sessionId,
+              order_id: order.id,
+              product_id: productId,
+              quantity_needed: quantity,
+              quantity_packed: 0
+            });
+          }
+        });
+      }
+    });
+
+    if (packingRecords.length > 0) {
       const { error: packingError } = await supabase
         .from('packing_progress')
         .insert(packingRecords);
@@ -637,8 +664,8 @@ export async function getConfirmedOrders(storeId: string) {
         customer_name,
         customer_phone,
         created_at,
-        carrier:carrier_id (name),
-        total_items:order_items(count)
+        line_items,
+        carrier:carrier_id (name)
       `)
       .eq('store_id', storeId)
       .eq('status', 'confirmed')
@@ -646,7 +673,14 @@ export async function getConfirmedOrders(storeId: string) {
 
     if (error) throw error;
 
-    return data || [];
+    // Calculate total_items from JSONB line_items
+    const ordersWithCounts = (data || []).map(order => ({
+      ...order,
+      total_items: Array.isArray(order.line_items) ? order.line_items.length : 0,
+      line_items: undefined // Remove from response
+    }));
+
+    return ordersWithCounts;
   } catch (error) {
     console.error('Error getting confirmed orders:', error);
     throw error;

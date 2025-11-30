@@ -430,42 +430,36 @@ export class ShopifyWebhookService {
 
   // Mapear pedido de Shopify a formato local
   private mapShopifyOrderToLocal(shopifyOrder: ShopifyOrder, storeId: string, customerId: string | null = null): any {
-    const customerName = shopifyOrder.customer
-      ? `${shopifyOrder.customer.first_name} ${shopifyOrder.customer.last_name}`.trim()
-      : shopifyOrder.billing_address
-      ? `${shopifyOrder.billing_address.first_name} ${shopifyOrder.billing_address.last_name}`.trim()
-      : 'Cliente desconocido';
-
-    const products = shopifyOrder.line_items
-      .map(item => item.title)
-      .join(', ');
-
-    const quantity = shopifyOrder.line_items
-      .reduce((sum, item) => sum + item.quantity, 0);
-
     return {
       store_id: storeId,
-      customer_id: customerId, // Vincular pedido al cliente
+      customer_id: customerId,
       shopify_order_id: shopifyOrder.id.toString(),
       shopify_order_number: shopifyOrder.order_number.toString(),
-      customer: customerName,
-      email: shopifyOrder.email || shopifyOrder.customer?.email || '',
-      phone: shopifyOrder.phone || shopifyOrder.customer?.phone || '',
-      product: products,
-      quantity: quantity,
-      total: parseFloat(shopifyOrder.total_price),
-      status: this.mapShopifyOrderStatus(shopifyOrder.financial_status, shopifyOrder.fulfillment_status),
-      date: shopifyOrder.created_at,
-      shipping_address: shopifyOrder.shipping_address?.address1 || '',
-      shipping_city: shopifyOrder.shipping_address?.city || '',
-      shipping_state: shopifyOrder.shipping_address?.province || '',
-      shipping_postal_code: shopifyOrder.shipping_address?.zip || '',
-      shipping_country: shopifyOrder.shipping_address?.country || '',
-      notes: shopifyOrder.note || '',
       shopify_data: shopifyOrder,
+      shopify_raw_json: shopifyOrder,
       last_synced_at: new Date().toISOString(),
       sync_status: 'synced',
-      confirmed_by_whatsapp: false
+      customer_email: shopifyOrder.email || shopifyOrder.customer?.email || '',
+      customer_phone: shopifyOrder.phone || shopifyOrder.customer?.phone || '',
+      customer_first_name: shopifyOrder.customer?.first_name || shopifyOrder.billing_address?.first_name || '',
+      customer_last_name: shopifyOrder.customer?.last_name || shopifyOrder.billing_address?.last_name || '',
+      billing_address: shopifyOrder.billing_address,
+      shipping_address: shopifyOrder.shipping_address,
+      line_items: shopifyOrder.line_items,
+      total_price: parseFloat(shopifyOrder.total_price),
+      subtotal_price: parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price),
+      total_tax: parseFloat(shopifyOrder.total_tax || '0'),
+      total_discounts: parseFloat(shopifyOrder.total_discounts || '0'),
+      total_shipping: parseFloat(shopifyOrder.total_shipping || '0'),
+      currency: shopifyOrder.currency || 'USD',
+      financial_status: shopifyOrder.financial_status || 'pending',
+      fulfillment_status: shopifyOrder.fulfillment_status,
+      order_status_url: shopifyOrder.order_status_url,
+      tags: shopifyOrder.tags,
+      note: shopifyOrder.note,
+      created_at: shopifyOrder.created_at,
+      updated_at: shopifyOrder.updated_at || shopifyOrder.created_at,
+      processed_at: shopifyOrder.processed_at || shopifyOrder.created_at
     };
   }
 

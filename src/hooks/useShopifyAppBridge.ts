@@ -89,12 +89,12 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         console.log('[Shopify] Initializing App Bridge 3.0...');
 
-        // Inicializar App Bridge 3.0 con el client_id
-        const CLIENT_ID = 'e4ac05aaca557fdb387681f0f209335d';
+        // Inicializar App Bridge 3.0 con el client_id del shopify.app.toml
+        const CLIENT_ID = '75123c29296179fbd8f253db4196c83b';
         const shopifyApp = window.shopify.createApp({
           apiKey: CLIENT_ID,
           host: host,
-          forceRedirect: false, // No forzar redirección
+          forceRedirect: true, // Redirigir automáticamente cuando no esté embebido
         });
 
         setApp(shopifyApp);

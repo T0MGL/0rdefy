@@ -746,7 +746,23 @@ export default function Orders() {
                       <div className="h-8 w-8" />
                     )}
                   </td>
-                  <td className="py-4 px-6 text-sm font-mono">{order.id}</td>
+                  <td className="py-4 px-6">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-mono">
+                        {order.shopify_order_number ? `#${order.shopify_order_number}` :
+                         order.shopify_order_id ||
+                         order.id.substring(0, 8)}
+                      </span>
+                      {order.shopify_order_id && (
+                        <Badge
+                          variant="outline"
+                          className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs px-1.5 py-0"
+                        >
+                          Shopify
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-4 px-6">
                     <div>
                       <p className="text-sm font-medium">{order.customer}</p>

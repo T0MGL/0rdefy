@@ -15,15 +15,16 @@ import { ShopifyIntegration, ShopifyConfigRequest } from '../types/shopify';
 export const shopifyRouter = Router();
 
 // Aplicar autenticacion a todas las rutas excepto webhooks
+// CRITICAL: Skip auth for both /webhook/ AND /webhooks/ (Shopify uses plural)
 shopifyRouter.use((req: Request, res: Response, next) => {
-  if (req.path.startsWith('/webhook/')) {
+  if (req.path.startsWith('/webhook/') || req.path.startsWith('/webhooks/')) {
     return next();
   }
   return verifyToken(req as AuthRequest, res, next);
 });
 
 shopifyRouter.use((req: Request, res: Response, next) => {
-  if (req.path.startsWith('/webhook/')) {
+  if (req.path.startsWith('/webhook/') || req.path.startsWith('/webhooks/')) {
     return next();
   }
   return extractStoreId(req as AuthRequest, res, next);
