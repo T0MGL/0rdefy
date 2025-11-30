@@ -5,7 +5,7 @@
 
 import apiClient from './api.client';
 
-const BASE_URL = '/warehouse';
+const BASE_URL = '/api/warehouse';
 
 export interface PickingSession {
   id: string;
