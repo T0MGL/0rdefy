@@ -44,7 +44,7 @@ LOGIN_RESPONSE=$(curl -s -X POST "$API_URL/api/auth/login" \
   }")
 
 AUTH_TOKEN=$(echo "$LOGIN_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('token', ''))" 2>/dev/null || echo "")
-STORE_ID=$(echo "$LOGIN_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('user', {}).get('store_id', ''))" 2>/dev/null || echo "")
+STORE_ID=$(echo "$LOGIN_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); stores=data.get('user', {}).get('stores', []); print(stores[0]['id'] if stores else '')" 2>/dev/null || echo "")
 
 if [ -z "$AUTH_TOKEN" ] || [ -z "$STORE_ID" ]; then
   echo -e "${RED}❌ Login failed. Please check credentials.${NC}"

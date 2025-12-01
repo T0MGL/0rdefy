@@ -8,6 +8,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { sanitizeSearchInput } from '../utils/sanitize';
 
 export const suppliersRouter = Router();
 
@@ -35,9 +36,10 @@ suppliersRouter.get('/', async (req: AuthRequest, res: Response) => {
             .select('*', { count: 'exact' })
             .eq('store_id', req.storeId);
 
-        // Apply search filter
+        // Apply search filter (sanitized to prevent SQL injection)
         if (search) {
-            query = query.or(`name.ilike.%${search}%,contact_person.ilike.%${search}%,email.ilike.%${search}%`);
+            const sanitized = sanitizeSearchInput(search as string);
+            query = query.or(`name.ilike.%${sanitized}%,contact_person.ilike.%${sanitized}%,email.ilike.%${sanitized}%`);
         }
 
         // Apply min_rating filter

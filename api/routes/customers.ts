@@ -9,6 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { sanitizeSearchInput } from '../utils/sanitize';
 
 export const customersRouter = Router();
 
@@ -37,9 +38,10 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
             .select('*', { count: 'exact' })
             .eq('store_id', req.storeId);
 
-        // Apply search filter
+        // Apply search filter (sanitized to prevent SQL injection)
         if (search) {
-            query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+            const sanitized = sanitizeSearchInput(search as string);
+            query = query.or(`first_name.ilike.%${sanitized}%,last_name.ilike.%${sanitized}%,email.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`);
         }
 
         // Apply min_orders filter
@@ -376,11 +378,12 @@ customersRouter.get('/search', async (req: AuthRequest, res: Response) => {
             });
         }
 
+        const sanitized = sanitizeSearchInput(q as string);
         const { data, error } = await supabaseAdmin
             .from('customers')
             .select('*')
             .eq('store_id', req.storeId)
-            .or(`email.ilike.%${q}%,phone.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+            .or(`email.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,first_name.ilike.%${sanitized}%,last_name.ilike.%${sanitized}%`)
             .order('total_orders', { ascending: false })
             .limit(20);
 

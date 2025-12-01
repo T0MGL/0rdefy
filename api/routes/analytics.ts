@@ -137,20 +137,41 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Ejemplo: Si precio = 11000 y tasa = 10%, entonces IVA = 11000 - (11000 / 1.10) = 1000
             const taxCollectedValue = taxRate > 0 ? (rev - (rev / (1 + taxRate / 100))) : 0;
 
-            // 3. COSTS
+            // 3. COSTS (Optimized: batch query instead of N+1)
+            // Collect all unique product IDs first
+            const productIds = new Set<string>();
+            for (const order of ordersList) {
+                if (order.line_items && Array.isArray(order.line_items)) {
+                    for (const item of order.line_items) {
+                        if (item.product_id) {
+                            productIds.add(item.product_id);
+                        }
+                    }
+                }
+            }
+
+            // Fetch all products in a single query
+            const productCostMap = new Map<string, number>();
+            if (productIds.size > 0) {
+                const { data: productsData } = await supabaseAdmin
+                    .from('products')
+                    .select('id, cost')
+                    .in('id', Array.from(productIds));
+
+                if (productsData) {
+                    productsData.forEach(product => {
+                        productCostMap.set(product.id, Number(product.cost) || 0);
+                    });
+                }
+            }
+
+            // Calculate costs using the cached product data
             let costs = 0;
             for (const order of ordersList) {
                 if (order.line_items && Array.isArray(order.line_items)) {
                     for (const item of order.line_items) {
-                        const { data: productData } = await supabaseAdmin
-                            .from('products')
-                            .select('cost')
-                            .eq('id', item.product_id)
-                            .single();
-
-                        if (productData && productData.cost) {
-                            costs += (Number(productData.cost) * Number(item.quantity || 1));
-                        }
+                        const productCost = productCostMap.get(item.product_id) || 0;
+                        costs += productCost * Number(item.quantity || 1);
                     }
                 }
             }
@@ -320,6 +341,33 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             dailyCampaignCosts[date] += Number(campaign.investment) || 0;
         }
 
+        // Collect all unique product IDs for batch query (performance optimization)
+        const productIds = new Set<string>();
+        for (const order of orders) {
+            if (order.line_items && Array.isArray(order.line_items)) {
+                for (const item of order.line_items) {
+                    if (item.product_id) {
+                        productIds.add(item.product_id);
+                    }
+                }
+            }
+        }
+
+        // Fetch all products in a single query
+        const productCostMap = new Map<string, number>();
+        if (productIds.size > 0) {
+            const { data: productsData } = await supabaseAdmin
+                .from('products')
+                .select('id, cost')
+                .in('id', Array.from(productIds));
+
+            if (productsData) {
+                productsData.forEach(product => {
+                    productCostMap.set(product.id, Number(product.cost) || 0);
+                });
+            }
+        }
+
         // Group orders by date
         const dailyData: Record<string, { revenue: number; costs: number; marketing: number; profit: number }> = {};
 
@@ -332,18 +380,11 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
             dailyData[date].revenue += order.total_price || 0;
 
-            // Calculate costs for this order
+            // Calculate costs using cached product data
             if (order.line_items && Array.isArray(order.line_items)) {
                 for (const item of order.line_items) {
-                    const { data: productData } = await supabaseAdmin
-                        .from('products')
-                        .select('cost')
-                        .eq('id', item.product_id)
-                        .single();
-
-                    if (productData) {
-                        dailyData[date].costs += (productData.cost || 0) * (item.quantity || 1);
-                    }
+                    const productCost = productCostMap.get(item.product_id) || 0;
+                    dailyData[date].costs += productCost * (item.quantity || 1);
                 }
             }
         }
@@ -502,8 +543,11 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
     try {
         const { limit = '5', startDate, endDate } = req.query;
 
+        console.log(`[GET /api/analytics/top-products] Request received - Store: ${req.storeId}, Limit: ${limit}, Date Range: ${startDate || 'none'} to ${endDate || 'none'}`);
+
         // Validate storeId
         if (!req.storeId) {
+            console.error('[GET /api/analytics/top-products] Missing store ID');
             return res.status(400).json({
                 error: 'Store ID is required',
                 message: 'Missing store_id in request'
@@ -527,7 +571,12 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
 
         const { data: ordersData, error: ordersError } = await query;
 
-        if (ordersError) throw ordersError;
+        if (ordersError) {
+            console.error('[GET /api/analytics/top-products] Orders query error:', ordersError);
+            throw ordersError;
+        }
+
+        console.log(`[GET /api/analytics/top-products] Retrieved ${ordersData?.length || 0} orders`);
 
         // Count product sales
         const productSales: Record<string, { product_id: string; quantity: number; revenue: number }> = {};
@@ -535,6 +584,11 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
         for (const order of ordersData || []) {
             if (order.line_items && Array.isArray(order.line_items)) {
                 for (const item of order.line_items) {
+                    // Skip items with missing or invalid product_id
+                    if (!item.product_id || typeof item.product_id !== 'string' || item.product_id === 'undefined' || item.product_id === 'null') {
+                        continue;
+                    }
+
                     if (!productSales[item.product_id]) {
                         productSales[item.product_id] = {
                             product_id: item.product_id,
@@ -542,8 +596,8 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
                             revenue: 0
                         };
                     }
-                    productSales[item.product_id].quantity += item.quantity || 0;
-                    productSales[item.product_id].revenue += (item.price || 0) * (item.quantity || 0);
+                    productSales[item.product_id].quantity += Number(item.quantity) || 0;
+                    productSales[item.product_id].revenue += (Number(item.price) || 0) * (Number(item.quantity) || 0);
                 }
             }
         }
@@ -553,18 +607,29 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             .sort((a, b) => b.quantity - a.quantity)
             .slice(0, parseInt(limit as string))
             .map(p => p.product_id)
-            .filter(id => id && id !== 'undefined'); // Filter out invalid UUIDs
+            .filter(id => {
+                // Validate UUID format (basic check)
+                if (!id || typeof id !== 'string') return false;
+                if (id === 'undefined' || id === 'null') return false;
+                // UUID should be 36 characters with dashes in specific positions
+                return id.length >= 36 && id.includes('-');
+            });
 
         if (topProductIds.length === 0) {
             return res.json({ data: [] });
         }
+
+        console.log(`[GET /api/analytics/top-products] Querying ${topProductIds.length} product IDs:`, topProductIds);
 
         const { data: productsData, error: productsError } = await supabaseAdmin
             .from('products')
             .select('*')
             .in('id', topProductIds);
 
-        if (productsError) throw productsError;
+        if (productsError) {
+            console.error('[GET /api/analytics/top-products] Products query error:', productsError);
+            throw productsError;
+        }
 
         // Combine product details with sales data and calculate profitability
         const topProducts = (productsData || []).map(product => {
