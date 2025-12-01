@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { ShopifyProductSyncService } from '../services/shopify-product-sync.service';
+import { sanitizeSearchInput } from '../utils/sanitize';
 
 export const productsRouter = Router();
 
@@ -40,7 +41,8 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 
         if (search) {
-            query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
+            const sanitized = sanitizeSearchInput(search as string);
+            query = query.or(`name.ilike.%${sanitized}%,sku.ilike.%${sanitized}%`);
         }
 
         if (category) {
@@ -66,9 +68,10 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
                 .order('created_at', { ascending: false })
                 .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 
-            // Reapply other filters
+            // Reapply other filters (sanitized)
             if (search) {
-                query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`);
+                const sanitized = sanitizeSearchInput(search as string);
+                query = query.or(`name.ilike.%${sanitized}%,sku.ilike.%${sanitized}%`);
             }
             if (category) {
                 query = query.eq('category', category);

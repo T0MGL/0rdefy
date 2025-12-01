@@ -4,7 +4,7 @@
  * Optimized for manual input without barcode scanners
  */
 
-import { supabase } from '../db/connection';
+import { supabaseAdmin } from '../db/connection';
 
 export interface PickingSession {
   id: string;
@@ -73,7 +73,7 @@ export async function createSession(
 ): Promise<PickingSession> {
   try {
     // 1. Validate that all orders exist and are confirmed
-    const { data: orders, error: ordersError } = await supabase
+    const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
       .select('id, status')
       .eq('store_id', storeId)
@@ -90,14 +90,14 @@ export async function createSession(
     }
 
     // 2. Generate unique session code
-    const { data: codeData, error: codeError } = await supabase
+    const { data: codeData, error: codeError } = await supabaseAdmin
       .rpc('generate_session_code');
 
     if (codeError) throw codeError;
     const sessionCode = codeData;
 
     // 3. Create picking session
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .insert({
         code: sessionCode,
@@ -117,14 +117,14 @@ export async function createSession(
       order_id: orderId
     }));
 
-    const { error: linkError } = await supabase
+    const { error: linkError } = await supabaseAdmin
       .from('picking_session_orders')
       .insert(sessionOrders);
 
     if (linkError) throw linkError;
 
     // 5. Update orders status to in_preparation
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from('orders')
       .update({ status: 'in_preparation' })
       .in('id', orderIds);
@@ -132,7 +132,7 @@ export async function createSession(
     if (updateError) throw updateError;
 
     // 6. Fetch orders with line_items to aggregate for picking list
-    const { data: ordersWithItems, error: itemsError } = await supabase
+    const { data: ordersWithItems, error: itemsError } = await supabaseAdmin
       .from('orders')
       .select('id, line_items')
       .in('id', orderIds);
@@ -162,7 +162,7 @@ export async function createSession(
       quantity_picked: 0
     }));
 
-    const { error: pickingItemsError } = await supabase
+    const { error: pickingItemsError } = await supabaseAdmin
       .from('picking_session_items')
       .insert(pickingItems);
 
@@ -183,7 +183,7 @@ export async function getPickingList(
   storeId: string
 ): Promise<PickingSessionItem[]> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('picking_session_items')
       .select(`
         *,
@@ -199,7 +199,7 @@ export async function getPickingList(
     if (error) throw error;
 
     // Verify session belongs to store
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .select('store_id')
       .eq('id', sessionId)
@@ -235,7 +235,7 @@ export async function updatePickingProgress(
 ): Promise<PickingSessionItem> {
   try {
     // Verify session belongs to store
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .select('store_id, status')
       .eq('id', sessionId)
@@ -250,7 +250,7 @@ export async function updatePickingProgress(
     }
 
     // Get current item
-    const { data: item, error: itemError } = await supabase
+    const { data: item, error: itemError } = await supabaseAdmin
       .from('picking_session_items')
       .select('*')
       .eq('picking_session_id', sessionId)
@@ -265,7 +265,7 @@ export async function updatePickingProgress(
     }
 
     // Update quantity
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabaseAdmin
       .from('picking_session_items')
       .update({ quantity_picked: quantityPicked })
       .eq('picking_session_id', sessionId)
@@ -291,7 +291,7 @@ export async function finishPicking(
 ): Promise<PickingSession> {
   try {
     // Verify session belongs to store
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .select('store_id, status')
       .eq('id', sessionId)
@@ -306,7 +306,7 @@ export async function finishPicking(
     }
 
     // Verify all items are picked
-    const { data: items, error: itemsError } = await supabase
+    const { data: items, error: itemsError } = await supabaseAdmin
       .from('picking_session_items')
       .select('total_quantity_needed, quantity_picked')
       .eq('picking_session_id', sessionId);
@@ -323,7 +323,7 @@ export async function finishPicking(
 
     // Initialize packing progress for each order item
     // First get the order IDs from the session
-    const { data: sessionOrders, error: sessionOrdersError } = await supabase
+    const { data: sessionOrders, error: sessionOrdersError } = await supabaseAdmin
       .from('picking_session_orders')
       .select('order_id')
       .eq('picking_session_id', sessionId);
@@ -333,7 +333,7 @@ export async function finishPicking(
     const orderIdsInSession = sessionOrders?.map(so => so.order_id) || [];
 
     // Now get the orders with their line_items
-    const { data: ordersWithItems, error: orderItemsError } = await supabase
+    const { data: ordersWithItems, error: orderItemsError } = await supabaseAdmin
       .from('orders')
       .select('id, line_items')
       .in('id', orderIdsInSession);
@@ -368,7 +368,7 @@ export async function finishPicking(
     });
 
     if (packingRecords.length > 0) {
-      const { error: packingError } = await supabase
+      const { error: packingError } = await supabaseAdmin
         .from('packing_progress')
         .insert(packingRecords);
 
@@ -376,7 +376,7 @@ export async function finishPicking(
     }
 
     // Update session status to packing
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabaseAdmin
       .from('picking_sessions')
       .update({
         status: 'packing',
@@ -416,7 +416,7 @@ export async function getPackingList(
 }> {
   try {
     // Verify session belongs to store
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .select('*')
       .eq('id', sessionId)
@@ -428,7 +428,7 @@ export async function getPackingList(
     }
 
     // Get orders in session
-    const { data: sessionOrders, error: ordersError } = await supabase
+    const { data: sessionOrders, error: ordersError } = await supabaseAdmin
       .from('picking_session_orders')
       .select(`
         order_id,
@@ -444,7 +444,7 @@ export async function getPackingList(
     if (ordersError) throw ordersError;
 
     // Get packing progress
-    const { data: packingProgress, error: progressError } = await supabase
+    const { data: packingProgress, error: progressError } = await supabaseAdmin
       .from('packing_progress')
       .select(`
         *,
@@ -483,7 +483,7 @@ export async function getPackingList(
     }) || [];
 
     // Get available items (basket)
-    const { data: pickedItems, error: pickedError } = await supabase
+    const { data: pickedItems, error: pickedError } = await supabaseAdmin
       .from('picking_session_items')
       .select(`
         *,
@@ -534,7 +534,7 @@ export async function updatePackingProgress(
 ): Promise<PackingProgress> {
   try {
     // Verify session belongs to store and is in packing status
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .select('store_id, status')
       .eq('id', sessionId)
@@ -549,7 +549,7 @@ export async function updatePackingProgress(
     }
 
     // Get current packing progress
-    const { data: progress, error: progressError } = await supabase
+    const { data: progress, error: progressError } = await supabaseAdmin
       .from('packing_progress')
       .select('*')
       .eq('picking_session_id', sessionId)
@@ -565,7 +565,7 @@ export async function updatePackingProgress(
     }
 
     // Check if item is available in basket
-    const { data: pickedItem, error: pickedError } = await supabase
+    const { data: pickedItem, error: pickedError } = await supabaseAdmin
       .from('picking_session_items')
       .select('quantity_picked')
       .eq('picking_session_id', sessionId)
@@ -575,7 +575,7 @@ export async function updatePackingProgress(
     if (pickedError) throw pickedError;
 
     // Get total packed across all orders
-    const { data: allPacked, error: allPackedError } = await supabase
+    const { data: allPacked, error: allPackedError } = await supabaseAdmin
       .from('packing_progress')
       .select('quantity_packed')
       .eq('picking_session_id', sessionId)
@@ -590,7 +590,7 @@ export async function updatePackingProgress(
     }
 
     // Increment quantity packed
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabaseAdmin
       .from('packing_progress')
       .update({ quantity_packed: progress.quantity_packed + 1 })
       .eq('picking_session_id', sessionId)
@@ -602,7 +602,7 @@ export async function updatePackingProgress(
     if (updateError) throw updateError;
 
     // Check if order is now complete
-    const { data: orderProgress, error: orderProgressError } = await supabase
+    const { data: orderProgress, error: orderProgressError } = await supabaseAdmin
       .from('packing_progress')
       .select('quantity_needed, quantity_packed')
       .eq('picking_session_id', sessionId)
@@ -614,7 +614,7 @@ export async function updatePackingProgress(
 
     if (orderComplete) {
       // Update order status to ready_to_ship
-      await supabase
+      await supabaseAdmin
         .from('orders')
         .update({ status: 'ready_to_ship' })
         .eq('id', orderId);
@@ -632,7 +632,7 @@ export async function updatePackingProgress(
  */
 export async function getActiveSessions(storeId: string): Promise<PickingSession[]> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('picking_sessions')
       .select(`
         *,
@@ -656,7 +656,7 @@ export async function getActiveSessions(storeId: string): Promise<PickingSession
  */
 export async function getConfirmedOrders(storeId: string) {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('orders')
       .select(`
         id,
@@ -696,7 +696,7 @@ export async function completeSession(
 ): Promise<PickingSession> {
   try {
     // Verify session belongs to store
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .select('store_id, status')
       .eq('id', sessionId)
@@ -708,7 +708,7 @@ export async function completeSession(
     }
 
     // Verify all orders are ready_to_ship
-    const { data: sessionOrders, error: ordersError } = await supabase
+    const { data: sessionOrders, error: ordersError } = await supabaseAdmin
       .from('picking_session_orders')
       .select('order_id, orders!inner(status)')
       .eq('picking_session_id', sessionId);
@@ -724,7 +724,7 @@ export async function completeSession(
     }
 
     // Update session status
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabaseAdmin
       .from('picking_sessions')
       .update({
         status: 'completed',

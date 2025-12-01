@@ -303,8 +303,12 @@ export default function Delivery() {
 
   const openInMaps = () => {
     if (state.type !== 'pending') return;
-    const { latitude, longitude } = state.data;
-    if (latitude && longitude) {
+    const { google_maps_link, latitude, longitude } = state.data;
+
+    // Prioridad: usar google_maps_link si está disponible, si no usar lat/long
+    if (google_maps_link) {
+      window.open(google_maps_link, '_blank');
+    } else if (latitude && longitude) {
       window.open(`https://www.google.com/maps?q=${latitude},${longitude}`, '_blank');
     }
   };
@@ -724,7 +728,7 @@ export default function Delivery() {
               </div>
             )}
 
-            {orderData.latitude && orderData.longitude && (
+            {(orderData.google_maps_link || (orderData.latitude && orderData.longitude)) && (
               <Button
                 variant="outline"
                 className="w-full"

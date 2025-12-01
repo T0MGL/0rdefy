@@ -135,7 +135,7 @@ export default function Orders() {
         const newOrdersCount = data.length - previousCountRef.current;
         toast({
           title: `🔔 ${newOrdersCount} Nuevo${newOrdersCount > 1 ? 's' : ''} Pedido${newOrdersCount > 1 ? 's' : ''}!`,
-          description: 'Tienes nuevos pedidos',
+          description: `Tienes ${newOrdersCount} nuevo${newOrdersCount > 1 ? 's' : ''} pedido${newOrdersCount > 1 ? 's' : ''}`,
         });
       }
 
@@ -749,9 +749,9 @@ export default function Orders() {
                   <td className="py-4 px-6">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-mono">
-                        {order.shopify_order_number ? `#${order.shopify_order_number}` :
-                         order.shopify_order_id ||
-                         order.id.substring(0, 8)}
+                        {order.shopify_order_number ? `SH#${order.shopify_order_number}` :
+                         order.shopify_order_id ? `SH#${order.shopify_order_id}` :
+                         `OR#${order.id.substring(0, 8)}`}
                       </span>
                       {order.shopify_order_id && (
                         <Badge
@@ -787,7 +787,7 @@ export default function Orders() {
                       </SelectContent>
                     </Select>
                   </td>
-                  <td className="py-4 px-6 text-sm">{order.carrier}</td>
+                  <td className="py-4 px-6 text-sm">{getCarrierName(order.carrier)}</td>
                   <td className="py-4 px-6 text-center">
                     {order.confirmedByWhatsApp ? (
                       <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800">
@@ -830,6 +830,21 @@ export default function Orders() {
                   </td>
                   <td className="py-4 px-6">
                     <div className="flex items-center justify-center gap-1">
+                      {/* Botón de impresión siempre primero */}
+                      {order.delivery_link_token && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setOrderToPrint(order);
+                            setPrintLabelDialogOpen(true);
+                          }}
+                          title="Imprimir etiqueta de entrega"
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                        >
+                          <Printer size={16} />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -874,20 +889,6 @@ export default function Orders() {
                       >
                         <Package2 size={16} />
                       </Button>
-                      {order.delivery_link_token && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setOrderToPrint(order);
-                            setPrintLabelDialogOpen(true);
-                          }}
-                          title="Imprimir etiqueta de entrega"
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                        >
-                          <Printer size={16} />
-                        </Button>
-                      )}
                       <Button
                         variant="ghost"
                         size="icon"

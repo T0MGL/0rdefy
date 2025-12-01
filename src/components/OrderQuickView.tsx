@@ -97,7 +97,21 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
-            <span>Pedido {order.id}</span>
+            <div className="flex items-center gap-2">
+              <span>
+                Pedido {order.shopify_order_number ? `SH#${order.shopify_order_number}` :
+                        order.shopify_order_id ? `SH#${order.shopify_order_id}` :
+                        `OR#${order.id.substring(0, 8)}`}
+              </span>
+              {order.shopify_order_id && (
+                <Badge
+                  variant="outline"
+                  className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs"
+                >
+                  Shopify
+                </Badge>
+              )}
+            </div>
             <Badge variant="outline" className={statusColors[currentStatus]}>
               {statusLabels[currentStatus]}
             </Badge>

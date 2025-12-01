@@ -70,6 +70,7 @@ export interface Order {
   // Geolocation for map
   latitude?: number;
   longitude?: number;
+  google_maps_link?: string; // Link directo de Google Maps
   // Printing status
   printed?: boolean;
   printed_at?: string;

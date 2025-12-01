@@ -94,6 +94,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             address_reference: data.address_reference,
             latitude: data.latitude,
             longitude: data.longitude,
+            google_maps_link: data.google_maps_link,
             total_price: data.total_price,
             cod_amount: data.cod_amount || 0,
             payment_method: data.payment_method,
@@ -551,7 +552,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 rejectionReason: order.rejection_reason,
                 delivery_link_token: order.delivery_link_token,
                 latitude: order.latitude,
-                longitude: order.longitude
+                longitude: order.longitude,
+                google_maps_link: order.google_maps_link
             };
         }) || [];
 
