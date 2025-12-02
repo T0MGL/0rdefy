@@ -198,6 +198,8 @@ storesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             country,
             timezone,
             currency,
+            tax_rate,
+            admin_fee,
             is_active
         } = req.body;
 
@@ -210,6 +212,8 @@ storesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (country !== undefined) updateData.country = country;
         if (timezone !== undefined) updateData.timezone = timezone;
         if (currency !== undefined) updateData.currency = currency;
+        if (tax_rate !== undefined) updateData.tax_rate = tax_rate;
+        if (admin_fee !== undefined) updateData.admin_fee = admin_fee;
         if (is_active !== undefined) updateData.is_active = is_active;
 
         const { data, error } = await supabaseAdmin

@@ -10,11 +10,10 @@ import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { RevenueProjectionCard } from '@/components/RevenueProjectionCard';
 import { useDateRange } from '@/contexts/DateRangeContext';
-import { DashboardOverview, ChartData, Product, ConfirmationMetrics } from '@/types';
+import { DashboardOverview, ChartData, Product } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
 import {
-  ShoppingBag,
   DollarSign,
   TrendingDown,
   Megaphone,
@@ -22,8 +21,6 @@ import {
   Percent,
   Target,
   Truck,
-  CheckCircle2,
-  AlertCircle,
   Package2,
   Receipt,
   ChevronDown,
@@ -40,9 +37,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts';
 
 export default function Dashboard() {
@@ -59,18 +53,7 @@ export default function Dashboard() {
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [topProducts, setTopProducts] = useState<Product[]>([]);
-  const [confirmationMetrics, setConfirmationMetrics] = useState<ConfirmationMetrics | null>(null);
-  const [orderStatusData, setOrderStatusData] = useState<any[]>([]);
   const [codMetrics, setCodMetrics] = useState<any>(null);
-
-  // Memoize status map to avoid recreation
-  const statusMap = useMemo(() => ({
-    'confirmed': { name: 'Confirmado', color: 'hsl(84, 81%, 63%)' },
-    'shipped': { name: 'En tránsito', color: 'hsl(217, 91%, 60%)' },
-    'delivered': { name: 'Entregado', color: 'hsl(142, 76%, 45%)' },
-    'cancelled': { name: 'Cancelado', color: 'hsl(0, 84%, 60%)' },
-    'pending': { name: 'Pendiente', color: 'hsl(45, 93%, 47%)' },
-  }), []);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -98,12 +81,10 @@ export default function Dashboard() {
 
       console.log('📊 Loading dashboard data with params:', dateParams);
 
-      const [overview, chart, products, confirmation, statusDist, codData] = await Promise.all([
+      const [overview, chart, products, codData] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getChartData(dateRange.days, dateParams),
         analyticsService.getTopProducts(5, dateParams),
-        analyticsService.getConfirmationMetrics(dateParams),
-        analyticsService.getOrderStatusDistribution(dateParams),
         codMetricsService.getMetrics({
           start_date: dateParams.startDate,
           end_date: dateParams.endDate,
@@ -119,17 +100,7 @@ export default function Dashboard() {
       setDashboardOverview(overview);
       setChartData(chart);
       setTopProducts(products);
-      setConfirmationMetrics(confirmation);
       setCodMetrics(codData);
-
-      // Transform status distribution for pie chart
-      const transformedStatus = statusDist.map(item => ({
-        name: statusMap[item.status]?.name || item.status,
-        value: item.percentage,
-        color: statusMap[item.status]?.color || 'hsl(0, 0%, 50%)',
-      }));
-
-      setOrderStatusData(transformedStatus);
     } catch (error: any) {
       // Ignore abort errors
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
@@ -142,7 +113,7 @@ export default function Dashboard() {
         setIsLoading(false);
       }
     }
-  }, [statusMap, dateRange]);
+  }, [dateRange]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -179,7 +150,7 @@ export default function Dashboard() {
     );
   }
 
-  if (!dashboardOverview || !confirmationMetrics) {
+  if (!dashboardOverview) {
     return (
       <div className="space-y-6">
         <DailySummary />
@@ -206,7 +177,7 @@ export default function Dashboard() {
 
       {/* Priority Metrics - Always Visible */}
       <div>
-        <h2 className="text-2xl font-bold mb-4 text-card-foreground">Métricas Clave</h2>
+        <h2 className="text-2xl font-bold mb-4 text-card-foreground">Resumen de Ventas</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <MetricCard
             title="Facturación Bruta"
@@ -259,7 +230,7 @@ export default function Dashboard() {
           onClick={() => setShowSecondaryMetrics(!showSecondaryMetrics)}
         >
           <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">Métricas Adicionales</h3>
+            <h3 className="text-lg font-semibold">Métricas de Rentabilidad</h3>
             <span className="text-sm text-muted-foreground">
               ({showSecondaryMetrics ? 'Ocultar' : 'Mostrar'})
             </span>
@@ -268,28 +239,13 @@ export default function Dashboard() {
         </Button>
 
         {showSecondaryMetrics && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
-              title="Total Pedidos"
-              value={dashboardOverview.totalOrders}
-              change={dashboardOverview.changes?.totalOrders !== null ? Math.abs(dashboardOverview.changes?.totalOrders || 0) : undefined}
-              trend={dashboardOverview.changes?.totalOrders !== null ? (dashboardOverview.changes?.totalOrders >= 0 ? 'up' : 'down') : undefined}
-              icon={<ShoppingBag className="text-primary" size={20} />}
-              onClick={() => handleMetricClick('orders')}
-            />
-            <MetricCard
-              title="Costos"
-              value={`Gs. ${dashboardOverview.costs.toLocaleString()}`}
-              change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
-              trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
-              icon={<TrendingDown className="text-red-600" size={20} />}
-            />
-            <MetricCard
-              title="Margen de Beneficio"
-              value={`${dashboardOverview.profitMargin}%`}
-              change={dashboardOverview.changes?.profitMargin !== null ? Math.abs(dashboardOverview.changes?.profitMargin || 0) : undefined}
-              trend={dashboardOverview.changes?.profitMargin !== null ? (dashboardOverview.changes?.profitMargin >= 0 ? 'up' : 'down') : undefined}
-              icon={<Percent className="text-primary" size={20} />}
+              title="ROAS"
+              value={`${dashboardOverview.roas.toFixed(2)}x`}
+              change={dashboardOverview.changes?.roas !== null ? Math.abs(dashboardOverview.changes?.roas || 0) : undefined}
+              trend={dashboardOverview.changes?.roas !== null ? (dashboardOverview.changes?.roas >= 0 ? 'up' : 'down') : undefined}
+              icon={<Target className="text-green-600" size={20} />}
             />
             <MetricCard
               title="ROI General"
@@ -299,18 +255,24 @@ export default function Dashboard() {
               icon={<Target className="text-blue-600" size={20} />}
             />
             <MetricCard
-              title="Tasa de Confirmación"
-              value={`${confirmationMetrics.confirmationRate.toFixed(1)}%`}
-              change={confirmationMetrics.confirmationRateChange !== null ? Math.abs(confirmationMetrics.confirmationRateChange || 0) : undefined}
-              trend={confirmationMetrics.confirmationRateChange !== null ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
-              icon={<CheckCircle2 className="text-green-600" size={20} />}
-              onClick={() => handleMetricClick('confirmation')}
+              title="Margen de Beneficio"
+              value={`${dashboardOverview.profitMargin}%`}
+              change={dashboardOverview.changes?.profitMargin !== null ? Math.abs(dashboardOverview.changes?.profitMargin || 0) : undefined}
+              trend={dashboardOverview.changes?.profitMargin !== null ? (dashboardOverview.changes?.profitMargin >= 0 ? 'up' : 'down') : undefined}
+              icon={<Percent className="text-primary" size={20} />}
+            />
+            <MetricCard
+              title="Costo por Pedido"
+              value={`Gs. ${dashboardOverview.costPerOrder.toLocaleString()}`}
+              change={dashboardOverview.changes?.costPerOrder !== null ? Math.abs(dashboardOverview.changes?.costPerOrder || 0) : undefined}
+              trend={dashboardOverview.changes?.costPerOrder !== null ? (dashboardOverview.changes?.costPerOrder >= 0 ? 'up' : 'down') : undefined}
+              icon={<Package2 className="text-gray-600" size={20} />}
             />
           </div>
         )}
       </div>
 
-      {/* Advanced Metrics - Collapsible */}
+      {/* Cost Breakdown - Collapsible */}
       <div className="space-y-4">
         <Button
           variant="ghost"
@@ -318,7 +280,7 @@ export default function Dashboard() {
           onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
         >
           <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">Métricas Avanzadas</h3>
+            <h3 className="text-lg font-semibold">Desglose de Costos</h3>
             <span className="text-sm text-muted-foreground">
               ({showAdvancedMetrics ? 'Ocultar' : 'Mostrar'})
             </span>
@@ -328,6 +290,13 @@ export default function Dashboard() {
 
         {showAdvancedMetrics && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <MetricCard
+              title="Costos de Productos"
+              value={`Gs. ${dashboardOverview.costs.toLocaleString()}`}
+              change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
+              trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
+              icon={<TrendingDown className="text-red-600" size={20} />}
+            />
             <MetricCard
               title="Marketing"
               value={`Gs. ${dashboardOverview.marketing.toLocaleString()}`}
@@ -342,162 +311,62 @@ export default function Dashboard() {
               trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
               icon={<Receipt className="text-orange-600" size={20} />}
             />
-            <MetricCard
-              title="Costo por Pedido"
-              value={`Gs. ${dashboardOverview.costPerOrder.toLocaleString()}`}
-              change={dashboardOverview.changes?.costPerOrder !== null ? Math.abs(dashboardOverview.changes?.costPerOrder || 0) : undefined}
-              trend={dashboardOverview.changes?.costPerOrder !== null ? (dashboardOverview.changes?.costPerOrder >= 0 ? 'up' : 'down') : undefined}
-              icon={<Package2 className="text-gray-600" size={20} />}
-            />
           </div>
         )}
       </div>
 
-      {/* COD Metrics Section - Collapsible */}
-      {codMetrics && (
-        <div className="space-y-4">
-          <Button
-            variant="ghost"
-            className="w-full flex items-center justify-between p-4 hover:bg-accent"
-            onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
-          >
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold">Métricas Operativas (COD)</h3>
-              <span className="text-sm text-muted-foreground">
-                Seguimiento de entregas contra entrega
-              </span>
-            </div>
-          </Button>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <MetricCard
-              title="Cobrado Hoy"
-              value={`Gs. ${codMetrics.collected_today.toLocaleString()}`}
-              icon={<CheckCircle2 className="text-green-600" size={20} />}
+      {/* Financial Chart */}
+      <Card className="p-6 bg-card">
+        <h3 className="text-lg font-semibold mb-4 text-card-foreground">Resumen Financiero</h3>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <XAxis dataKey="date" className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+            <YAxis className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'hsl(var(--card))',
+                border: '1px solid hsl(var(--border))',
+                borderRadius: '8px',
+                color: 'hsl(var(--card-foreground))',
+              }}
             />
-            <MetricCard
-              title="Pedidos en Entrega"
-              value={codMetrics.orders_in_delivery}
-              icon={<Truck className="text-blue-600" size={20} />}
+            <Legend wrapperStyle={{ color: 'hsl(var(--card-foreground))' }} />
+            <Line
+              type="monotone"
+              dataKey="revenue"
+              stroke="hsl(84, 81%, 63%)"
+              strokeWidth={2.5}
+              name="Ingresos"
+              dot={false}
             />
-            <MetricCard
-              title="Tasa de Pago Exitoso"
-              value={`${codMetrics.payment_success_rate}%`}
-              icon={<Percent className="text-green-600" size={20} />}
+            <Line
+              type="monotone"
+              dataKey="costs"
+              stroke="hsl(0, 84%, 60%)"
+              strokeWidth={2.5}
+              name="Costos"
+              dot={false}
             />
-            <MetricCard
-              title="Intentos Promedio"
-              value={codMetrics.average_delivery_attempts.toFixed(1)}
-              icon={<Package2 className="text-purple-600" size={20} />}
+            <Line
+              type="monotone"
+              dataKey="marketing"
+              stroke="hsl(217, 91%, 60%)"
+              strokeWidth={2.5}
+              name="Marketing"
+              dot={false}
             />
-            <MetricCard
-              title="Pérdidas por Fallos"
-              value={`Gs. ${codMetrics.failed_deliveries_loss.toLocaleString()}`}
-              icon={<AlertCircle className="text-red-600" size={20} />}
+            <Line
+              type="monotone"
+              dataKey="profit"
+              stroke="hsl(142, 76%, 45%)"
+              strokeWidth={2.5}
+              name="Beneficio"
+              dot={false}
             />
-          </div>
-        </div>
-      )}
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Financial Chart */}
-        <Card className="p-6 lg:col-span-2 bg-card">
-          <h3 className="text-lg font-semibold mb-4 text-card-foreground">Resumen Financiero</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="date" className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
-              <YAxis className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '8px',
-                  color: 'hsl(var(--card-foreground))',
-                }}
-              />
-              <Legend wrapperStyle={{ color: 'hsl(var(--card-foreground))' }} />
-              <Line
-                type="monotone"
-                dataKey="revenue"
-                stroke="hsl(84, 81%, 63%)"
-                strokeWidth={2.5}
-                name="Ingresos"
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="costs"
-                stroke="hsl(0, 84%, 60%)"
-                strokeWidth={2.5}
-                name="Costos"
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="marketing"
-                stroke="hsl(217, 91%, 60%)"
-                strokeWidth={2.5}
-                name="Marketing"
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="profit"
-                stroke="hsl(142, 76%, 45%)"
-                strokeWidth={2.5}
-                name="Beneficio"
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-
-        {/* Order Status Pie Chart */}
-        <Card className="p-6 bg-card">
-          <h3 className="text-lg font-semibold mb-4 text-card-foreground">Estados de Pedidos</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={orderStatusData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={100}
-                paddingAngle={5}
-                dataKey="value"
-              >
-                {orderStatusData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '8px',
-                  color: 'hsl(var(--card-foreground))',
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="mt-4 space-y-2">
-            {orderStatusData.map((item) => (
-              <div key={item.name} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-muted-foreground">{item.name}</span>
-                </div>
-                <span className="font-medium text-card-foreground">{item.value}%</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
 
       {/* Top Products Table */}
       <Card className="p-6 bg-card">

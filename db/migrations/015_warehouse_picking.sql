@@ -138,21 +138,21 @@ DECLARE
     date_part VARCHAR(10);
     sequence_num INTEGER;
 BEGIN
-    -- Get current date in YYMM format
-    date_part := TO_CHAR(NOW(), 'YYMM');
+    -- Get current date in DDMMYYYY format (Latin American format)
+    date_part := TO_CHAR(NOW(), 'DDMMYYYY');
 
     LOOP
-        -- Get the next sequence number for this month
+        -- Get the next sequence number for this day
         SELECT COALESCE(MAX(
             CAST(
-                SUBSTRING(code FROM 'PREP-[0-9]{4}-([0-9]+)') AS INTEGER
+                SUBSTRING(code FROM 'PREP-[0-9]{8}-([0-9]+)') AS INTEGER
             )
         ), 0) + 1
         INTO sequence_num
         FROM picking_sessions
         WHERE code LIKE 'PREP-' || date_part || '-%';
 
-        -- Generate code: PREP-YYMM-NN
+        -- Generate code: PREP-DDMMYYYY-NN (e.g., PREP-02122025-01 for Dec 2, 2025)
         new_code := 'PREP-' || date_part || '-' || LPAD(sequence_num::TEXT, 2, '0');
 
         -- Check if code exists
@@ -207,7 +207,7 @@ COMMENT ON TABLE picking_session_orders IS 'Links orders to picking sessions (ma
 COMMENT ON TABLE picking_session_items IS 'Aggregated list of products to pick for a session';
 COMMENT ON TABLE packing_progress IS 'Tracks packing progress for each order line item';
 
-COMMENT ON COLUMN picking_sessions.code IS 'Human-readable session reference (e.g., PREP-2505-01)';
+COMMENT ON COLUMN picking_sessions.code IS 'Human-readable session reference (e.g., PREP-02122025-01 for Dec 2, 2025)';
 COMMENT ON COLUMN picking_sessions.status IS 'Current workflow stage: picking, packing, or completed';
 COMMENT ON COLUMN picking_session_items.total_quantity_needed IS 'Total units needed across all orders';
 COMMENT ON COLUMN picking_session_items.quantity_picked IS 'Units collected so far';

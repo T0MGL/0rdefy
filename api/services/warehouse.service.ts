@@ -183,22 +183,7 @@ export async function getPickingList(
   storeId: string
 ): Promise<PickingSessionItem[]> {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('picking_session_items')
-      .select(`
-        *,
-        products!product_id (
-          name,
-          image_url,
-          sku,
-          shelf_location
-        )
-      `)
-      .eq('picking_session_id', sessionId);
-
-    if (error) throw error;
-
-    // Verify session belongs to store
+    // Verify session belongs to store first
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
       .select('store_id')
@@ -206,18 +191,47 @@ export async function getPickingList(
       .single();
 
     if (sessionError) throw sessionError;
+    if (!session) {
+      throw new Error('Session not found');
+    }
     if (session.store_id !== storeId) {
       throw new Error('Session does not belong to this store');
     }
 
+    // Get picking session items
+    const { data: items, error: itemsError } = await supabaseAdmin
+      .from('picking_session_items')
+      .select('*')
+      .eq('picking_session_id', sessionId);
+
+    if (itemsError) throw itemsError;
+    if (!items || items.length === 0) {
+      return [];
+    }
+
+    // Get product details separately
+    const productIds = items.map(item => item.product_id);
+    const { data: products, error: productsError } = await supabaseAdmin
+      .from('products')
+      .select('id, name, image_url, sku, shelf_location')
+      .in('id', productIds);
+
+    if (productsError) throw productsError;
+
+    // Create product map for quick lookup
+    const productMap = new Map(products?.map(p => [p.id, p]) || []);
+
     // Format response
-    return data.map(item => ({
-      ...item,
-      product_name: item.products?.name,
-      product_image: item.products?.image_url,
-      product_sku: item.products?.sku,
-      shelf_location: item.products?.shelf_location
-    }));
+    return items.map(item => {
+      const product = productMap.get(item.product_id);
+      return {
+        ...item,
+        product_name: product?.name || 'Producto desconocido',
+        product_image: product?.image_url,
+        product_sku: product?.sku,
+        shelf_location: product?.shelf_location
+      };
+    });
   } catch (error) {
     console.error('Error getting picking list:', error);
     throw error;
@@ -308,7 +322,7 @@ export async function finishPicking(
     // Verify all items are picked
     const { data: items, error: itemsError } = await supabaseAdmin
       .from('picking_session_items')
-      .select('total_quantity_needed, quantity_picked')
+      .select('product_id, total_quantity_needed, quantity_picked')
       .eq('picking_session_id', sessionId);
 
     if (itemsError) throw itemsError;
@@ -319,6 +333,38 @@ export async function finishPicking(
 
     if (unpickedItems && unpickedItems.length > 0) {
       throw new Error('All items must be picked before finishing');
+    }
+
+    // Deduct stock for picked items
+    console.log('📦 Deducting stock for picked items...');
+    for (const item of items || []) {
+      // Get current stock
+      const { data: product, error: fetchError } = await supabaseAdmin
+        .from('products')
+        .select('stock')
+        .eq('id', item.product_id)
+        .single();
+
+      if (fetchError) {
+        console.error(`❌ Error fetching stock for product ${item.product_id}:`, fetchError);
+        continue;
+      }
+
+      // Calculate new stock (ensure it doesn't go below 0)
+      const currentStock = product?.stock || 0;
+      const newStock = Math.max(0, currentStock - item.quantity_picked);
+
+      // Update stock
+      const { error: stockError } = await supabaseAdmin
+        .from('products')
+        .update({ stock: newStock })
+        .eq('id', item.product_id);
+
+      if (stockError) {
+        console.error(`❌ Error updating stock for product ${item.product_id}:`, stockError);
+      } else {
+        console.log(`✅ Stock updated for product ${item.product_id}: ${currentStock} → ${newStock} (-${item.quantity_picked})`);
+      }
     }
 
     // Initialize packing progress for each order item
