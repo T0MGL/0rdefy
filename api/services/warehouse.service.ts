@@ -75,7 +75,7 @@ export async function createSession(
     // 1. Validate that all orders exist and are confirmed
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
-      .select('id, status')
+      .select('id, sleeves_status')
       .eq('store_id', storeId)
       .in('id', orderIds);
 
@@ -84,7 +84,7 @@ export async function createSession(
       throw new Error('No valid orders found');
     }
 
-    const nonConfirmedOrders = orders.filter(o => o.status !== 'confirmed');
+    const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
     if (nonConfirmedOrders.length > 0) {
       throw new Error('All orders must be in confirmed status');
     }
@@ -126,7 +126,7 @@ export async function createSession(
     // 5. Update orders status to in_preparation
     const { error: updateError } = await supabaseAdmin
       .from('orders')
-      .update({ status: 'in_preparation' })
+      .update({ sleeves_status: 'in_preparation' })
       .in('id', orderIds);
 
     if (updateError) throw updateError;
@@ -434,8 +434,9 @@ export async function getPackingList(
         order_id,
         orders (
           id,
-          order_number,
-          customer_name,
+          shopify_order_number,
+          customer_first_name,
+          customer_last_name,
           customer_phone
         )
       `)
@@ -458,11 +459,11 @@ export async function getPackingList(
     if (progressError) throw progressError;
 
     // Format orders with their items
-    const orders: OrderForPacking[] = sessionOrders?.map(so => {
+    const orders: OrderForPacking[] = sessionOrders?.map((so: any) => {
       const order = so.orders;
       const orderProgress = packingProgress?.filter(p => p.order_id === order.id) || [];
 
-      const items = orderProgress.map(p => ({
+      const items = orderProgress.map((p: any) => ({
         product_id: p.product_id,
         product_name: p.products?.name || '',
         product_image: p.products?.image_url || '',
@@ -474,8 +475,8 @@ export async function getPackingList(
 
       return {
         id: order.id,
-        order_number: order.order_number,
-        customer_name: order.customer_name,
+        order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
+        customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
         customer_phone: order.customer_phone,
         items,
         is_complete
@@ -616,7 +617,7 @@ export async function updatePackingProgress(
       // Update order status to ready_to_ship
       await supabaseAdmin
         .from('orders')
-        .update({ status: 'ready_to_ship' })
+        .update({ sleeves_status: 'ready_to_ship' })
         .eq('id', orderId);
     }
 
@@ -660,24 +661,31 @@ export async function getConfirmedOrders(storeId: string) {
       .from('orders')
       .select(`
         id,
-        order_number,
-        customer_name,
+        shopify_order_number,
+        customer_first_name,
+        customer_last_name,
         customer_phone,
         created_at,
         line_items,
-        carrier!carrier_id (name)
+        carriers!courier_id (name)
       `)
       .eq('store_id', storeId)
-      .eq('status', 'confirmed')
+      .eq('sleeves_status', 'confirmed')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // Calculate total_items from JSONB line_items
-    const ordersWithCounts = (data || []).map(order => ({
-      ...order,
-      total_items: Array.isArray(order.line_items) ? order.line_items.length : 0,
-      line_items: undefined // Remove from response
+    // Calculate total_items from JSONB line_items and format customer name
+    const ordersWithCounts = (data || []).map((order: any) => ({
+      id: order.id,
+      order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
+      customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+      customer_phone: order.customer_phone,
+      created_at: order.created_at,
+      carrier_name: order.carriers?.name || 'Sin transportadora',
+      total_items: Array.isArray(order.line_items)
+        ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+        : 0
     }));
 
     return ordersWithCounts;
@@ -710,13 +718,13 @@ export async function completeSession(
     // Verify all orders are ready_to_ship
     const { data: sessionOrders, error: ordersError } = await supabaseAdmin
       .from('picking_session_orders')
-      .select('order_id, orders!inner(status)')
+      .select('order_id, orders!inner(sleeves_status)')
       .eq('picking_session_id', sessionId);
 
     if (ordersError) throw ordersError;
 
     const notReady = sessionOrders?.filter(
-      so => so.orders.status !== 'ready_to_ship'
+      (so: any) => so.orders.sleeves_status !== 'ready_to_ship'
     );
 
     if (notReady && notReady.length > 0) {

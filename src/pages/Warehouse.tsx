@@ -5,13 +5,13 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'sonner';
 import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useToast } from '@/hooks/use-toast';
 import * as warehouseService from '@/services/warehouse.service';
 import type {
   PickingSession,
@@ -24,6 +24,7 @@ import type {
 type View = 'dashboard' | 'picking' | 'packing';
 
 export default function Warehouse() {
+  const { toast } = useToast();
   const [view, setView] = useState<View>('dashboard');
   const [currentSession, setCurrentSession] = useState<PickingSession | null>(null);
 
@@ -51,11 +52,15 @@ export default function Warehouse() {
       setActiveSessions(sessions);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
-      toast.error('Error loading warehouse data');
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar los datos del almacén',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   const loadPickingList = useCallback(async () => {
     if (!currentSession) return;
@@ -65,11 +70,15 @@ export default function Warehouse() {
       setPickingList(list);
     } catch (error) {
       console.error('Error loading picking list:', error);
-      toast.error('Error loading picking list');
+      toast({
+        title: 'Error',
+        description: 'No se pudo cargar la lista de picking',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
-  }, [currentSession]);
+  }, [currentSession, toast]);
 
   const loadPackingList = useCallback(async () => {
     if (!currentSession) return;
@@ -79,11 +88,15 @@ export default function Warehouse() {
       setPackingData(data);
     } catch (error) {
       console.error('Error loading packing list:', error);
-      toast.error('Error loading packing list');
+      toast({
+        title: 'Error',
+        description: 'No se pudo cargar la lista de empaque',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
-  }, [currentSession]);
+  }, [currentSession, toast]);
 
   // Load dashboard data
   useEffect(() => {
@@ -108,7 +121,11 @@ export default function Warehouse() {
 
   async function handleCreateSession() {
     if (selectedOrders.size === 0) {
-      toast.error('Please select at least one order');
+      toast({
+        title: 'Error',
+        description: 'Por favor selecciona al menos un pedido',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -118,10 +135,17 @@ export default function Warehouse() {
       setCurrentSession(session);
       setSelectedOrders(new Set());
       setView('picking');
-      toast.success(`Session ${session.code} created successfully`);
+      toast({
+        title: 'Sesión creada',
+        description: `Sesión ${session.code} creada exitosamente`,
+      });
     } catch (error: any) {
       console.error('Error creating session:', error);
-      toast.error(error.response?.data?.details || 'Error creating session');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.details || 'No se pudo crear la sesión',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -150,7 +174,11 @@ export default function Warehouse() {
       );
     } catch (error: any) {
       console.error('Error updating picking progress:', error);
-      toast.error(error.response?.data?.details || 'Error updating progress');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.details || 'No se pudo actualizar el progreso',
+        variant: 'destructive',
+      });
     }
   }
 
@@ -163,7 +191,11 @@ export default function Warehouse() {
     );
 
     if (!allPicked) {
-      toast.error('All items must be picked before finishing');
+      toast({
+        title: 'Error',
+        description: 'Todos los productos deben estar recolectados antes de continuar',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -172,10 +204,17 @@ export default function Warehouse() {
       const updated = await warehouseService.finishPicking(currentSession.id);
       setCurrentSession(updated);
       setView('packing');
-      toast.success('Picking completed! Ready for packing.');
+      toast({
+        title: 'Picking completado',
+        description: 'Listo para empacar los pedidos',
+      });
     } catch (error: any) {
       console.error('Error finishing picking:', error);
-      toast.error(error.response?.data?.details || 'Error finishing picking');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.details || 'No se pudo completar el picking',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -185,14 +224,21 @@ export default function Warehouse() {
     if (!currentSession) return;
     try {
       await warehouseService.updatePackingProgress(currentSession.id, orderId, productId);
-      toast.success('Item added to order');
+      toast({
+        title: 'Producto empacado',
+        description: 'El producto se agregó al pedido correctamente',
+      });
       // Reload packing list to update state
       await loadPackingList();
       // Clear selection
       setSelectedItem(null);
     } catch (error: any) {
       console.error('Error packing item:', error);
-      toast.error(error.response?.data?.details || 'Error packing item');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.details || 'No se pudo empacar el producto',
+        variant: 'destructive',
+      });
     }
   }
 
