@@ -17,13 +17,17 @@ Para que Shopify apruebe una aplicación embebida, debe cumplir con:
 
 ### Frontend Components
 
-#### 1. App Bridge Script (index.html)
+#### 1. App Bridge Script y Meta Tags (index.html)
 ```html
-<!-- Línea 12 de index.html -->
+<!-- Líneas 11-14 de index.html -->
+<!-- CRÍTICO: Meta tag con API key DEBE estar ANTES del script -->
+<meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b" />
 <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
 ```
 
-**Importante**: Este script debe cargarse **antes** que cualquier otro script de la aplicación.
+**Importante**:
+- La meta tag `shopify-api-key` es **REQUERIDA** por App Bridge CDN (2025)
+- Este script debe cargarse **antes** que cualquier otro script de la aplicación
 
 #### 2. ShopifyInitializer Component
 **Ubicación**: `src/components/ShopifyInitializer.tsx`
@@ -55,6 +59,14 @@ Este componente:
 const urlParams = new URLSearchParams(window.location.search);
 const host = urlParams.get('host');
 const embedded = urlParams.get('embedded');
+const shop = urlParams.get('shop');
+
+// Extraer shop domain desde host si no está en parámetros directos
+let shopDomain = shop;
+if (!shopDomain && host) {
+  const decodedHost = atob(host);
+  shopDomain = decodedHost.split('/')[0]; // shop.myshopify.com
+}
 
 // Solo inicializa si estamos embebidos
 if (host && embedded === '1') {
@@ -62,14 +74,20 @@ if (host && embedded === '1') {
 }
 ```
 
-**Inicialización de App Bridge 3.0**:
+**Inicialización de App Bridge CDN (2025)**:
 ```typescript
 const shopifyApp = window.shopify.createApp({
   apiKey: CLIENT_ID,
-  host: host,
+  shop: shopDomain,  // REQUERIDO: Shop domain (shop.myshopify.com)
+  host: host,        // Host parameter from Shopify
   forceRedirect: true, // Redirige automáticamente si no está embebido
 });
 ```
+
+**Campos requeridos**:
+- `apiKey`: Client ID de la app (también en meta tag)
+- `shop`: Dominio de la tienda (shop.myshopify.com) - **NUEVO REQUERIMIENTO 2025**
+- `host`: Host codificado en base64 de Shopify
 
 **Obtención de Session Token**:
 ```typescript
@@ -347,12 +365,21 @@ Logs del backend deben mostrar:
 
 ## 🚨 Problemas Comunes
 
-### 1. "Failed to get session token"
+### 1. "App Bridge Next: missing required configuration fields: shop"
+**Causa**: Falta meta tag `shopify-api-key` o parámetro `shop` en createApp (Nuevo requerimiento 2025)
+
+**Solución**:
+- ✅ Agregar `<meta name="shopify-api-key" content="CLIENT_ID">` ANTES del script
+- ✅ Incluir parámetro `shop: shopDomain` en configuración de createApp
+- ✅ Extraer shop domain desde parámetro URL `shop` o decodificar `host`
+
+### 2. "Failed to get session token"
 **Causa**: App Bridge no está cargado o CLIENT_ID incorrecto
 
 **Solución**:
 - Verificar que script CDN esté en `<head>` de index.html
 - Verificar CLIENT_ID en useShopifyAppBridge.ts coincide con shopify.app.toml
+- Verificar meta tag `shopify-api-key` esté presente
 
 ### 2. "401 Unauthorized" en requests
 **Causa**: Token expirado o SHOPIFY_API_SECRET incorrecto

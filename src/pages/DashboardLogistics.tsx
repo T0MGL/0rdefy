@@ -175,9 +175,9 @@ export default function DashboardLogistics() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <MetricCard
             title="Tasa de Entrega"
-            value={`${dashboardOverview.deliveryRate}%`}
-            change={dashboardOverview.changes?.deliveryRate !== null ? Math.abs(dashboardOverview.changes?.deliveryRate || 0) : undefined}
-            trend={dashboardOverview.changes?.deliveryRate !== null ? (dashboardOverview.changes?.deliveryRate >= 0 ? 'up' : 'down') : undefined}
+            value={`${(dashboardOverview.deliveryRate || 0).toFixed(1)}%`}
+            change={dashboardOverview.changes?.deliveryRate !== null && dashboardOverview.changes?.deliveryRate !== undefined ? Math.abs(dashboardOverview.changes.deliveryRate) : undefined}
+            trend={dashboardOverview.changes?.deliveryRate !== null && dashboardOverview.changes?.deliveryRate !== undefined ? (dashboardOverview.changes.deliveryRate >= 0 ? 'up' : 'down') : undefined}
             icon={<Truck className="text-purple-600" size={24} />}
             variant="purple"
             onClick={() => handleMetricClick('delivery')}
@@ -192,9 +192,9 @@ export default function DashboardLogistics() {
           />
           <MetricCard
             title="Pedidos Totales"
-            value={dashboardOverview.orders.toString()}
-            change={dashboardOverview.changes?.orders !== null ? Math.abs(dashboardOverview.changes?.orders || 0) : undefined}
-            trend={dashboardOverview.changes?.orders !== null ? (dashboardOverview.changes?.orders >= 0 ? 'up' : 'down') : undefined}
+            value={(dashboardOverview.totalOrders || 0).toString()}
+            change={dashboardOverview.changes?.totalOrders !== null && dashboardOverview.changes?.totalOrders !== undefined ? Math.abs(dashboardOverview.changes.totalOrders) : undefined}
+            trend={dashboardOverview.changes?.totalOrders !== null && dashboardOverview.changes?.totalOrders !== undefined ? (dashboardOverview.changes.totalOrders >= 0 ? 'up' : 'down') : undefined}
             icon={<PackageCheck className="text-blue-600" size={24} />}
           />
           <MetricCard
@@ -267,12 +267,12 @@ export default function DashboardLogistics() {
               />
               <MetricCard
                 title="Tiempo Prom. Confirmación"
-                value={`${(confirmationMetrics?.averageConfirmationTime || 0).toFixed(1)}h`}
+                value={`${(confirmationMetrics?.avgConfirmationTime || 0).toFixed(1)}h`}
                 icon={<Clock className="text-blue-600" size={20} />}
               />
               <MetricCard
                 title="Pedidos Confirmados Hoy"
-                value={confirmationMetrics?.confirmedToday || 0}
+                value={confirmationMetrics?.confirmationsToday || 0}
                 icon={<CheckCircle2 className="text-green-600" size={20} />}
               />
             </div>
