@@ -233,6 +233,11 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             return parseFloat((((current - previous) / previous) * 100).toFixed(1));
         };
 
+        // Calculate previous period's costPerOrder and averageOrderValue
+        const previousTotalOrders = previousMetrics.totalOrders;
+        const previousCostPerOrder = previousTotalOrders > 0 ? (previousMetrics.costs / previousTotalOrders) : 0;
+        const previousAverageOrderValue = previousTotalOrders > 0 ? (previousMetrics.revenue / previousTotalOrders) : 0;
+
         const changes = {
             totalOrders: calculateChange(currentMetrics.totalOrders, previousMetrics.totalOrders),
             revenue: calculateChange(currentMetrics.revenue, previousMetrics.revenue),
@@ -244,6 +249,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             deliveryRate: calculateChange(currentMetrics.deliveryRate, previousMetrics.deliveryRate),
             taxCollected: calculateChange(currentMetrics.taxCollected, previousMetrics.taxCollected),
+            costPerOrder: calculateChange(costPerOrder, previousCostPerOrder),
+            averageOrderValue: calculateChange(averageOrderValue, previousAverageOrderValue),
         };
 
         res.json({
@@ -277,6 +284,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     roas: changes.roas,
                     deliveryRate: changes.deliveryRate,
                     taxCollected: changes.taxCollected,
+                    costPerOrder: changes.costPerOrder,
+                    averageOrderValue: changes.averageOrderValue,
                 }
             }
         });

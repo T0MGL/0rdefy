@@ -68,13 +68,20 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
       sum + Number(o.total_price || 0), 0
     );
 
-    // Calculate pending cash (out_for_delivery orders)
+    // Calculate pending cash (ALL pending payment orders - confirmed, preparing, ready_to_ship, out_for_delivery)
+    // This gives a more accurate cash flow projection by including all orders that will generate cash soon
+    const pendingPaymentOrders = orders?.filter(o =>
+      o.payment_status === 'pending' &&
+      ['confirmed', 'preparing', 'ready_to_ship', 'out_for_delivery', 'in_preparation'].includes(o.sleeves_status)
+    ) || [];
+    const pending_cash = pendingPaymentOrders.reduce((sum, o) =>
+      sum + Number(o.total_price || 0), 0
+    );
+
+    // Keep track of out_for_delivery separately for other metrics
     const outForDeliveryOrders = orders?.filter(o =>
       o.sleeves_status === 'out_for_delivery' && o.payment_status === 'pending'
     ) || [];
-    const pending_cash = outForDeliveryOrders.reduce((sum, o) =>
-      sum + Number(o.total_price || 0), 0
-    );
 
     // Calculate collected today
     const today = new Date().toISOString().split('T')[0];

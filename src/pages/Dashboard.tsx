@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { MetricCard } from '@/components/MetricCard';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { analyticsService } from '@/services/analytics.service';
 import { codMetricsService } from '@/services/cod-metrics.service';
 import { QuickActions } from '@/components/QuickActions';
@@ -25,6 +26,10 @@ import {
   AlertCircle,
   Package2,
   Receipt,
+  ChevronDown,
+  ChevronUp,
+  Wallet,
+  ShoppingCart,
 } from 'lucide-react';
 import {
   LineChart,
@@ -44,6 +49,8 @@ export default function Dashboard() {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showSecondaryMetrics, setShowSecondaryMetrics] = useState(false);
+  const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
   // Use global date range context
   const { getDateRange } = useDateRange();
@@ -197,95 +204,172 @@ export default function Dashboard() {
       {/* Revenue Projection Card (only shows with ≥10% growth) */}
       {revenueProjection && <RevenueProjectionCard projection={revenueProjection} />}
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          title="Total Pedidos"
-          value={dashboardOverview.totalOrders}
-          change={dashboardOverview.changes?.totalOrders !== null ? Math.abs(dashboardOverview.changes?.totalOrders || 0) : undefined}
-          trend={dashboardOverview.changes?.totalOrders !== null ? (dashboardOverview.changes?.totalOrders >= 0 ? 'up' : 'down') : undefined}
-          icon={<ShoppingBag className="text-primary" size={20} />}
-          onClick={() => handleMetricClick('orders')}
-        />
-        <MetricCard
-          title="Ingresos"
-          value={`Gs. ${dashboardOverview.revenue.toLocaleString()}`}
-          change={dashboardOverview.changes?.revenue !== null ? Math.abs(dashboardOverview.changes?.revenue || 0) : undefined}
-          trend={dashboardOverview.changes?.revenue !== null ? (dashboardOverview.changes?.revenue >= 0 ? 'up' : 'down') : undefined}
-          icon={<DollarSign className="text-primary" size={20} />}
-        />
-        <MetricCard
-          title="Costos"
-          value={`Gs. ${dashboardOverview.costs.toLocaleString()}`}
-          change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
-          trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
-          icon={<TrendingDown className="text-red-600" size={20} />}
-        />
-        <MetricCard
-          title={`IVA Recolectado (${dashboardOverview.taxRate}%)`}
-          value={`Gs. ${dashboardOverview.taxCollected.toLocaleString()}`}
-          change={dashboardOverview.changes?.taxCollected !== null ? Math.abs(dashboardOverview.changes?.taxCollected || 0) : undefined}
-          trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
-          icon={<Receipt className="text-orange-600" size={20} />}
-        />
-        <MetricCard
-          title="Marketing"
-          value={`Gs. ${dashboardOverview.marketing.toLocaleString()}`}
-          change={dashboardOverview.changes?.marketing !== null ? Math.abs(dashboardOverview.changes?.marketing || 0) : undefined}
-          trend={dashboardOverview.changes?.marketing !== null ? (dashboardOverview.changes?.marketing >= 0 ? 'up' : 'down') : undefined}
-          icon={<Megaphone className="text-blue-600" size={20} />}
-        />
-        <MetricCard
-          title="Beneficio Neto"
-          value={`Gs. ${dashboardOverview.netProfit.toLocaleString()}`}
-          change={dashboardOverview.changes?.netProfit !== null ? Math.abs(dashboardOverview.changes?.netProfit || 0) : undefined}
-          trend={dashboardOverview.changes?.netProfit !== null ? (dashboardOverview.changes?.netProfit >= 0 ? 'up' : 'down') : undefined}
-          icon={<TrendingUp className="text-primary" size={20} />}
-        />
-        <MetricCard
-          title="Margen de Beneficio"
-          value={`${dashboardOverview.profitMargin}%`}
-          change={dashboardOverview.changes?.profitMargin !== null ? Math.abs(dashboardOverview.changes?.profitMargin || 0) : undefined}
-          trend={dashboardOverview.changes?.profitMargin !== null ? (dashboardOverview.changes?.profitMargin >= 0 ? 'up' : 'down') : undefined}
-          icon={<Percent className="text-primary" size={20} />}
-        />
-        <MetricCard
-          title="ROI"
-          value={`${dashboardOverview.roi}x`}
-          change={dashboardOverview.changes?.roi !== null ? Math.abs(dashboardOverview.changes?.roi || 0) : undefined}
-          trend={dashboardOverview.changes?.roi !== null ? (dashboardOverview.changes?.roi >= 0 ? 'up' : 'down') : undefined}
-          icon={<Target className="text-blue-600" size={20} />}
-        />
-        <MetricCard
-          title="Tasa de Entrega"
-          value={`${dashboardOverview.deliveryRate}%`}
-          change={dashboardOverview.changes?.deliveryRate !== null ? Math.abs(dashboardOverview.changes?.deliveryRate || 0) : undefined}
-          trend={dashboardOverview.changes?.deliveryRate !== null ? (dashboardOverview.changes?.deliveryRate >= 0 ? 'up' : 'down') : undefined}
-          icon={<Truck className="text-purple-600" size={20} />}
-          onClick={() => handleMetricClick('delivery')}
-        />
-        <MetricCard
-          title="Tasa de Confirmación"
-          value={`${confirmationMetrics.confirmationRate.toFixed(1)}%`}
-          change={confirmationMetrics.confirmationRateChange !== null ? Math.abs(confirmationMetrics.confirmationRateChange || 0) : undefined}
-          trend={confirmationMetrics.confirmationRateChange !== null ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
-          icon={<CheckCircle2 className="text-green-600" size={20} />}
-          onClick={() => handleMetricClick('confirmation')}
-        />
+      {/* Priority Metrics - Always Visible */}
+      <div>
+        <h2 className="text-2xl font-bold mb-4 text-card-foreground">Métricas Clave</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+          <MetricCard
+            title="Facturación Bruta"
+            value={`Gs. ${dashboardOverview.revenue.toLocaleString()}`}
+            change={dashboardOverview.changes?.revenue !== null ? Math.abs(dashboardOverview.changes?.revenue || 0) : undefined}
+            trend={dashboardOverview.changes?.revenue !== null ? (dashboardOverview.changes?.revenue >= 0 ? 'up' : 'down') : undefined}
+            icon={<DollarSign className="text-primary" size={24} />}
+            variant="primary"
+          />
+          <MetricCard
+            title="Beneficio Neto"
+            value={`Gs. ${dashboardOverview.netProfit.toLocaleString()}`}
+            change={dashboardOverview.changes?.netProfit !== null ? Math.abs(dashboardOverview.changes?.netProfit || 0) : undefined}
+            trend={dashboardOverview.changes?.netProfit !== null ? (dashboardOverview.changes?.netProfit >= 0 ? 'up' : 'down') : undefined}
+            icon={<TrendingUp className="text-green-600" size={24} />}
+            variant="accent"
+          />
+          <MetricCard
+            title="Proyección de Caja"
+            value={codMetrics ? `Gs. ${codMetrics.pending_cash.toLocaleString()}` : 'Gs. 0'}
+            change={undefined}
+            trend={undefined}
+            icon={<Wallet className="text-blue-600" size={24} />}
+            variant="secondary"
+          />
+          <MetricCard
+            title="Tasa de Entrega"
+            value={`${dashboardOverview.deliveryRate}%`}
+            change={dashboardOverview.changes?.deliveryRate !== null ? Math.abs(dashboardOverview.changes?.deliveryRate || 0) : undefined}
+            trend={dashboardOverview.changes?.deliveryRate !== null ? (dashboardOverview.changes?.deliveryRate >= 0 ? 'up' : 'down') : undefined}
+            icon={<Truck className="text-purple-600" size={24} />}
+            variant="purple"
+            onClick={() => handleMetricClick('delivery')}
+          />
+          <MetricCard
+            title="Ticket Promedio"
+            value={`Gs. ${dashboardOverview.averageOrderValue.toLocaleString()}`}
+            change={dashboardOverview.changes?.averageOrderValue !== null ? Math.abs(dashboardOverview.changes?.averageOrderValue || 0) : undefined}
+            trend={dashboardOverview.changes?.averageOrderValue !== null ? (dashboardOverview.changes?.averageOrderValue >= 0 ? 'up' : 'down') : undefined}
+            icon={<ShoppingCart className="text-orange-600" size={24} />}
+          />
+        </div>
       </div>
 
-      {/* COD Metrics Section */}
-      {codMetrics && (
-        <>
-          <div className="flex items-center gap-2 mt-8">
-            <h3 className="text-xl font-bold">Métricas COD (Contra Entrega)</h3>
+      {/* Secondary Metrics - Collapsible */}
+      <div className="space-y-4">
+        <Button
+          variant="ghost"
+          className="w-full flex items-center justify-between p-4 hover:bg-accent"
+          onClick={() => setShowSecondaryMetrics(!showSecondaryMetrics)}
+        >
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">Métricas Adicionales</h3>
+            <span className="text-sm text-muted-foreground">
+              ({showSecondaryMetrics ? 'Ocultar' : 'Mostrar'})
+            </span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {showSecondaryMetrics ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        </Button>
+
+        {showSecondaryMetrics && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
-              title="Efectivo Pendiente"
-              value={`Gs. ${codMetrics.pending_cash.toLocaleString()}`}
-              icon={<DollarSign className="text-yellow-600" size={20} />}
+              title="Total Pedidos"
+              value={dashboardOverview.totalOrders}
+              change={dashboardOverview.changes?.totalOrders !== null ? Math.abs(dashboardOverview.changes?.totalOrders || 0) : undefined}
+              trend={dashboardOverview.changes?.totalOrders !== null ? (dashboardOverview.changes?.totalOrders >= 0 ? 'up' : 'down') : undefined}
+              icon={<ShoppingBag className="text-primary" size={20} />}
+              onClick={() => handleMetricClick('orders')}
             />
+            <MetricCard
+              title="Costos"
+              value={`Gs. ${dashboardOverview.costs.toLocaleString()}`}
+              change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
+              trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
+              icon={<TrendingDown className="text-red-600" size={20} />}
+            />
+            <MetricCard
+              title="Margen de Beneficio"
+              value={`${dashboardOverview.profitMargin}%`}
+              change={dashboardOverview.changes?.profitMargin !== null ? Math.abs(dashboardOverview.changes?.profitMargin || 0) : undefined}
+              trend={dashboardOverview.changes?.profitMargin !== null ? (dashboardOverview.changes?.profitMargin >= 0 ? 'up' : 'down') : undefined}
+              icon={<Percent className="text-primary" size={20} />}
+            />
+            <MetricCard
+              title="ROI General"
+              value={`${dashboardOverview.roi}x`}
+              change={dashboardOverview.changes?.roi !== null ? Math.abs(dashboardOverview.changes?.roi || 0) : undefined}
+              trend={dashboardOverview.changes?.roi !== null ? (dashboardOverview.changes?.roi >= 0 ? 'up' : 'down') : undefined}
+              icon={<Target className="text-blue-600" size={20} />}
+            />
+            <MetricCard
+              title="Tasa de Confirmación"
+              value={`${confirmationMetrics.confirmationRate.toFixed(1)}%`}
+              change={confirmationMetrics.confirmationRateChange !== null ? Math.abs(confirmationMetrics.confirmationRateChange || 0) : undefined}
+              trend={confirmationMetrics.confirmationRateChange !== null ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
+              icon={<CheckCircle2 className="text-green-600" size={20} />}
+              onClick={() => handleMetricClick('confirmation')}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Advanced Metrics - Collapsible */}
+      <div className="space-y-4">
+        <Button
+          variant="ghost"
+          className="w-full flex items-center justify-between p-4 hover:bg-accent"
+          onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+        >
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">Métricas Avanzadas</h3>
+            <span className="text-sm text-muted-foreground">
+              ({showAdvancedMetrics ? 'Ocultar' : 'Mostrar'})
+            </span>
+          </div>
+          {showAdvancedMetrics ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        </Button>
+
+        {showAdvancedMetrics && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <MetricCard
+              title="Marketing"
+              value={`Gs. ${dashboardOverview.marketing.toLocaleString()}`}
+              change={dashboardOverview.changes?.marketing !== null ? Math.abs(dashboardOverview.changes?.marketing || 0) : undefined}
+              trend={dashboardOverview.changes?.marketing !== null ? (dashboardOverview.changes?.marketing >= 0 ? 'up' : 'down') : undefined}
+              icon={<Megaphone className="text-blue-600" size={20} />}
+            />
+            <MetricCard
+              title={`IVA Recolectado (${dashboardOverview.taxRate}%)`}
+              value={`Gs. ${dashboardOverview.taxCollected.toLocaleString()}`}
+              change={dashboardOverview.changes?.taxCollected !== null ? Math.abs(dashboardOverview.changes?.taxCollected || 0) : undefined}
+              trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
+              icon={<Receipt className="text-orange-600" size={20} />}
+            />
+            <MetricCard
+              title="Costo por Pedido"
+              value={`Gs. ${dashboardOverview.costPerOrder.toLocaleString()}`}
+              change={dashboardOverview.changes?.costPerOrder !== null ? Math.abs(dashboardOverview.changes?.costPerOrder || 0) : undefined}
+              trend={dashboardOverview.changes?.costPerOrder !== null ? (dashboardOverview.changes?.costPerOrder >= 0 ? 'up' : 'down') : undefined}
+              icon={<Package2 className="text-gray-600" size={20} />}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* COD Metrics Section - Collapsible */}
+      {codMetrics && (
+        <div className="space-y-4">
+          <Button
+            variant="ghost"
+            className="w-full flex items-center justify-between p-4 hover:bg-accent"
+            onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+          >
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold">Métricas Operativas (COD)</h3>
+              <span className="text-sm text-muted-foreground">
+                Seguimiento de entregas contra entrega
+              </span>
+            </div>
+          </Button>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
               title="Cobrado Hoy"
               value={`Gs. ${codMetrics.collected_today.toLocaleString()}`}
@@ -312,7 +396,7 @@ export default function Dashboard() {
               icon={<AlertCircle className="text-red-600" size={20} />}
             />
           </div>
-        </>
+        </div>
       )}
 
       {/* Charts Row */}
