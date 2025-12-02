@@ -24,6 +24,8 @@ import {
   Store,
   Settings2,
   ClipboardList,
+  PackageX,
+  RotateCcw,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -59,6 +61,7 @@ const menuSections: MenuSection[] = [
     icon: ShoppingBag,
     items: [
       { path: '/orders', label: 'Pedidos', icon: ShoppingCart },
+      { path: '/returns', label: 'Devoluciones', icon: RotateCcw },
       { path: '/customers', label: 'Clientes', icon: UserCircle },
       { path: '/ads', label: 'Anuncios', icon: Megaphone },
     ],

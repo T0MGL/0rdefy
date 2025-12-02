@@ -18,6 +18,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useHighlight } from '@/hooks/useHighlight';
 import { Order } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 import { Button } from '@/components/ui/button';
@@ -84,6 +85,7 @@ export default function Orders() {
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
   const { getDateRange } = useDateRange();
   const debouncedSearch = useDebounce(search, 300);
+  const { isHighlighted } = useHighlight();
   const previousCountRef = useRef(0);
 
   // Load carriers on mount
@@ -723,7 +725,15 @@ export default function Orders() {
             </thead>
             <tbody>
               {filteredOrders.map((order) => (
-                <tr key={order.id} className="border-t border-border hover:bg-muted/30 transition-colors">
+                <tr
+                  key={order.id}
+                  id={`item-${order.id}`}
+                  className={`border-t border-border hover:bg-muted/30 transition-all ${
+                    isHighlighted(order.id)
+                      ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400 dark:ring-yellow-500'
+                      : ''
+                  }`}
+                >
                   <td className="py-4 px-3 text-center">
                     {order.delivery_link_token ? (
                       <Button

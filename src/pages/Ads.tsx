@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ExportButton } from '@/components/ExportButton';
 import { adsService } from '@/services/ads.service';
 import { useToast } from '@/hooks/use-toast';
+import { useHighlight } from '@/hooks/useHighlight';
 import { useState, useEffect } from 'react';
 import { Ad } from '@/types';
 import { Plus, TrendingUp, Edit, Trash2 } from 'lucide-react';
@@ -160,6 +161,7 @@ export default function Ads() {
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [adToDelete, setAdToDelete] = useState<string | null>(null);
   const { toast } = useToast();
+  const { isHighlighted } = useHighlight();
 
   useEffect(() => {
     loadAds();
@@ -299,7 +301,15 @@ export default function Ads() {
                 </tr>
               ) : (
                 ads.map((ad) => (
-                  <tr key={ad.id} className="border-t border-border hover:bg-muted/30 transition-colors">
+                  <tr
+                    key={ad.id}
+                    id={`item-${ad.id}`}
+                    className={`border-t border-border hover:bg-muted/30 transition-all ${
+                      isHighlighted(ad.id)
+                        ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400 dark:ring-yellow-500'
+                        : ''
+                    }`}
+                  >
                     <td className="py-4 px-6 text-sm font-medium">{ad.platform}</td>
                     <td className="py-4 px-6 text-sm">{ad.campaign_name}</td>
                     <td className="py-4 px-6 text-right text-sm">

@@ -10,7 +10,37 @@
 
     <!-- Shopify App Bridge CDN - Required meta tags BEFORE script -->
     <meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b" />
-    <!-- Shopify App Bridge 3.0 - MUST be first script, NO defer/async/type=module -->
+
+    <!-- Extract shop domain from URL and inject meta tag BEFORE App Bridge loads -->
+    <script>
+      (function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const shop = urlParams.get('shop');
+        const host = urlParams.get('host');
+
+        // Get shop domain from 'shop' param or decode 'host' param
+        let shopDomain = shop;
+        if (!shopDomain && host) {
+          try {
+            const decodedHost = atob(host);
+            shopDomain = decodedHost.split('/')[0];
+          } catch (e) {
+            console.warn('[Shopify] Could not decode host parameter:', e);
+          }
+        }
+
+        // Inject shopify-shop meta tag if we have a shop domain
+        if (shopDomain) {
+          const meta = document.createElement('meta');
+          meta.name = 'shopify-shop';
+          meta.content = shopDomain;
+          document.head.appendChild(meta);
+          console.log('[Shopify] Injected shop domain meta tag:', shopDomain);
+        }
+      })();
+    </script>
+
+    <!-- Shopify App Bridge 3.0 - MUST be loaded AFTER meta tags are ready -->
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
 
     <!-- Prevent flash of unstyled content for dark mode -->
