@@ -4,7 +4,7 @@
 // API client for inventory movements and stock management
 // ================================================================
 
-import { client } from './api.client';
+import apiClient from './api.client';
 
 export interface InventoryMovement {
   id: string;
@@ -92,7 +92,7 @@ export const inventoryService = {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.offset) queryParams.append('offset', params.offset.toString());
 
-    const response = await client.get(`/inventory/movements?${queryParams.toString()}`);
+    const response = await apiClient.get(`/inventory/movements?${queryParams.toString()}`);
     return response.data;
   },
 
@@ -108,7 +108,7 @@ export const inventoryService = {
     if (params?.date_from) queryParams.append('date_from', params.date_from);
     if (params?.date_to) queryParams.append('date_to', params.date_to);
 
-    const response = await client.get(`/inventory/movements/summary?${queryParams.toString()}`);
+    const response = await apiClient.get(`/inventory/movements/summary?${queryParams.toString()}`);
     return response.data;
   },
 
@@ -127,7 +127,7 @@ export const inventoryService = {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.offset) queryParams.append('offset', params.offset.toString());
 
-    const response = await client.get(
+    const response = await apiClient.get(
       `/inventory/movements/product/${productId}?${queryParams.toString()}`
     );
     return response.data;
@@ -137,7 +137,7 @@ export const inventoryService = {
    * Manual inventory adjustment
    */
   async adjustInventory(data: AdjustInventoryRequest): Promise<AdjustInventoryResponse> {
-    const response = await client.post('/inventory/adjust', data);
+    const response = await apiClient.post('/inventory/adjust', data);
     return response.data;
   },
 };

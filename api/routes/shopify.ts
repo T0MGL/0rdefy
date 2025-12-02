@@ -14,17 +14,40 @@ import { ShopifyIntegration, ShopifyConfigRequest } from '../types/shopify';
 
 export const shopifyRouter = Router();
 
-// Aplicar autenticacion a todas las rutas excepto webhooks
-// CRITICAL: Skip auth for both /webhook/ AND /webhooks/ (Shopify uses plural)
+// Aplicar autenticacion a todas las rutas excepto webhooks CALLBACK
+// CRITICAL: Skip auth only for webhook callback endpoints, not management endpoints
+// Management endpoints like /webhooks/list, /webhooks/setup, etc. require auth
+const isWebhookCallback = (path: string): boolean => {
+  const webhookCallbackPaths = [
+    '/webhook/orders-create',
+    '/webhooks/orders-create',
+    '/webhook/orders-updated',
+    '/webhooks/orders-updated',
+    '/webhook/products-update',
+    '/webhooks/products-update',
+    '/webhook/products-delete',
+    '/webhooks/products-delete',
+    '/webhook/customers/data_request',
+    '/webhooks/customers/data_request',
+    '/webhook/customers/redact',
+    '/webhooks/customers/redact',
+    '/webhook/app-uninstalled',
+    '/webhooks/app-uninstalled',
+    '/webhook/shop/redact',
+    '/webhooks/shop/redact'
+  ];
+  return webhookCallbackPaths.includes(path);
+};
+
 shopifyRouter.use((req: Request, res: Response, next) => {
-  if (req.path.startsWith('/webhook/') || req.path.startsWith('/webhooks/')) {
+  if (isWebhookCallback(req.path)) {
     return next();
   }
   return verifyToken(req as AuthRequest, res, next);
 });
 
 shopifyRouter.use((req: Request, res: Response, next) => {
-  if (req.path.startsWith('/webhook/') || req.path.startsWith('/webhooks/')) {
+  if (isWebhookCallback(req.path)) {
     return next();
   }
   return extractStoreId(req as AuthRequest, res, next);
