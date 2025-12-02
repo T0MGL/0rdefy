@@ -10,6 +10,8 @@ export interface DashboardOverview {
   deliveryRate: number;
   taxCollected: number; // IVA recolectado incluido en los ingresos
   taxRate: number; // Tasa de IVA configurada en el onboarding (ej: 10 para 10%)
+  costPerOrder: number; // Costo promedio por pedido
+  averageOrderValue: number; // Ticket promedio (valor promedio por pedido)
   changes?: {
     totalOrders: number | null;
     revenue: number | null;
@@ -21,6 +23,8 @@ export interface DashboardOverview {
     roas: number | null;
     deliveryRate: number | null;
     taxCollected: number | null;
+    costPerOrder: number | null;
+    averageOrderValue: number | null;
   };
 }
 
