@@ -6,7 +6,7 @@
  * @date 2025-12-02
  */
 
-import { apiClient } from './api.client';
+import apiClient from './api.client';
 
 export interface ReturnSession {
   id: string;
