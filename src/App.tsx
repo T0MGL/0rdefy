@@ -20,6 +20,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const DashboardLogistics = lazy(() => import("./pages/DashboardLogistics"));
 const Orders = lazy(() => import("./pages/Orders"));
 const Warehouse = lazy(() => import("./pages/Warehouse"));
+const Returns = lazy(() => import("./pages/Returns"));
 const InventoryMovements = lazy(() => import("./pages/InventoryMovements").then(m => ({ default: m.InventoryMovements })));
 const Products = lazy(() => import("./pages/Products"));
 const Merchandise = lazy(() => import("./pages/Merchandise"));
@@ -116,6 +117,7 @@ const App = () => {
                     <Route path="/dashboard-logistics" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><DashboardLogistics /></ProtectedLayout>} />
                     <Route path="/orders" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></ProtectedLayout>} />
                     <Route path="/warehouse" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Warehouse /></ProtectedLayout>} />
+                    <Route path="/returns" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Returns /></ProtectedLayout>} />
                     <Route path="/inventory" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><InventoryMovements /></ProtectedLayout>} />
                     <Route path="/products" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Products /></ProtectedLayout>} />
                     <Route path="/merchandise" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Merchandise /></ProtectedLayout>} />

@@ -213,7 +213,7 @@ export async function getPickingList(
     const productIds = items.map(item => item.product_id);
     const { data: products, error: productsError } = await supabaseAdmin
       .from('products')
-      .select('id, name, image_url, sku, shelf_location')
+      .select('id, name, image_url, sku')
       .in('id', productIds);
 
     if (productsError) throw productsError;
@@ -229,7 +229,7 @@ export async function getPickingList(
         product_name: product?.name || 'Producto desconocido',
         product_image: product?.image_url,
         product_sku: product?.sku,
-        shelf_location: product?.shelf_location
+        shelf_location: undefined
       };
     });
   } catch (error) {

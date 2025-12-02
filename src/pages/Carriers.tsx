@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { ExportButton } from '@/components/ExportButton';
 import { useToast } from '@/hooks/use-toast';
+import { useHighlight } from '@/hooks/useHighlight';
 import { carriersService, Carrier } from '@/services/carriers.service';
 import { Plus, Package, TrendingUp, Clock, Star, Search } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
@@ -121,6 +122,7 @@ function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSub
 export default function Carriers() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isHighlighted } = useHighlight();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [carriers, setCarriers] = useState<any[]>([]);
@@ -333,6 +335,7 @@ export default function Carriers() {
           await loadCarriers();
           await loadPerformanceStats();
         }}
+        isHighlighted={isHighlighted}
       />
 
       {/* Form Dialog */}

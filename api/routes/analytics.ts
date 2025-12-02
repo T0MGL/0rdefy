@@ -126,11 +126,11 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
 
         // ===== HELPER FUNCTION: Calculate metrics for a set of orders =====
-        const calculateMetrics = async (ordersList: any[], marketingCosts: number) => {
+        const calculateMetrics = async (ordersList: any[], marketingCosts: number, periodStart: Date, periodEnd: Date) => {
             const count = ordersList.length;
 
-            // 1. REVENUE
-            const rev = ordersList.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
+            // 1. REVENUE (from orders)
+            let rev = ordersList.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
             // 2. TAX COLLECTED (IVA incluido en el precio de venta)
             // Fórmula: IVA = precio - (precio / (1 + tasa/100))
@@ -176,6 +176,28 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 }
             }
 
+            // 3.5. GET ADDITIONAL VALUES FOR THIS PERIOD
+            const { data: additionalValuesData } = await supabaseAdmin
+                .from('additional_values')
+                .select('type, amount')
+                .eq('store_id', req.storeId)
+                .gte('date', periodStart.toISOString().split('T')[0])
+                .lte('date', periodEnd.toISOString().split('T')[0]);
+
+            const additionalValues = additionalValuesData || [];
+
+            // Add incomes to revenue
+            const additionalIncome = additionalValues
+                .filter(av => av.type === 'income')
+                .reduce((sum, av) => sum + (Number(av.amount) || 0), 0);
+            rev += additionalIncome;
+
+            // Add expenses to costs
+            const additionalExpenses = additionalValues
+                .filter(av => av.type === 'expense')
+                .reduce((sum, av) => sum + (Number(av.amount) || 0), 0);
+            costs += additionalExpenses;
+
             // 4. MARKETING (from campaigns table)
             const mktg = marketingCosts;
 
@@ -217,8 +239,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         };
 
         // Calculate metrics for both periods
-        const currentMetrics = await calculateMetrics(currentPeriodOrders, currentMarketingCosts);
-        const previousMetrics = await calculateMetrics(previousPeriodOrders, previousMarketingCosts);
+        const currentMetrics = await calculateMetrics(currentPeriodOrders, currentMarketingCosts, currentPeriodStart, currentPeriodEnd);
+        const previousMetrics = await calculateMetrics(previousPeriodOrders, previousMarketingCosts, previousPeriodStart, previousPeriodEnd);
 
         // Use current period metrics as the displayed values
         const revenue = currentMetrics.revenue;
@@ -383,6 +405,41 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             }
         }
 
+        // Get additional values for the date range
+        let additionalValuesQuery = supabaseAdmin
+            .from('additional_values')
+            .select('date, type, amount')
+            .eq('store_id', req.storeId);
+
+        if (startDateParam) {
+            additionalValuesQuery = additionalValuesQuery.gte('date', startDateParam);
+        }
+        if (endDateParam) {
+            additionalValuesQuery = additionalValuesQuery.lte('date', endDateParam);
+        } else if (!startDateParam) {
+            const daysCount = parseInt(days as string);
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - daysCount);
+            additionalValuesQuery = additionalValuesQuery.gte('date', startDate.toISOString().split('T')[0]);
+        }
+
+        const { data: additionalValuesData } = await additionalValuesQuery;
+        const additionalValues = additionalValuesData || [];
+
+        // Group additional values by date
+        const dailyAdditionalValues: Record<string, { income: number; expense: number }> = {};
+        for (const av of additionalValues) {
+            const date = av.date;
+            if (!dailyAdditionalValues[date]) {
+                dailyAdditionalValues[date] = { income: 0, expense: 0 };
+            }
+            if (av.type === 'income') {
+                dailyAdditionalValues[date].income += Number(av.amount) || 0;
+            } else if (av.type === 'expense') {
+                dailyAdditionalValues[date].expense += Number(av.amount) || 0;
+            }
+        }
+
         // Group orders by date
         const dailyData: Record<string, { revenue: number; costs: number; marketing: number; profit: number }> = {};
 
@@ -402,6 +459,15 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
                     dailyData[date].costs += productCost * (item.quantity || 1);
                 }
             }
+        }
+
+        // Add additional values to revenue and costs for each day
+        for (const date in dailyAdditionalValues) {
+            if (!dailyData[date]) {
+                dailyData[date] = { revenue: 0, costs: 0, marketing: 0, profit: 0 };
+            }
+            dailyData[date].revenue += dailyAdditionalValues[date].income;
+            dailyData[date].costs += dailyAdditionalValues[date].expense;
         }
 
         // Add marketing costs from campaigns for each day

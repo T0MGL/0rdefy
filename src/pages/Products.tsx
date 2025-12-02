@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { ExportButton } from '@/components/ExportButton';
 import { productsService } from '@/services/products.service';
 import { useToast } from '@/hooks/use-toast';
+import { useHighlight } from '@/hooks/useHighlight';
 import { Plus, Edit, Trash2, PackageOpen, PackagePlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
@@ -29,6 +30,7 @@ export default function Products() {
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [stockAdjustment, setStockAdjustment] = useState<number>(0);
   const { toast } = useToast();
+  const { isHighlighted } = useHighlight();
 
   useEffect(() => {
     const loadProducts = async () => {
@@ -272,11 +274,16 @@ export default function Products() {
         {products.map((product, index) => (
           <motion.div
             key={product.id}
+            id={`item-${product.id}`}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
           >
-            <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50">
+            <Card className={`overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50 ${
+              isHighlighted(product.id)
+                ? 'ring-2 ring-yellow-400 dark:ring-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+                : ''
+            }`}>
               <div className="aspect-square bg-muted flex items-center justify-center">
                 <img
                   src={product.image}

@@ -11,9 +11,10 @@ interface CarrierTableProps {
   onEdit?: (carrier: any) => void;
   onRefresh?: () => void;
   onManageZones?: (carrier: any) => void;
+  isHighlighted?: (id: string) => boolean;
 }
 
-export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones }: CarrierTableProps) {
+export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones, isHighlighted }: CarrierTableProps) {
   const { toast } = useToast();
 
   const handleEdit = (carrier: any) => {
@@ -91,7 +92,12 @@ export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones }: Car
               return (
                 <tr
                   key={carrier.id}
-                  className="hover:bg-muted/20 transition-colors"
+                  id={`item-${carrier.id}`}
+                  className={`hover:bg-muted/20 transition-all ${
+                    isHighlighted && isHighlighted(carrier.id)
+                      ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400 dark:ring-yellow-500'
+                      : ''
+                  }`}
                 >
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-3">
@@ -153,6 +159,16 @@ export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones }: Car
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center justify-center gap-1">
+                      <Link to={`/carriers/${carrier.id}`}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Ver detalles"
+                        >
+                          <Eye size={16} />
+                        </Button>
+                      </Link>
                       <Button
                         variant="ghost"
                         size="icon"
