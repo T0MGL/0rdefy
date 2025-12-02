@@ -59,12 +59,26 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         const urlParams = new URLSearchParams(window.location.search);
         const host = urlParams.get('host');
         const embedded = urlParams.get('embedded');
+        const shop = urlParams.get('shop');
 
         // Si no hay parámetro 'host' o 'embedded', no estamos en Shopify
         if (!host || embedded !== '1') {
           console.log('[Shopify] Not running in Shopify embedded app context - standalone mode');
           setIsLoading(false);
           return;
+        }
+
+        // Extraer shop domain desde host si no está en parámetros directos
+        // El host es un base64 de shop/admin, podemos decodificarlo
+        let shopDomain = shop;
+        if (!shopDomain && host) {
+          try {
+            const decodedHost = atob(host);
+            shopDomain = decodedHost.split('/')[0]; // Obtener shop.myshopify.com
+            console.log('[Shopify] Decoded shop domain from host:', shopDomain);
+          } catch (err) {
+            console.warn('[Shopify] Could not decode host parameter:', err);
+          }
         }
 
         // Esperar a que el script de App Bridge esté cargado
@@ -87,13 +101,22 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
           return;
         }
 
-        console.log('[Shopify] Initializing App Bridge 3.0...');
+        // Validar que tengamos shopDomain antes de inicializar
+        if (!shopDomain) {
+          console.error('[Shopify] Could not determine shop domain from URL parameters');
+          setError(new Error('Missing shop domain parameter'));
+          setIsLoading(false);
+          return;
+        }
+
+        console.log('[Shopify] Initializing App Bridge 3.0 with shop:', shopDomain);
 
         // Inicializar App Bridge 3.0 con el client_id del shopify.app.toml
         const CLIENT_ID = '75123c29296179fbd8f253db4196c83b';
         const shopifyApp = window.shopify.createApp({
           apiKey: CLIENT_ID,
-          host: host,
+          shop: shopDomain,  // REQUERIDO: Shop domain (shop.myshopify.com)
+          host: host,        // Host parameter from Shopify
           forceRedirect: true, // Redirigir automáticamente cuando no esté embebido
         });
 
