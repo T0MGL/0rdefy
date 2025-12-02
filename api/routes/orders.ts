@@ -651,6 +651,7 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
             customer_phone,
             customer_first_name,
             customer_last_name,
+            customer_address,
             billing_address,
             shipping_address,
             line_items,
@@ -660,6 +661,9 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
             total_shipping,
             currency = 'USD',
             financial_status,
+            payment_status,
+            courier_id,
+            payment_method,
             shopify_raw_json
         } = req.body;
 
@@ -671,6 +675,16 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
             });
         }
 
+        console.log('🚀 [ORDERS] Creating order:', {
+            customer_first_name,
+            customer_last_name,
+            customer_phone,
+            courier_id,
+            payment_method,
+            payment_status,
+            line_items
+        });
+
         const { data, error } = await supabaseAdmin
             .from('orders')
             .insert([{
@@ -681,6 +695,7 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
                 customer_phone,
                 customer_first_name,
                 customer_last_name,
+                customer_address,
                 billing_address,
                 shipping_address,
                 line_items,
@@ -690,6 +705,9 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
                 total_shipping: total_shipping || 0,
                 currency,
                 financial_status: financial_status || 'pending',
+                payment_status: payment_status || 'pending',
+                payment_method: payment_method || 'cash',
+                courier_id,
                 sleeves_status: 'pending',
                 shopify_raw_json: shopify_raw_json || {}
             }])
@@ -697,8 +715,11 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
             .single();
 
         if (error) {
+            console.error('❌ [ORDERS] Database error:', error);
             throw error;
         }
+
+        console.log('✅ [ORDERS] Order created successfully:', data.id);
 
         res.status(201).json({
             message: 'Order created successfully',

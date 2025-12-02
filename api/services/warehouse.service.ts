@@ -187,7 +187,7 @@ export async function getPickingList(
       .from('picking_session_items')
       .select(`
         *,
-        products:product_id (
+        products!product_id (
           name,
           image_url,
           sku,
@@ -448,7 +448,7 @@ export async function getPackingList(
       .from('packing_progress')
       .select(`
         *,
-        products:product_id (
+        products!product_id (
           name,
           image_url
         )
@@ -487,7 +487,7 @@ export async function getPackingList(
       .from('picking_session_items')
       .select(`
         *,
-        products:product_id (
+        products!product_id (
           name,
           image_url
         )
@@ -665,7 +665,7 @@ export async function getConfirmedOrders(storeId: string) {
         customer_phone,
         created_at,
         line_items,
-        carrier:carrier_id (name)
+        carrier!carrier_id (name)
       `)
       .eq('store_id', storeId)
       .eq('status', 'confirmed')
