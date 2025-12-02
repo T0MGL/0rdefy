@@ -1044,6 +1044,7 @@ $$ LANGUAGE plpgsql;
 -- ================================================================
 
 -- Función para generar código único de sesión
+-- Format: PREP-DDMMYYYY-NN (e.g., PREP-02122025-01 for Dec 2, 2025)
 CREATE OR REPLACE FUNCTION generate_session_code()
 RETURNS VARCHAR(50) AS $$
 DECLARE
@@ -1054,11 +1055,12 @@ DECLARE
     date_part VARCHAR(10);
     sequence_num INTEGER;
 BEGIN
-    date_part := TO_CHAR(NOW(), 'YYMM');
+    -- Get current date in DDMMYYYY format (Latin American format)
+    date_part := TO_CHAR(NOW(), 'DDMMYYYY');
     LOOP
         SELECT COALESCE(MAX(
             CAST(
-                SUBSTRING(code FROM 'PREP-[0-9]{4}-([0-9]+)') AS INTEGER
+                SUBSTRING(code FROM 'PREP-[0-9]{8}-([0-9]+)') AS INTEGER
             )
         ), 0) + 1
         INTO sequence_num

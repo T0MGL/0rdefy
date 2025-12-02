@@ -15,7 +15,8 @@ import {
   ShoppingBag,
   DollarSign,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  Package2
 } from 'lucide-react';
 import { ordersService } from '@/services/orders.service';
 import { analyticsService } from '@/services/analytics.service';
@@ -108,6 +109,9 @@ export function DailySummary() {
   // Contar pedidos pendientes en el período seleccionado
   const pendingConfirmation = orders.filter(o => o.status === 'pending' && !o.confirmedByWhatsApp);
 
+  // Contar pedidos en preparación en el período seleccionado
+  const inPreparation = orders.filter(o => o.status === 'in_preparation');
+
   // Obtener el label correcto basado en el período seleccionado
   const getMetricLabel = (baseLabel: string) => {
     switch (selectedRange) {
@@ -147,11 +151,11 @@ export function DailySummary() {
       trend: undefined,
     },
     {
-      label: 'ROAS Promedio',
-      value: `${(overview.roas ?? 0).toFixed(2)}x`,
-      change: overview.changes?.roas !== null ? overview.changes?.roas : null,
-      icon: CheckCircle,
-      trend: overview.changes?.roas !== null ? (overview.changes?.roas >= 0 ? 'up' as const : 'down' as const) : undefined,
+      label: 'En Preparación',
+      value: inPreparation.length,
+      change: null, // No tiene sentido comparar en preparación con período anterior
+      icon: Package2,
+      trend: undefined,
     },
   ];
   

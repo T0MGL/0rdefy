@@ -33,6 +33,7 @@ import { settlementsRouter } from './routes/settlements';
 import { carrierSettlementsRouter } from './routes/carrier-settlements';
 import { codMetricsRouter } from './routes/cod-metrics';
 import warehouseRouter from './routes/warehouse';
+import { inventoryRouter } from './routes/inventory';
 
 // Load environment variables
 dotenv.config();
@@ -379,6 +380,9 @@ app.use('/api/cod-metrics', codMetricsRouter);
 
 // Warehouse routes
 app.use('/api/warehouse', warehouseRouter);
+
+// Inventory routes
+app.use('/api/inventory', inventoryRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
