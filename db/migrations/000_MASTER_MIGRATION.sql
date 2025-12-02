@@ -803,9 +803,11 @@ CREATE OR REPLACE FUNCTION calculate_cod_amount()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.payment_method IN ('cash', 'efectivo') THEN
-        NEW.cod_amount = COALESCE(NEW.total_price, 0);
+        -- Cast to DECIMAL to match total_price type
+        NEW.cod_amount = COALESCE(NEW.total_price, 0.0);
     ELSE
-        NEW.cod_amount = 0;
+        -- Cast to DECIMAL to match cod_amount type
+        NEW.cod_amount = 0.0;
     END IF;
     RETURN NEW;
 END;

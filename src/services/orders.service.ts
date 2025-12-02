@@ -59,6 +59,8 @@ export const ordersService = {
 
   create: async (order: CreateOrderInput): Promise<Order> => {
     try {
+      console.log('📤 [ORDERS SERVICE] Creating order:', order);
+
       // Transform frontend format to backend format
       const [firstName, ...lastNameParts] = (order.customer || '').split(' ');
       const lastName = lastNameParts.join(' ');
@@ -82,10 +84,11 @@ export const ordersService = {
         currency: 'PYG',
         financial_status: 'pending',
         payment_status: order.paymentMethod === 'paid' ? 'collected' : 'pending',
-        shipping_address: {
-          company: order.carrier
-        },
+        payment_method: order.paymentMethod === 'cod' ? 'cash' : 'online',
+        courier_id: order.carrier, // ✅ Send courier_id instead of shipping_address.company
       };
+
+      console.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);
 
       const response = await fetch(`${API_BASE_URL}/orders`, {
         method: 'POST',
@@ -95,10 +98,12 @@ export const ordersService = {
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('❌ [ORDERS SERVICE] Backend error:', errorData);
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
 
       const result = await response.json();
+      console.log('✅ [ORDERS SERVICE] Order created:', result.data);
 
       // Transform backend response to frontend format
       return {
@@ -114,7 +119,7 @@ export const ordersService = {
         confirmedByWhatsApp: false,
       };
     } catch (error) {
-      console.error('Error creating order:', error);
+      console.error('❌ [ORDERS SERVICE] Error creating order:', error);
       throw error;
     }
   },
