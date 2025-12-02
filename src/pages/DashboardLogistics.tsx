@@ -184,9 +184,9 @@ export default function DashboardLogistics() {
           />
           <MetricCard
             title="Tasa de Confirmación"
-            value={`${confirmationMetrics.confirmationRate.toFixed(1)}%`}
-            change={confirmationMetrics.confirmationRateChange !== null ? Math.abs(confirmationMetrics.confirmationRateChange || 0) : undefined}
-            trend={confirmationMetrics.confirmationRateChange !== null ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
+            value={`${(confirmationMetrics?.confirmationRate || 0).toFixed(1)}%`}
+            change={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? Math.abs(confirmationMetrics.confirmationRateChange) : undefined}
+            trend={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
             icon={<CheckCircle2 className="text-green-600" size={24} />}
             onClick={() => handleMetricClick('confirmation')}
           />
@@ -212,29 +212,29 @@ export default function DashboardLogistics() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
               title="Cobrado Hoy"
-              value={`Gs. ${codMetrics.collected_today.toLocaleString()}`}
+              value={`Gs. ${(codMetrics.collected_today || 0).toLocaleString()}`}
               icon={<CheckCircle2 className="text-green-600" size={20} />}
               variant="accent"
             />
             <MetricCard
               title="Proyección de Caja"
-              value={`Gs. ${codMetrics.pending_cash.toLocaleString()}`}
+              value={`Gs. ${(codMetrics.pending_cash || 0).toLocaleString()}`}
               icon={<TrendingUp className="text-blue-600" size={20} />}
               variant="secondary"
             />
             <MetricCard
               title="Pedidos en Entrega"
-              value={codMetrics.orders_in_delivery}
+              value={codMetrics.orders_in_delivery || 0}
               icon={<Truck className="text-blue-600" size={20} />}
             />
             <MetricCard
               title="Tasa de Pago Exitoso"
-              value={`${codMetrics.payment_success_rate}%`}
+              value={`${codMetrics.payment_success_rate || 0}%`}
               icon={<Percent className="text-green-600" size={20} />}
             />
             <MetricCard
               title="Intentos Promedio"
-              value={codMetrics.average_delivery_attempts.toFixed(1)}
+              value={(codMetrics.average_delivery_attempts || 0).toFixed(1)}
               icon={<Package2 className="text-purple-600" size={20} />}
             />
           </div>
@@ -262,17 +262,17 @@ export default function DashboardLogistics() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <MetricCard
                 title="Pérdidas por Fallos"
-                value={`Gs. ${codMetrics.failed_deliveries_loss.toLocaleString()}`}
+                value={`Gs. ${(codMetrics.failed_deliveries_loss || 0).toLocaleString()}`}
                 icon={<AlertCircle className="text-red-600" size={20} />}
               />
               <MetricCard
                 title="Tiempo Prom. Confirmación"
-                value={`${confirmationMetrics.averageConfirmationTime.toFixed(1)}h`}
+                value={`${(confirmationMetrics?.averageConfirmationTime || 0).toFixed(1)}h`}
                 icon={<Clock className="text-blue-600" size={20} />}
               />
               <MetricCard
                 title="Pedidos Confirmados Hoy"
-                value={confirmationMetrics.confirmedToday}
+                value={confirmationMetrics?.confirmedToday || 0}
                 icon={<CheckCircle2 className="text-green-600" size={20} />}
               />
             </div>

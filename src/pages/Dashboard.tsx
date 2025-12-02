@@ -10,7 +10,7 @@ import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { RevenueProjectionCard } from '@/components/RevenueProjectionCard';
 import { useDateRange } from '@/contexts/DateRangeContext';
-import { DashboardOverview, ChartData, Product } from '@/types';
+import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
 import {
@@ -52,7 +52,6 @@ export default function Dashboard() {
   // Real analytics data
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
-  const [topProducts, setTopProducts] = useState<Product[]>([]);
   const [codMetrics, setCodMetrics] = useState<any>(null);
 
   // Calculate date ranges from global context
@@ -81,10 +80,9 @@ export default function Dashboard() {
 
       console.log('📊 Loading dashboard data with params:', dateParams);
 
-      const [overview, chart, products, codData] = await Promise.all([
+      const [overview, chart, codData] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getChartData(dateRange.days, dateParams),
-        analyticsService.getTopProducts(5, dateParams),
         codMetricsService.getMetrics({
           start_date: dateParams.startDate,
           end_date: dateParams.endDate,
@@ -99,7 +97,6 @@ export default function Dashboard() {
 
       setDashboardOverview(overview);
       setChartData(chart);
-      setTopProducts(products);
       setCodMetrics(codData);
     } catch (error: any) {
       // Ignore abort errors
@@ -366,59 +363,6 @@ export default function Dashboard() {
             />
           </LineChart>
         </ResponsiveContainer>
-      </Card>
-
-      {/* Top Products Table */}
-      <Card className="p-6 bg-card">
-        <h3 className="text-lg font-semibold mb-4 text-card-foreground">Productos Más Vendidos</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                  Producto
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
-                  Stock
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
-                  Precio
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
-                  Rentabilidad
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
-                  Ventas
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {topProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                    No hay datos de productos disponibles
-                  </td>
-                </tr>
-              ) : (
-                topProducts.map((product) => (
-                  <tr key={product.id} className="border-b border-border last:border-0">
-                    <td className="py-4 px-4 text-sm font-medium text-card-foreground">{product.name}</td>
-                    <td className="text-right py-4 px-4 text-sm text-card-foreground">{product.stock}</td>
-                    <td className="text-right py-4 px-4 text-sm text-card-foreground">
-                      Gs. {product.price.toLocaleString()}
-                    </td>
-                    <td className="text-right py-4 px-4">
-                      <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-700">
-                        {product.profitability}%
-                      </span>
-                    </td>
-                    <td className="text-right py-4 px-4 text-sm font-medium text-card-foreground">{product.sales}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
       </Card>
 
       {/* Revenue Intelligence Section */}

@@ -193,8 +193,14 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const roasValue = mktg > 0 ? (rev / mktg) : 0;
 
             // 9. DELIVERY RATE
+            // Solo considerar pedidos que fueron despachados (shipped o delivered)
+            // La tasa de entrega debe ser: (entregados / despachados) × 100
+            const shipped = ordersList.filter(o =>
+                o.sleeves_status === 'shipped' ||
+                o.sleeves_status === 'delivered'
+            ).length;
             const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
-            const delivRate = count > 0 ? ((delivered / count) * 100) : 0;
+            const delivRate = shipped > 0 ? ((delivered / shipped) * 100) : 0;
 
             return {
                 totalOrders: count,

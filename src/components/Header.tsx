@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { formatTimeAgo } from '@/utils/timeUtils';
 import { Bell, ChevronDown, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
@@ -337,12 +338,7 @@ export function Header() {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(notif.timestamp).toLocaleString('es-ES', {
-                          day: '2-digit',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                        {formatTimeAgo(notif.metadata?.timeReference || notif.timestamp)}
                       </p>
                     </DropdownMenuItem>
                   ))

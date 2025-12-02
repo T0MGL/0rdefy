@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ExportButton } from '@/components/ExportButton';
-import { TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Trophy, ShoppingBag } from 'lucide-react';
 import {
   PieChart,
   Pie,
@@ -33,6 +34,7 @@ export function RevenueIntelligence() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [topProducts, setTopProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [productFilter, setProductFilter] = useState<'sales' | 'profitability'>('sales');
 
   // Use global date range context
   const { getDateRange } = useDateRange();
@@ -127,13 +129,32 @@ export function RevenueIntelligence() {
       id: product.id,
       product: product.name,
       units: product.sales,
+      stock: product.stock,
+      price: Number(product.price),
       revenue: Math.round(revenue),
       cogs: Math.round(cogs),
       marginPercent,
       roi,
       isTopPerformer: marginPercent > 40,
+      isTopSeller: true, // Will be marked after sorting
     };
   }).filter(p => p.units > 0);
+
+  // Sort products based on selected filter
+  const sortedProducts = [...productProfitability].sort((a, b) => {
+    if (productFilter === 'sales') {
+      return b.units - a.units; // Sort by sales (descending)
+    } else {
+      return b.marginPercent - a.marginPercent; // Sort by profitability (descending)
+    }
+  });
+
+  // Mark top performers based on current filter
+  const finalProducts = sortedProducts.map((product, index) => ({
+    ...product,
+    isTopPerformer: productFilter === 'profitability' ? product.marginPercent > 40 : false,
+    isTopSeller: productFilter === 'sales' && index < 3,
+  }));
 
   // Calculate revenue per customer
   const totalCustomers = new Set(orders.map(o => o.customer || o.customer_email)).size;
@@ -288,7 +309,31 @@ export function RevenueIntelligence() {
       {/* Detailed Table */}
       <Card className="border-primary/20">
         <CardHeader>
-          <CardTitle>Rentabilidad por Producto</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>
+              {productFilter === 'sales' ? 'Productos Más Vendidos' : 'Productos Más Rentables'}
+            </CardTitle>
+            <div className="flex gap-2">
+              <Button
+                variant={productFilter === 'sales' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setProductFilter('sales')}
+                className="gap-2"
+              >
+                <ShoppingBag size={16} />
+                Más Vendidos
+              </Button>
+              <Button
+                variant={productFilter === 'profitability' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setProductFilter('profitability')}
+                className="gap-2"
+              >
+                <Trophy size={16} />
+                Más Rentables
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Desktop Table */}
@@ -300,13 +345,16 @@ export function RevenueIntelligence() {
                     Producto
                   </th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
+                    Stock
+                  </th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
+                    Precio
+                  </th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
                     Unidades
                   </th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
                     Ingresos
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
-                    COGS
                   </th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
                     Margen %
@@ -317,14 +365,14 @@ export function RevenueIntelligence() {
                 </tr>
               </thead>
               <tbody>
-                {productProfitability.length === 0 ? (
+                {finalProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
-                      No hay datos de rentabilidad disponibles
+                    <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                      No hay datos disponibles
                     </td>
                   </tr>
                 ) : (
-                  productProfitability.map((product) => (
+                  finalProducts.map((product) => (
                     <tr
                       key={product.id}
                       className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
@@ -334,22 +382,31 @@ export function RevenueIntelligence() {
                           <span className="text-sm font-medium text-card-foreground">
                             {product.product}
                           </span>
-                          {product.isTopPerformer && (
-                            <Badge variant="default" className="text-xs">
-                              <TrendingUp size={12} className="mr-1" />
+                          {product.isTopSeller && productFilter === 'sales' && (
+                            <Badge variant="default" className="text-xs bg-blue-600">
+                              <ShoppingBag size={12} className="mr-1" />
+                              TOP SELLER
+                            </Badge>
+                          )}
+                          {product.isTopPerformer && productFilter === 'profitability' && (
+                            <Badge variant="default" className="text-xs bg-green-600">
+                              <Trophy size={12} className="mr-1" />
                               TOP PERFORMER
                             </Badge>
                           )}
                         </div>
                       </td>
                       <td className="text-right py-4 px-4 text-sm text-card-foreground">
+                        {product.stock}
+                      </td>
+                      <td className="text-right py-4 px-4 text-sm text-card-foreground">
+                        Gs. {product.price.toLocaleString()}
+                      </td>
+                      <td className="text-right py-4 px-4 text-sm text-card-foreground">
                         {product.units}
                       </td>
                       <td className="text-right py-4 px-4 text-sm text-card-foreground">
                         Gs. {product.revenue.toLocaleString()}
-                      </td>
-                      <td className="text-right py-4 px-4 text-sm text-card-foreground">
-                        Gs. {product.cogs.toLocaleString()}
                       </td>
                       <td className="text-right py-4 px-4">
                         <span
@@ -380,24 +437,40 @@ export function RevenueIntelligence() {
 
           {/* Mobile Cards */}
           <div className="md:hidden space-y-4">
-            {productProfitability.length === 0 ? (
+            {finalProducts.length === 0 ? (
               <div className="py-8 text-center text-muted-foreground">
-                No hay datos de rentabilidad disponibles
+                No hay datos disponibles
               </div>
             ) : (
-              productProfitability.map((product) => (
+              finalProducts.map((product) => (
                 <Card key={product.id} className="border-border">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="font-semibold text-card-foreground">{product.product}</h4>
-                      {product.isTopPerformer && (
-                        <Badge variant="default" className="text-xs">
-                          <TrendingUp size={10} className="mr-1" />
+                      {product.isTopSeller && productFilter === 'sales' && (
+                        <Badge variant="default" className="text-xs bg-blue-600">
+                          <ShoppingBag size={10} className="mr-1" />
+                          TOP
+                        </Badge>
+                      )}
+                      {product.isTopPerformer && productFilter === 'profitability' && (
+                        <Badge variant="default" className="text-xs bg-green-600">
+                          <Trophy size={10} className="mr-1" />
                           TOP
                         </Badge>
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Stock</p>
+                        <p className="font-medium text-card-foreground">{product.stock}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Precio</p>
+                        <p className="font-medium text-card-foreground">
+                          Gs. {product.price.toLocaleString()}
+                        </p>
+                      </div>
                       <div>
                         <p className="text-muted-foreground">Unidades</p>
                         <p className="font-medium text-card-foreground">{product.units}</p>
@@ -406,12 +479,6 @@ export function RevenueIntelligence() {
                         <p className="text-muted-foreground">Ingresos</p>
                         <p className="font-medium text-card-foreground">
                           Gs. {product.revenue.toLocaleString()}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">COGS</p>
-                        <p className="font-medium text-card-foreground">
-                          Gs. {product.cogs.toLocaleString()}
                         </p>
                       </div>
                       <div>

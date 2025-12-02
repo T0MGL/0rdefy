@@ -62,6 +62,17 @@ const getAuthHeaders = () => ({
 - Recommendation Engine: Suggests actions with impact projections
 - Health Calculator: Business health score 0-100 (delivery 25pts, margin 25pts, ROI 25pts, stock 25pts)
 
+**Notification System** (`src/utils/notificationEngine.ts`, `NOTIFICATION_SYSTEM.md`):
+- Timezone-aware time calculations (respects user's browser timezone)
+- Accurate relative time formatting ("hace 2 horas" es realmente 2 horas)
+- Clickeable notifications with direct navigation to problems
+- Metadata-enriched (orderId, productId, count, timeReference)
+- Priority levels: high (critical >48h), medium (warning 24-48h), low (info)
+- Smart aggregation: Individual notifications for critical issues, summaries for warnings
+- LocalStorage persistence with read status preservation
+- Auto-refresh every 5 minutes
+**Files:** `timeUtils.ts` (timezone helpers), `notificationEngine.ts` (notification generator), `notifications.service.ts` (singleton service), `useHighlight.ts` (URL highlighting hook)
+
 **Theme System:**
 - ThemeContext + localStorage persistence
 - FOUC prevention via inline script in `index.html`
