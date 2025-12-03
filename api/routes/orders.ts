@@ -753,7 +753,8 @@ ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             subtotal_price,
             total_tax,
             total_shipping,
-            currency
+            currency,
+            upsell_added
         } = req.body;
 
         // Build update object with only provided fields
@@ -774,6 +775,7 @@ ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (total_tax !== undefined) updateData.total_tax = total_tax;
         if (total_shipping !== undefined) updateData.total_shipping = total_shipping;
         if (currency !== undefined) updateData.currency = currency;
+        if (upsell_added !== undefined) updateData.upsell_added = upsell_added;
 
         const { data, error } = await supabaseAdmin
             .from('orders')

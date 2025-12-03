@@ -90,6 +90,24 @@ function validateShopifyHMAC(req: any, res: Response, next: any) {
   }
 
   console.log('✅ [WEBHOOK] HMAC validated successfully');
+
+  // ================================================================
+  // REPLAY ATTACK PROTECTION
+  // ================================================================
+  // Reject webhooks older than 5 minutes to prevent replay attacks
+  // Shopify webhooks include created_at or updated_at timestamps
+  const webhookTimestamp = req.body.created_at || req.body.updated_at;
+  if (webhookTimestamp) {
+    const webhookDate = new Date(webhookTimestamp);
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+    if (webhookDate < fiveMinutesAgo) {
+      console.warn(`⚠️ [WEBHOOK] Rejected: older than 5 minutes (timestamp: ${webhookTimestamp})`);
+      console.warn(`⚠️ [WEBHOOK] This could be a replay attack or network delay`);
+      return res.status(200).send('Webhook too old - rejected for security');
+    }
+  }
+
   next();
 }
 

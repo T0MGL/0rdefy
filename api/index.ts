@@ -35,6 +35,7 @@ import { codMetricsRouter } from './routes/cod-metrics';
 import warehouseRouter from './routes/warehouse';
 import { inventoryRouter } from './routes/inventory';
 import returnsRouter from './routes/returns';
+import securityRouter from './routes/security';
 
 // Load environment variables
 dotenv.config();
@@ -204,9 +205,11 @@ const authLimiter = rateLimit({
 });
 
 // Webhook rate limiter (for Shopify and other webhooks)
+// CRÍTICO: Protege contra picos altos de tráfico (Black Friday, flash sales)
+// Shopify puede enviar cientos de webhooks simultáneos
 const webhookLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute
-    max: 60, // Max 60 requests per minute (1 req/sec average)
+    max: 1000, // Max 1000 requests per minute (alto para manejar picos)
     message: {
         error: 'Webhook Rate Limit Exceeded',
         message: 'Too many webhook requests. Please slow down.',
@@ -429,6 +432,9 @@ app.use('/api/returns', returnsRouter);
 
 // Inventory routes
 app.use('/api/inventory', inventoryRouter);
+
+// Security routes (Session management & Activity log)
+app.use('/api/security', securityRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {

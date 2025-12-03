@@ -3,6 +3,14 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, AuthRequest } from '../middleware/auth';
+import {
+    createSession,
+    terminateSessionByToken,
+    logLogin,
+    logLogout,
+    logPasswordChange,
+    logAccountDeleted
+} from '../services/security.service';
 
 export const authRouter = Router();
 
@@ -130,6 +138,46 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     */
 });
 
+// ================================================================
+// POST /api/auth/logout - Logout user (terminate session)
+// ================================================================
+authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) => {
+    try {
+        console.log('🚪 [LOGOUT] Request received for user:', req.userId);
+
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        if (token) {
+            // Terminate the session
+            try {
+                await terminateSessionByToken(token);
+                console.log('✅ [LOGOUT] Session terminated');
+            } catch (err) {
+                console.error('⚠️ [LOGOUT] Failed to terminate session:', err);
+            }
+
+            // Log logout activity
+            try {
+                const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
+                const userAgent = req.headers['user-agent'] || 'unknown';
+                await logLogout(req.userId!, ipAddress, userAgent);
+            } catch (err) {
+                console.error('⚠️ [LOGOUT] Failed to log logout:', err);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Logged out successfully'
+        });
+    } catch (error: any) {
+        console.error('💥 [LOGOUT] Unexpected error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Logout failed'
+        });
+    }
+});
+
 authRouter.post('/login', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
@@ -172,6 +220,16 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
         if (!passwordValid) {
             console.warn('⚠️ [LOGIN] Invalid password for:', email);
+
+            // Log failed login attempt
+            try {
+                const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
+                const userAgent = req.headers['user-agent'] || 'unknown';
+                await logLogin(user.id, ipAddress, userAgent, false);
+            } catch (err) {
+                console.error('⚠️ [LOGIN] Failed to log failed login:', err);
+            }
+
             return res.status(401).json({
                 success: false,
                 error: 'Invalid credentials'
@@ -226,6 +284,31 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             issuer: JWT_ISSUER,
             audience: JWT_AUDIENCE
         });
+
+        // Get IP and User Agent for security tracking
+        const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
+        const userAgent = req.headers['user-agent'] || 'unknown';
+
+        // Create session for security tracking
+        try {
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 7); // 7 days (matches TOKEN_EXPIRY)
+
+            await createSession({
+                userId: user.id,
+                token,
+                ipAddress,
+                userAgent,
+                expiresAt
+            });
+
+            // Log successful login
+            await logLogin(user.id, ipAddress, userAgent, true);
+            console.log('✅ [LOGIN] Session created and login logged');
+        } catch (sessionError) {
+            // Don't fail login if session creation fails
+            console.error('⚠️ [LOGIN] Failed to create session:', sessionError);
+        }
 
         console.log('✅ [LOGIN] Login successful');
 
@@ -566,6 +649,15 @@ authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: R
             });
         }
 
+        // Log password change
+        try {
+            const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
+            const userAgent = req.headers['user-agent'] || 'unknown';
+            await logPasswordChange(req.userId!, ipAddress, userAgent);
+        } catch (logError) {
+            console.error('⚠️ [CHANGE-PASSWORD] Failed to log activity:', logError);
+        }
+
         console.log('✅ [CHANGE-PASSWORD] Password changed successfully');
 
         res.json({
@@ -625,6 +717,15 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
                 success: false,
                 error: 'Password is incorrect'
             });
+        }
+
+        // Log account deletion BEFORE deleting (activity_log has CASCADE DELETE)
+        try {
+            const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
+            const userAgent = req.headers['user-agent'] || 'unknown';
+            await logAccountDeleted(req.userId!, ipAddress, userAgent);
+        } catch (logError) {
+            console.error('⚠️ [DELETE-ACCOUNT] Failed to log activity:', logError);
         }
 
         // Delete user (cascade will delete user_stores relationships)

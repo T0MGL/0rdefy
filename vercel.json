@@ -7,10 +7,15 @@
     {
       "source": "/api/:path*",
       "destination": "https://api.ordefy.io/api/:path*"
+    }
+  ],
+  "routes": [
+    {
+      "handle": "filesystem"
     },
     {
-      "source": "/:path((?!api).*)",
-      "destination": "/index.html"
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }

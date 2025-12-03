@@ -9,6 +9,7 @@ import { DailySummary } from '@/components/DailySummary';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { RevenueProjectionCard } from '@/components/RevenueProjectionCard';
+import { CashProjectionCard } from '@/components/CashProjectionCard';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -53,6 +54,7 @@ export default function Dashboard() {
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [codMetrics, setCodMetrics] = useState<any>(null);
+  const [cashProjection, setCashProjection] = useState<any>(null);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -80,13 +82,14 @@ export default function Dashboard() {
 
       console.log('📊 Loading dashboard data with params:', dateParams);
 
-      const [overview, chart, codData] = await Promise.all([
+      const [overview, chart, codData, cashProj] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getChartData(dateRange.days, dateParams),
         codMetricsService.getMetrics({
           start_date: dateParams.startDate,
           end_date: dateParams.endDate,
         }).catch(() => null), // Fail silently if COD metrics not available
+        analyticsService.getCashProjection(30).catch(() => null), // Fail silently if cash projection not available
       ]);
 
       // Check if request was aborted before updating state
@@ -98,6 +101,7 @@ export default function Dashboard() {
       setDashboardOverview(overview);
       setChartData(chart);
       setCodMetrics(codData);
+      setCashProjection(cashProj);
     } catch (error: any) {
       // Ignore abort errors
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
@@ -169,6 +173,9 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <QuickActions />
 
+      {/* Cash Projection Card (comprehensive cash flow projection) */}
+      {cashProjection && <CashProjectionCard projection={cashProjection} />}
+
       {/* Revenue Projection Card (only shows with ≥10% growth) */}
       {revenueProjection && <RevenueProjectionCard projection={revenueProjection} />}
 
@@ -185,12 +192,13 @@ export default function Dashboard() {
             variant="primary"
           />
           <MetricCard
-            title="Beneficio Neto"
-            value={`Gs. ${dashboardOverview.netProfit.toLocaleString()}`}
-            change={dashboardOverview.changes?.netProfit !== null ? Math.abs(dashboardOverview.changes?.netProfit || 0) : undefined}
-            trend={dashboardOverview.changes?.netProfit !== null ? (dashboardOverview.changes?.netProfit >= 0 ? 'up' : 'down') : undefined}
+            title="Beneficio Neto Real"
+            value={`Gs. ${(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit).toLocaleString()}`}
+            change={dashboardOverview.changes?.realNetProfit !== null ? Math.abs(dashboardOverview.changes?.realNetProfit || 0) : undefined}
+            trend={dashboardOverview.changes?.realNetProfit !== null ? (dashboardOverview.changes?.realNetProfit >= 0 ? 'up' : 'down') : undefined}
             icon={<TrendingUp className="text-green-600" size={24} />}
             variant="accent"
+            subtitle="Solo pedidos entregados"
           />
           <MetricCard
             title="Proyección de Caja"

@@ -10,9 +10,27 @@ import { ShopifyProductSyncService } from '../services/shopify-product-sync.serv
 import { ShopifyWebhookService } from '../services/shopify-webhook.service';
 import { ShopifyWebhookManager } from '../services/shopify-webhook-manager.service';
 import { ShopifyWebhookSetupService } from '../services/shopify-webhook-setup.service';
+import { WebhookQueueService } from '../services/webhook-queue.service';
 import { ShopifyIntegration, ShopifyConfigRequest } from '../types/shopify';
 
 export const shopifyRouter = Router();
+
+// ================================================================
+// WEBHOOK QUEUE SERVICE - CRITICAL FOR PRODUCTION
+// ================================================================
+// Initialize webhook queue service for async processing
+// This ensures we respond to Shopify < 5 seconds even during high traffic
+const webhookQueue = new WebhookQueueService(supabaseAdmin);
+
+// Start processing webhooks in background
+webhookQueue.startProcessing();
+console.log('✅ [SHOPIFY] Webhook queue processor started');
+
+// Graceful shutdown handler
+process.on('SIGTERM', () => {
+  console.log('🛑 [SHOPIFY] Shutting down webhook queue processor...');
+  webhookQueue.stopProcessing();
+});
 
 // Aplicar autenticacion a todas las rutas excepto webhooks CALLBACK
 // CRITICAL: Skip auth only for webhook callback endpoints, not management endpoints
@@ -456,109 +474,46 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       });
     }
 
-    // Process webhook
-    const webhookService = new ShopifyWebhookService(supabaseAdmin);
-    const result = await webhookService.processOrderCreatedWebhook(
-      req.body,
-      storeId!,
-      integrationId!
+    // ================================================================
+    // CRITICAL: RESPOND IMMEDIATELY (< 1 SECOND)
+    // ================================================================
+    // Shopify requires response in < 5 seconds
+    // We enqueue for async processing to handle high traffic spikes
+    const queueId = await webhookQueue.enqueue({
+      integration_id: integrationId!,
+      store_id: storeId!,
+      topic: 'orders/create',
+      payload: req.body,
+      headers: {
+        'X-Shopify-Shop-Domain': shopDomain!,
+        'X-Shopify-Hmac-Sha256': hmacHeader!,
+      },
+      idempotency_key: idempotencyKey,
+    });
+
+    // Record idempotency immediately (processing will happen async)
+    await webhookManager.recordIdempotency(
+      integrationId!,
+      idempotencyKey,
+      orderId,
+      'orders/create',
+      true,
+      200,
+      'queued'
     );
 
-    const processingTime = Date.now() - startTime;
+    const responseTime = Date.now() - startTime;
+    console.log(
+      `✅ Webhook queued in ${responseTime}ms: ${orderId} (queue_id: ${queueId})`
+    );
 
-    if (result.success) {
-      // Record successful processing
-      await webhookManager.recordIdempotency(
-        integrationId!,
-        idempotencyKey,
-        orderId,
-        'orders/create',
-        true,
-        200,
-        'success'
-      );
-
-      await webhookManager.recordMetric(
-        integrationId!,
-        storeId!,
-        'processed',
-        processingTime
-      );
-
-      console.log(
-        `✅ Webhook processed successfully in ${processingTime}ms: ${orderId}`
-      );
-
-      res.json({
-        success: true,
-        order_id: result.order_id,
-        processing_time_ms: processingTime,
-      });
-    } else {
-      // Processing failed - add to retry queue
-      console.error('❌ Webhook processing failed:', result.error);
-
-      // Record idempotency as failed (but prevent duplicates)
-      await webhookManager.recordIdempotency(
-        integrationId!,
-        idempotencyKey,
-        orderId,
-        'orders/create',
-        false,
-        500,
-        result.error || 'Processing failed'
-      );
-
-      // Add to retry queue if it's a retriable error
-      if (result.error !== 'n8n delivery failed') {
-        // Don't retry n8n failures
-        const { data: webhookEvent } = await supabaseAdmin
-          .from('shopify_webhook_events')
-          .insert({
-            integration_id: integrationId!,
-            store_id: storeId!,
-            event_type: 'order',
-            shopify_topic: 'orders/create',
-            shopify_event_id: orderId,
-            payload: req.body,
-            headers: {
-              'X-Shopify-Shop-Domain': shopDomain,
-              'X-Shopify-Hmac-Sha256': hmacHeader,
-            },
-            processed: false,
-            idempotency_key: idempotencyKey,
-          })
-          .select('id')
-          .single();
-
-        if (webhookEvent) {
-          await webhookManager.addToRetryQueue(
-            integrationId!,
-            storeId!,
-            webhookEvent.id,
-            'orders/create',
-            req.body,
-            result.error || 'Unknown error',
-            '500'
-          );
-        }
-      }
-
-      await webhookManager.recordMetric(
-        integrationId!,
-        storeId!,
-        'failed',
-        processingTime,
-        '500'
-      );
-
-      // Return 200 to prevent Shopify from retrying (we handle retries internally)
-      res.status(200).json({
-        success: false,
-        error: 'Processing failed - added to retry queue',
-        will_retry: true,
-      });
-    }
+    // Respond immediately to Shopify
+    res.status(200).json({
+      success: true,
+      message: 'Webhook queued for processing',
+      queue_id: queueId,
+      response_time_ms: responseTime,
+    });
   } catch (error: any) {
     console.error('❌ Error procesando webhook de pedido:', error);
 
@@ -1038,14 +993,68 @@ shopifyRouter.post('/webhook-cleanup', async (req: AuthRequest, res: Response) =
     const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
     const deleted = await webhookManager.cleanupExpiredKeys();
 
+    // También limpiar webhook queue antiguos
+    const queueDeleted = await webhookQueue.cleanupOldWebhooks();
+
     res.json({
       success: true,
       deleted_keys: deleted,
-      message: `Cleaned up ${deleted} expired idempotency keys`
+      deleted_queue_items: queueDeleted,
+      message: `Cleaned up ${deleted} expired idempotency keys and ${queueDeleted} old webhook queue items`
     });
 
   } catch (error: any) {
     console.error('Error limpiando idempotency keys:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ================================================================
+// RECONCILIATION ENDPOINTS (CRITICAL FOR PRODUCTION)
+// ================================================================
+
+// POST /api/shopify/reconciliation/run
+// Ejecutar reconciliación manual (también se ejecuta como cron job)
+shopifyRouter.post('/reconciliation/run', async (req: AuthRequest, res: Response) => {
+  try {
+    const { ReconciliationService } = await import('../services/reconciliation.service');
+    const reconciliationService = new ReconciliationService(supabaseAdmin);
+
+    console.log('🔄 [API] Starting manual reconciliation...');
+    const results = await reconciliationService.runFullReconciliation();
+
+    res.json({
+      success: results.success,
+      ...results,
+      message: `Reconciliation completed: ${results.integrations_processed} integrations, ${results.orders_synced} orders synced`
+    });
+
+  } catch (error: any) {
+    console.error('❌ [API] Error running reconciliation:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// GET /api/shopify/queue/stats
+// Obtener estadísticas de la cola de webhooks
+shopifyRouter.get('/queue/stats', async (req: AuthRequest, res: Response) => {
+  try {
+    const stats = await webhookQueue.getQueueStats();
+
+    res.json({
+      success: true,
+      stats,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('❌ [API] Error getting queue stats:', error);
     res.status(500).json({
       success: false,
       error: error.message
