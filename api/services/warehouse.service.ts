@@ -473,7 +473,7 @@ export async function getPackingList(
       throw new Error('Session does not belong to this store');
     }
 
-    // Get orders in session
+    // Get orders in session with full details needed for printing
     const { data: sessionOrders, error: ordersError } = await supabaseAdmin
       .from('picking_session_orders')
       .select(`
@@ -483,7 +483,16 @@ export async function getPackingList(
           shopify_order_number,
           customer_first_name,
           customer_last_name,
-          customer_phone
+          customer_phone,
+          customer_address,
+          address_reference,
+          neighborhood,
+          delivery_notes,
+          delivery_link_token,
+          courier_id,
+          cod_amount,
+          printed,
+          printed_at
         )
       `)
       .eq('picking_session_id', sessionId);
@@ -503,6 +512,14 @@ export async function getPackingList(
       .eq('picking_session_id', sessionId);
 
     if (progressError) throw progressError;
+
+    // Get carrier details for orders (do this in a separate query for simplicity)
+    const orderIds = sessionOrders?.map((so: any) => so.orders.id) || [];
+    const { data: carriersData } = await supabaseAdmin
+      .from('carriers')
+      .select('id, name');
+
+    const carrierMap = new Map(carriersData?.map(c => [c.id, c.name]) || []);
 
     // Format orders with their items
     const orders: OrderForPacking[] = sessionOrders?.map((so: any) => {
@@ -524,6 +541,16 @@ export async function getPackingList(
         order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
         customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
         customer_phone: order.customer_phone,
+        customer_address: order.customer_address,
+        address_reference: order.address_reference,
+        neighborhood: order.neighborhood,
+        delivery_notes: order.delivery_notes,
+        delivery_link_token: order.delivery_link_token,
+        carrier_id: order.courier_id,
+        carrier_name: order.courier_id ? carrierMap.get(order.courier_id) : undefined,
+        cod_amount: order.cod_amount,
+        printed: order.printed,
+        printed_at: order.printed_at,
         items,
         is_complete
       };

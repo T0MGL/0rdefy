@@ -43,6 +43,16 @@ export interface OrderForPacking {
   order_number: string;
   customer_name: string;
   customer_phone: string;
+  customer_address?: string;
+  address_reference?: string;
+  neighborhood?: string;
+  delivery_notes?: string;
+  delivery_link_token?: string;
+  carrier_id?: string;
+  carrier_name?: string;
+  cod_amount?: number;
+  printed?: boolean;
+  printed_at?: string;
   items: Array<{
     product_id: string;
     product_name: string;

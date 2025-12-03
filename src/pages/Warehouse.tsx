@@ -11,8 +11,11 @@ import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import * as warehouseService from '@/services/warehouse.service';
+import { ordersService } from '@/services/orders.service';
+import { OrderShippingLabel } from '@/components/OrderShippingLabel';
 import type {
   PickingSession,
   PickingSessionItem,
@@ -40,6 +43,10 @@ export default function Warehouse() {
   // Packing state
   const [packingData, setPackingData] = useState<PackingListResponse | null>(null);
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
+
+  // Print state
+  const [printLabelDialogOpen, setPrintLabelDialogOpen] = useState(false);
+  const [orderToPrint, setOrderToPrint] = useState<OrderForPacking | null>(null);
 
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
@@ -250,6 +257,56 @@ export default function Warehouse() {
     setSelectedItem(null);
   }
 
+  const handlePrintLabel = useCallback((order: OrderForPacking) => {
+    setOrderToPrint(order);
+    setPrintLabelDialogOpen(true);
+  }, []);
+
+  const handleOrderPrinted = useCallback(async (orderId: string) => {
+    try {
+      // Mark order as printed
+      const updatedOrder = await ordersService.markAsPrinted(orderId);
+
+      // Reload packing list to update UI with printed status
+      await loadPackingList();
+
+      toast({
+        title: 'Etiqueta impresa',
+        description: 'La etiqueta ha sido impresa correctamente',
+      });
+    } catch (error) {
+      console.error('Error updating order after print:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo actualizar el estado del pedido',
+        variant: 'destructive',
+      });
+    }
+  }, [toast, loadPackingList]);
+
+  async function handleCompleteSession() {
+    if (!currentSession) return;
+
+    setLoading(true);
+    try {
+      const updated = await warehouseService.completeSession(currentSession.id);
+      toast({
+        title: 'Sesión completada',
+        description: 'Todos los pedidos han sido preparados y están listos para enviar',
+      });
+      handleBackToDashboard();
+    } catch (error: any) {
+      console.error('Error completing session:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.details || 'No se pudo completar la sesión',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function toggleOrderSelection(orderId: string) {
     const newSelected = new Set(selectedOrders);
     if (newSelected.has(orderId)) {
@@ -296,11 +353,42 @@ export default function Warehouse() {
           session={currentSession}
           packingData={packingData}
           selectedItem={selectedItem}
+          loading={loading}
           onBack={handleBackToDashboard}
           onSelectItem={setSelectedItem}
           onPackItem={handlePackItem}
+          onPrintLabel={handlePrintLabel}
+          onCompleteSession={handleCompleteSession}
         />
       )}
+
+      {/* Print Label Dialog */}
+      <Dialog open={printLabelDialogOpen} onOpenChange={setPrintLabelDialogOpen}>
+        <DialogContent className="max-w-[950px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Etiqueta de Entrega</DialogTitle>
+          </DialogHeader>
+          {orderToPrint && orderToPrint.delivery_link_token && (
+            <OrderShippingLabel
+              orderId={orderToPrint.id}
+              deliveryToken={orderToPrint.delivery_link_token}
+              customerName={orderToPrint.customer_name}
+              customerPhone={orderToPrint.customer_phone}
+              customerAddress={orderToPrint.customer_address}
+              addressReference={orderToPrint.address_reference}
+              neighborhood={orderToPrint.neighborhood}
+              deliveryNotes={orderToPrint.delivery_notes}
+              courierName={orderToPrint.carrier_name}
+              codAmount={orderToPrint.cod_amount}
+              products={orderToPrint.items.map(item => ({
+                name: item.product_name,
+                quantity: item.quantity_needed,
+              }))}
+              onPrinted={() => handleOrderPrinted(orderToPrint.id)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -608,20 +696,30 @@ interface PackingViewProps {
   session: PickingSession;
   packingData: PackingListResponse;
   selectedItem: string | null;
+  loading: boolean;
   onBack: () => void;
   onSelectItem: (productId: string | null) => void;
   onPackItem: (orderId: string, productId: string) => void;
+  onPrintLabel: (order: OrderForPacking) => void;
+  onCompleteSession: () => void;
 }
 
 function PackingView({
   session,
   packingData,
   selectedItem,
+  loading,
   onBack,
   onSelectItem,
-  onPackItem
+  onPackItem,
+  onPrintLabel,
+  onCompleteSession
 }: PackingViewProps) {
   const { orders, availableItems } = packingData;
+
+  // Calculate if all orders are complete
+  const allOrdersComplete = orders.every(order => order.is_complete);
+  const allItemsRemaining = availableItems.every(item => item.remaining === 0);
 
   return (
     <div className="h-screen flex flex-col">
@@ -645,6 +743,16 @@ function PackingView({
               </p>
             </div>
           </div>
+          {allOrdersComplete && allItemsRemaining && (
+            <Button
+              onClick={onCompleteSession}
+              disabled={loading}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <Check className="h-4 w-4 mr-2" />
+              Finalizar Sesión
+            </Button>
+          )}
         </div>
       </div>
 
@@ -756,13 +864,26 @@ function PackingView({
                           <Check className="h-3 w-3 mr-1" />
                           Listo
                         </Badge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                        >
-                          <Printer className="h-4 w-4 mr-1" />
-                          Imprimir Etiqueta
-                        </Button>
+                        {order.printed && order.printed_at ? (
+                          <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400">
+                            <Check className="h-3 w-3 mr-1" />
+                            Impreso
+                          </Badge>
+                        ) : order.delivery_link_token ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onPrintLabel(order)}
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                          >
+                            <Printer className="h-4 w-4 mr-1" />
+                            Imprimir Etiqueta
+                          </Button>
+                        ) : (
+                          <Badge variant="outline" className="text-yellow-600">
+                            Sin token de entrega
+                          </Badge>
+                        )}
                       </div>
                     ) : (
                       <Badge variant="secondary">
