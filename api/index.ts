@@ -246,6 +246,28 @@ const writeOperationsLimiter = rateLimit({
     }
 });
 
+// Public delivery endpoints limiter (for courier delivery tokens)
+// SECURITY: Prevents brute force attacks on delivery tokens
+const deliveryTokenLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 10, // Max 10 requests per minute per IP
+    message: {
+        error: 'Too Many Requests',
+        message: 'Demasiados intentos. Por favor intenta nuevamente en un minuto.',
+        retryAfter: '1 minute'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req: Request, res: Response) => {
+        console.warn(`🚨 Delivery token rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        res.status(429).json({
+            error: 'Too Many Requests',
+            message: 'Demasiados intentos. Por favor intenta nuevamente en un minuto.',
+            retryAfter: '1 minute'
+        });
+    }
+});
+
 // CORS configuration
 app.use(cors({
     origin: (origin, callback) => {
@@ -254,16 +276,28 @@ app.use(cors({
             return callback(null, true);
         }
 
+        // Check exact matches from ALLOWED_ORIGINS
         if (ALLOWED_ORIGINS.includes(origin)) {
-            callback(null, true);
-        } else {
-            console.warn(`⚠️ CORS rejected request from origin: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
+            return callback(null, true);
         }
+
+        // Allow Shopify admin domains (*.myshopify.com)
+        // This is necessary for Shopify App Bridge embedded apps
+        if (origin.match(/^https:\/\/[a-zA-Z0-9-]+\.myshopify\.com$/)) {
+            return callback(null, true);
+        }
+
+        // Allow Shopify admin
+        if (origin === 'https://admin.shopify.com') {
+            return callback(null, true);
+        }
+
+        console.warn(`⚠️ CORS rejected request from origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Store-ID']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Store-ID', 'X-Shopify-Session']
 }));
 
 // ================================================================
@@ -346,6 +380,14 @@ app.use('/api/auth/delete-account', authLimiter);
 // Support both /webhook/ (singular) and /webhooks/ (plural)
 app.use('/api/shopify/webhook/', webhookLimiter);
 app.use('/api/shopify/webhooks/', webhookLimiter);
+
+// Apply delivery token limiter to public delivery endpoints
+// SECURITY: Prevents brute force attacks on delivery tokens
+app.use('/api/orders/token/', deliveryTokenLimiter);
+app.use('/api/orders/:id/delivery-confirm', deliveryTokenLimiter);
+app.use('/api/orders/:id/delivery-fail', deliveryTokenLimiter);
+app.use('/api/orders/:id/rate-delivery', deliveryTokenLimiter);
+app.use('/api/orders/:id/cancel', deliveryTokenLimiter);
 
 // Apply write operations limiter to all API routes
 app.use('/api/', writeOperationsLimiter);
