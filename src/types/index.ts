@@ -2,9 +2,16 @@ export interface DashboardOverview {
   totalOrders: number;
   revenue: number;
   costs: number;
+  deliveryCosts?: number; // Costos de envío
   marketing: number;
   netProfit: number;
   profitMargin: number;
+  // NEW: Real cash metrics (only delivered orders)
+  realRevenue?: number; // Ingreso real (solo pedidos entregados)
+  realCosts?: number; // Costos reales (solo pedidos entregados)
+  realDeliveryCosts?: number; // Costos de envío reales (solo pedidos entregados)
+  realNetProfit?: number; // Beneficio neto real (solo pedidos entregados)
+  realProfitMargin?: number; // Margen de beneficio real (solo pedidos entregados)
   roi: number;
   roas: number;
   deliveryRate: number;
@@ -16,9 +23,15 @@ export interface DashboardOverview {
     totalOrders: number | null;
     revenue: number | null;
     costs: number | null;
+    deliveryCosts?: number | null;
     marketing: number | null;
     netProfit: number | null;
     profitMargin: number | null;
+    realRevenue?: number | null;
+    realCosts?: number | null;
+    realDeliveryCosts?: number | null;
+    realNetProfit?: number | null;
+    realProfitMargin?: number | null;
     roi: number | null;
     roas: number | null;
     deliveryRate: number | null;

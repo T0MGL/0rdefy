@@ -84,7 +84,7 @@ export interface ReturnStats {
  * Get orders eligible for return (delivered, shipped, cancelled)
  */
 export async function getEligibleOrders(): Promise<EligibleOrder[]> {
-  const response = await apiClient.get('/api/returns/eligible-orders');
+  const response = await apiClient.get('/returns/eligible-orders');
   return response.data;
 }
 
@@ -92,7 +92,7 @@ export async function getEligibleOrders(): Promise<EligibleOrder[]> {
  * Get all return sessions
  */
 export async function getReturnSessions(): Promise<ReturnSession[]> {
-  const response = await apiClient.get('/api/returns/sessions');
+  const response = await apiClient.get('/returns/sessions');
   return response.data;
 }
 
@@ -100,7 +100,7 @@ export async function getReturnSessions(): Promise<ReturnSession[]> {
  * Get return session details
  */
 export async function getReturnSession(sessionId: string): Promise<ReturnSessionDetail> {
-  const response = await apiClient.get(`/api/returns/sessions/${sessionId}`);
+  const response = await apiClient.get(`/returns/sessions/${sessionId}`);
   return response.data;
 }
 
@@ -111,7 +111,7 @@ export async function createReturnSession(
   orderIds: string[],
   notes?: string
 ): Promise<ReturnSession> {
-  const response = await apiClient.post('/api/returns/sessions', {
+  const response = await apiClient.post('/returns/sessions', {
     order_ids: orderIds,
     notes,
   });
@@ -131,7 +131,7 @@ export async function updateReturnItem(
     rejection_notes?: string;
   }
 ): Promise<ReturnSessionItem> {
-  const response = await apiClient.patch(`/api/returns/items/${itemId}`, updates);
+  const response = await apiClient.patch(`/returns/items/${itemId}`, updates);
   return response.data;
 }
 
@@ -139,7 +139,7 @@ export async function updateReturnItem(
  * Complete return session
  */
 export async function completeReturnSession(sessionId: string): Promise<any> {
-  const response = await apiClient.post(`/api/returns/sessions/${sessionId}/complete`);
+  const response = await apiClient.post(`/returns/sessions/${sessionId}/complete`);
   return response.data;
 }
 
@@ -147,13 +147,13 @@ export async function completeReturnSession(sessionId: string): Promise<any> {
  * Cancel return session
  */
 export async function cancelReturnSession(sessionId: string): Promise<void> {
-  await apiClient.post(`/api/returns/sessions/${sessionId}/cancel`);
+  await apiClient.post(`/returns/sessions/${sessionId}/cancel`);
 }
 
 /**
  * Get return statistics
  */
 export async function getReturnStats(): Promise<ReturnStats> {
-  const response = await apiClient.get('/api/returns/stats');
+  const response = await apiClient.get('/returns/stats');
   return response.data;
 }

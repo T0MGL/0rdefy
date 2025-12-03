@@ -11,7 +11,19 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle } from 'lucide-react';
+import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity } from 'lucide-react';
+import {
+  getSessions,
+  terminateSession,
+  terminateAllOtherSessions,
+  getActivity,
+  formatDeviceInfo,
+  formatActionType,
+  getActivityIcon,
+  formatRelativeTime,
+  type UserSession,
+  type ActivityLog
+} from '@/services/security.service';
 
 export default function Settings() {
   const { toast } = useToast();
@@ -50,6 +62,12 @@ export default function Settings() {
   const [storeToDelete, setStoreToDelete] = useState<string | null>(null);
   const [isDeletingStore, setIsDeletingStore] = useState(false);
 
+  // Security: Active sessions and activity log
+  const [sessions, setSessions] = useState<UserSession[]>([]);
+  const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [loadingActivity, setLoadingActivity] = useState(false);
+
   // Update form data when user or store changes
   useEffect(() => {
     if (user) {
@@ -72,6 +90,88 @@ export default function Settings() {
     const tab = searchParams.get('tab');
     if (tab) setActiveTab(tab);
   }, [searchParams]);
+
+  // Load sessions and activity when security tab is active
+  useEffect(() => {
+    if (activeTab === 'security') {
+      loadSessions();
+      loadActivity();
+    }
+  }, [activeTab]);
+
+  const loadSessions = async () => {
+    setLoadingSessions(true);
+    try {
+      const data = await getSessions();
+      // Mark the most recent session as current (it's the current one)
+      if (data.length > 0) {
+        data[0].isCurrent = true;
+      }
+      setSessions(data);
+    } catch (error) {
+      console.error('Error loading sessions:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar las sesiones activas',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
+
+  const loadActivity = async () => {
+    setLoadingActivity(true);
+    try {
+      const response = await getActivity(20, 0);
+      setActivityLog(response.data);
+    } catch (error) {
+      console.error('Error loading activity:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo cargar el registro de actividad',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoadingActivity(false);
+    }
+  };
+
+  const handleTerminateSession = async (sessionId: string) => {
+    try {
+      await terminateSession(sessionId);
+      toast({
+        title: 'Sesión cerrada',
+        description: 'La sesión ha sido cerrada exitosamente'
+      });
+      loadSessions(); // Reload sessions
+    } catch (error) {
+      console.error('Error terminating session:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo cerrar la sesión',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleTerminateAllSessions = async () => {
+    try {
+      await terminateAllOtherSessions();
+      toast({
+        title: 'Sesiones cerradas',
+        description: 'Todas las sesiones remotas han sido cerradas'
+      });
+      loadSessions(); // Reload sessions
+    } catch (error) {
+      console.error('Error terminating all sessions:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cerrar las sesiones',
+        variant: 'destructive'
+      });
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -668,6 +768,138 @@ export default function Settings() {
                   <LogOut size={16} />
                   Cerrar sesión
                 </Button>
+              </div>
+
+              {/* Active Sessions */}
+              <div className="pt-6 border-t">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-base font-medium">Sesiones activas</Label>
+                  {sessions.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleTerminateAllSessions}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      Cerrar todas las sesiones
+                    </Button>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Gestiona los dispositivos desde los que has iniciado sesión
+                </p>
+                {loadingSessions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                  </div>
+                ) : sessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4">No hay sesiones activas</p>
+                ) : (
+                  <div className="space-y-3">
+                    {sessions.map((session) => {
+                      const deviceIcon =
+                        session.deviceInfo.device === 'Mobile' ? <Smartphone size={20} /> :
+                        session.deviceInfo.device === 'Tablet' ? <Tablet size={20} /> :
+                        <Monitor size={20} />;
+
+                      return (
+                        <div
+                          key={session.id}
+                          className="flex items-start justify-between p-4 border rounded-lg bg-card hover:bg-accent/5 transition-colors"
+                        >
+                          <div className="flex gap-3 flex-1">
+                            <div className="text-muted-foreground mt-1">
+                              {deviceIcon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-sm">
+                                  {formatDeviceInfo(session.deviceInfo)}
+                                </p>
+                                {session.isCurrent && (
+                                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                                    Sesión actual
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <MapPin size={12} />
+                                  {session.ipAddress}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock size={12} />
+                                  {formatRelativeTime(session.lastActivity)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          {!session.isCurrent && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleTerminateSession(session.id)}
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <X size={16} />
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Activity Log */}
+              <div className="pt-6 border-t">
+                <Label className="text-base font-medium mb-2 flex items-center gap-2">
+                  <Activity size={18} />
+                  Registro de actividad
+                </Label>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Historial de acciones importantes en tu cuenta
+                </p>
+                {loadingActivity ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                  </div>
+                ) : activityLog.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4">No hay actividad registrada</p>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                    {activityLog.map((activity) => (
+                      <div
+                        key={activity.id}
+                        className="flex items-start gap-3 p-3 border rounded-lg bg-card hover:bg-accent/5 transition-colors"
+                      >
+                        <div className="text-2xl mt-0.5">
+                          {getActivityIcon(activity.action_type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">
+                            {formatActionType(activity.action_type)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {activity.description}
+                          </p>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Clock size={11} />
+                              {formatRelativeTime(activity.created_at)}
+                            </span>
+                            {activity.ip_address && (
+                              <span className="flex items-center gap-1">
+                                <MapPin size={11} />
+                                {activity.ip_address}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 2FA (Coming Soon) */}

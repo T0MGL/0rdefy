@@ -183,8 +183,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signOut = () => {
+  const signOut = async () => {
     console.log('👋 [AUTH] Signing out');
+
+    // Call backend to terminate session
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        await axios.post(`${API_URL}/logout`, {}, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        console.log('✅ [AUTH] Session terminated on server');
+      }
+    } catch (err) {
+      console.error('⚠️ [AUTH] Failed to terminate session on server:', err);
+      // Continue with client-side logout even if server call fails
+    }
 
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');

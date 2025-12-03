@@ -19,9 +19,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useCarriers } from '@/hooks/useCarriers';
 import { Loader2, MapPin, CheckCircle2, Printer } from 'lucide-react';
 import type { Order } from '@/types';
-import type { Carrier } from '@/types/carrier';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
 
 interface OrderConfirmationDialogProps {
@@ -39,8 +39,9 @@ export function OrderConfirmationDialog({
 }: OrderConfirmationDialogProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [loadingCarriers, setLoadingCarriers] = useState(true);
+
+  // Use centralized carriers hook with caching (active carriers only)
+  const { carriers, isLoading: loadingCarriers, getCarrierById } = useCarriers({ activeOnly: true });
 
   // Confirmation state
   const [isConfirmed, setIsConfirmed] = useState(false);
@@ -52,13 +53,13 @@ export function OrderConfirmationDialog({
   const [address, setAddress] = useState('');
   const [latitude, setLatitude] = useState<string>('');
   const [longitude, setLongitude] = useState<string>('');
+  const [mapsLink, setMapsLink] = useState('');
 
-  // Load carriers on mount and reset state
+  // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setIsConfirmed(false);
       setConfirmedOrder(null);
-      fetchCarriers();
       // Pre-fill address if order has one
       if (order?.address) {
         setAddress(order.address);
@@ -69,65 +70,55 @@ export function OrderConfirmationDialog({
       if (order?.longitude) {
         setLongitude(order.longitude.toString());
       }
-    }
-  }, [open, order]);
-
-  const fetchCarriers = async () => {
-    try {
-      setLoadingCarriers(true);
-      const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
-
-      // Query the couriers endpoint (repartidores)
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers?status=active`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Store-ID': storeId || '',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Carriers API error:', errorData);
-        throw new Error(errorData.message || 'Failed to fetch carriers');
+      // Pre-fill upsell if order has one
+      if (order?.upsell_added !== undefined) {
+        setUpsellAdded(order.upsell_added);
       }
 
-      const result = await response.json();
-      console.log('Carriers loaded:', result);
-      console.log('Carriers data:', result.data);
-      console.log('Number of carriers:', result.data?.length || 0);
-
-      // The API should return active carriers
-      const carriersList = result.data || [];
-
-      // Map the API response to match our Carrier type
-      const mappedCarriers = carriersList.map((c: any) => ({
-        ...c,
-        status: c.is_active ? 'active' : 'inactive',
-        deliveryRate: c.delivery_rate || 0,
-      }));
-
-      console.log('Mapped carriers:', mappedCarriers);
-      setCarriers(mappedCarriers);
-
-      if (carriersList.length === 0) {
+      // Check if no carriers available
+      if (carriers.length === 0 && !loadingCarriers) {
         toast({
           title: 'Sin repartidores',
           description: 'No hay repartidores activos disponibles. Crea uno primero.',
           variant: 'destructive',
         });
       }
-    } catch (error: any) {
-      console.error('Error fetching carriers:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'No se pudieron cargar los repartidores',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingCarriers(false);
     }
-  };
+  }, [open, order, carriers.length, loadingCarriers, toast]);
+
+  // Auto-save upsell when changed after confirmation
+  useEffect(() => {
+    if (isConfirmed && confirmedOrder && order) {
+      const updateUpsell = async () => {
+        try {
+          const token = localStorage.getItem('auth_token');
+          const storeId = localStorage.getItem('current_store_id');
+
+          await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Store-ID': storeId || '',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ upsell_added: upsellAdded }),
+          });
+
+          toast({
+            title: 'Upsell actualizado',
+            description: upsellAdded ? 'Se agregó el upsell al pedido' : 'Se removió el upsell del pedido',
+          });
+        } catch (error) {
+          console.error('Error updating upsell:', error);
+        }
+      };
+
+      // Only update if the value actually changed from what was in the order
+      if (order.upsell_added !== upsellAdded) {
+        updateUpsell();
+      }
+    }
+  }, [upsellAdded, isConfirmed, confirmedOrder, order, toast]);
 
   const handleConfirm = async () => {
     if (!order) return;
@@ -144,6 +135,17 @@ export function OrderConfirmationDialog({
 
     try {
       setLoading(true);
+
+      // Close dialog immediately to give feedback
+      handleClose();
+
+      // Show loading toast immediately
+      const loadingToast = toast({
+        title: 'Confirmando pedido...',
+        description: 'Por favor espera mientras procesamos la confirmación',
+        duration: Infinity, // Keep it open until we update it
+      });
+
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
@@ -180,25 +182,75 @@ export function OrderConfirmationDialog({
 
       const result = await response.json();
 
-      // Show success state with print label option
-      setIsConfirmed(true);
-      setConfirmedOrder(result.data);
+      // Dismiss loading toast
+      loadingToast.dismiss();
 
+      // Show success toast
       toast({
         title: '¡Pedido confirmado!',
-        description: 'El pedido ha sido asignado al repartidor. Ahora puedes imprimir la etiqueta.',
+        description: 'El pedido ha sido asignado al repartidor exitosamente.',
+        duration: 5000,
       });
 
       onConfirmed();
     } catch (error: any) {
       console.error('Error confirming order:', error);
+
       toast({
-        title: 'Error',
-        description: error.message || 'No se pudo confirmar el pedido',
+        title: 'Error al confirmar',
+        description: error.message || 'No se pudo confirmar el pedido. Intenta nuevamente.',
         variant: 'destructive',
+        duration: 5000,
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const extractCoordinatesFromMapsLink = (link: string) => {
+    if (!link) return;
+
+    try {
+      // Pattern 1: ?q=lat,lng or @lat,lng
+      const pattern1 = /[@?]q?=?(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+      const match1 = link.match(pattern1);
+
+      if (match1) {
+        setLatitude(match1[1]);
+        setLongitude(match1[2]);
+        toast({
+          title: 'Coordenadas extraídas',
+          description: `Lat: ${match1[1]}, Lng: ${match1[2]}`,
+        });
+        return;
+      }
+
+      // Pattern 2: /place/@lat,lng,zoom
+      const pattern2 = /@(-?\d+\.?\d*),(-?\d+\.?\d*),\d+/;
+      const match2 = link.match(pattern2);
+
+      if (match2) {
+        setLatitude(match2[1]);
+        setLongitude(match2[2]);
+        toast({
+          title: 'Coordenadas extraídas',
+          description: `Lat: ${match2[1]}, Lng: ${match2[2]}`,
+        });
+        return;
+      }
+
+      toast({
+        title: 'No se encontraron coordenadas',
+        description: 'El formato del link no es reconocido. Intenta copiar el link desde Google Maps.',
+        variant: 'destructive',
+      });
+    } catch (error) {
+      console.error('Error extracting coordinates:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron extraer las coordenadas del link',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -239,6 +291,7 @@ export function OrderConfirmationDialog({
     setAddress('');
     setLatitude('');
     setLongitude('');
+    setMapsLink('');
     setIsConfirmed(false);
     setConfirmedOrder(null);
     onOpenChange(false);
@@ -259,47 +312,63 @@ export function OrderConfirmationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {isConfirmed && confirmedOrder ? (
-          // Success state - Show shipping label
-          <div className="py-4">
-            <div className="mb-6 p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800 flex items-center gap-3">
-              <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400 flex-shrink-0" />
-              <div>
-                <p className="font-semibold text-green-900 dark:text-green-100">
-                  Pedido confirmado exitosamente
-                </p>
-                <p className="text-sm text-green-700 dark:text-green-300">
-                  El repartidor ha sido asignado. Imprime la etiqueta y pégala en el paquete.
-                </p>
+        <div className="space-y-4 py-4">
+          {isConfirmed && confirmedOrder ? (
+            // Success state - Show shipping label with upsell toggle
+            <>
+              <div className="mb-6 p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800 flex items-center gap-3">
+                <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-green-900 dark:text-green-100">
+                    Pedido confirmado exitosamente
+                  </p>
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    El repartidor ha sido asignado. Imprime la etiqueta y pégala en el paquete.
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <OrderShippingLabel
-              orderId={confirmedOrder.id}
-              deliveryToken={confirmedOrder.delivery_link_token}
-              customerName={`${confirmedOrder.customer_first_name || ''} ${confirmedOrder.customer_last_name || ''}`.trim() || order?.customer || 'Cliente'}
-              customerPhone={confirmedOrder.customer_phone || order?.phone || ''}
-              customerAddress={confirmedOrder.customer_address || confirmedOrder.address || order?.address || order?.customer_address}
-              addressReference={confirmedOrder.address_reference || order?.address_reference}
-              neighborhood={confirmedOrder.neighborhood || order?.neighborhood}
-              deliveryNotes={confirmedOrder.delivery_notes || order?.delivery_notes}
-              courierName={carriers.find(c => c.id === courierId)?.name}
-              codAmount={confirmedOrder.cod_amount || order?.cod_amount}
-              products={
-                confirmedOrder.line_items && confirmedOrder.line_items.length > 0
-                  ? confirmedOrder.line_items.map((item: any) => ({
-                      name: item.product_name || item.title,
-                      quantity: item.quantity,
-                    }))
-                  : order
-                  ? [{ name: order.product, quantity: order.quantity }]
-                  : []
-              }
-            />
-          </div>
-        ) : (
-          // Form state - Original confirmation form
-          <div className="space-y-4 py-4">
+              {/* Upsell Toggle - Available after confirmation */}
+              <div className="flex items-center justify-between space-x-2 p-3 rounded-lg border bg-muted/50">
+                <Label htmlFor="upsell-confirmed" className="flex flex-col space-y-1">
+                  <span>¿Agregar upsell?</span>
+                  <span className="font-normal text-xs text-muted-foreground">
+                    Marca si se añadió un producto adicional
+                  </span>
+                </Label>
+                <Switch
+                  id="upsell-confirmed"
+                  checked={upsellAdded}
+                  onCheckedChange={setUpsellAdded}
+                />
+              </div>
+
+              <OrderShippingLabel
+                orderId={confirmedOrder.id}
+                deliveryToken={confirmedOrder.delivery_link_token}
+                customerName={`${confirmedOrder.customer_first_name || ''} ${confirmedOrder.customer_last_name || ''}`.trim() || order?.customer || 'Cliente'}
+                customerPhone={confirmedOrder.customer_phone || order?.phone || ''}
+                customerAddress={confirmedOrder.customer_address || confirmedOrder.address || order?.address || order?.customer_address}
+                addressReference={confirmedOrder.address_reference || order?.address_reference}
+                neighborhood={confirmedOrder.neighborhood || order?.neighborhood}
+                deliveryNotes={confirmedOrder.delivery_notes || order?.delivery_notes}
+                courierName={getCarrierById(courierId)?.name}
+                codAmount={confirmedOrder.cod_amount || order?.cod_amount}
+                products={
+                  confirmedOrder.line_items && confirmedOrder.line_items.length > 0
+                    ? confirmedOrder.line_items.map((item: any) => ({
+                        name: item.product_name || item.title,
+                        quantity: item.quantity,
+                      }))
+                    : order
+                    ? [{ name: order.product, quantity: order.quantity }]
+                    : []
+                }
+              />
+            </>
+          ) : (
+            // Form state - Original confirmation form
+            <>
             {/* Order Info */}
             {order && (
               <div className="rounded-lg border p-3 bg-muted/50">
@@ -368,6 +437,33 @@ export function OrderConfirmationDialog({
             />
           </div>
 
+          {/* Google Maps Link */}
+          <div className="space-y-2">
+            <Label htmlFor="mapsLink">
+              Link de Google Maps (opcional)
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="mapsLink"
+                value={mapsLink}
+                onChange={(e) => setMapsLink(e.target.value)}
+                placeholder="https://maps.google.com/?q=-25.263740,-57.575926"
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => extractCoordinatesFromMapsLink(mapsLink)}
+                disabled={!mapsLink}
+              >
+                Extraer
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Pega el link de Google Maps y haz clic en "Extraer" para obtener las coordenadas
+            </p>
+          </div>
+
           {/* Coordinates (Optional) */}
           <div className="space-y-2">
             <Label>Coordenadas (opcional)</Label>
@@ -397,31 +493,32 @@ export function OrderConfirmationDialog({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Usa el botón de ubicación o ingresa las coordenadas manualmente
+              O ingresa las coordenadas manualmente / usa el botón de ubicación
             </p>
           </div>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={handleClose}
-              disabled={loading}
-            >
-              Cancelar
-            </Button>
-            <Button onClick={handleConfirm} disabled={loading || !courierId}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Confirmando...
-                </>
-              ) : (
-                'Confirmar Pedido'
-              )}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={handleClose}
+                disabled={loading}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={handleConfirm} disabled={loading || !courierId}>
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Confirmando...
+                  </>
+                ) : (
+                  'Confirmar Pedido'
+                )}
+              </Button>
+            </DialogFooter>
+            </>
+          )}
         </div>
-        )}
       </DialogContent>
     </Dialog>
   );

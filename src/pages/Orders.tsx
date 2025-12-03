@@ -13,14 +13,13 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FilterChips } from '@/components/FilterChips';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
-import { carriersService } from '@/services/carriers.service';
+import { useCarriers } from '@/hooks/useCarriers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useHighlight } from '@/hooks/useHighlight';
 import { Order } from '@/types';
-import type { Carrier } from '@/services/carriers.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -56,8 +55,10 @@ const statusLabels = {
 
 export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Use centralized carriers hook with caching
+  const { getCarrierName } = useCarriers();
   const [search, setSearch] = useState('');
   const [chipFilters, setChipFilters] = useState<Record<string, any>>({});
   const [confirmationFilter, setConfirmationFilter] = useState('all');
@@ -87,36 +88,6 @@ export default function Orders() {
   const debouncedSearch = useDebounce(search, 300);
   const { isHighlighted } = useHighlight();
   const previousCountRef = useRef(0);
-
-  // Load carriers on mount
-  useEffect(() => {
-    const loadCarriers = async () => {
-      try {
-        const data = await carriersService.getAll();
-        setCarriers(data);
-      } catch (error) {
-        console.error('Error loading carriers:', error);
-      }
-    };
-    loadCarriers();
-  }, []);
-
-  // Helper function to get carrier name by ID
-  const getCarrierName = useCallback((carrierIdOrName: string): string => {
-    if (!carrierIdOrName) return '';
-
-    // Check if it's a UUID (carrier_id)
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(carrierIdOrName);
-
-    if (isUUID) {
-      // Find carrier by ID
-      const carrier = carriers.find(c => c.id === carrierIdOrName);
-      return carrier?.name || carrierIdOrName;
-    }
-
-    // It's already a name or something else, return as is
-    return carrierIdOrName;
-  }, [carriers]);
 
   // Memoize date params to trigger refetch when date range changes
   const dateParams = useMemo(() => {

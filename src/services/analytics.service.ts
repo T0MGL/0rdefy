@@ -7,17 +7,22 @@ const defaultOverview: DashboardOverview = {
   totalOrders: 0,
   revenue: 0,
   costs: 0,
+  deliveryCosts: 0,
   marketing: 0,
-  adSpend: 0,
-  adRevenue: 0,
+  netProfit: 0,
+  profitMargin: 0,
+  realRevenue: 0,
+  realCosts: 0,
+  realDeliveryCosts: 0,
+  realNetProfit: 0,
+  realProfitMargin: 0,
   roi: 0,
   roas: 0,
-  conversionRate: 0,
-  averageOrderValue: 0,
   deliveryRate: 0,
-  profitMargin: 0,
-  netProfit: 0,
+  taxCollected: 0,
+  taxRate: 0,
   costPerOrder: 0,
+  averageOrderValue: 0,
 };
 
 const defaultConfirmationMetrics: ConfirmationMetrics = {
@@ -146,6 +151,25 @@ export const analyticsService = {
     } catch (error) {
       console.error('Error loading order status distribution:', error);
       return [];
+    }
+  },
+
+  getCashProjection: async (lookbackDays: number = 30): Promise<any> => {
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append('lookbackDays', lookbackDays.toString());
+
+      const response = await fetch(`${API_BASE_URL}/analytics/cash-projection?${queryParams.toString()}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+      return result.data || null;
+    } catch (error) {
+      console.error('Error loading cash projection:', error);
+      return null;
     }
   },
 };

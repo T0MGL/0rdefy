@@ -109,14 +109,15 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
           return;
         }
 
-        console.log('[Shopify] Initializing App Bridge 3.0 with shop:', shopDomain);
+        console.log('[Shopify] Initializing App Bridge 3.0 CDN with host:', host);
 
-        // Inicializar App Bridge 3.0 con el client_id del shopify.app.toml
+        // Inicializar App Bridge 3.0 CDN con el client_id del shopify.app.toml
+        // NOTA: El parámetro 'shop' NO es necesario cuando usamos App Bridge CDN
+        // El host parameter es suficiente para identificar la tienda
         const CLIENT_ID = '75123c29296179fbd8f253db4196c83b';
         const shopifyApp = window.shopify.createApp({
           apiKey: CLIENT_ID,
-          shop: shopDomain,  // REQUERIDO: Shop domain (shop.myshopify.com)
-          host: host,        // Host parameter from Shopify
+          host: host,        // Host parameter from Shopify (suficiente para CDN)
           forceRedirect: true, // Redirigir automáticamente cuando no esté embebido
         });
 

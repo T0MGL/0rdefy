@@ -130,7 +130,29 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const count = ordersList.length;
 
             // 1. REVENUE (from orders)
+            // Total revenue from ALL orders (for display purposes)
             let rev = ordersList.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
+
+            // 1.5. REAL REVENUE (only from delivered orders - actual cash received)
+            // This is the money that actually entered the business
+            let realRevenue = ordersList
+                .filter(o => o.sleeves_status === 'delivered')
+                .reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
+
+            // 1.6. DELIVERY COSTS (shipping costs from orders)
+            // These are costs that must be subtracted from profit
+            let deliveryCosts = 0;
+            let realDeliveryCosts = 0;
+
+            for (const order of ordersList) {
+                const shippingCost = Number(order.shipping_cost) || 0;
+                deliveryCosts += shippingCost;
+
+                // Only count delivery costs for delivered orders
+                if (order.sleeves_status === 'delivered') {
+                    realDeliveryCosts += shippingCost;
+                }
+            }
 
             // 2. TAX COLLECTED (IVA incluido en el precio de venta)
             // Fórmula: IVA = precio - (precio / (1 + tasa/100))
@@ -166,12 +188,24 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             }
 
             // Calculate costs using the cached product data
+            // Total costs (all orders)
             let costs = 0;
+            // Real costs (only delivered orders - actual money spent)
+            let realCosts = 0;
+
             for (const order of ordersList) {
                 if (order.line_items && Array.isArray(order.line_items)) {
+                    let orderCost = 0;
                     for (const item of order.line_items) {
                         const productCost = productCostMap.get(item.product_id) || 0;
-                        costs += productCost * Number(item.quantity || 1);
+                        const itemCost = productCost * Number(item.quantity || 1);
+                        orderCost += itemCost;
+                        costs += itemCost;
+                    }
+
+                    // Only count costs for delivered orders (real money out)
+                    if (order.sleeves_status === 'delivered') {
+                        realCosts += orderCost;
                     }
                 }
             }
@@ -202,10 +236,17 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const mktg = marketingCosts;
 
             // 5. NET PROFIT
-            const profit = rev - costs - mktg;
+            // Projected profit (based on all orders - for trend analysis)
+            // IMPORTANT: We subtract delivery costs because they're part of the operational costs
+            const profit = rev - costs - deliveryCosts - mktg;
+
+            // REAL NET PROFIT (only from delivered orders - actual cash profit)
+            // This is the REAL money left after all costs (products + delivery + marketing)
+            const realProfit = realRevenue - realCosts - realDeliveryCosts - mktg;
 
             // 6. PROFIT MARGIN
             const margin = rev > 0 ? ((profit / rev) * 100) : 0;
+            const realMargin = realRevenue > 0 ? ((realProfit / realRevenue) * 100) : 0;
 
             // 7. ROI
             const investment = costs + mktg;
@@ -228,9 +269,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 totalOrders: count,
                 revenue: rev,
                 costs: costs,
+                deliveryCosts: deliveryCosts,
                 marketing: mktg,
                 netProfit: profit,
                 profitMargin: margin,
+                realRevenue: realRevenue,
+                realCosts: realCosts,
+                realDeliveryCosts: realDeliveryCosts,
+                realNetProfit: realProfit,
+                realProfitMargin: realMargin,
                 roi: roiValue,
                 roas: roasValue,
                 deliveryRate: delivRate,
@@ -270,9 +317,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             totalOrders: calculateChange(currentMetrics.totalOrders, previousMetrics.totalOrders),
             revenue: calculateChange(currentMetrics.revenue, previousMetrics.revenue),
             costs: calculateChange(currentMetrics.costs, previousMetrics.costs),
+            deliveryCosts: calculateChange(currentMetrics.deliveryCosts, previousMetrics.deliveryCosts),
             marketing: calculateChange(currentMetrics.marketing, previousMetrics.marketing),
             netProfit: calculateChange(currentMetrics.netProfit, previousMetrics.netProfit),
             profitMargin: calculateChange(currentMetrics.profitMargin, previousMetrics.profitMargin),
+            realRevenue: calculateChange(currentMetrics.realRevenue, previousMetrics.realRevenue),
+            realCosts: calculateChange(currentMetrics.realCosts, previousMetrics.realCosts),
+            realDeliveryCosts: calculateChange(currentMetrics.realDeliveryCosts, previousMetrics.realDeliveryCosts),
+            realNetProfit: calculateChange(currentMetrics.realNetProfit, previousMetrics.realNetProfit),
+            realProfitMargin: calculateChange(currentMetrics.realProfitMargin, previousMetrics.realProfitMargin),
             roi: calculateChange(currentMetrics.roi, previousMetrics.roi),
             roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             deliveryRate: calculateChange(currentMetrics.deliveryRate, previousMetrics.deliveryRate),
@@ -286,9 +339,16 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 totalOrders,
                 revenue: Math.round(revenue),
                 costs: Math.round(totalCosts),
+                deliveryCosts: Math.round(currentMetrics.deliveryCosts),
                 marketing,
                 netProfit: Math.round(netProfit),
                 profitMargin: parseFloat(profitMargin.toFixed(1)),
+                // NEW: Real cash metrics (only delivered orders)
+                realRevenue: Math.round(currentMetrics.realRevenue),
+                realCosts: Math.round(currentMetrics.realCosts),
+                realDeliveryCosts: Math.round(currentMetrics.realDeliveryCosts),
+                realNetProfit: Math.round(currentMetrics.realNetProfit),
+                realProfitMargin: parseFloat(currentMetrics.realProfitMargin.toFixed(1)),
                 roi: parseFloat(roi.toFixed(2)),
                 roas: parseFloat(roas.toFixed(2)),
                 deliveryRate: parseFloat(deliveryRate.toFixed(1)),
@@ -305,9 +365,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     totalOrders: changes.totalOrders,
                     revenue: changes.revenue,
                     costs: changes.costs,
+                    deliveryCosts: changes.deliveryCosts,
                     marketing: changes.marketing,
                     netProfit: changes.netProfit,
                     profitMargin: changes.profitMargin,
+                    realRevenue: changes.realRevenue,
+                    realCosts: changes.realCosts,
+                    realDeliveryCosts: changes.realDeliveryCosts,
+                    realNetProfit: changes.realNetProfit,
+                    realProfitMargin: changes.realProfitMargin,
                     roi: changes.roi,
                     roas: changes.roas,
                     deliveryRate: changes.deliveryRate,
@@ -733,6 +799,167 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
         console.error('[GET /api/analytics/top-products] Error:', error);
         res.status(500).json({
             error: 'Failed to fetch top products',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/analytics/cash-projection - Advanced cash flow projection
+// ================================================================
+// Calculates cash projection based on:
+// 1. Historical delivery rate
+// 2. Orders in different stages (confirmed, in_preparation, ready_to_ship, shipped)
+// 3. Real cash already received (delivered orders)
+// ================================================================
+analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) => {
+    try {
+        const { lookbackDays = '30' } = req.query;
+
+        // Get all orders for the lookback period (to calculate historical delivery rate)
+        const lookbackDate = new Date();
+        lookbackDate.setDate(lookbackDate.getDate() - parseInt(lookbackDays as string));
+
+        const { data: historicalOrders, error: historicalError } = await supabaseAdmin
+            .from('orders')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .gte('created_at', lookbackDate.toISOString());
+
+        if (historicalError) throw historicalError;
+
+        // Get all active orders (not cancelled)
+        const { data: activeOrders, error: activeError } = await supabaseAdmin
+            .from('orders')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .neq('sleeves_status', 'cancelled');
+
+        if (activeError) throw activeError;
+
+        const historical = historicalOrders || [];
+        const active = activeOrders || [];
+
+        // Calculate historical delivery rate
+        const shippedOrders = historical.filter(o =>
+            o.sleeves_status === 'shipped' || o.sleeves_status === 'delivered'
+        ).length;
+        const deliveredOrders = historical.filter(o => o.sleeves_status === 'delivered').length;
+        const historicalDeliveryRate = shippedOrders > 0 ? (deliveredOrders / shippedOrders) : 0.85; // Default 85% if no data
+
+        // ===== CASH ALREADY IN (Delivered orders) =====
+        const deliveredRevenue = active
+            .filter(o => o.sleeves_status === 'delivered')
+            .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
+
+        // ===== CASH IN TRANSIT (Shipped but not delivered) =====
+        const shippedRevenue = active
+            .filter(o => o.sleeves_status === 'shipped')
+            .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
+
+        // Expected cash from shipped orders (adjusted by historical delivery rate)
+        const expectedFromShipped = shippedRevenue * historicalDeliveryRate;
+
+        // ===== CASH PIPELINE (Ready to ship, In preparation, Confirmed) =====
+        const readyToShipRevenue = active
+            .filter(o => o.sleeves_status === 'ready_to_ship')
+            .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
+
+        const inPreparationRevenue = active
+            .filter(o => o.sleeves_status === 'in_preparation')
+            .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
+
+        const confirmedRevenue = active
+            .filter(o => o.sleeves_status === 'confirmed')
+            .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
+
+        // Apply probability weights based on status
+        // Ready to ship: 90% probability (very likely to be delivered)
+        // In preparation: 80% probability (likely to be delivered)
+        // Confirmed: 70% probability (fairly likely to be delivered)
+        const expectedFromReadyToShip = readyToShipRevenue * 0.90 * historicalDeliveryRate;
+        const expectedFromInPreparation = inPreparationRevenue * 0.80 * historicalDeliveryRate;
+        const expectedFromConfirmed = confirmedRevenue * 0.70 * historicalDeliveryRate;
+
+        // ===== TOTAL PROJECTIONS =====
+        // Conservative projection (only high-probability sources)
+        const conservativeProjection = deliveredRevenue + expectedFromShipped + expectedFromReadyToShip;
+
+        // Moderate projection (includes in_preparation)
+        const moderateProjection = conservativeProjection + expectedFromInPreparation;
+
+        // Optimistic projection (includes everything)
+        const optimisticProjection = moderateProjection + expectedFromConfirmed;
+
+        // ===== DAILY AVERAGE (for future projections) =====
+        // Calculate average daily revenue from delivered orders in last 30 days
+        const last30Days = new Date();
+        last30Days.setDate(last30Days.getDate() - 30);
+
+        const recentDelivered = historical.filter(o =>
+            o.sleeves_status === 'delivered' &&
+            new Date(o.created_at) >= last30Days
+        );
+
+        const avgDailyRevenue = recentDelivered.length > 0
+            ? recentDelivered.reduce((sum, o) => sum + (Number(o.total_price) || 0), 0) / 30
+            : 0;
+
+        // Project revenue for next 7, 14, 30 days
+        const projection7Days = optimisticProjection + (avgDailyRevenue * 7);
+        const projection14Days = optimisticProjection + (avgDailyRevenue * 14);
+        const projection30Days = optimisticProjection + (avgDailyRevenue * 30);
+
+        res.json({
+            data: {
+                // Current cash status
+                cashInHand: Math.round(deliveredRevenue),
+                cashInTransit: Math.round(shippedRevenue),
+                expectedFromTransit: Math.round(expectedFromShipped),
+
+                // Pipeline breakdown
+                pipeline: {
+                    readyToShip: {
+                        total: Math.round(readyToShipRevenue),
+                        expected: Math.round(expectedFromReadyToShip),
+                        probability: 90,
+                    },
+                    inPreparation: {
+                        total: Math.round(inPreparationRevenue),
+                        expected: Math.round(expectedFromInPreparation),
+                        probability: 80,
+                    },
+                    confirmed: {
+                        total: Math.round(confirmedRevenue),
+                        expected: Math.round(expectedFromConfirmed),
+                        probability: 70,
+                    },
+                },
+
+                // Projections
+                projections: {
+                    conservative: Math.round(conservativeProjection),
+                    moderate: Math.round(moderateProjection),
+                    optimistic: Math.round(optimisticProjection),
+                },
+
+                // Future projections (next 7, 14, 30 days)
+                futureProjections: {
+                    next7Days: Math.round(projection7Days),
+                    next14Days: Math.round(projection14Days),
+                    next30Days: Math.round(projection30Days),
+                },
+
+                // Metrics
+                historicalDeliveryRate: parseFloat((historicalDeliveryRate * 100).toFixed(1)),
+                avgDailyRevenue: Math.round(avgDailyRevenue),
+                lookbackDays: parseInt(lookbackDays as string),
+            }
+        });
+    } catch (error: any) {
+        console.error('[GET /api/analytics/cash-projection] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch cash projection',
             message: error.message
         });
     }

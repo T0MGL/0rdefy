@@ -55,12 +55,64 @@ npm install
 # Edit .env with your production configuration
 # Required: SUPABASE_URL, SUPABASE_ANON_KEY, JWT_SECRET, etc.
 
-# Run database migrations
+# Run database migrations (see Database Setup below)
 npm run db:migrate
 
 # Start the development servers
 npm run api:dev    # API server (port 3001)
 npm run dev        # Frontend (port 8080)
+```
+
+## Database Setup
+
+### Master Migration (Quick Setup)
+
+Ordefy includes a **complete master migration** that sets up the entire database schema in one command. This migration is:
+
+✅ **Idempotent** - Can be run multiple times safely
+✅ **Complete** - Includes all 50+ tables, functions, triggers, and views
+✅ **Production-Ready** - Fully tested and optimized
+
+**To migrate to a new database:**
+
+```bash
+# Using psql (recommended)
+psql YOUR_DATABASE_URL -f db/migrations/000_MASTER_MIGRATION.sql
+
+# Or using the npm script
+npm run db:migrate
+```
+
+**What's included:**
+- 50+ tables (stores, users, products, orders, carriers, warehouse, shopify integration)
+- 20+ database functions (automatic calculations, triggers, utilities)
+- 30+ triggers (auto-update timestamps, stats, inventory tracking)
+- 4 optimized views (analytics, performance metrics)
+- 50+ performance indexes
+- Complete multi-tenant isolation by store_id
+
+**Migration file:** `db/migrations/000_MASTER_MIGRATION.sql`
+
+### Additional Feature Migrations
+
+After running the master migration, you may optionally install these additional features:
+
+**023_user_security_tracking.sql** (Recommended for Production)
+- User session management across devices
+- Activity log for security auditing
+- Automatic session cleanup
+- Failed login tracking
+
+**024_webhook_queue_system.sql** (Critical for Shopify Apps)
+- Asynchronous webhook processing queue
+- Handles high-traffic periods (Black Friday, flash sales)
+- Prevents Shopify timeout errors (< 5s response requirement)
+- Automatic retries with exponential backoff
+
+```bash
+# Install optional features
+psql YOUR_DATABASE_URL -f db/migrations/023_user_security_tracking.sql
+psql YOUR_DATABASE_URL -f db/migrations/024_webhook_queue_system.sql
 ```
 
 ### Development Commands
