@@ -5,11 +5,45 @@
 // All webhooks require HMAC signature validation
 // ================================================================
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
 
 const router = express.Router();
+
+// ================================================================
+// MIDDLEWARE: Webhook Timeout Protection
+// ================================================================
+// Shopify has a 30s timeout - we must respond before that
+// Set 25s timeout to ensure we can respond gracefully
+// ================================================================
+function webhookTimeout(req: Request, res: Response, next: NextFunction) {
+  const WEBHOOK_TIMEOUT = 25000; // 25 seconds
+  let timeoutHandled = false;
+
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      timeoutHandled = true;
+      console.error(`⏱️ [WEBHOOK-TIMEOUT] Request timed out after ${WEBHOOK_TIMEOUT}ms`);
+      console.error(`⏱️ [WEBHOOK-TIMEOUT] Topic: ${req.path}, Shop: ${req.headers['x-shopify-shop-domain']}`);
+
+      // Respond with 200 to prevent Shopify retries
+      // Log the timeout for monitoring
+      res.status(200).send('Timeout - processing in background');
+    }
+  }, WEBHOOK_TIMEOUT);
+
+  // Clear timeout when response is sent
+  const originalSend = res.send.bind(res);
+  res.send = function(data: any) {
+    if (!timeoutHandled) {
+      clearTimeout(timeoutId);
+    }
+    return originalSend(data);
+  };
+
+  next();
+}
 
 // ================================================================
 // MIDDLEWARE: Validate Shopify HMAC signature
@@ -59,7 +93,8 @@ function validateShopifyHMAC(req: any, res: Response, next: any) {
   next();
 }
 
-// Apply HMAC validation to all webhook routes
+// Apply timeout protection and HMAC validation to all webhook routes
+router.use(webhookTimeout);
 router.use(validateShopifyHMAC);
 
 // ================================================================

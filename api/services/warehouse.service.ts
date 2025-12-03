@@ -687,7 +687,35 @@ export async function updatePackingProgress(
     const orderComplete = orderProgress?.every(p => p.quantity_packed >= p.quantity_needed);
 
     if (orderComplete) {
+      // CRITICAL: Validate stock availability before moving to ready_to_ship
+      // This prevents race conditions where multiple orders compete for the same stock
+      const { data: stockCheck, error: stockError } = await supabaseAdmin
+        .rpc('check_order_stock_availability', {
+          p_order_id: orderId,
+          p_store_id: storeId
+        });
+
+      if (stockError) {
+        console.error('Error checking stock availability:', stockError);
+        throw new Error('Failed to validate stock availability');
+      }
+
+      // Check if all products have sufficient stock
+      const insufficientStock = stockCheck?.filter((item: any) => !item.is_sufficient);
+
+      if (insufficientStock && insufficientStock.length > 0) {
+        const productNames = insufficientStock
+          .map((item: any) => `${item.product_name} (needs ${item.required_quantity}, available ${item.available_stock})`)
+          .join(', ');
+
+        throw new Error(
+          `Cannot complete packing - insufficient stock for: ${productNames}. ` +
+          `Another order may have used this stock. Please refresh and verify inventory.`
+        );
+      }
+
       // Update order status to ready_to_ship
+      // The trigger will validate stock again and decrement it atomically
       await supabaseAdmin
         .from('orders')
         .update({ sleeves_status: 'ready_to_ship' })
