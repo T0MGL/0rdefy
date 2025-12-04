@@ -98,7 +98,7 @@ BEGIN
                             'order_ready',
                             CASE WHEN TG_OP = 'UPDATE' THEN OLD.sleeves_status ELSE NULL END,
                             NEW.sleeves_status,
-                            'Stock decremented when order ready to ship'
+                            'Stock decrementado para pedido listo para envío'
                         );
                     ELSE
                         RAISE EXCEPTION 'Product % not found for order % - cannot decrement stock', product_uuid, NEW.id;
@@ -153,7 +153,7 @@ BEGIN
                             'order_cancelled',
                             OLD.sleeves_status,
                             NEW.sleeves_status,
-                            'Stock restored when order cancelled/rejected'
+                            'Stock restaurado al cancelar/rechazar pedido'
                         );
                     ELSE
                         RAISE EXCEPTION 'Product % not found for order % - cannot restore stock', product_uuid, NEW.id;
@@ -206,7 +206,7 @@ BEGIN
                             'order_reverted',
                             OLD.sleeves_status,
                             NEW.sleeves_status,
-                            'Stock restored when order reverted to earlier status'
+                            'Stock restaurado al revertir pedido a estado anterior'
                         );
                     ELSE
                         RAISE EXCEPTION 'Product % not found for order % - cannot restore stock on revert', product_uuid, NEW.id;

@@ -12,6 +12,7 @@ interface Store {
   country: string;
   currency: string;
   role: string;
+  timezone?: string;
 }
 
 interface User {

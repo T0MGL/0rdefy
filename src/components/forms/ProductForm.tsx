@@ -85,11 +85,11 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
             name="price"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Precio de Venta</FormLabel>
+                <FormLabel>Precio de Venta (Gs.)</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
-                    placeholder="0.00"
+                    placeholder="0"
                     {...field}
                     value={field.value ?? ''}
                     onChange={(e) => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
@@ -105,11 +105,11 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
             name="cost"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Costo</FormLabel>
+                <FormLabel>Costo (Gs.)</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
-                    placeholder="0.00"
+                    placeholder="0"
                     {...field}
                     value={field.value ?? ''}
                     onChange={(e) => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}

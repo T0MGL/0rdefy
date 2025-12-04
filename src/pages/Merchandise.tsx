@@ -539,12 +539,12 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
             </div>
 
             <div className="space-y-2">
-              <Label>Costo de Envío</Label>
+              <Label>Costo de Envío (Gs.)</Label>
               <Input
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="0.00"
+                placeholder="0"
                 value={shippingCost}
                 onChange={(e) => setShippingCost(e.target.value)}
               />
@@ -608,12 +608,12 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                     </div>
 
                     <div className="w-32 space-y-2">
-                      <Label>Costo Unit.</Label>
+                      <Label>Costo Unit. (Gs.)</Label>
                       <Input
                         type="number"
                         step="0.01"
                         min="0"
-                        placeholder="0.00"
+                        placeholder="0"
                         value={item.unit_cost}
                         onChange={(e) => handleItemChange(index, 'unit_cost', e.target.value)}
                       />
@@ -661,24 +661,24 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                         </div>
 
                         <div className="space-y-2">
-                          <Label>Precio de Venta</Label>
+                          <Label>Precio de Venta (Gs.)</Label>
                           <Input
                             type="number"
                             step="0.01"
                             min="0"
-                            placeholder="0.00"
+                            placeholder="0"
                             value={newProductPrice}
                             onChange={(e) => setNewProductPrice(e.target.value)}
                           />
                         </div>
 
                         <div className="space-y-2">
-                          <Label>Costo del Producto *</Label>
+                          <Label>Costo del Producto (Gs.) *</Label>
                           <Input
                             type="number"
                             step="0.01"
                             min="0"
-                            placeholder="0.00"
+                            placeholder="0"
                             value={newProductCost}
                             onChange={(e) => setNewProductCost(e.target.value)}
                           />

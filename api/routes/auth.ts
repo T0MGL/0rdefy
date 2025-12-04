@@ -246,7 +246,8 @@ authRouter.post('/login', async (req: Request, res: Response) => {
                     id,
                     name,
                     country,
-                    currency
+                    currency,
+                    timezone
                 )
             `)
             .eq('user_id', user.id);
@@ -260,6 +261,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             name: us.stores.name,
             country: us.stores.country,
             currency: us.stores.currency,
+            timezone: us.stores.timezone,
             role: us.role
         })) || [];
 
@@ -431,6 +433,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
                     name: store.name,
                     country: store.country,
                     currency: store.currency,
+                    timezone: store.timezone,
                     role: 'admin'
                 }]
             },
@@ -787,6 +790,7 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
                     name,
                     country,
                     currency,
+                    timezone,
                     tax_rate,
                     admin_fee
                 )
@@ -807,6 +811,7 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
             name: us.stores.name,
             country: us.stores.country,
             currency: us.stores.currency,
+            timezone: us.stores.timezone,
             tax_rate: us.stores.tax_rate,
             admin_fee: us.stores.admin_fee,
             role: us.role
@@ -823,6 +828,74 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
         res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to fetch stores',
+            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+        });
+    }
+});
+
+/**
+ * PUT /api/auth/stores/:storeId/timezone
+ * Update store timezone
+ */
+authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const { storeId } = req.params;
+        const { timezone } = req.body;
+
+        console.log('🌍 [UPDATE-TIMEZONE] Updating timezone for store:', storeId);
+
+        if (\!timezone) {
+            console.error('❌ [UPDATE-TIMEZONE] Missing timezone');
+            return res.status(400).json({
+                success: false,
+                error: 'Timezone is required'
+            });
+        }
+
+        // Verify user has access to this store
+        const { data: userStore, error: accessError } = await supabaseAdmin
+            .from('user_stores')
+            .select('role')
+            .eq('user_id', req.userId)
+            .eq('store_id', storeId)
+            .single();
+
+        if (accessError || \!userStore) {
+            console.error('❌ [UPDATE-TIMEZONE] User does not have access to store');
+            return res.status(403).json({
+                success: false,
+                error: 'Access denied'
+            });
+        }
+
+        // Update store timezone
+        const { data: updatedStore, error: updateError } = await supabaseAdmin
+            .from('stores')
+            .update({ timezone, updated_at: new Date().toISOString() })
+            .eq('id', storeId)
+            .select()
+            .single();
+
+        if (updateError || \!updatedStore) {
+            console.error('❌ [UPDATE-TIMEZONE] Error updating timezone:', updateError);
+            return res.status(500).json({
+                success: false,
+                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update timezone',
+                details: process.env.NODE_ENV === 'production' ? undefined : updateError?.message
+            });
+        }
+
+        console.log('✅ [UPDATE-TIMEZONE] Timezone updated successfully:', timezone);
+
+        res.json({
+            success: true,
+            timezone: updatedStore.timezone
+        });
+    } catch (error: any) {
+        console.error('💥 [UPDATE-TIMEZONE] Unexpected error:', error);
+        res.status(500).json({
+            success: false,
+            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update timezone',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
         });
     }
