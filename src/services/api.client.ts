@@ -2,8 +2,16 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// Defensive: Remove trailing /api if present to avoid double /api/api/
-const cleanBaseURL = API_BASE_URL.replace(/\/api\/?$/, '');
+// Defensive: Ensure we don't have double /api/api/
+// Remove all trailing slashes and /api segments
+let cleanBaseURL = API_BASE_URL;
+// Remove trailing slashes
+cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+// Remove trailing /api recursively
+while (cleanBaseURL.endsWith('/api')) {
+  cleanBaseURL = cleanBaseURL.slice(0, -4);
+  cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+}
 
 const apiClient = axios.create({
   baseURL: `${cleanBaseURL}/api`,
