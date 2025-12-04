@@ -1,11 +1,9 @@
 import { Order, CreateOrderInput, UpdateOrderInput } from '@/types';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+cleanBaseURL = cleanBaseURL.trim();
+cleanBaseURL = cleanBaseURL.replace(/(\/api\/?)+$/i, '');
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
-while (cleanBaseURL.endsWith('/api')) {
-  cleanBaseURL = cleanBaseURL.slice(0, -4);
-  cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
-}
 const API_BASE_URL = `${cleanBaseURL}/api`;
 
 const getHeaders = () => {

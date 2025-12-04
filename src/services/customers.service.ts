@@ -1,6 +1,10 @@
 import { Customer } from '@/types';
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api`;
+let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+cleanBaseURL = cleanBaseURL.trim();
+cleanBaseURL = cleanBaseURL.replace(/(\/api\/?)+$/i, '');
+cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+const API_BASE_URL = `${cleanBaseURL}/api`;
 
 // API response types
 interface ApiListResponse {
