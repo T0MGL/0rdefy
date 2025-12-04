@@ -29,10 +29,10 @@ RETURNS TRIGGER AS $$
 BEGIN
   -- Si el método de pago es efectivo/cash, el COD amount es igual al total_price
   IF NEW.payment_method IN ('cash', 'efectivo') THEN
-    NEW.cod_amount = COALESCE(NEW.total_price, 0);
+    NEW.cod_amount = COALESCE(NEW.total_price, 0.0);
   ELSE
     -- Si no es efectivo, el COD amount es 0
-    NEW.cod_amount = 0;
+    NEW.cod_amount = 0.0;
   END IF;
 
   RETURN NEW;
