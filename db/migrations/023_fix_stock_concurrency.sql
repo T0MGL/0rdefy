@@ -85,7 +85,7 @@ BEGIN
                             'order_ready',
                             CASE WHEN TG_OP = 'UPDATE' THEN OLD.sleeves_status ELSE NULL END,
                             NEW.sleeves_status,
-                            format('Stock decremented for order ready to ship. Product: %s', product_name)
+                            format('Stock decrementado para pedido listo para envío. Producto: %s', product_name)
                         );
 
                     EXCEPTION
@@ -151,7 +151,7 @@ BEGIN
                             'order_cancelled',
                             OLD.sleeves_status,
                             NEW.sleeves_status,
-                            format('Stock restored when order cancelled/rejected. Product: %s', product_name)
+                            format('Stock restaurado al cancelar/rechazar pedido. Producto: %s', product_name)
                         );
 
                     EXCEPTION
@@ -215,7 +215,7 @@ BEGIN
                             'order_reverted',
                             OLD.sleeves_status,
                             NEW.sleeves_status,
-                            format('Stock restored when order reverted to earlier status. Product: %s', product_name)
+                            format('Stock restaurado al revertir pedido a estado anterior. Producto: %s', product_name)
                         );
 
                     EXCEPTION

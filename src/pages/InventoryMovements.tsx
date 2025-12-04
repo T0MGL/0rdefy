@@ -21,8 +21,9 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Search, Filter, TrendingDown, TrendingUp, Package, Calendar } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import { es } from 'date-fns/locale';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Movement type labels and colors
 const MOVEMENT_TYPES = {
@@ -30,9 +31,15 @@ const MOVEMENT_TYPES = {
   order_cancelled: { label: 'Pedido Cancelado', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400', icon: TrendingUp },
   order_reverted: { label: 'Pedido Revertido', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400', icon: TrendingUp },
   manual_adjustment: { label: 'Ajuste Manual', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400', icon: Package },
+  return_accepted: { label: 'Devolución Aceptada', color: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400', icon: TrendingUp },
+  return_rejected: { label: 'Devolución Rechazada', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400', icon: Package },
+  inbound_received: { label: 'Recepción de Proveedor', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-400', icon: TrendingUp },
 };
 
 export function InventoryMovements() {
+  const { currentStore } = useAuth();
+  const timezone = currentStore?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [movementType, setMovementType] = useState<string>('all');
@@ -234,6 +241,9 @@ export function InventoryMovements() {
                     <SelectItem value="order_cancelled">Pedido Cancelado</SelectItem>
                     <SelectItem value="order_reverted">Pedido Revertido</SelectItem>
                     <SelectItem value="manual_adjustment">Ajuste Manual</SelectItem>
+                    <SelectItem value="return_accepted">Devolución Aceptada</SelectItem>
+                    <SelectItem value="return_rejected">Devolución Rechazada</SelectItem>
+                    <SelectItem value="inbound_received">Recepción de Proveedor</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -374,10 +384,10 @@ export function InventoryMovements() {
                       <TableCell>
                         <div className="text-sm">
                           <div className="text-gray-900 dark:text-white">
-                            {format(new Date(movement.created_at), 'dd/MM/yyyy', { locale: es })}
+                            {formatInTimeZone(new Date(movement.created_at), timezone, 'dd/MM/yyyy', { locale: es })}
                           </div>
                           <div className="text-gray-500 dark:text-gray-400">
-                            {format(new Date(movement.created_at), 'HH:mm', { locale: es })}
+                            {formatInTimeZone(new Date(movement.created_at), timezone, 'HH:mm', { locale: es })}
                           </div>
                         </div>
                       </TableCell>

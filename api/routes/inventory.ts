@@ -136,8 +136,8 @@ inventoryRouter.get('/movements', async (req: AuthRequest, res: Response) => {
     } catch (error) {
         console.error('❌ [INVENTORY] Unexpected error:', error);
         return res.status(500).json({
-            error: 'Failed to fetch inventory movements',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            error: 'Error al obtener movimientos de inventario',
+            details: error instanceof Error ? error.message : 'Error desconocido'
         });
     }
 });
@@ -185,7 +185,10 @@ inventoryRouter.get('/movements/summary', async (req: AuthRequest, res: Response
                 order_ready: 0,
                 order_cancelled: 0,
                 order_reverted: 0,
-                manual_adjustment: 0
+                manual_adjustment: 0,
+                return_accepted: 0,
+                return_rejected: 0,
+                inbound_received: 0
             },
             total_decrements: 0,
             total_increments: 0,
@@ -215,8 +218,8 @@ inventoryRouter.get('/movements/summary', async (req: AuthRequest, res: Response
     } catch (error) {
         console.error('❌ [INVENTORY] Unexpected error:', error);
         return res.status(500).json({
-            error: 'Failed to fetch inventory summary',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            error: 'Error al obtener resumen de inventario',
+            details: error instanceof Error ? error.message : 'Error desconocido'
         });
     }
 });
@@ -274,8 +277,8 @@ inventoryRouter.get('/movements/product/:id', async (req: AuthRequest, res: Resp
     } catch (error) {
         console.error('❌ [INVENTORY] Unexpected error:', error);
         return res.status(500).json({
-            error: 'Failed to fetch product movements',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            error: 'Error al obtener movimientos del producto',
+            details: error instanceof Error ? error.message : 'Error desconocido'
         });
     }
 });
@@ -293,8 +296,8 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
 
         if (!product_id || quantity_change === undefined || quantity_change === 0) {
             return res.status(400).json({
-                error: 'Missing required fields',
-                message: 'product_id and quantity_change (non-zero) are required'
+                error: 'Faltan campos requeridos',
+                message: 'Se requiere product_id y quantity_change (debe ser diferente de cero)'
             });
         }
 
@@ -310,7 +313,7 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
 
         if (productError || !product) {
             console.error('❌ [INVENTORY] Product not found:', productError);
-            return res.status(404).json({ error: 'Product not found' });
+            return res.status(404).json({ error: 'Producto no encontrado' });
         }
 
         const stock_before = product.stock;
@@ -341,7 +344,7 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
                 stock_before,
                 stock_after,
                 movement_type: 'manual_adjustment',
-                notes: notes || 'Manual adjustment via inventory management'
+                notes: notes || 'Ajuste manual de inventario'
             })
             .select()
             .single();
@@ -365,8 +368,8 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
     } catch (error) {
         console.error('❌ [INVENTORY] Unexpected error:', error);
         return res.status(500).json({
-            error: 'Failed to adjust inventory',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            error: 'Error al ajustar inventario',
+            details: error instanceof Error ? error.message : 'Error desconocido'
         });
     }
 });

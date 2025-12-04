@@ -14,7 +14,7 @@ export interface InventoryMovement {
   quantity_change: number;
   stock_before: number;
   stock_after: number;
-  movement_type: 'order_ready' | 'order_cancelled' | 'order_reverted' | 'manual_adjustment';
+  movement_type: 'order_ready' | 'order_cancelled' | 'order_reverted' | 'manual_adjustment' | 'return_accepted' | 'return_rejected' | 'inbound_received';
   order_status_from?: string;
   order_status_to?: string;
   notes?: string;
@@ -47,6 +47,9 @@ export interface InventorySummary {
     order_cancelled: number;
     order_reverted: number;
     manual_adjustment: number;
+    return_accepted: number;
+    return_rejected: number;
+    inbound_received: number;
   };
   total_decrements: number;
   total_increments: number;

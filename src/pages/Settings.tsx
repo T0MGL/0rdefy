@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity } from 'lucide-react';
+import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   getSessions,
   terminateSession,
@@ -24,6 +25,27 @@ import {
   type UserSession,
   type ActivityLog
 } from '@/services/security.service';
+import apiClient from '@/services/api.client';
+
+// Common timezones for Latin America
+const TIMEZONES = [
+  { value: 'America/Buenos_Aires', label: 'Buenos Aires (GMT-3)' },
+  { value: 'America/Asuncion', label: 'Asunción (GMT-4)' },
+  { value: 'America/La_Paz', label: 'La Paz (GMT-4)' },
+  { value: 'America/Santiago', label: 'Santiago (GMT-3)' },
+  { value: 'America/Bogota', label: 'Bogotá (GMT-5)' },
+  { value: 'America/Lima', label: 'Lima (GMT-5)' },
+  { value: 'America/Mexico_City', label: 'Ciudad de México (GMT-6)' },
+  { value: 'America/Caracas', label: 'Caracas (GMT-4)' },
+  { value: 'America/Montevideo', label: 'Montevideo (GMT-3)' },
+  { value: 'America/Sao_Paulo', label: 'São Paulo (GMT-3)' },
+  { value: 'America/Panama', label: 'Panamá (GMT-5)' },
+  { value: 'America/Costa_Rica', label: 'San José (GMT-6)' },
+  { value: 'America/Guatemala', label: 'Guatemala (GMT-6)' },
+  { value: 'America/Guayaquil', label: 'Guayaquil (GMT-5)' },
+  { value: 'America/Havana', label: 'La Habana (GMT-5)' },
+  { value: 'America/Santo_Domingo', label: 'Santo Domingo (GMT-4)' },
+];
 
 export default function Settings() {
   const { toast } = useToast();
@@ -85,6 +107,8 @@ export default function Settings() {
     orderAlerts: true,
     marketingEmails: false,
   });
+
+  const [storeTimezone, setStoreTimezone] = useState(currentStore?.timezone || 'America/Asuncion');
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -238,6 +262,38 @@ export default function Settings() {
       title: "Preferencia actualizada",
       description: "Tu configuración ha sido guardada.",
     });
+  };
+
+  const handleTimezoneChange = async (newTimezone: string) => {
+    try {
+      await apiClient.put(`/auth/stores/${currentStore?.id}/timezone`, { timezone: newTimezone });
+      setStoreTimezone(newTimezone);
+
+      // Update the currentStore in localStorage
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        const userData = JSON.parse(savedUser);
+        userData.stores = userData.stores.map((s: any) =>
+          s.id === currentStore?.id ? { ...s, timezone: newTimezone } : s
+        );
+        localStorage.setItem('user', JSON.stringify(userData));
+      }
+
+      toast({
+        title: "Zona horaria actualizada",
+        description: "Los horarios se mostrarán según tu zona horaria.",
+      });
+
+      // Reload the page to apply timezone changes
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (error) {
+      console.error('Error updating timezone:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar la zona horaria",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleTabChange = (value: string) => {
@@ -644,7 +700,7 @@ export default function Settings() {
                 />
               </div>
 
-              <div className="flex items-center justify-between py-4">
+              <div className="flex items-center justify-between py-4 border-b">
                 <div className="space-y-0.5">
                   <Label htmlFor="dark-mode" className="text-base font-medium cursor-pointer">
                     Modo oscuro
@@ -664,6 +720,30 @@ export default function Settings() {
                     });
                   }}
                 />
+              </div>
+
+              <div className="py-4">
+                <div className="space-y-3">
+                  <Label htmlFor="timezone" className="text-base font-medium flex items-center gap-2">
+                    <Globe size={16} />
+                    Zona horaria
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Selecciona tu zona horaria para mostrar las fechas y horas correctamente
+                  </p>
+                  <Select value={storeTimezone} onValueChange={handleTimezoneChange}>
+                    <SelectTrigger id="timezone" className="w-full">
+                      <SelectValue placeholder="Selecciona una zona horaria" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONES.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           </Card>
