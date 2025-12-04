@@ -17,7 +17,7 @@ export const authRouter = Router();
 // JWT Configuration Constants (must match middleware/auth.ts)
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  throw new Error('FATAL: JWT_SECRET environment variable is required');
+    throw new Error('FATAL: JWT_SECRET environment variable is required');
 }
 const JWT_ALGORITHM = 'HS256';
 const JWT_ISSUER = 'ordefy-api';
@@ -844,7 +844,7 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
 
         console.log('🌍 [UPDATE-TIMEZONE] Updating timezone for store:', storeId);
 
-        if (\!timezone) {
+        if (!timezone) {
             console.error('❌ [UPDATE-TIMEZONE] Missing timezone');
             return res.status(400).json({
                 success: false,
@@ -860,7 +860,7 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
             .eq('store_id', storeId)
             .single();
 
-        if (accessError || \!userStore) {
+        if (accessError || !userStore) {
             console.error('❌ [UPDATE-TIMEZONE] User does not have access to store');
             return res.status(403).json({
                 success: false,
@@ -876,7 +876,7 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
             .select()
             .single();
 
-        if (updateError || \!updatedStore) {
+        if (updateError || !updatedStore) {
             console.error('❌ [UPDATE-TIMEZONE] Error updating timezone:', updateError);
             return res.status(500).json({
                 success: false,
