@@ -1,6 +1,12 @@
 import { Product } from '@/types';
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api`;
+let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+while (cleanBaseURL.endsWith('/api')) {
+  cleanBaseURL = cleanBaseURL.slice(0, -4);
+  cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+}
+const API_BASE_URL = `${cleanBaseURL}/api`;
 
 const getHeaders = () => {
   const token = localStorage.getItem('auth_token');

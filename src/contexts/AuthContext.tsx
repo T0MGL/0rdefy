@@ -1,7 +1,14 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import axios from 'axios';
 
-const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth`;
+let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+while (cleanBaseURL.endsWith('/api')) {
+  cleanBaseURL = cleanBaseURL.slice(0, -4);
+  cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+}
+const BASE_API_URL = `${cleanBaseURL}/api`;
+const API_URL = `${BASE_API_URL}/auth`;
 
 // Token validation is handled in API interceptor (api.client.ts)
 // No need for duplicate validation here - saves resources
@@ -349,7 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/stores`;
+      const apiUrl = `${BASE_API_URL}/stores`;
 
       const response = await axios.post(
         apiUrl,
@@ -415,7 +422,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/stores/${storeId}`;
+      const apiUrl = `${BASE_API_URL}/stores/${storeId}`;
 
       const response = await axios.delete(apiUrl, {
         headers: { Authorization: `Bearer ${token}` }
