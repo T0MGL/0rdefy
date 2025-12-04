@@ -22,6 +22,10 @@ export const shopifyRouter = Router();
 // This ensures we respond to Shopify < 5 seconds even during high traffic
 const webhookQueue = new WebhookQueueService(supabaseAdmin);
 
+// TEMPORARILY DISABLED: Auto-processing disabled until migration 024 is applied
+// To enable: Apply db/migrations/024_webhook_queue_system.sql to production DB
+// Then uncomment the lines below
+/*
 // Start processing webhooks in background
 webhookQueue.startProcessing();
 console.log('✅ [SHOPIFY] Webhook queue processor started');
@@ -31,6 +35,8 @@ process.on('SIGTERM', () => {
   console.log('🛑 [SHOPIFY] Shutting down webhook queue processor...');
   webhookQueue.stopProcessing();
 });
+*/
+console.log('⚠️ [SHOPIFY] Webhook queue processor disabled - waiting for migration 024');
 
 // Aplicar autenticacion a todas las rutas excepto webhooks CALLBACK
 // CRITICAL: Skip auth only for webhook callback endpoints, not management endpoints
@@ -478,42 +484,76 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     // CRITICAL: RESPOND IMMEDIATELY (< 1 SECOND)
     // ================================================================
     // Shopify requires response in < 5 seconds
-    // We enqueue for async processing to handle high traffic spikes
-    const queueId = await webhookQueue.enqueue({
-      integration_id: integrationId!,
-      store_id: storeId!,
-      topic: 'orders/create',
-      payload: req.body,
-      headers: {
-        'X-Shopify-Shop-Domain': shopDomain!,
-        'X-Shopify-Hmac-Sha256': hmacHeader!,
-      },
-      idempotency_key: idempotencyKey,
-    });
+    // Try to enqueue for async processing; fallback to sync if queue unavailable
+    try {
+      const queueId = await webhookQueue.enqueue({
+        integration_id: integrationId!,
+        store_id: storeId!,
+        topic: 'orders/create',
+        payload: req.body,
+        headers: {
+          'X-Shopify-Shop-Domain': shopDomain!,
+          'X-Shopify-Hmac-Sha256': hmacHeader!,
+        },
+        idempotency_key: idempotencyKey,
+      });
 
-    // Record idempotency immediately (processing will happen async)
-    await webhookManager.recordIdempotency(
-      integrationId!,
-      idempotencyKey,
-      orderId,
-      'orders/create',
-      true,
-      200,
-      'queued'
-    );
+      // Record idempotency immediately (processing will happen async)
+      await webhookManager.recordIdempotency(
+        integrationId!,
+        idempotencyKey,
+        orderId,
+        'orders/create',
+        true,
+        200,
+        'queued'
+      );
 
-    const responseTime = Date.now() - startTime;
-    console.log(
-      `✅ Webhook queued in ${responseTime}ms: ${orderId} (queue_id: ${queueId})`
-    );
+      const responseTime = Date.now() - startTime;
+      console.log(
+        `✅ Webhook queued in ${responseTime}ms: ${orderId} (queue_id: ${queueId})`
+      );
 
-    // Respond immediately to Shopify
-    res.status(200).json({
-      success: true,
-      message: 'Webhook queued for processing',
-      queue_id: queueId,
-      response_time_ms: responseTime,
-    });
+      // Respond immediately to Shopify
+      return res.status(200).json({
+        success: true,
+        message: 'Webhook queued for processing',
+        queue_id: queueId,
+        response_time_ms: responseTime,
+      });
+    } catch (queueError: any) {
+      // Fallback to synchronous processing if queue is unavailable
+      console.warn('⚠️ Webhook queue unavailable, processing synchronously:', queueError.message);
+
+      const webhookService = new ShopifyWebhookService(supabaseAdmin);
+      const result = await webhookService.processOrderCreatedWebhook(
+        req.body,
+        storeId!,
+        integrationId!
+      );
+
+      // Record idempotency
+      await webhookManager.recordIdempotency(
+        integrationId!,
+        idempotencyKey,
+        orderId,
+        'orders/create',
+        result.success,
+        result.success ? 200 : 500,
+        result.success ? 'processed' : result.error || 'failed'
+      );
+
+      const responseTime = Date.now() - startTime;
+      console.log(`✅ Webhook processed synchronously in ${responseTime}ms: ${orderId}`);
+
+      // Respond to Shopify
+      return res.status(200).json({
+        success: result.success,
+        message: result.success ? 'Webhook processed' : 'Webhook processed with errors',
+        response_time_ms: responseTime,
+        processing_mode: 'synchronous'
+      });
+    }
   } catch (error: any) {
     console.error('❌ Error procesando webhook de pedido:', error);
 
@@ -993,8 +1033,13 @@ shopifyRouter.post('/webhook-cleanup', async (req: AuthRequest, res: Response) =
     const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
     const deleted = await webhookManager.cleanupExpiredKeys();
 
-    // También limpiar webhook queue antiguos
-    const queueDeleted = await webhookQueue.cleanupOldWebhooks();
+    // También limpiar webhook queue antiguos (si está disponible)
+    let queueDeleted = 0;
+    try {
+      queueDeleted = await webhookQueue.cleanupOldWebhooks();
+    } catch (queueError: any) {
+      console.warn('⚠️ Webhook queue cleanup skipped (table not available):', queueError.message);
+    }
 
     res.json({
       success: true,
@@ -1045,7 +1090,13 @@ shopifyRouter.post('/reconciliation/run', async (req: AuthRequest, res: Response
 // Obtener estadísticas de la cola de webhooks
 shopifyRouter.get('/queue/stats', async (req: AuthRequest, res: Response) => {
   try {
-    const stats = await webhookQueue.getQueueStats();
+    let stats;
+    try {
+      stats = await webhookQueue.getQueueStats();
+    } catch (queueError: any) {
+      console.warn('⚠️ Webhook queue stats unavailable (table not available):', queueError.message);
+      stats = { pending: 0, processing: 0, completed: 0, failed: 0, total: 0, error: 'Queue not initialized - migration 024 pending' };
+    }
 
     res.json({
       success: true,
