@@ -816,20 +816,47 @@ export async function completeSession(
       throw new Error('Session does not belong to this store');
     }
 
-    // Verify all orders are ready_to_ship
+    // Get all packing progress for this session
+    const { data: packingProgress, error: progressError } = await supabaseAdmin
+      .from('packing_progress')
+      .select('*')
+      .eq('picking_session_id', sessionId);
+
+    if (progressError) throw progressError;
+
+    // Verify all items are fully packed
+    const notPacked = packingProgress?.filter(
+      p => p.quantity_packed < p.quantity_needed
+    );
+
+    if (notPacked && notPacked.length > 0) {
+      throw new Error('All orders must be packed before completing session');
+    }
+
+    // Double check: Ensure all orders in session are marked as ready_to_ship
+    // This handles cases where the status update might have failed during individual item packing
     const { data: sessionOrders, error: ordersError } = await supabaseAdmin
       .from('picking_session_orders')
-      .select('order_id, orders!inner(sleeves_status)')
+      .select('order_id')
       .eq('picking_session_id', sessionId);
 
     if (ordersError) throw ordersError;
 
-    const notReady = sessionOrders?.filter(
-      (so: any) => so.orders.sleeves_status !== 'ready_to_ship'
-    );
+    if (sessionOrders && sessionOrders.length > 0) {
+      const orderIds = sessionOrders.map(so => so.order_id);
 
-    if (notReady && notReady.length > 0) {
-      throw new Error('All orders must be packed before completing session');
+      // Force update all orders to ready_to_ship if they aren't already
+      // This is a safety mechanism to ensure data consistency
+      const { error: updateOrdersError } = await supabaseAdmin
+        .from('orders')
+        .update({ sleeves_status: 'ready_to_ship' })
+        .in('id', orderIds)
+        .neq('sleeves_status', 'ready_to_ship'); // Only update if not already correct
+
+      if (updateOrdersError) {
+        console.error('Error syncing order status:', updateOrdersError);
+        // We continue anyway since the packing validation passed
+      }
     }
 
     // Update session status

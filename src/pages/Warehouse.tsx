@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
@@ -367,6 +367,9 @@ export default function Warehouse() {
         <DialogContent className="max-w-[950px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Etiqueta de Entrega</DialogTitle>
+            <DialogDescription>
+              Vista previa de la etiqueta de entrega para impresión
+            </DialogDescription>
           </DialogHeader>
           {orderToPrint && orderToPrint.delivery_link_token && (
             <OrderShippingLabel
@@ -605,7 +608,7 @@ function PickingView({
             <Card
               key={item.id}
               className={`p-4 transition-all ${isComplete
-                ? 'border-green-500 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
+                ? 'border-primary bg-primary/10'
                 : ''
                 }`}
             >
@@ -656,7 +659,7 @@ function PickingView({
                     {item.quantity_picked} / {item.total_quantity_needed}
                   </div>
                   {isComplete && (
-                    <Check className="h-5 w-5 text-green-600 dark:text-green-400 mx-auto mt-1" />
+                    <Check className="h-5 w-5 text-primary mx-auto mt-1" />
                   )}
                 </div>
 
@@ -747,7 +750,7 @@ function PackingView({
             <Button
               onClick={onCompleteSession}
               disabled={loading}
-              className="bg-green-600 hover:bg-green-700"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               <Check className="h-4 w-4 mr-2" />
               Finalizar Sesión
@@ -774,7 +777,7 @@ function PackingView({
                   className={`p-3 cursor-pointer transition-all ${!hasRemaining
                     ? 'opacity-50 cursor-not-allowed bg-muted'
                     : isSelected
-                      ? 'border-green-500 dark:border-green-600 ring-2 ring-green-500/20 bg-green-50 dark:bg-green-950/20'
+                      ? 'border-primary ring-2 ring-primary/20 bg-primary/10'
                       : 'hover:shadow-md'
                     }`}
                   onClick={() => hasRemaining && onSelectItem(isSelected ? null : item.product_id)}

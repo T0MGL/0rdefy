@@ -166,23 +166,27 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 if (order.line_items && Array.isArray(order.line_items)) {
                     for (const item of order.line_items) {
                         if (item.product_id) {
-                            productIds.add(item.product_id);
+                            productIds.add(item.product_id.toString());
                         }
                     }
                 }
             }
 
             // Fetch all products in a single query
+            // FIX: Match by shopify_product_id instead of internal id
             const productCostMap = new Map<string, number>();
             if (productIds.size > 0) {
                 const { data: productsData } = await supabaseAdmin
                     .from('products')
-                    .select('id, cost')
-                    .in('id', Array.from(productIds));
+                    .select('shopify_product_id, cost')
+                    .in('shopify_product_id', Array.from(productIds))
+                    .eq('store_id', req.storeId);
 
                 if (productsData) {
                     productsData.forEach(product => {
-                        productCostMap.set(product.id, Number(product.cost) || 0);
+                        if (product.shopify_product_id) {
+                            productCostMap.set(product.shopify_product_id, Number(product.cost) || 0);
+                        }
                     });
                 }
             }
@@ -197,7 +201,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 if (order.line_items && Array.isArray(order.line_items)) {
                     let orderCost = 0;
                     for (const item of order.line_items) {
-                        const productCost = productCostMap.get(item.product_id) || 0;
+                        // Use product_id (which is the Shopify ID) to look up cost
+                        const productCost = productCostMap.get(item.product_id?.toString()) || 0;
                         const itemCost = productCost * Number(item.quantity || 1);
                         orderCost += itemCost;
                         costs += itemCost;
@@ -450,23 +455,27 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             if (order.line_items && Array.isArray(order.line_items)) {
                 for (const item of order.line_items) {
                     if (item.product_id) {
-                        productIds.add(item.product_id);
+                        productIds.add(item.product_id.toString());
                     }
                 }
             }
         }
 
         // Fetch all products in a single query
+        // FIX: Match by shopify_product_id instead of internal id
         const productCostMap = new Map<string, number>();
         if (productIds.size > 0) {
             const { data: productsData } = await supabaseAdmin
                 .from('products')
-                .select('id, cost')
-                .in('id', Array.from(productIds));
+                .select('shopify_product_id, cost')
+                .in('shopify_product_id', Array.from(productIds))
+                .eq('store_id', req.storeId);
 
             if (productsData) {
                 productsData.forEach(product => {
-                    productCostMap.set(product.id, Number(product.cost) || 0);
+                    if (product.shopify_product_id) {
+                        productCostMap.set(product.shopify_product_id, Number(product.cost) || 0);
+                    }
                 });
             }
         }
@@ -521,7 +530,8 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             // Calculate costs using cached product data
             if (order.line_items && Array.isArray(order.line_items)) {
                 for (const item of order.line_items) {
-                    const productCost = productCostMap.get(item.product_id) || 0;
+                    // Use product_id (which is the Shopify ID) to look up cost
+                    const productCost = productCostMap.get(item.product_id?.toString()) || 0;
                     dailyData[date].costs += productCost * (item.quantity || 1);
                 }
             }
@@ -629,6 +639,26 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             avgConfirmationTime = totalTime / confirmedOrdersWithTime.length;
         }
 
+        // Calculate average delivery time (from created_at to delivered_at)
+        // Only for orders that have been delivered
+        const deliveredOrders = orders.filter(o =>
+            o.sleeves_status === 'delivered' &&
+            o.delivered_at &&
+            o.created_at
+        );
+
+        let avgDeliveryTime = 0;
+        if (deliveredOrders.length > 0) {
+            const totalDeliveryTime = deliveredOrders.reduce((sum, order) => {
+                const created = new Date(order.created_at).getTime();
+                const delivered = new Date(order.delivered_at).getTime();
+                // Calculate days
+                const days = (delivered - created) / (1000 * 60 * 60 * 24);
+                return sum + days;
+            }, 0);
+            avgDeliveryTime = totalDeliveryTime / deliveredOrders.length;
+        }
+
         // Calculate previous week confirmation rate for comparison
         const last7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
         const previous7Days = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
@@ -669,6 +699,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
                 totalConfirmed: confirmedOrders,
                 confirmationRate: totalOrders > 0 ? parseFloat(((confirmedOrders / totalOrders) * 100).toFixed(1)) : 0,
                 avgConfirmationTime: parseFloat(avgConfirmationTime.toFixed(1)),
+                avgDeliveryTime: parseFloat(avgDeliveryTime.toFixed(1)),
                 confirmationsToday: todayConfirmed,
                 pendingToday: todayPending,
                 confirmationRateChange: confirmationRateChange,
