@@ -201,6 +201,7 @@ export interface ConfirmationMetrics {
   totalConfirmed: number;
   confirmationRate: number;
   avgConfirmationTime: number;
+  avgDeliveryTime?: number;
   confirmationsToday: number;
   pendingToday: number;
   confirmationRateChange?: number | null;

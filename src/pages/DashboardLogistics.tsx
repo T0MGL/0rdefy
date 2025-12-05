@@ -199,7 +199,7 @@ export default function DashboardLogistics() {
           />
           <MetricCard
             title="Tiempo Promedio"
-            value="2.3 días"
+            value={confirmationMetrics?.avgDeliveryTime ? `${confirmationMetrics.avgDeliveryTime.toFixed(1)} días` : '0.0 días'}
             icon={<Clock className="text-orange-600" size={24} />}
           />
         </div>

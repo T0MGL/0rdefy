@@ -13,6 +13,7 @@ declare global {
       createApp?: (config: {
         apiKey: string;
         host: string;
+        shop?: string;
         forceRedirect?: boolean;
       }) => {
         idToken: () => Promise<string>;
@@ -118,6 +119,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         const shopifyApp = window.shopify.createApp({
           apiKey: CLIENT_ID,
           host: host,        // Host parameter from Shopify (suficiente para CDN)
+          shop: shopDomain,  // Required for App Bridge Next
           forceRedirect: true, // Redirigir automáticamente cuando no esté embebido
         });
 
