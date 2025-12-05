@@ -292,14 +292,7 @@ export default function Login() {
           {/* Footer */}
           <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
-              ¿No tienes cuenta?{' '}
-              <button
-                type="button"
-                disabled
-                className="text-muted-foreground/50 cursor-not-allowed font-medium opacity-50"
-              >
-                Crear cuenta
-              </button>
+              ¿No tienes cuenta? Contacta al administrador para obtener acceso.
             </p>
           </div>
 
