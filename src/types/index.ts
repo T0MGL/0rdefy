@@ -126,12 +126,21 @@ export interface UpdateOrderInput extends Partial<CreateOrderInput> { }
 export interface Product {
   id: string;
   name: string;
+  description?: string;
+  sku?: string;
+  category?: string;
   image: string;
   stock: number;
   price: number;
   cost: number;
   profitability: number;
   sales: number;
+  // Shopify integration fields
+  shopify_product_id?: string;
+  shopify_variant_id?: string;
+  shopify_data?: any;
+  last_synced_at?: string;
+  sync_status?: 'synced' | 'pending' | 'error';
 }
 
 export interface Ad {

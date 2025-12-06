@@ -5,17 +5,19 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus } from 'lucide-react';
+import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
+import { BatchLabelPrinter } from '@/components/BatchLabelPrinter';
 import type {
   PickingSession,
   PickingSessionItem,
@@ -47,6 +49,10 @@ export default function Warehouse() {
   // Print state
   const [printLabelDialogOpen, setPrintLabelDialogOpen] = useState(false);
   const [orderToPrint, setOrderToPrint] = useState<OrderForPacking | null>(null);
+
+  // Batch print state
+  const [batchPrintDialogOpen, setBatchPrintDialogOpen] = useState(false);
+  const [selectedOrdersForPrint, setSelectedOrdersForPrint] = useState<Set<string>>(new Set());
 
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
@@ -284,6 +290,57 @@ export default function Warehouse() {
     }
   }, [toast, loadPackingList]);
 
+  const handleBatchPrint = useCallback(() => {
+    if (selectedOrdersForPrint.size === 0) {
+      toast({
+        title: 'Error',
+        description: 'Por favor selecciona al menos un pedido para imprimir',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setBatchPrintDialogOpen(true);
+  }, [selectedOrdersForPrint, toast]);
+
+  const handleBatchPrinted = useCallback(async () => {
+    try {
+      // Mark all selected orders as printed
+      for (const orderId of selectedOrdersForPrint) {
+        await ordersService.markAsPrinted(orderId);
+      }
+
+      // Clear selection
+      setSelectedOrdersForPrint(new Set());
+
+      // Reload packing list
+      await loadPackingList();
+
+      toast({
+        title: 'Etiquetas impresas',
+        description: `${selectedOrdersForPrint.size} etiquetas han sido impresas correctamente`,
+      });
+
+      setBatchPrintDialogOpen(false);
+    } catch (error) {
+      console.error('Error updating orders after batch print:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo actualizar el estado de los pedidos',
+        variant: 'destructive',
+      });
+    }
+  }, [selectedOrdersForPrint, toast, loadPackingList]);
+
+  function toggleOrderForPrint(orderId: string) {
+    const newSelected = new Set(selectedOrdersForPrint);
+    if (newSelected.has(orderId)) {
+      newSelected.delete(orderId);
+    } else {
+      newSelected.add(orderId);
+    }
+    setSelectedOrdersForPrint(newSelected);
+  }
+
   async function handleCompleteSession() {
     if (!currentSession) return;
 
@@ -359,6 +416,9 @@ export default function Warehouse() {
           onPackItem={handlePackItem}
           onPrintLabel={handlePrintLabel}
           onCompleteSession={handleCompleteSession}
+          selectedOrdersForPrint={selectedOrdersForPrint}
+          onToggleOrderForPrint={toggleOrderForPrint}
+          onBatchPrint={handleBatchPrint}
         />
       )}
 
@@ -388,6 +448,43 @@ export default function Warehouse() {
                 quantity: item.quantity_needed,
               }))}
               onPrinted={() => handleOrderPrinted(orderToPrint.id)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Print Dialog */}
+      <Dialog open={batchPrintDialogOpen} onOpenChange={setBatchPrintDialogOpen}>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Impresión en Lote</DialogTitle>
+            <DialogDescription>
+              Vista previa de todas las etiquetas seleccionadas
+            </DialogDescription>
+          </DialogHeader>
+          {packingData && (
+            <BatchLabelPrinter
+              orders={packingData.orders
+                .filter(order => selectedOrdersForPrint.has(order.id) && order.delivery_link_token)
+                .map(order => ({
+                  id: order.id,
+                  order_number: order.order_number,
+                  customer_name: order.customer_name,
+                  customer_phone: order.customer_phone,
+                  customer_address: order.customer_address,
+                  address_reference: order.address_reference,
+                  neighborhood: order.neighborhood,
+                  delivery_notes: order.delivery_notes,
+                  carrier_name: order.carrier_name,
+                  cod_amount: order.cod_amount,
+                  delivery_link_token: order.delivery_link_token,
+                  items: order.items.map(item => ({
+                    product_name: item.product_name,
+                    quantity_needed: item.quantity_needed,
+                  })),
+                }))}
+              onClose={() => setBatchPrintDialogOpen(false)}
+              onPrinted={handleBatchPrinted}
             />
           )}
         </DialogContent>
@@ -705,6 +802,9 @@ interface PackingViewProps {
   onPackItem: (orderId: string, productId: string) => void;
   onPrintLabel: (order: OrderForPacking) => void;
   onCompleteSession: () => void;
+  selectedOrdersForPrint: Set<string>;
+  onToggleOrderForPrint: (orderId: string) => void;
+  onBatchPrint: () => void;
 }
 
 function PackingView({
@@ -716,13 +816,21 @@ function PackingView({
   onSelectItem,
   onPackItem,
   onPrintLabel,
-  onCompleteSession
+  onCompleteSession,
+  selectedOrdersForPrint,
+  onToggleOrderForPrint,
+  onBatchPrint
 }: PackingViewProps) {
   const { orders, availableItems } = packingData;
 
   // Calculate if all orders are complete
   const allOrdersComplete = orders.every(order => order.is_complete);
   const allItemsRemaining = availableItems.every(item => item.remaining === 0);
+
+  // Calculate ready to print orders (complete and have token)
+  const readyToPrintOrders = orders.filter(
+    order => order.is_complete && order.delivery_link_token && !order.printed
+  );
 
   return (
     <div className="h-screen flex flex-col">
@@ -746,16 +854,29 @@ function PackingView({
               </p>
             </div>
           </div>
-          {allOrdersComplete && allItemsRemaining && (
-            <Button
-              onClick={onCompleteSession}
-              disabled={loading}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground"
-            >
-              <Check className="h-4 w-4 mr-2" />
-              Finalizar Sesión
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {readyToPrintOrders.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={onBatchPrint}
+                disabled={selectedOrdersForPrint.size === 0}
+                className="gap-2"
+              >
+                <Layers className="h-4 w-4" />
+                Imprimir en Lote ({selectedOrdersForPrint.size})
+              </Button>
+            )}
+            {allOrdersComplete && allItemsRemaining && (
+              <Button
+                onClick={onCompleteSession}
+                disabled={loading}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                <Check className="h-4 w-4 mr-2" />
+                Finalizar Sesión
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -836,6 +957,9 @@ function PackingView({
                 ? order.items.find(item => item.product_id === selectedItem)
                 : null;
 
+              const canSelectForPrint = order.is_complete && order.delivery_link_token && !order.printed;
+              const isSelectedForPrint = selectedOrdersForPrint.has(order.id);
+
               return (
                 <Card
                   key={order.id}
@@ -853,13 +977,23 @@ function PackingView({
                 >
                   {/* Order Header */}
                   <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h3 className="font-bold">
-                        Pedido #{order.order_number}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {order.customer_name}
-                      </p>
+                    <div className="flex items-center gap-3">
+                      {canSelectForPrint && (
+                        <Checkbox
+                          checked={isSelectedForPrint}
+                          onCheckedChange={() => onToggleOrderForPrint(order.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-5 w-5"
+                        />
+                      )}
+                      <div>
+                        <h3 className="font-bold">
+                          Pedido #{order.order_number}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {order.customer_name}
+                        </p>
+                      </div>
                     </div>
                     {order.is_complete ? (
                       <div className="flex items-center gap-2">
@@ -876,7 +1010,10 @@ function PackingView({
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => onPrintLabel(order)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPrintLabel(order);
+                            }}
                             className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
                           >
                             <Printer className="h-4 w-4 mr-1" />

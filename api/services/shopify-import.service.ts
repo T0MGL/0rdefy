@@ -462,36 +462,211 @@ export class ShopifyImportService {
 
   // Upsert order to database
   private async upsertOrder(shopifyOrder: ShopifyOrder): Promise<void> {
+    // Extract shipping address fields
+    const shippingAddr = shopifyOrder.shipping_address;
+    const billingAddr = shopifyOrder.billing_address;
+
+    // Build full address string from shipping address
+    let fullAddress = '';
+    if (shippingAddr) {
+      const parts = [
+        shippingAddr.address1,
+        shippingAddr.address2
+      ].filter(Boolean);
+      fullAddress = parts.join(', ');
+    }
+
+    // Extract phone numbers
+    const primaryPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shippingAddr?.phone || '';
+    const backupPhone = billingAddr?.phone && billingAddr.phone !== primaryPhone ? billingAddr.phone : '';
+
     const orderData = {
       store_id: this.integration.store_id,
       shopify_order_id: shopifyOrder.id.toString(),
       shopify_order_number: shopifyOrder.order_number.toString(),
-      customer: `${shopifyOrder.customer.first_name} ${shopifyOrder.customer.last_name}`.trim(),
-      email: shopifyOrder.email,
-      phone: shopifyOrder.phone || shopifyOrder.customer.phone || '',
-      product: shopifyOrder.line_items.map(item => item.title).join(', '),
-      quantity: shopifyOrder.line_items.reduce((sum, item) => sum + item.quantity, 0),
-      total: parseFloat(shopifyOrder.total_price),
-      status: this.mapOrderStatus(shopifyOrder.financial_status, shopifyOrder.fulfillment_status),
-      date: shopifyOrder.created_at,
-      shipping_address: shopifyOrder.shipping_address?.address1 || '',
-      shipping_city: shopifyOrder.shipping_address?.city || '',
-      shipping_state: shopifyOrder.shipping_address?.province || '',
-      shipping_postal_code: shopifyOrder.shipping_address?.zip || '',
       shopify_data: shopifyOrder,
+      shopify_raw_json: shopifyOrder,
       last_synced_at: new Date().toISOString(),
-      sync_status: 'synced'
+      sync_status: 'synced',
+
+      // Customer info
+      customer_email: shopifyOrder.email || shopifyOrder.customer?.email || '',
+      customer_phone: primaryPhone,
+      customer_first_name: shopifyOrder.customer?.first_name || billingAddr?.first_name || '',
+      customer_last_name: shopifyOrder.customer?.last_name || billingAddr?.last_name || '',
+
+      // Address info (JSONB fields)
+      billing_address: billingAddr,
+      shipping_address: shippingAddr,
+
+      // Address info (denormalized fields for easier querying)
+      customer_address: fullAddress,
+      neighborhood: shippingAddr?.neighborhood || shippingAddr?.address2 || '',
+      phone_backup: backupPhone,
+      delivery_notes: shopifyOrder.note || '',
+
+      // Line items (keep JSONB for backwards compatibility)
+      line_items: shopifyOrder.line_items,
+
+      // Pricing
+      total_price: parseFloat(shopifyOrder.total_price),
+      subtotal_price: parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price),
+      total_tax: parseFloat(shopifyOrder.total_tax || '0'),
+      total_discounts: parseFloat(shopifyOrder.total_discounts || '0'),
+      total_shipping: parseFloat(shopifyOrder.total_shipping || '0'),
+      currency: shopifyOrder.currency || 'USD',
+
+      // Status
+      financial_status: shopifyOrder.financial_status || 'pending',
+      fulfillment_status: shopifyOrder.fulfillment_status,
+
+      // Metadata
+      tags: shopifyOrder.tags,
+      note: shopifyOrder.note,
+      created_at: shopifyOrder.created_at,
+      updated_at: shopifyOrder.updated_at || shopifyOrder.created_at,
+      processed_at: shopifyOrder.processed_at || shopifyOrder.created_at
     };
 
-    const { error } = await this.supabaseAdmin
+    const { data: upsertedOrder, error } = await this.supabaseAdmin
       .from('orders')
       .upsert(orderData, {
         onConflict: 'store_id,shopify_order_id',
         ignoreDuplicates: false
-      });
+      })
+      .select('id')
+      .single();
 
     if (error) {
       throw new Error(`Failed to upsert order: ${error.message}`);
+    }
+
+    // Create normalized line items with product mapping
+    if (upsertedOrder && shopifyOrder.line_items) {
+      await this.createLineItemsForOrder(
+        upsertedOrder.id,
+        this.integration.store_id,
+        shopifyOrder.line_items
+      );
+    }
+  }
+
+  // Crear line items normalizados para un pedido
+  private async createLineItemsForOrder(
+    orderId: string,
+    storeId: string,
+    lineItems: any[]
+  ): Promise<void> {
+    try {
+      // Delete existing line items for this order (in case of update)
+      await this.supabaseAdmin
+        .from('order_line_items')
+        .delete()
+        .eq('order_id', orderId);
+
+      // Process each line item
+      for (const item of lineItems) {
+        // Extract Shopify IDs
+        const shopifyProductId = item.product_id?.toString() || null;
+        const shopifyVariantId = item.variant_id?.toString() || null;
+        const shopifyLineItemId = item.id?.toString() || null;
+        const sku = item.sku || '';
+
+        // Try to find matching local product
+        let productId: string | null = null;
+
+        // First try by variant ID (most specific)
+        if (shopifyVariantId) {
+          const { data: productByVariant } = await this.supabaseAdmin
+            .from('products')
+            .select('id')
+            .eq('store_id', storeId)
+            .eq('shopify_variant_id', shopifyVariantId)
+            .maybeSingle();
+
+          if (productByVariant) {
+            productId = productByVariant.id;
+          }
+        }
+
+        // If not found, try by product ID
+        if (!productId && shopifyProductId) {
+          const { data: productByProductId } = await this.supabaseAdmin
+            .from('products')
+            .select('id')
+            .eq('store_id', storeId)
+            .eq('shopify_product_id', shopifyProductId)
+            .maybeSingle();
+
+          if (productByProductId) {
+            productId = productByProductId.id;
+          }
+        }
+
+        // If still not found, try by SKU
+        if (!productId && sku) {
+          const { data: productBySku } = await this.supabaseAdmin
+            .from('products')
+            .select('id')
+            .eq('store_id', storeId)
+            .eq('sku', sku)
+            .maybeSingle();
+
+          if (productBySku) {
+            productId = productBySku.id;
+          }
+        }
+
+        // Log if product not found
+        if (!productId && shopifyProductId) {
+          console.warn(
+            `⚠️  [IMPORT] Product not found for line item: ` +
+            `Shopify Product ID ${shopifyProductId}, Variant ID ${shopifyVariantId}, SKU "${sku}". ` +
+            `Line item will be created without product mapping.`
+          );
+        }
+
+        // Calculate prices
+        const quantity = parseInt(item.quantity) || 1;
+        const unitPrice = parseFloat(item.price) || 0;
+        const totalPrice = quantity * unitPrice;
+        const discountAmount = parseFloat(item.total_discount) || 0;
+        const taxAmount = item.tax_lines && item.tax_lines.length > 0
+          ? parseFloat(item.tax_lines[0].price) || 0
+          : 0;
+
+        // Insert line item
+        const { error: insertError } = await this.supabaseAdmin
+          .from('order_line_items')
+          .insert({
+            order_id: orderId,
+            product_id: productId,
+            shopify_product_id: shopifyProductId,
+            shopify_variant_id: shopifyVariantId,
+            shopify_line_item_id: shopifyLineItemId,
+            product_name: item.name || item.title || 'Unknown Product',
+            variant_title: item.variant_title || null,
+            sku: sku,
+            quantity: quantity,
+            unit_price: unitPrice,
+            total_price: totalPrice,
+            discount_amount: discountAmount,
+            tax_amount: taxAmount,
+            properties: item.properties || null,
+            shopify_data: item
+          });
+
+        if (insertError) {
+          console.error(`Error inserting line item:`, insertError);
+          throw new Error(`Failed to insert line item: ${insertError.message}`);
+        }
+      }
+
+      console.log(`✅ [IMPORT] Created ${lineItems.length} normalized line items for order ${orderId}`);
+
+    } catch (error: any) {
+      console.error('[IMPORT] Error creating line items for order:', error);
+      throw error;
     }
   }
 

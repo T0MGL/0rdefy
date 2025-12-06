@@ -133,7 +133,7 @@ export function OrderShippingLabel({
                 <p className="text-xs text-gray-500">Generando QR...</p>
               </div>
             )}
-            <p className="text-[7pt] font-bold mt-1 text-center">ESCANEAR AL ENTREGAR</p>
+            <p className="text-[7pt] font-bold mt-1 text-center">ESCANEAR PARA GESTIONAR ENTREGA</p>
           </div>
 
           {/* Right Column: Info */}
