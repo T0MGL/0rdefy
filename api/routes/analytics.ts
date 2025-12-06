@@ -240,18 +240,27 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // 4. MARKETING (from campaigns table)
             const mktg = marketingCosts;
 
-            // 5. NET PROFIT
+            // 5. GROSS PROFIT & MARGIN
+            // Gross profit = Revenue - Product Costs (no incluye delivery ni marketing)
+            const grossProfit = rev - costs;
+            const realGrossProfit = realRevenue - realCosts;
+
+            // Gross margin = (Gross Profit / Revenue) × 100
+            const grossMargin = rev > 0 ? ((grossProfit / rev) * 100) : 0;
+            const realGrossMargin = realRevenue > 0 ? ((realGrossProfit / realRevenue) * 100) : 0;
+
+            // 6. NET PROFIT & MARGIN
             // Projected profit (based on all orders - for trend analysis)
             // IMPORTANT: We subtract delivery costs because they're part of the operational costs
-            const profit = rev - costs - deliveryCosts - mktg;
+            const netProfit = rev - costs - deliveryCosts - mktg;
 
             // REAL NET PROFIT (only from delivered orders - actual cash profit)
             // This is the REAL money left after all costs (products + delivery + marketing)
-            const realProfit = realRevenue - realCosts - realDeliveryCosts - mktg;
+            const realNetProfit = realRevenue - realCosts - realDeliveryCosts - mktg;
 
-            // 6. PROFIT MARGIN
-            const margin = rev > 0 ? ((profit / rev) * 100) : 0;
-            const realMargin = realRevenue > 0 ? ((realProfit / realRevenue) * 100) : 0;
+            // Net margin = (Net Profit / Revenue) × 100
+            const netMargin = rev > 0 ? ((netProfit / rev) * 100) : 0;
+            const realNetMargin = realRevenue > 0 ? ((realNetProfit / realRevenue) * 100) : 0;
 
             // 7. ROI
             const investment = costs + mktg;
@@ -276,13 +285,17 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 costs: costs,
                 deliveryCosts: deliveryCosts,
                 marketing: mktg,
-                netProfit: profit,
-                profitMargin: margin,
-                realRevenue: realRevenue,
-                realCosts: realCosts,
-                realDeliveryCosts: realDeliveryCosts,
-                realNetProfit: realProfit,
-                realProfitMargin: realMargin,
+                // Gross profit and margin
+                grossProfit: grossProfit,
+                grossMargin: grossMargin,
+                realGrossProfit: realGrossProfit,
+                realGrossMargin: realGrossMargin,
+                // Net profit and margin
+                netProfit: netProfit,
+                netMargin: netMargin,
+                realNetProfit: realNetProfit,
+                realNetMargin: realNetMargin,
+                // Other metrics
                 roi: roiValue,
                 roas: roasValue,
                 deliveryRate: delivRate,
@@ -299,8 +312,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         const taxCollected = currentMetrics.taxCollected;
         const totalCosts = currentMetrics.costs;
         const marketing = currentMetrics.marketing;
+        const grossProfit = currentMetrics.grossProfit;
+        const grossMargin = currentMetrics.grossMargin;
         const netProfit = currentMetrics.netProfit;
-        const profitMargin = currentMetrics.profitMargin;
+        const netMargin = currentMetrics.netMargin;
         const roi = currentMetrics.roi;
         const roas = currentMetrics.roas;
         const deliveryRate = currentMetrics.deliveryRate;
@@ -324,13 +339,17 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             costs: calculateChange(currentMetrics.costs, previousMetrics.costs),
             deliveryCosts: calculateChange(currentMetrics.deliveryCosts, previousMetrics.deliveryCosts),
             marketing: calculateChange(currentMetrics.marketing, previousMetrics.marketing),
+            grossProfit: calculateChange(currentMetrics.grossProfit, previousMetrics.grossProfit),
+            grossMargin: calculateChange(currentMetrics.grossMargin, previousMetrics.grossMargin),
             netProfit: calculateChange(currentMetrics.netProfit, previousMetrics.netProfit),
-            profitMargin: calculateChange(currentMetrics.profitMargin, previousMetrics.profitMargin),
+            netMargin: calculateChange(currentMetrics.netMargin, previousMetrics.netMargin),
             realRevenue: calculateChange(currentMetrics.realRevenue, previousMetrics.realRevenue),
             realCosts: calculateChange(currentMetrics.realCosts, previousMetrics.realCosts),
             realDeliveryCosts: calculateChange(currentMetrics.realDeliveryCosts, previousMetrics.realDeliveryCosts),
+            realGrossProfit: calculateChange(currentMetrics.realGrossProfit, previousMetrics.realGrossProfit),
+            realGrossMargin: calculateChange(currentMetrics.realGrossMargin, previousMetrics.realGrossMargin),
             realNetProfit: calculateChange(currentMetrics.realNetProfit, previousMetrics.realNetProfit),
-            realProfitMargin: calculateChange(currentMetrics.realProfitMargin, previousMetrics.realProfitMargin),
+            realNetMargin: calculateChange(currentMetrics.realNetMargin, previousMetrics.realNetMargin),
             roi: calculateChange(currentMetrics.roi, previousMetrics.roi),
             roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             deliveryRate: calculateChange(currentMetrics.deliveryRate, previousMetrics.deliveryRate),
@@ -346,14 +365,23 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 costs: Math.round(totalCosts),
                 deliveryCosts: Math.round(currentMetrics.deliveryCosts),
                 marketing,
+                // Gross profit and margin (Revenue - Product Costs only)
+                grossProfit: Math.round(grossProfit),
+                grossMargin: parseFloat(grossMargin.toFixed(1)),
+                // Net profit and margin (Revenue - All Costs)
                 netProfit: Math.round(netProfit),
-                profitMargin: parseFloat(profitMargin.toFixed(1)),
-                // NEW: Real cash metrics (only delivered orders)
+                netMargin: parseFloat(netMargin.toFixed(1)),
+                profitMargin: parseFloat(netMargin.toFixed(1)), // Deprecated: same as netMargin for backwards compatibility
+                // Real cash metrics (only delivered orders)
                 realRevenue: Math.round(currentMetrics.realRevenue),
                 realCosts: Math.round(currentMetrics.realCosts),
                 realDeliveryCosts: Math.round(currentMetrics.realDeliveryCosts),
+                realGrossProfit: Math.round(currentMetrics.realGrossProfit),
+                realGrossMargin: parseFloat(currentMetrics.realGrossMargin.toFixed(1)),
                 realNetProfit: Math.round(currentMetrics.realNetProfit),
-                realProfitMargin: parseFloat(currentMetrics.realProfitMargin.toFixed(1)),
+                realNetMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)),
+                realProfitMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)), // Deprecated: same as realNetMargin for backwards compatibility
+                // Other metrics
                 roi: parseFloat(roi.toFixed(2)),
                 roas: parseFloat(roas.toFixed(2)),
                 deliveryRate: parseFloat(deliveryRate.toFixed(1)),
@@ -372,13 +400,17 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     costs: changes.costs,
                     deliveryCosts: changes.deliveryCosts,
                     marketing: changes.marketing,
+                    grossProfit: changes.grossProfit,
+                    grossMargin: changes.grossMargin,
                     netProfit: changes.netProfit,
-                    profitMargin: changes.profitMargin,
+                    netMargin: changes.netMargin,
                     realRevenue: changes.realRevenue,
                     realCosts: changes.realCosts,
                     realDeliveryCosts: changes.realDeliveryCosts,
+                    realGrossProfit: changes.realGrossProfit,
+                    realGrossMargin: changes.realGrossMargin,
                     realNetProfit: changes.realNetProfit,
-                    realProfitMargin: changes.realProfitMargin,
+                    realNetMargin: changes.realNetMargin,
                     roi: changes.roi,
                     roas: changes.roas,
                     deliveryRate: changes.deliveryRate,

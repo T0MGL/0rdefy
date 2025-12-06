@@ -9,7 +9,6 @@ import { DailySummary } from '@/components/DailySummary';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { RevenueProjectionCard } from '@/components/RevenueProjectionCard';
-import { CashProjectionCard } from '@/components/CashProjectionCard';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -54,7 +53,6 @@ export default function Dashboard() {
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [codMetrics, setCodMetrics] = useState<any>(null);
-  const [cashProjection, setCashProjection] = useState<any>(null);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -82,14 +80,13 @@ export default function Dashboard() {
 
       console.log('📊 Loading dashboard data with params:', dateParams);
 
-      const [overview, chart, codData, cashProj] = await Promise.all([
+      const [overview, chart, codData] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getChartData(dateRange.days, dateParams),
         codMetricsService.getMetrics({
           start_date: dateParams.startDate,
           end_date: dateParams.endDate,
         }).catch(() => null), // Fail silently if COD metrics not available
-        analyticsService.getCashProjection(30).catch(() => null), // Fail silently if cash projection not available
       ]);
 
       // Check if request was aborted before updating state
@@ -101,7 +98,6 @@ export default function Dashboard() {
       setDashboardOverview(overview);
       setChartData(chart);
       setCodMetrics(codData);
-      setCashProjection(cashProj);
     } catch (error: any) {
       // Ignore abort errors
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
@@ -173,9 +169,6 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <QuickActions />
 
-      {/* Cash Projection Card (comprehensive cash flow projection) */}
-      {cashProjection && <CashProjectionCard projection={cashProjection} />}
-
       {/* Revenue Projection Card (only shows with ≥10% growth) */}
       {revenueProjection && <RevenueProjectionCard projection={revenueProjection} />}
 
@@ -244,7 +237,7 @@ export default function Dashboard() {
         </Button>
 
         {showSecondaryMetrics && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
               title="ROAS"
               value={`${dashboardOverview.roas.toFixed(2)}x`}
@@ -260,10 +253,17 @@ export default function Dashboard() {
               icon={<Target className="text-blue-600" size={20} />}
             />
             <MetricCard
-              title="Margen de Beneficio"
-              value={`${dashboardOverview.profitMargin}%`}
-              change={dashboardOverview.changes?.profitMargin !== null ? Math.abs(dashboardOverview.changes?.profitMargin || 0) : undefined}
-              trend={dashboardOverview.changes?.profitMargin !== null ? (dashboardOverview.changes?.profitMargin >= 0 ? 'up' : 'down') : undefined}
+              title="Margen Bruto"
+              value={`${dashboardOverview.grossMargin}%`}
+              change={dashboardOverview.changes?.grossMargin !== null ? Math.abs(dashboardOverview.changes?.grossMargin || 0) : undefined}
+              trend={dashboardOverview.changes?.grossMargin !== null ? (dashboardOverview.changes?.grossMargin >= 0 ? 'up' : 'down') : undefined}
+              icon={<Percent className="text-emerald-600" size={20} />}
+            />
+            <MetricCard
+              title="Margen Neto"
+              value={`${dashboardOverview.netMargin}%`}
+              change={dashboardOverview.changes?.netMargin !== null ? Math.abs(dashboardOverview.changes?.netMargin || 0) : undefined}
+              trend={dashboardOverview.changes?.netMargin !== null ? (dashboardOverview.changes?.netMargin >= 0 ? 'up' : 'down') : undefined}
               icon={<Percent className="text-primary" size={20} />}
             />
             <MetricCard
