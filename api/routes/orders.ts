@@ -493,6 +493,18 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     first_name,
                     last_name,
                     total_orders
+                ),
+                order_line_items (
+                    id,
+                    product_id,
+                    product_name,
+                    variant_title,
+                    sku,
+                    quantity,
+                    unit_price,
+                    total_price,
+                    shopify_product_id,
+                    shopify_variant_id
                 )
             `, { count: 'exact' })
             .eq('store_id', req.storeId)
@@ -531,15 +543,37 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         // Transform data to match frontend Order interface
         const transformedData = data?.map(order => {
-            const lineItems = order.line_items || [];
-            const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+            // Use normalized line items if available, fallback to JSONB
+            const normalizedItems = order.order_line_items || [];
+            const jsonbItems = order.line_items || [];
+
+            let lineItems = normalizedItems;
+            if (normalizedItems.length === 0 && Array.isArray(jsonbItems)) {
+                // Fallback to JSONB format for backwards compatibility
+                lineItems = jsonbItems.map((item: any) => ({
+                    product_name: item.name || item.title || 'Producto',
+                    quantity: item.quantity || 1,
+                    unit_price: parseFloat(item.price) || 0,
+                    total_price: (item.quantity || 1) * parseFloat(item.price || 0)
+                }));
+            }
+
+            // Calculate total quantity from all line items
+            const totalQuantity = lineItems.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
+
+            // Get product name(s) - show first product or multiple indicator
+            const productDisplay = lineItems.length > 0
+                ? lineItems.length === 1
+                    ? lineItems[0].product_name
+                    : `${lineItems[0].product_name} (+${lineItems.length - 1} más)`
+                : 'Producto';
 
             return {
                 id: order.id,
                 customer: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
                 address: order.customer_address || '',
-                product: firstItem?.product_name || firstItem?.title || 'Producto',
-                quantity: firstItem?.quantity || 1,
+                product: productDisplay,
+                quantity: totalQuantity || 1,
                 total: order.total_price || 0,
                 status: mapStatus(order.sleeves_status),
                 payment_status: order.payment_status,
@@ -553,7 +587,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 delivery_link_token: order.delivery_link_token,
                 latitude: order.latitude,
                 longitude: order.longitude,
-                google_maps_link: order.google_maps_link
+                google_maps_link: order.google_maps_link,
+                line_items: lineItems  // Include all line items
             };
         }) || [];
 
@@ -592,6 +627,21 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
                     email,
                     total_orders,
                     total_spent
+                ),
+                order_line_items (
+                    id,
+                    product_id,
+                    product_name,
+                    variant_title,
+                    sku,
+                    quantity,
+                    unit_price,
+                    total_price,
+                    discount_amount,
+                    tax_amount,
+                    shopify_product_id,
+                    shopify_variant_id,
+                    properties
                 )
             `)
             .eq('id', id)
@@ -605,15 +655,41 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
         }
 
         // Transform data to match frontend Order interface
-        const lineItems = data.line_items || [];
-        const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+        // Use normalized line items if available, fallback to JSONB
+        const normalizedItems = data.order_line_items || [];
+        const jsonbItems = data.line_items || [];
+
+        let lineItems = normalizedItems;
+        if (normalizedItems.length === 0 && Array.isArray(jsonbItems)) {
+            // Fallback to JSONB format for backwards compatibility
+            lineItems = jsonbItems.map((item: any) => ({
+                product_name: item.name || item.title || 'Producto',
+                variant_title: item.variant_title,
+                sku: item.sku,
+                quantity: item.quantity || 1,
+                unit_price: parseFloat(item.price) || 0,
+                total_price: (item.quantity || 1) * parseFloat(item.price || 0),
+                shopify_product_id: item.product_id,
+                shopify_variant_id: item.variant_id
+            }));
+        }
+
+        // Calculate total quantity from all line items
+        const totalQuantity = lineItems.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
+
+        // Get product name(s) - show first product or multiple indicator
+        const productDisplay = lineItems.length > 0
+            ? lineItems.length === 1
+                ? lineItems[0].product_name
+                : `${lineItems[0].product_name} (+${lineItems.length - 1} más)`
+            : 'Producto';
 
         const transformedData = {
             id: data.id,
             customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
             address: data.customer_address || '',
-            product: firstItem?.product_name || firstItem?.title || 'Producto',
-            quantity: firstItem?.quantity || 1,
+            product: productDisplay,
+            quantity: totalQuantity || 1,
             total: data.total_price || 0,
             status: mapStatus(data.sleeves_status),
             payment_status: data.payment_status,
@@ -626,7 +702,10 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
             rejectionReason: data.rejection_reason,
             delivery_link_token: data.delivery_link_token,
             latitude: data.latitude,
-            longitude: data.longitude
+            longitude: data.longitude,
+            line_items: lineItems,  // Include all line items with full details
+            shopify_order_id: data.shopify_order_id,
+            shopify_order_number: data.shopify_order_number
         };
 
         res.json(transformedData);

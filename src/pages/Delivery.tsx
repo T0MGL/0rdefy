@@ -303,13 +303,20 @@ export default function Delivery() {
 
   const openInMaps = () => {
     if (state.type !== 'pending') return;
-    const { google_maps_link, latitude, longitude } = state.data;
+    const { google_maps_link, latitude, longitude, customer_address, neighborhood } = state.data;
 
-    // Prioridad: usar google_maps_link si está disponible, si no usar lat/long
+    // Prioridad: usar google_maps_link si está disponible, si no usar lat/long, si no usar dirección
     if (google_maps_link) {
       window.open(google_maps_link, '_blank');
     } else if (latitude && longitude) {
       window.open(`https://www.google.com/maps?q=${latitude},${longitude}`, '_blank');
+    } else if (customer_address) {
+      // Construir búsqueda de Google Maps con la dirección
+      const parts = [];
+      if (customer_address) parts.push(customer_address);
+      if (neighborhood) parts.push(neighborhood);
+      const address = parts.join(', ');
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
     }
   };
 
@@ -727,17 +734,6 @@ export default function Delivery() {
                 </div>
               </div>
             )}
-
-            {(orderData.google_maps_link || (orderData.latitude && orderData.longitude)) && (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={openInMaps}
-              >
-                <MapPin className="mr-2 h-4 w-4" />
-                Abrir en Google Maps
-              </Button>
-            )}
           </CardContent>
         </Card>
 
@@ -796,6 +792,18 @@ export default function Delivery() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Google Maps Button - Prominent */}
+        {orderData.customer_address && (
+          <Button
+            variant="outline"
+            className="w-full h-14 text-lg font-semibold border-2 border-blue-500 hover:bg-blue-500/10 text-blue-600 dark:text-blue-400"
+            onClick={openInMaps}
+          >
+            <MapPin className="mr-2 h-6 w-6" />
+            📍 Abrir Dirección en Google Maps
+          </Button>
         )}
 
         {/* Actions */}

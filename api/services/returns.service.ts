@@ -79,11 +79,12 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
       total_price,
       line_items,
       delivered_at,
-      shipped_at,
-      created_at
+      in_transit_at,
+      created_at,
+      delivery_status
     `)
     .eq('store_id', storeId)
-    .in('status', ['delivered', 'shipped', 'cancelled'])
+    .or('status.in.(delivered,in_transit,cancelled),delivery_status.eq.failed')
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -94,13 +95,13 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
   return data.map(order => ({
     id: order.id,
     order_number: order.order_number,
-    status: order.status,
+    status: order.delivery_status === 'failed' ? 'failed' : order.status,
     customer_name: order.customer_name,
     customer_phone: order.customer_phone,
     total_price: order.total_price,
     items_count: order.line_items?.length || 0,
     delivered_at: order.delivered_at,
-    shipped_at: order.shipped_at,
+    shipped_at: order.in_transit_at,
   }));
 }
 
