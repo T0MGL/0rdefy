@@ -4,14 +4,22 @@ export interface DashboardOverview {
   costs: number;
   deliveryCosts?: number; // Costos de envío
   marketing: number;
-  netProfit: number;
-  profitMargin: number;
-  // NEW: Real cash metrics (only delivered orders)
+  // Gross profit and margin (Revenue - Product Costs only)
+  grossProfit: number; // Beneficio bruto (Ingresos - Costos de productos)
+  grossMargin: number; // Margen bruto (%) (Beneficio bruto / Ingresos × 100)
+  // Net profit and margin (Revenue - All Costs)
+  netProfit: number; // Beneficio neto (Ingresos - Costos totales)
+  netMargin: number; // Margen neto (%) (Beneficio neto / Ingresos × 100)
+  profitMargin: number; // Deprecated: use netMargin instead
+  // Real cash metrics (only delivered orders)
   realRevenue?: number; // Ingreso real (solo pedidos entregados)
   realCosts?: number; // Costos reales (solo pedidos entregados)
   realDeliveryCosts?: number; // Costos de envío reales (solo pedidos entregados)
+  realGrossProfit?: number; // Beneficio bruto real (solo pedidos entregados)
+  realGrossMargin?: number; // Margen bruto real (%) (solo pedidos entregados)
   realNetProfit?: number; // Beneficio neto real (solo pedidos entregados)
-  realProfitMargin?: number; // Margen de beneficio real (solo pedidos entregados)
+  realNetMargin?: number; // Margen neto real (%) (solo pedidos entregados)
+  realProfitMargin?: number; // Deprecated: use realNetMargin instead
   roi: number;
   roas: number;
   deliveryRate: number;
@@ -25,12 +33,18 @@ export interface DashboardOverview {
     costs: number | null;
     deliveryCosts?: number | null;
     marketing: number | null;
+    grossProfit?: number | null;
+    grossMargin?: number | null;
     netProfit: number | null;
+    netMargin?: number | null;
     profitMargin: number | null;
     realRevenue?: number | null;
     realCosts?: number | null;
     realDeliveryCosts?: number | null;
+    realGrossProfit?: number | null;
+    realGrossMargin?: number | null;
     realNetProfit?: number | null;
+    realNetMargin?: number | null;
     realProfitMargin?: number | null;
     roi: number | null;
     roas: number | null;
