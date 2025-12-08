@@ -124,7 +124,8 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             profitability: product.cost && product.price
                 ? parseFloat((((product.price - product.cost) / product.price) * 100).toFixed(1))
                 : 0,
-            sales: salesByProduct[product.id] || 0
+            sales: salesByProduct[product.id] || 0,
+            shopify_product_id: product.shopify_product_id || null
         }));
 
         res.json({
@@ -195,7 +196,8 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
             profitability: data.cost && data.price
                 ? parseFloat((((data.price - data.cost) / data.price) * 100).toFixed(1))
                 : 0,
-            sales
+            sales,
+            shopify_product_id: data.shopify_product_id || null
         };
 
         res.json(transformedData);
@@ -722,6 +724,80 @@ productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
         console.error(`[DELETE /api/products/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Failed to delete product',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/products/:id/publish-to-shopify - Publish product to Shopify
+// ================================================================
+productsRouter.post('/:id/publish-to-shopify', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Verificar que el producto existe
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('shopify_product_id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .maybeSingle();
+
+        if (productError || !product) {
+            return res.status(404).json({
+                error: 'Producto no encontrado'
+            });
+        }
+
+        // Verificar que el producto NO esté ya vinculado a Shopify
+        if (product.shopify_product_id) {
+            return res.status(400).json({
+                error: 'El producto ya está publicado en Shopify'
+            });
+        }
+
+        // Verificar que existe integración activa de Shopify
+        const { data: integration, error: integrationError } = await supabaseAdmin
+            .from('shopify_integrations')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        if (integrationError || !integration) {
+            return res.status(404).json({
+                error: 'No hay integración activa con Shopify'
+            });
+        }
+
+        // Publicar a Shopify
+        const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
+        const syncResult = await syncService.publishProductToShopify(id);
+
+        if (!syncResult.success) {
+            return res.status(500).json({
+                error: 'Error al publicar en Shopify',
+                details: syncResult.error
+            });
+        }
+
+        // Obtener producto actualizado
+        const { data: updatedProduct } = await supabaseAdmin
+            .from('products')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        res.json({
+            message: 'Producto publicado exitosamente en Shopify',
+            data: updatedProduct
+        });
+
+    } catch (error: any) {
+        console.error(`[POST /api/products/${req.params.id}/publish-to-shopify] Error:`, error);
+        res.status(500).json({
+            error: 'Error al publicar producto en Shopify',
             message: error.message
         });
     }

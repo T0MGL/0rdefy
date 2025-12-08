@@ -215,4 +215,85 @@ export class ShopifyProductSyncService {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
+
+  // Publicar producto local a Shopify (crear nuevo producto en Shopify)
+  async publishProductToShopify(productId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Obtener producto de la base de datos
+      const { data: product, error: fetchError } = await this.supabaseAdmin
+        .from('products')
+        .select('*')
+        .eq('id', productId)
+        .eq('store_id', this.integration.store_id)
+        .single();
+
+      if (fetchError || !product) {
+        return { success: false, error: 'Producto no encontrado' };
+      }
+
+      // Verificar si el producto ya está vinculado a Shopify
+      if (product.shopify_product_id) {
+        return { success: false, error: 'El producto ya está publicado en Shopify' };
+      }
+
+      // Preparar datos para crear en Shopify
+      const shopifyProductData: any = {
+        title: product.name,
+        body_html: product.description || '',
+        vendor: '',
+        product_type: product.category || '',
+        status: product.is_active ? 'active' : 'draft',
+        variants: [
+          {
+            price: product.price.toString(),
+            sku: product.sku || '',
+            inventory_quantity: product.stock || 0
+          }
+        ]
+      };
+
+      // Agregar imagen si existe
+      if (product.image_url && product.image_url !== 'https://via.placeholder.com/400x300?text=Product') {
+        shopifyProductData.images = [{ src: product.image_url }];
+      }
+
+      // Crear producto en Shopify
+      const shopifyProduct = await this.shopifyClient.createProduct(shopifyProductData);
+
+      // Obtener el ID de la variante principal
+      const mainVariant = shopifyProduct.variants?.[0];
+      if (!mainVariant) {
+        return { success: false, error: 'No se pudo obtener la variante del producto creado' };
+      }
+
+      // Actualizar producto local con IDs de Shopify
+      await this.supabaseAdmin
+        .from('products')
+        .update({
+          shopify_product_id: shopifyProduct.id.toString(),
+          shopify_variant_id: mainVariant.id.toString(),
+          last_synced_at: new Date().toISOString(),
+          sync_status: 'synced'
+        })
+        .eq('id', productId);
+
+      console.log(`✅ Producto ${productId} publicado exitosamente en Shopify (ID: ${shopifyProduct.id})`);
+
+      return { success: true };
+
+    } catch (error: any) {
+      console.error('Error publicando producto a Shopify:', error);
+
+      // Marcar producto como error de sincronización
+      await this.supabaseAdmin
+        .from('products')
+        .update({ sync_status: 'error' })
+        .eq('id', productId);
+
+      return {
+        success: false,
+        error: error.message || 'Error al publicar en Shopify'
+      };
+    }
+  }
 }

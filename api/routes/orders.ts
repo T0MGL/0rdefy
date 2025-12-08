@@ -1068,6 +1068,41 @@ ordersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
+        // First, get the order to check if it has shopify_order_id
+        const { data: order, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('id, shopify_order_id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .maybeSingle();
+
+        if (fetchError || !order) {
+            return res.status(404).json({
+                error: 'Order not found'
+            });
+        }
+
+        // If order has shopify_order_id, clean up idempotency records to allow re-sync
+        if (order.shopify_order_id) {
+            console.log(`🧹 Cleaning idempotency records for Shopify order ${order.shopify_order_id}`);
+
+            // Delete from shopify_webhook_idempotency
+            await supabaseAdmin
+                .from('shopify_webhook_idempotency')
+                .delete()
+                .eq('shopify_event_id', order.shopify_order_id);
+
+            // Delete from shopify_webhook_events
+            await supabaseAdmin
+                .from('shopify_webhook_events')
+                .delete()
+                .eq('shopify_event_id', order.shopify_order_id)
+                .eq('store_id', req.storeId);
+
+            console.log(`✅ Idempotency records cleaned for order ${order.shopify_order_id}`);
+        }
+
+        // Now delete the order
         const { data, error } = await supabaseAdmin
             .from('orders')
             .delete()
@@ -1077,13 +1112,15 @@ ordersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
             .single();
 
         if (error || !data) {
-            return res.status(404).json({
-                error: 'Order not found'
+            return res.status(500).json({
+                error: 'Failed to delete order'
             });
         }
 
         res.json({
-            message: 'Order deleted successfully',
+            message: order.shopify_order_id
+                ? 'Order deleted successfully. It can now be re-synced from Shopify if needed.'
+                : 'Order deleted successfully',
             id: data.id
         });
     } catch (error: any) {

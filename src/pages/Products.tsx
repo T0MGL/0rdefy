@@ -11,7 +11,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { productsService } from '@/services/products.service';
 import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
-import { Plus, Edit, Trash2, PackageOpen, PackagePlus } from 'lucide-react';
+import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Product } from '@/types';
@@ -27,8 +27,10 @@ export default function Products() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [productToDelete, setProductToDelete] = useState<string | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [stockAdjustment, setStockAdjustment] = useState<number>(0);
+  const [hasShopifyIntegration, setHasShopifyIntegration] = useState(false);
+  const [isPublishing, setIsPublishing] = useState<string | null>(null);
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
 
@@ -38,7 +40,12 @@ export default function Products() {
       setProducts(data);
       setIsLoading(false);
     };
+    const checkShopify = async () => {
+      const hasIntegration = await productsService.checkShopifyIntegration();
+      setHasShopifyIntegration(hasIntegration);
+    };
     loadProducts();
+    checkShopify();
   }, []);
 
   const handleCreate = () => {
@@ -51,9 +58,34 @@ export default function Products() {
     setDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    setProductToDelete(id);
+  const handleDelete = (product: Product) => {
+    setProductToDelete(product);
     setDeleteDialogOpen(true);
+  };
+
+  const handlePublishToShopify = async (productId: string) => {
+    setIsPublishing(productId);
+    try {
+      await productsService.publishToShopify(productId);
+
+      // Recargar productos para obtener el shopify_product_id actualizado
+      const updatedProducts = await productsService.getAll();
+      setProducts(updatedProducts);
+
+      toast({
+        title: 'Producto publicado',
+        description: 'El producto ha sido publicado exitosamente en Shopify.',
+      });
+    } catch (error: any) {
+      console.error('Error al publicar producto:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'No se pudo publicar el producto en Shopify',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPublishing(null);
+    }
   };
 
   const handleAdjustStock = (product: Product) => {
@@ -103,17 +135,21 @@ export default function Products() {
     if (!productToDelete) return;
 
     try {
-      await productsService.delete(productToDelete);
+      await productsService.delete(productToDelete.id);
 
       // Optimistic update: remove from local state instead of reloading
-      setProducts(prev => prev.filter(p => p.id !== productToDelete));
+      setProducts(prev => prev.filter(p => p.id !== productToDelete.id));
 
       setDeleteDialogOpen(false);
       setProductToDelete(null);
 
+      const deletionMessage = productToDelete.shopify_product_id
+        ? 'El producto ha sido eliminado de tu inventario y de Shopify.'
+        : 'El producto ha sido eliminado exitosamente.';
+
       toast({
         title: 'Producto eliminado',
-        description: 'El producto ha sido eliminado exitosamente.',
+        description: deletionMessage,
       });
     } catch (error) {
       console.error('Error al eliminar producto:', error);
@@ -294,7 +330,7 @@ export default function Products() {
               <div className="p-6 space-y-4">
                 <div>
                   <h3 className="font-semibold text-lg mb-2">{product.name}</h3>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge
                       variant="outline"
                       className={
@@ -305,6 +341,12 @@ export default function Products() {
                     >
                       Stock: {product.stock}
                     </Badge>
+                    {product.shopify_product_id && (
+                      <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30 gap-1">
+                        <ShoppingBag size={12} />
+                        Shopify
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -339,6 +381,24 @@ export default function Products() {
                     <PackagePlus size={16} />
                     Ajustar Stock
                   </Button>
+                  {hasShopifyIntegration && !product.shopify_product_id && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-2 bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
+                      onClick={() => handlePublishToShopify(product.id)}
+                      disabled={isPublishing === product.id}
+                    >
+                      {isPublishing === product.id ? (
+                        <>Publicando...</>
+                      ) : (
+                        <>
+                          <Upload size={16} />
+                          Publicar a Shopify
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -353,7 +413,7 @@ export default function Products() {
                       variant="outline"
                       size="sm"
                       className="gap-2 text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(product.id)}
+                      onClick={() => handleDelete(product)}
                     >
                       <Trash2 size={16} />
                     </Button>
@@ -386,7 +446,11 @@ export default function Products() {
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         title="¿Eliminar producto?"
-        description="Esta acción no se puede deshacer. El producto será eliminado permanentemente."
+        description={
+          productToDelete?.shopify_product_id
+            ? `⚠️ Este producto está vinculado con Shopify y será eliminado también de tu tienda de Shopify. Esta acción no se puede deshacer.`
+            : 'Esta acción no se puede deshacer. El producto será eliminado permanentemente.'
+        }
         onConfirm={confirmDelete}
         variant="destructive"
         confirmText="Eliminar"

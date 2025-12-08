@@ -24,6 +24,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
+import { EmptyState } from '@/components/EmptyState';
 import * as returnsService from '@/services/returns.service';
 import type {
   ReturnSession,
@@ -279,20 +281,17 @@ export default function Returns() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        </div>
+        <TableSkeleton rows={3} columns={4} />
       ) : sessions.length === 0 ? (
-        <Card className="p-12 text-center">
-          <PackageX className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">No hay sesiones de devolución</h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            Crea una nueva sesión para procesar devoluciones
-          </p>
-          <Button onClick={() => setView('create')}>
-            Crear Primera Sesión
-          </Button>
-        </Card>
+        <EmptyState
+          icon={PackageX}
+          title="No hay sesiones de devolución"
+          description="Crea una nueva sesión para procesar devoluciones"
+          action={{
+            label: 'Crear Primera Sesión',
+            onClick: () => setView('create')
+          }}
+        />
       ) : (
         <div className="grid gap-4">
           {sessions.map((session) => (
@@ -393,17 +392,13 @@ export default function Returns() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        </div>
+        <TableSkeleton rows={3} columns={3} />
       ) : eligibleOrders.length === 0 ? (
-        <Card className="p-12 text-center">
-          <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">No hay pedidos elegibles</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            Los pedidos deben estar en estado: entregado, enviado o cancelado
-          </p>
-        </Card>
+        <EmptyState
+          icon={AlertTriangle}
+          title="No hay pedidos elegibles"
+          description="Los pedidos deben estar en estado: entregado, enviado o cancelado"
+        />
       ) : (
         <div className="grid gap-4">
           {eligibleOrders.map((order) => (
