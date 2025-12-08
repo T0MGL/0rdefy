@@ -792,18 +792,77 @@ export default function Delivery() {
               </div>
             </CardContent>
           </Card>
-        )}
+        )
 
-        {/* Google Maps Button - Prominent */}
+        }
+
+        {/* Google Maps Location Card - Prominent for Couriers */}
         {orderData.customer_address && (
-          <Button
-            variant="outline"
-            className="w-full h-14 text-lg font-semibold border-2 border-blue-500 hover:bg-blue-500/10 text-blue-600 dark:text-blue-400"
-            onClick={openInMaps}
-          >
-            <MapPin className="mr-2 h-6 w-6" />
-            📍 Abrir Dirección en Google Maps
-          </Button>
+          <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="p-2 bg-blue-600 rounded-full">
+                  <MapPin className="h-5 w-5 text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                    Ubicación de Entrega
+                  </h3>
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    {orderData.customer_address}
+                  </p>
+                  {orderData.neighborhood && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      {orderData.neighborhood}
+                    </p>
+                  )}
+                  {orderData.address_reference && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      Ref: {orderData.address_reference}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <Button
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold h-12"
+                  onClick={() => {
+                    const { google_maps_link, latitude, longitude, customer_address, neighborhood } = orderData;
+
+                    // Prioridad: usar google_maps_link si está disponible, si no usar lat/long para navegación
+                    if (latitude && longitude) {
+                      // Abrir directamente en la app de Google Maps con navegación
+                      window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`;
+                    } else if (google_maps_link) {
+                      window.open(google_maps_link, '_blank');
+                    } else if (customer_address) {
+                      // Construir búsqueda de Google Maps con la dirección
+                      const parts = [];
+                      if (customer_address) parts.push(customer_address);
+                      if (neighborhood) parts.push(neighborhood);
+                      const address = parts.join(', ');
+                      window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+                    }
+                  }}
+                >
+                  <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                  </svg>
+                  Iniciar Navegación
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="w-full border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                  onClick={openInMaps}
+                >
+                  <MapPin className="h-4 w-4 mr-2" />
+                  Ver en Google Maps
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Actions */}

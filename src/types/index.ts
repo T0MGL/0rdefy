@@ -1,7 +1,9 @@
 export interface DashboardOverview {
   totalOrders: number;
   revenue: number;
-  costs: number;
+  // Costos separados para transparencia
+  productCosts?: number; // Costo de productos solamente
+  costs: number; // Costos totales (productos + envío + marketing)
   deliveryCosts?: number; // Costos de envío
   marketing: number;
   // Gross profit and margin (Revenue - Product Costs only)
@@ -13,15 +15,19 @@ export interface DashboardOverview {
   profitMargin: number; // Deprecated: use netMargin instead
   // Real cash metrics (only delivered orders)
   realRevenue?: number; // Ingreso real (solo pedidos entregados)
-  realCosts?: number; // Costos reales (solo pedidos entregados)
+  realProductCosts?: number; // Costo de productos reales (solo pedidos entregados)
+  realCosts?: number; // Costos totales reales (solo pedidos entregados)
   realDeliveryCosts?: number; // Costos de envío reales (solo pedidos entregados)
   realGrossProfit?: number; // Beneficio bruto real (solo pedidos entregados)
   realGrossMargin?: number; // Margen bruto real (%) (solo pedidos entregados)
   realNetProfit?: number; // Beneficio neto real (solo pedidos entregados)
   realNetMargin?: number; // Margen neto real (%) (solo pedidos entregados)
   realProfitMargin?: number; // Deprecated: use realNetMargin instead
-  roi: number;
-  roas: number;
+  // ROI and ROAS metrics
+  roi: number; // ROI proyectado (todos los pedidos)
+  roas: number; // ROAS proyectado (todos los pedidos)
+  realRoi?: number; // ROI real (solo pedidos entregados)
+  realRoas?: number; // ROAS real (solo pedidos entregados)
   deliveryRate: number;
   taxCollected: number; // IVA recolectado incluido en los ingresos
   taxRate: number; // Tasa de IVA configurada en el onboarding (ej: 10 para 10%)
@@ -216,6 +222,7 @@ export interface MetricCardProps {
   trend?: 'up' | 'down';
   icon: React.ReactNode;
   variant?: 'default' | 'primary' | 'secondary' | 'accent' | 'purple';
+  subtitle?: string;
   onClick?: () => void;
 }
 

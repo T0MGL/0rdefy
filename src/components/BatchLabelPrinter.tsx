@@ -30,6 +30,7 @@ interface BatchLabelPrinterProps {
 export function BatchLabelPrinter({ orders, onClose, onPrinted }: BatchLabelPrinterProps) {
   const [qrCodes, setQrCodes] = useState<Map<string, { tracking: string; maps: string }>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [hasAutoprinted, setHasAutoprinted] = useState(false);
 
   useEffect(() => {
     const generateAllQRCodes = async () => {
@@ -59,6 +60,18 @@ export function BatchLabelPrinter({ orders, onClose, onPrinted }: BatchLabelPrin
     generateAllQRCodes();
   }, [orders]);
 
+  // Auto-print when all QR codes are generated
+  useEffect(() => {
+    if (!loading && !hasAutoprinted && qrCodes.size === orders.length) {
+      // Wait a bit for DOM to fully render
+      const timer = setTimeout(() => {
+        window.print();
+        setHasAutoprinted(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, hasAutoprinted, qrCodes.size, orders.length]);
+
   const handlePrint = () => {
     window.print();
     onPrinted();
@@ -70,6 +83,9 @@ export function BatchLabelPrinter({ orders, onClose, onPrinted }: BatchLabelPrin
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">Generando etiquetas...</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            {qrCodes.size} de {orders.length} etiquetas listas
+          </p>
         </div>
       </div>
     );
