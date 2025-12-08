@@ -901,6 +901,76 @@ shopifyRouter.delete('/products/:id', async (req: AuthRequest, res: Response) =>
   }
 });
 
+// GET /api/shopify/products
+// Obtener productos de Shopify para selector de productos
+shopifyRouter.get('/products', async (req: AuthRequest, res: Response) => {
+  try {
+    const storeId = req.storeId;
+    const { limit = '50', search } = req.query;
+
+    // Obtener integracion activa
+    const { data: integration, error: integrationError } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('status', 'active')
+      .single();
+
+    if (integrationError || !integration) {
+      return res.status(404).json({
+        success: false,
+        error: 'No active Shopify integration found'
+      });
+    }
+
+    // Crear cliente de Shopify
+    const shopifyClient = new ShopifyClientService(integration);
+
+    // Obtener productos de Shopify
+    const { products, pagination } = await shopifyClient.getProducts({
+      limit: parseInt(limit as string)
+    });
+
+    // Filtrar por búsqueda si se proporciona
+    let filteredProducts = products;
+    if (search) {
+      const searchLower = (search as string).toLowerCase();
+      filteredProducts = products.filter(p =>
+        p.title.toLowerCase().includes(searchLower) ||
+        p.variants?.some(v => v.sku?.toLowerCase().includes(searchLower))
+      );
+    }
+
+    // Transformar productos para el frontend
+    const transformedProducts = filteredProducts.map(product => ({
+      id: product.id.toString(),
+      title: product.title,
+      image: product.image?.src || product.images?.[0]?.src || '',
+      variants: product.variants?.map(variant => ({
+        id: variant.id.toString(),
+        title: variant.title,
+        sku: variant.sku || '',
+        price: parseFloat(variant.price || '0'),
+        inventory_quantity: variant.inventory_quantity || 0,
+        image_id: variant.image_id
+      })) || []
+    }));
+
+    res.json({
+      success: true,
+      products: transformedProducts,
+      pagination
+    });
+
+  } catch (error: any) {
+    console.error('Error fetching Shopify products:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch Shopify products'
+    });
+  }
+});
+
 // GET /api/shopify/integration
 // Obtener configuracion actual de Shopify (solo integraciones activas)
 shopifyRouter.get('/integration', async (req: AuthRequest, res: Response) => {

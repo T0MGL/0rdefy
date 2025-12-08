@@ -175,4 +175,60 @@ export const productsService = {
       return false;
     }
   },
+
+  getShopifyProducts: async (search?: string): Promise<any[]> => {
+    try {
+      const params = new URLSearchParams();
+      if (search) params.append('search', search);
+
+      const response = await fetch(`${API_BASE_URL}/shopify/products?${params}`, {
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result.products || [];
+    } catch (error) {
+      console.error('Error loading Shopify products:', error);
+      return [];
+    }
+  },
+
+  createFromShopify: async (shopifyProductId: string, shopifyVariantId: string): Promise<Product> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/products/from-shopify`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          shopify_product_id: shopifyProductId,
+          shopify_variant_id: shopifyVariantId
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Transform backend response to frontend format
+      return {
+        id: result.data.id,
+        name: result.data.name,
+        image: result.data.image_url || '',
+        stock: result.data.stock,
+        price: result.data.price,
+        cost: result.data.cost,
+        profitability: 0,
+        sales: 0,
+      };
+    } catch (error) {
+      console.error('Error creating product from Shopify:', error);
+      throw error;
+    }
+  },
 };

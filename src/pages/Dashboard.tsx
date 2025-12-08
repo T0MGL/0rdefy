@@ -160,7 +160,7 @@ export default function Dashboard() {
       </div>
     );
   }
-  
+
   return (
     <div className="space-y-6">
       {/* Daily Summary */}
@@ -294,13 +294,22 @@ export default function Dashboard() {
         </Button>
 
         {showAdvancedMetrics && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
               title="Costos de Productos"
-              value={`Gs. ${dashboardOverview.costs.toLocaleString()}`}
+              value={`Gs. ${(dashboardOverview.productCosts || dashboardOverview.costs - dashboardOverview.deliveryCosts - dashboardOverview.marketing).toLocaleString()}`}
               change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
               trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
               icon={<TrendingDown className="text-red-600" size={20} />}
+              subtitle="Solo costo de productos"
+            />
+            <MetricCard
+              title="Costos de Envío"
+              value={`Gs. ${(dashboardOverview.deliveryCosts || 0).toLocaleString()}`}
+              change={dashboardOverview.changes?.deliveryCosts !== null ? Math.abs(dashboardOverview.changes?.deliveryCosts || 0) : undefined}
+              trend={dashboardOverview.changes?.deliveryCosts !== null ? (dashboardOverview.changes?.deliveryCosts >= 0 ? 'up' : 'down') : undefined}
+              icon={<Truck className="text-orange-600" size={20} />}
+              subtitle="Costos de logística"
             />
             <MetricCard
               title="Marketing"
@@ -308,6 +317,7 @@ export default function Dashboard() {
               change={dashboardOverview.changes?.marketing !== null ? Math.abs(dashboardOverview.changes?.marketing || 0) : undefined}
               trend={dashboardOverview.changes?.marketing !== null ? (dashboardOverview.changes?.marketing >= 0 ? 'up' : 'down') : undefined}
               icon={<Megaphone className="text-blue-600" size={20} />}
+              subtitle="Inversión publicitaria"
             />
             <MetricCard
               title={`IVA Recolectado (${dashboardOverview.taxRate}%)`}
@@ -315,6 +325,7 @@ export default function Dashboard() {
               change={dashboardOverview.changes?.taxCollected !== null ? Math.abs(dashboardOverview.changes?.taxCollected || 0) : undefined}
               trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
               icon={<Receipt className="text-orange-600" size={20} />}
+              subtitle="Incluido en facturación"
             />
           </div>
         )}
@@ -375,7 +386,7 @@ export default function Dashboard() {
 
       {/* Revenue Intelligence Section */}
       <RevenueIntelligence />
-      
+
       {/* Metric Detail Modal */}
       <MetricDetailModal
         metric={selectedMetric}

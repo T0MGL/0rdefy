@@ -126,7 +126,7 @@ export default function Orders() {
   useEffect(() => {
     refetch();
   }, [dateParams, refetch]);
-  
+
   const handleConfirm = useCallback(async (orderId: string) => {
     // Get original order before confirming
     const originalOrder = orders.find(o => o.id === orderId);
@@ -638,6 +638,17 @@ export default function Orders() {
             {viewMode === 'table' ? 'Calendario' : 'Tabla'}
           </Button>
         </div>
+
+        {/* Order Counter */}
+        <div className="flex items-center gap-2 pt-2 border-t">
+          <Package2 className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">
+            Total de pedidos:
+          </span>
+          <Badge variant="secondary" className="text-sm font-semibold">
+            {filteredOrders.length}
+          </Badge>
+        </div>
       </Card>
 
       {/* View Toggle */}
@@ -645,248 +656,245 @@ export default function Orders() {
         <OrdersCalendar />
       ) : (
         <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-center py-4 px-3 text-sm font-medium text-muted-foreground w-12">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={handleToggleSelectAll}
-                    disabled={filteredOrders.filter(o => o.delivery_link_token).length === 0}
-                  >
-                    <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
-                      selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0
-                        ? 'bg-primary border-primary'
-                        : 'border-muted-foreground/40 hover:border-primary'
-                    }`}>
-                      {selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0 && (
-                        <Check size={12} className="text-primary-foreground" />
-                      )}
-                    </div>
-                  </Button>
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                  ID Pedido
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                  Cliente
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                  Producto
-                </th>
-                <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">
-                  Estado
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                  Transportadora
-                </th>
-                <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">
-                  Confirmación
-                </th>
-                <th className="text-right py-4 px-6 text-sm font-medium text-muted-foreground">
-                  Total
-                </th>
-                <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredOrders.map((order) => (
-                <tr
-                  key={order.id}
-                  id={`item-${order.id}`}
-                  className={`border-t border-border hover:bg-muted/30 transition-all ${
-                    isHighlighted(order.id)
-                      ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400 dark:ring-yellow-500'
-                      : ''
-                  }`}
-                >
-                  <td className="py-4 px-3 text-center">
-                    {order.delivery_link_token ? (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleToggleSelect(order.id)}
-                      >
-                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
-                          selectedOrderIds.has(order.id)
-                            ? 'bg-primary border-primary'
-                            : 'border-muted-foreground/40 hover:border-primary'
-                        }`}>
-                          {selectedOrderIds.has(order.id) && (
-                            <Check size={12} className="text-primary-foreground" />
-                          )}
-                        </div>
-                      </Button>
-                    ) : (
-                      <div className="h-8 w-8" />
-                    )}
-                  </td>
-                  <td className="py-4 px-6">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-mono">
-                        {order.shopify_order_number ? `SH#${order.shopify_order_number}` :
-                         order.shopify_order_id ? `SH#${order.shopify_order_id}` :
-                         `OR#${order.id.substring(0, 8)}`}
-                      </span>
-                      {order.shopify_order_id && (
-                        <Badge
-                          variant="outline"
-                          className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs px-1.5 py-0"
-                        >
-                          Shopify
-                        </Badge>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-4 px-6">
-                    <div>
-                      <p className="text-sm font-medium">{order.customer}</p>
-                      <p className="text-xs text-muted-foreground">{order.phone}</p>
-                    </div>
-                  </td>
-                  <td className="py-4 px-6 text-sm">{order.product}</td>
-                  <td className="py-4 px-6 text-center">
-                    <Select
-                      value={order.status}
-                      onValueChange={(newStatus: Order['status']) => handleStatusUpdate(order.id, newStatus)}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-center py-4 px-3 text-sm font-medium text-muted-foreground w-12">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={handleToggleSelectAll}
+                      disabled={filteredOrders.filter(o => o.delivery_link_token).length === 0}
                     >
-                      <SelectTrigger className={`w-36 h-8 ${statusColors[order.status]}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">Pendiente</SelectItem>
-                        <SelectItem value="confirmed">Confirmado</SelectItem>
-                        <SelectItem value="in_transit">En Tránsito</SelectItem>
-                        <SelectItem value="delivered">Entregado</SelectItem>
-                        <SelectItem value="cancelled">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="py-4 px-6 text-sm">{getCarrierName(order.carrier)}</td>
-                  <td className="py-4 px-6 text-center">
-                    {order.confirmedByWhatsApp ? (
-                      <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800">
-                        <CheckCircle size={14} className="mr-1" />
-                        Confirmado
-                      </Badge>
-                    ) : order.status === 'cancelled' || order.status === 'rejected' ? (
-                      <Badge variant="outline" className="bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-800">
-                        <XCircle size={14} className="mr-1" />
-                        {order.status === 'cancelled' ? 'Cancelado' : 'Rechazado'}
-                      </Badge>
-                    ) : (
-                      <div className="flex gap-1 justify-center">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
-                          onClick={() => {
-                            setOrderToConfirm(order);
-                            setConfirmDialogOpen(true);
-                          }}
-                        >
-                          <CheckCircle size={14} className="mr-1" />
-                          Confirmar
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 hover:shadow-sm transition-all duration-200"
-                          onClick={() => handleReject(order.id)}
-                        >
-                          <XCircle size={14} className="mr-1" />
-                          Rechazar
-                        </Button>
+                      <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0
+                          ? 'bg-primary border-primary'
+                          : 'border-muted-foreground/40 hover:border-primary'
+                        }`}>
+                        {selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0 && (
+                          <Check size={12} className="text-primary-foreground" />
+                        )}
                       </div>
-                    )}
-                  </td>
-                  <td className="py-4 px-6 text-right text-sm font-semibold">
-                    Gs. {order.total.toLocaleString()}
-                  </td>
-                  <td className="py-4 px-6">
-                    <div className="flex items-center justify-center gap-1">
-                      {/* Botón de impresión siempre primero */}
-                      {order.delivery_link_token && (
+                    </Button>
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                    ID Pedido
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                    Cliente
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                    Producto
+                  </th>
+                  <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">
+                    Estado
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                    Transportadora
+                  </th>
+                  <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">
+                    Confirmación
+                  </th>
+                  <th className="text-right py-4 px-6 text-sm font-medium text-muted-foreground">
+                    Total
+                  </th>
+                  <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.map((order) => (
+                  <tr
+                    key={order.id}
+                    id={`item-${order.id}`}
+                    className={`border-t border-border hover:bg-muted/30 transition-all ${isHighlighted(order.id)
+                        ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400 dark:ring-yellow-500'
+                        : ''
+                      }`}
+                  >
+                    <td className="py-4 px-3 text-center">
+                      {order.delivery_link_token ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleToggleSelect(order.id)}
+                        >
+                          <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${selectedOrderIds.has(order.id)
+                              ? 'bg-primary border-primary'
+                              : 'border-muted-foreground/40 hover:border-primary'
+                            }`}>
+                            {selectedOrderIds.has(order.id) && (
+                              <Check size={12} className="text-primary-foreground" />
+                            )}
+                          </div>
+                        </Button>
+                      ) : (
+                        <div className="h-8 w-8" />
+                      )}
+                    </td>
+                    <td className="py-4 px-6">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono">
+                          {order.shopify_order_number ? `SH#${order.shopify_order_number}` :
+                            order.shopify_order_id ? `SH#${order.shopify_order_id}` :
+                              `OR#${order.id.substring(0, 8)}`}
+                        </span>
+                        {order.shopify_order_id && (
+                          <Badge
+                            variant="outline"
+                            className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs px-1.5 py-0"
+                          >
+                            Shopify
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-4 px-6">
+                      <div>
+                        <p className="text-sm font-medium">{order.customer}</p>
+                        <p className="text-xs text-muted-foreground">{order.phone}</p>
+                      </div>
+                    </td>
+                    <td className="py-4 px-6 text-sm">{order.product}</td>
+                    <td className="py-4 px-6 text-center">
+                      <Select
+                        value={order.status}
+                        onValueChange={(newStatus: Order['status']) => handleStatusUpdate(order.id, newStatus)}
+                      >
+                        <SelectTrigger className={`w-36 h-8 ${statusColors[order.status]}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Pendiente</SelectItem>
+                          <SelectItem value="confirmed">Confirmado</SelectItem>
+                          <SelectItem value="in_transit">En Tránsito</SelectItem>
+                          <SelectItem value="delivered">Entregado</SelectItem>
+                          <SelectItem value="cancelled">Cancelado</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="py-4 px-6 text-sm">{getCarrierName(order.carrier)}</td>
+                    <td className="py-4 px-6 text-center">
+                      {order.confirmedByWhatsApp ? (
+                        <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800">
+                          <CheckCircle size={14} className="mr-1" />
+                          Confirmado
+                        </Badge>
+                      ) : order.status === 'cancelled' || order.status === 'rejected' ? (
+                        <Badge variant="outline" className="bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-800">
+                          <XCircle size={14} className="mr-1" />
+                          {order.status === 'cancelled' ? 'Cancelado' : 'Rechazado'}
+                        </Badge>
+                      ) : (
+                        <div className="flex gap-1 justify-center">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
+                            onClick={() => {
+                              setOrderToConfirm(order);
+                              setConfirmDialogOpen(true);
+                            }}
+                          >
+                            <CheckCircle size={14} className="mr-1" />
+                            Confirmar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 hover:shadow-sm transition-all duration-200"
+                            onClick={() => handleReject(order.id)}
+                          >
+                            <XCircle size={14} className="mr-1" />
+                            Rechazar
+                          </Button>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-4 px-6 text-right text-sm font-semibold">
+                      Gs. {order.total.toLocaleString()}
+                    </td>
+                    <td className="py-4 px-6">
+                      <div className="flex items-center justify-center gap-1">
+                        {/* Botón de impresión siempre primero */}
+                        {order.delivery_link_token && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setOrderToPrint(order);
+                              setPrintLabelDialogOpen(true);
+                            }}
+                            title="Imprimir etiqueta de entrega"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                          >
+                            <Printer size={16} />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => {
-                            setOrderToPrint(order);
-                            setPrintLabelDialogOpen(true);
+                            setSelectedOrder(order);
+                            setIsQuickViewOpen(true);
                           }}
-                          title="Imprimir etiqueta de entrega"
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                          title="Ver detalles"
                         >
-                          <Printer size={16} />
+                          <Eye size={16} />
                         </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setIsQuickViewOpen(true);
-                        }}
-                        title="Ver detalles"
-                      >
-                        <Eye size={16} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEditOrder(order)}
-                        title="Editar pedido"
-                      >
-                        <Edit size={16} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          // Clean phone number: remove spaces and non-numeric chars except +
-                          const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
-                          // Ensure phone has + prefix for international WhatsApp format
-                          const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
-                          window.open(`https://wa.me/${whatsappNumber}`, '_blank');
-                        }}
-                        title="Contactar por WhatsApp"
-                      >
-                        <Phone size={16} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setSelectedOrderForAttempts(order);
-                          setAttemptsDialogOpen(true);
-                        }}
-                        title="Ver intentos de entrega"
-                      >
-                        <Package2 size={16} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDeleteOrder(order.id)}
-                        title="Eliminar pedido"
-                      >
-                        <Trash2 size={16} />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditOrder(order)}
+                          title="Editar pedido"
+                        >
+                          <Edit size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            // Clean phone number: remove spaces and non-numeric chars except +
+                            const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+                            // Ensure phone has + prefix for international WhatsApp format
+                            const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+                            window.open(`https://wa.me/${whatsappNumber}`, '_blank');
+                          }}
+                          title="Contactar por WhatsApp"
+                        >
+                          <Phone size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setSelectedOrderForAttempts(order);
+                            setAttemptsDialogOpen(true);
+                          }}
+                          title="Ver intentos de entrega"
+                        >
+                          <Package2 size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteOrder(order.id)}
+                          title="Eliminar pedido"
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       <OrderQuickView

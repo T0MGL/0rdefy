@@ -10,6 +10,7 @@ export function MetricCard({
   trend,
   icon,
   variant = 'default',
+  subtitle,
   onClick,
 }: MetricCardProps) {
   // Extract numeric value to check if it's zero
@@ -53,6 +54,9 @@ export function MetricCard({
         {title}
       </p>
       <p className="text-3xl font-bold text-card-foreground">{value}</p>
+      {subtitle && (
+        <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+      )}
     </Card>
   );
 }

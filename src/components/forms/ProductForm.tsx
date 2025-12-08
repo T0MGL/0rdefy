@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -12,55 +13,330 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Product } from '@/types';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Package, Search, AlertCircle } from 'lucide-react';
+import { productsService } from '@/services/products.service';
 
-const productSchema = z.object({
+// Schema para modo manual (sin Shopify)
+const manualProductSchema = z.object({
   name: z.string().trim().min(1, 'El nombre es requerido').max(100, 'Máximo 100 caracteres'),
   description: z.string().optional(),
-  sku: z.string().trim().min(1, 'El SKU es requerido para mapeo con Shopify').max(100, 'Máximo 100 caracteres'),
+  sku: z.string().trim().min(1, 'El SKU es requerido').max(100, 'Máximo 100 caracteres'),
   category: z.string().optional(),
   image: z.string().url('URL inválida').or(z.literal('')),
   price: z.number({ required_error: 'El precio es requerido' }).positive('El precio debe ser mayor a 0'),
   cost: z.number({ required_error: 'El costo es requerido' }).positive('El costo debe ser mayor a 0'),
   stock: z.number({ required_error: 'El stock es requerido' }).int().min(0, 'El stock no puede ser negativo'),
-  shopify_product_id: z.string().optional(),
-  shopify_variant_id: z.string().optional(),
 });
 
-type ProductFormValues = z.infer<typeof productSchema>;
+type ManualProductFormValues = z.infer<typeof manualProductSchema>;
 
 interface ProductFormProps {
   product?: Product;
-  onSubmit: (data: ProductFormValues) => void;
+  onSubmit: (data: any) => void;
   onCancel: () => void;
 }
 
+interface ShopifyProduct {
+  id: string;
+  title: string;
+  image: string;
+  variants: Array<{
+    id: string;
+    title: string;
+    sku: string;
+    price: number;
+    inventory_quantity: number;
+  }>;
+}
+
 export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
-  const form = useForm<ProductFormValues>({
-    resolver: zodResolver(productSchema),
+  const [mode, setMode] = useState<'shopify' | 'manual' | 'loading'>('loading');
+  const [loading, setLoading] = useState(false);
+  const [shopifyProducts, setShopifyProducts] = useState<ShopifyProduct[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<string>('');
+  const [selectedVariant, setSelectedVariant] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Form para modo manual
+  const form = useForm<ManualProductFormValues>({
+    resolver: zodResolver(manualProductSchema),
     defaultValues: {
       name: product?.name || '',
-      description: product?.description || '',
-      sku: product?.sku || '',
-      category: product?.category || '',
+      description: '',
+      sku: '',
+      category: '',
       image: product?.image || '',
       price: product?.price || undefined,
       cost: product?.cost || undefined,
       stock: product?.stock || undefined,
-      shopify_product_id: product?.shopify_product_id || '',
-      shopify_variant_id: product?.shopify_variant_id || '',
     },
   });
 
-  const handleSubmit = (data: ProductFormValues) => {
+  // Detectar si hay integración de Shopify al montar
+  useEffect(() => {
+    checkShopifyIntegration();
+  }, []);
+
+  const checkShopifyIntegration = async () => {
+    setLoading(true);
+    try {
+      const products = await productsService.getShopifyProducts();
+      if (products.length > 0 || products) {
+        // Hay integración de Shopify
+        setMode('shopify');
+        setShopifyProducts(products);
+      } else {
+        // No hay integración, usar modo manual
+        setMode('manual');
+      }
+    } catch (error: any) {
+      // Si hay error 404, significa que no hay integración
+      if (error.message?.includes('404') || error.message?.includes('No active Shopify integration')) {
+        setMode('manual');
+      } else {
+        console.error('Error checking Shopify integration:', error);
+        setMode('manual');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadShopifyProducts = async (search?: string) => {
+    setLoading(true);
+    try {
+      const products = await productsService.getShopifyProducts(search);
+      setShopifyProducts(products);
+    } catch (error) {
+      console.error('Error loading Shopify products:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = () => {
+    loadShopifyProducts(searchQuery);
+  };
+
+  const handleShopifySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedProduct || !selectedVariant) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const product = await productsService.createFromShopify(
+        selectedProduct,
+        selectedVariant
+      );
+      onSubmit(product);
+    } catch (error: any) {
+      console.error('Error creating product:', error);
+      alert(error.message || 'Error al agregar el producto');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleManualSubmit = (data: ManualProductFormValues) => {
     onSubmit(data);
     form.reset();
   };
 
+  const selectedProductData = shopifyProducts.find(p => p.id === selectedProduct);
+  const selectedVariantData = selectedProductData?.variants.find(v => v.id === selectedVariant);
+
+  // Modo de carga
+  if (mode === 'loading') {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Modo Shopify
+  if (mode === 'shopify') {
+    return (
+      <form onSubmit={handleShopifySubmit} className="space-y-6">
+        {/* Search */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Buscar Producto de Shopify</label>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Buscar por nombre o SKU..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSearch}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Product Selector */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Producto *</label>
+          <Select value={selectedProduct} onValueChange={(value) => {
+            setSelectedProduct(value);
+            setSelectedVariant('');
+          }}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecciona un producto de Shopify" />
+            </SelectTrigger>
+            <SelectContent>
+              {shopifyProducts.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  {loading ? 'Cargando productos...' : 'No hay productos disponibles'}
+                </div>
+              ) : (
+                shopifyProducts.map((product) => (
+                  <SelectItem key={product.id} value={product.id}>
+                    <div className="flex items-center gap-2">
+                      {product.image ? (
+                        <img
+                          src={product.image}
+                          alt={product.title}
+                          className="w-8 h-8 object-cover rounded"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 bg-muted rounded flex items-center justify-center">
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <span>{product.title}</span>
+                    </div>
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Variant Selector */}
+        {selectedProduct && selectedProductData && selectedProductData.variants.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Variante *</label>
+            <Select value={selectedVariant} onValueChange={setSelectedVariant}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona una variante" />
+              </SelectTrigger>
+              <SelectContent>
+                {selectedProductData.variants.map((variant) => (
+                  <SelectItem key={variant.id} value={variant.id}>
+                    <div className="flex flex-col">
+                      <span>{variant.title}</span>
+                      <span className="text-xs text-muted-foreground">
+                        SKU: {variant.sku || 'N/A'} | Stock: {variant.inventory_quantity} | Gs. {variant.price.toLocaleString()}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Preview */}
+        {selectedVariantData && (
+          <div className="border rounded-lg p-4 bg-muted/50">
+            <h3 className="text-sm font-medium mb-3">Vista Previa</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">Producto:</span>
+                <p className="font-medium">{selectedProductData?.title}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Variante:</span>
+                <p className="font-medium">{selectedVariantData.title}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">SKU:</span>
+                <p className="font-medium">{selectedVariantData.sku || 'N/A'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Precio:</span>
+                <p className="font-medium">Gs. {selectedVariantData.price.toLocaleString()}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Stock:</span>
+                <p className="font-medium">{selectedVariantData.inventory_quantity}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Info Message */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+          <p className="font-medium mb-1">ℹ️ Sincronización Automática</p>
+          <p className="text-xs">
+            Al seleccionar un producto de Shopify, toda la información (nombre, SKU, precio, stock, imágenes)
+            se sincronizará automáticamente. No necesitas ingresar nada manualmente.
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2 pt-4">
+          <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            disabled={!selectedProduct || !selectedVariant || isSubmitting}
+            className="flex-1"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Agregando...
+              </>
+            ) : (
+              'Agregar Producto'
+            )}
+          </Button>
+        </div>
+      </form>
+    );
+  }
+
+  // Modo Manual (sin Shopify)
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+      <form onSubmit={form.handleSubmit(handleManualSubmit)} className="space-y-4">
+        {/* Warning Message */}
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium mb-1">Modo Manual</p>
+              <p className="text-xs">
+                No tienes una integración activa con Shopify. Deberás ingresar manualmente toda la información del producto.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <FormField
           control={form.control}
           name="name"
@@ -139,7 +415,7 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
             name="price"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Precio de Venta (Gs.)</FormLabel>
+                <FormLabel>Precio de Venta (Gs.) *</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
@@ -159,7 +435,7 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
             name="cost"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Costo (Gs.)</FormLabel>
+                <FormLabel>Costo (Gs.) *</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
@@ -180,7 +456,7 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           name="stock"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{product ? 'Stock Actual' : 'Stock Inicial'}</FormLabel>
+              <FormLabel>{product ? 'Stock Actual' : 'Stock Inicial'} *</FormLabel>
               <FormControl>
                 <Input
                   type="number"
@@ -194,56 +470,6 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
             </FormItem>
           )}
         />
-
-        {/* Shopify Integration Section */}
-        <div className="border-t pt-4 mt-4">
-          <div className="text-sm font-medium mb-3">
-            Integración con Shopify (Opcional)
-          </div>
-          <div className="text-xs text-muted-foreground mb-3">
-            Si este producto ya existe en Shopify, ingresa los IDs para vincularlo y sincronizar inventario automáticamente.
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="shopify_product_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs">Shopify Product ID</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Ej: 7234567890123"
-                      {...field}
-                      className="text-sm"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="shopify_variant_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs">Shopify Variant ID</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Ej: 4234567890123"
-                      {...field}
-                      className="text-sm"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-          <div className="text-xs text-muted-foreground mt-2">
-            💡 Tip: Puedes encontrar estos IDs en la URL del producto en Shopify Admin o usar la función de importación automática.
-          </div>
-        </div>
 
         <div className="flex gap-2 pt-4">
           <Button type="button" variant="outline" onClick={onCancel} className="flex-1">

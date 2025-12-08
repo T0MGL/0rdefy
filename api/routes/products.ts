@@ -277,6 +277,109 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
+// POST /api/products/from-shopify - Create product from Shopify
+// ================================================================
+productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => {
+    try {
+        const { shopify_product_id, shopify_variant_id } = req.body;
+
+        // Validation
+        if (!shopify_product_id || !shopify_variant_id) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'shopify_product_id and shopify_variant_id are required'
+            });
+        }
+
+        // Get Shopify integration
+        const { data: integration, error: integrationError } = await supabaseAdmin
+            .from('shopify_integrations')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .eq('status', 'active')
+            .single();
+
+        if (integrationError || !integration) {
+            return res.status(404).json({
+                error: 'No active Shopify integration found'
+            });
+        }
+
+        // Import from Shopify
+        const { ShopifyClientService } = await import('../services/shopify-client.service');
+        const shopifyClient = new ShopifyClientService(integration);
+
+        // Fetch product from Shopify
+        const shopifyProduct = await shopifyClient.getProduct(shopify_product_id);
+
+        // Find the specific variant
+        const variant = shopifyProduct.variants?.find(v => v.id.toString() === shopify_variant_id);
+
+        if (!variant) {
+            return res.status(404).json({
+                error: 'Variant not found in Shopify product'
+            });
+        }
+
+        // Check if product already exists
+        const { data: existingProduct } = await supabaseAdmin
+            .from('products')
+            .select('id')
+            .eq('store_id', req.storeId)
+            .eq('shopify_product_id', shopify_product_id)
+            .eq('shopify_variant_id', shopify_variant_id)
+            .maybeSingle();
+
+        if (existingProduct) {
+            return res.status(409).json({
+                error: 'Product already exists',
+                message: 'This Shopify product is already linked to your inventory',
+                product_id: existingProduct.id
+            });
+        }
+
+        // Create product with Shopify data
+        const productData = {
+            store_id: req.storeId,
+            name: variant.title !== 'Default Title'
+                ? `${shopifyProduct.title} - ${variant.title}`
+                : shopifyProduct.title,
+            description: shopifyProduct.body_html || '',
+            sku: variant.sku || '',
+            price: parseFloat(variant.price || '0'),
+            cost: parseFloat(variant.compare_at_price || variant.price || '0') * 0.6, // Estimate 60% of price as cost
+            stock: variant.inventory_quantity || 0,
+            category: shopifyProduct.product_type || '',
+            image_url: shopifyProduct.image?.src || shopifyProduct.images?.[0]?.src || '',
+            shopify_product_id: shopify_product_id,
+            shopify_variant_id: shopify_variant_id,
+            is_active: shopifyProduct.status === 'active'
+        };
+
+        const { data, error } = await supabaseAdmin
+            .from('products')
+            .insert([productData])
+            .select()
+            .single();
+
+        if (error) {
+            throw error;
+        }
+
+        res.status(201).json({
+            message: 'Product imported from Shopify successfully',
+            data
+        });
+    } catch (error: any) {
+        console.error('[POST /api/products/from-shopify] Error:', error);
+        res.status(500).json({
+            error: 'Failed to import product from Shopify',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
 // PUT /api/products/:id - Update product
 // ================================================================
 productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {

@@ -159,7 +159,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Ejemplo: Si precio = 11000 y tasa = 10%, entonces IVA = 11000 - (11000 / 1.10) = 1000
             const taxCollectedValue = taxRate > 0 ? (rev - (rev / (1 + taxRate / 100))) : 0;
 
-            // 3. COSTS (Optimized: batch query instead of N+1)
+            // 3. PRODUCT COSTS (Optimized: batch query instead of N+1)
             // Collect all unique product IDs first
             const productIds = new Set<string>();
             for (const order of ordersList) {
@@ -191,11 +191,11 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 }
             }
 
-            // Calculate costs using the cached product data
-            // Total costs (all orders)
-            let costs = 0;
-            // Real costs (only delivered orders - actual money spent)
-            let realCosts = 0;
+            // Calculate product costs using the cached product data
+            // Total product costs (all orders)
+            let productCosts = 0;
+            // Real product costs (only delivered orders - actual money spent)
+            let realProductCosts = 0;
 
             for (const order of ordersList) {
                 if (order.line_items && Array.isArray(order.line_items)) {
@@ -205,12 +205,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                         const productCost = productCostMap.get(item.product_id?.toString()) || 0;
                         const itemCost = productCost * Number(item.quantity || 1);
                         orderCost += itemCost;
-                        costs += itemCost;
+                        productCosts += itemCost;
                     }
 
                     // Only count costs for delivered orders (real money out)
                     if (order.sleeves_status === 'delivered') {
-                        realCosts += orderCost;
+                        realProductCosts += orderCost;
                     }
                 }
             }
@@ -230,46 +230,66 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 .filter(av => av.type === 'income')
                 .reduce((sum, av) => sum + (Number(av.amount) || 0), 0);
             rev += additionalIncome;
+            // Also add to real revenue if it's actual cash
+            realRevenue += additionalIncome;
 
-            // Add expenses to costs
+            // Add expenses to product costs
             const additionalExpenses = additionalValues
                 .filter(av => av.type === 'expense')
                 .reduce((sum, av) => sum + (Number(av.amount) || 0), 0);
-            costs += additionalExpenses;
+            productCosts += additionalExpenses;
+            realProductCosts += additionalExpenses;
 
             // 4. MARKETING (from campaigns table)
             const mktg = marketingCosts;
 
-            // 5. GROSS PROFIT & MARGIN
-            // Gross profit = Revenue - Product Costs (no incluye delivery ni marketing)
-            const grossProfit = rev - costs;
-            const realGrossProfit = realRevenue - realCosts;
+            // 5. TOTAL OPERATIONAL COSTS
+            // Para e-commerce COD, los costos totales incluyen:
+            // - Costo de productos
+            // - Costos de envío
+            // - Marketing
+            // IMPORTANTE: Estos son los costos TOTALES operativos
+            const totalCosts = productCosts + deliveryCosts + mktg;
+            const realTotalCosts = realProductCosts + realDeliveryCosts + mktg;
+
+            // 6. GROSS PROFIT & MARGIN
+            // MARGEN BRUTO = Solo resta el costo de productos (COGS)
+            // Esta métrica muestra cuánto ganamos después de pagar los productos
+            const grossProfit = rev - productCosts;
+            const realGrossProfit = realRevenue - realProductCosts;
 
             // Gross margin = (Gross Profit / Revenue) × 100
             const grossMargin = rev > 0 ? ((grossProfit / rev) * 100) : 0;
             const realGrossMargin = realRevenue > 0 ? ((realGrossProfit / realRevenue) * 100) : 0;
 
-            // 6. NET PROFIT & MARGIN
-            // Projected profit (based on all orders - for trend analysis)
-            // IMPORTANT: We subtract delivery costs because they're part of the operational costs
-            const netProfit = rev - costs - deliveryCosts - mktg;
-
-            // REAL NET PROFIT (only from delivered orders - actual cash profit)
-            // This is the REAL money left after all costs (products + delivery + marketing)
-            const realNetProfit = realRevenue - realCosts - realDeliveryCosts - mktg;
+            // 7. NET PROFIT & MARGIN
+            // MARGEN NETO = Resta TODOS los costos (productos + envío + marketing)
+            // Esta métrica muestra la ganancia REAL después de todos los gastos
+            // IMPORTANTE: El margen neto SIEMPRE debe ser menor que el margen bruto
+            const netProfit = rev - totalCosts;
+            const realNetProfit = realRevenue - realTotalCosts;
 
             // Net margin = (Net Profit / Revenue) × 100
             const netMargin = rev > 0 ? ((netProfit / rev) * 100) : 0;
             const realNetMargin = realRevenue > 0 ? ((realNetProfit / realRevenue) * 100) : 0;
 
-            // 7. ROI
-            const investment = costs + mktg;
-            const roiValue = investment > 0 ? (rev / investment) : 0;
+            // 8. ROI (Return on Investment)
+            // Para proyecciones: usa todos los pedidos
+            const investment = totalCosts;
+            const roiValue = investment > 0 ? ((rev - investment) / investment) : 0;
 
-            // 8. ROAS (Return on Ad Spend)
+            // Para métricas reales: usa solo pedidos entregados
+            const realInvestment = realTotalCosts;
+            const realRoiValue = realInvestment > 0 ? ((realRevenue - realInvestment) / realInvestment) : 0;
+
+            // 9. ROAS (Return on Ad Spend)
+            // Para proyecciones: usa todos los pedidos
             const roasValue = mktg > 0 ? (rev / mktg) : 0;
 
-            // 9. DELIVERY RATE
+            // Para métricas reales: usa solo pedidos entregados
+            const realRoasValue = mktg > 0 ? (realRevenue / mktg) : 0;
+
+            // 10. DELIVERY RATE
             // Solo considerar pedidos que fueron despachados (shipped o delivered)
             // La tasa de entrega debe ser: (entregados / despachados) × 100
             const shipped = ordersList.filter(o =>
@@ -282,22 +302,32 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             return {
                 totalOrders: count,
                 revenue: rev,
-                costs: costs,
+                realRevenue: realRevenue,
+                // Costos separados para transparencia
+                productCosts: productCosts,
+                realProductCosts: realProductCosts,
                 deliveryCosts: deliveryCosts,
+                realDeliveryCosts: realDeliveryCosts,
                 marketing: mktg,
-                // Gross profit and margin
+                // Costos totales (para mostrar en dashboard)
+                costs: totalCosts,
+                realCosts: realTotalCosts,
+                // Gross profit and margin (solo costo de productos)
                 grossProfit: grossProfit,
                 grossMargin: grossMargin,
                 realGrossProfit: realGrossProfit,
                 realGrossMargin: realGrossMargin,
-                // Net profit and margin
+                // Net profit and margin (todos los costos)
                 netProfit: netProfit,
                 netMargin: netMargin,
                 realNetProfit: realNetProfit,
                 realNetMargin: realNetMargin,
-                // Other metrics
+                // ROI y ROAS
                 roi: roiValue,
                 roas: roasValue,
+                realRoi: realRoiValue,
+                realRoas: realRoasValue,
+                // Otras métricas
                 deliveryRate: delivRate,
                 taxCollected: taxCollectedValue,
             };
@@ -362,8 +392,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             data: {
                 totalOrders,
                 revenue: Math.round(revenue),
-                costs: Math.round(totalCosts),
+                // Costos separados para transparencia
+                productCosts: Math.round(currentMetrics.productCosts),
                 deliveryCosts: Math.round(currentMetrics.deliveryCosts),
+                costs: Math.round(totalCosts), // Costos totales (productos + envío + marketing)
                 marketing,
                 // Gross profit and margin (Revenue - Product Costs only)
                 grossProfit: Math.round(grossProfit),
@@ -374,16 +406,20 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 profitMargin: parseFloat(netMargin.toFixed(1)), // Deprecated: same as netMargin for backwards compatibility
                 // Real cash metrics (only delivered orders)
                 realRevenue: Math.round(currentMetrics.realRevenue),
-                realCosts: Math.round(currentMetrics.realCosts),
+                realProductCosts: Math.round(currentMetrics.realProductCosts),
                 realDeliveryCosts: Math.round(currentMetrics.realDeliveryCosts),
+                realCosts: Math.round(currentMetrics.realCosts),
                 realGrossProfit: Math.round(currentMetrics.realGrossProfit),
                 realGrossMargin: parseFloat(currentMetrics.realGrossMargin.toFixed(1)),
                 realNetProfit: Math.round(currentMetrics.realNetProfit),
                 realNetMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)),
                 realProfitMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)), // Deprecated: same as realNetMargin for backwards compatibility
-                // Other metrics
+                // ROI and ROAS metrics
                 roi: parseFloat(roi.toFixed(2)),
                 roas: parseFloat(roas.toFixed(2)),
+                realRoi: parseFloat(currentMetrics.realRoi.toFixed(2)), // ROI basado en pedidos entregados
+                realRoas: parseFloat(currentMetrics.realRoas.toFixed(2)), // ROAS basado en pedidos entregados
+                // Other metrics
                 deliveryRate: parseFloat(deliveryRate.toFixed(1)),
                 costPerOrder: Math.round(costPerOrder),
                 averageOrderValue: Math.round(averageOrderValue),
