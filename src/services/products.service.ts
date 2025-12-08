@@ -42,6 +42,7 @@ export const productsService = {
         cost: p.cost,
         profitability: p.profitability || ((p.price - p.cost) / p.price * 100).toFixed(1),
         sales: p.sales || 0,
+        shopify_product_id: p.shopify_product_id || null,
       }));
     } catch (error) {
       console.error('Error loading products:', error);
@@ -69,6 +70,7 @@ export const productsService = {
         cost: data.cost,
         profitability: data.profitability || ((data.price - data.cost) / data.price * 100).toFixed(1),
         sales: data.sales || 0,
+        shopify_product_id: data.shopify_product_id || null,
       };
     } catch (error) {
       console.error('Error loading product:', error);
@@ -110,6 +112,7 @@ export const productsService = {
         cost: result.data.cost,
         profitability: product.profitability || 0,
         sales: product.sales || 0,
+        shopify_product_id: result.data.shopify_product_id || null,
       };
     } catch (error) {
       console.error('Error creating product:', error);
@@ -151,6 +154,7 @@ export const productsService = {
         cost: result.data.cost,
         profitability: data.profitability || 0,
         sales: data.sales || 0,
+        shopify_product_id: result.data.shopify_product_id || null,
       };
     } catch (error) {
       console.error('Error updating product:', error);
@@ -225,10 +229,41 @@ export const productsService = {
         cost: result.data.cost,
         profitability: 0,
         sales: 0,
+        shopify_product_id: result.data.shopify_product_id || null,
       };
     } catch (error) {
       console.error('Error creating product from Shopify:', error);
       throw error;
+    }
+  },
+
+  publishToShopify: async (id: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/products/${id}/publish-to-shopify`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.details || `HTTP error! status: ${response.status}`);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error publishing product to Shopify:', error);
+      throw error;
+    }
+  },
+
+  checkShopifyIntegration: async (): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/shopify/integration`, {
+        headers: getHeaders(),
+      });
+      return response.ok;
+    } catch (error) {
+      return false;
     }
   },
 };
