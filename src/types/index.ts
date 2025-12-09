@@ -70,7 +70,7 @@ export interface Order {
   product: string;
   quantity: number;
   total: number;
-  status: 'pending_confirmation' | 'confirmed' | 'prepared' | 'delivered_to_courier' | 'in_transit' | 'delivered' | 'not_delivered' | 'reconciled' | 'rejected' | 'cancelled';
+  status: 'pending_confirmation' | 'confirmed' | 'prepared' | 'delivered_to_courier' | 'in_transit' | 'delivered' | 'not_delivered' | 'incident' | 'reconciled' | 'rejected' | 'cancelled';
   payment_status?: 'pending' | 'collected' | 'failed';
   carrier: string;
   carrier_id?: string;
@@ -91,6 +91,7 @@ export interface Order {
   delivery_link_token?: string;
   delivery_status?: 'pending' | 'confirmed' | 'failed';
   delivery_failure_reason?: string;
+  courier_notes?: string; // Notas del transportista durante confirmación/falla
   delivered_at?: string;
   reconciled_at?: string;
   // COD specific fields

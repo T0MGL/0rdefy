@@ -123,6 +123,7 @@ export function DeliveryMap({
       out_for_delivery: 'bg-purple-500',
       delivered: 'bg-green-500',
       delivery_failed: 'bg-red-500',
+      incident: 'bg-red-500',
       confirmed: 'bg-yellow-500',
       pending: 'bg-gray-500',
     };
@@ -135,6 +136,7 @@ export function DeliveryMap({
       out_for_delivery: 'En camino',
       delivered: 'Entregado',
       delivery_failed: 'Fallo en entrega',
+      incident: 'Incidencia',
       confirmed: 'Confirmado',
       pending: 'Pendiente',
       cancelled: 'Cancelado',

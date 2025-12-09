@@ -50,6 +50,7 @@ const statusColors = {
   out_for_delivery: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
   delivered: 'bg-primary/20 text-primary border-primary/30',
   delivery_failed: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
+  incident: 'bg-red-500/20 text-red-700 border-red-500/30',
   rejected: 'bg-red-500/20 text-red-700 border-red-500/30',
   cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
 };
@@ -61,6 +62,7 @@ const statusLabels = {
   out_for_delivery: 'En Tránsito',
   delivered: 'Entregado',
   delivery_failed: 'Entrega Fallida',
+  incident: 'Incidencia',
   rejected: 'Rechazado',
   cancelled: 'Cancelado',
 };
@@ -231,6 +233,18 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <Calendar size={14} />
                 <span>{new Date(order.date).toLocaleDateString('es-ES')}</span>
               </div>
+              {order.courier_notes && (
+                <div className="mt-3 p-3 bg-muted rounded-lg">
+                  <p className="text-xs font-semibold text-muted-foreground mb-1">NOTAS DEL TRANSPORTISTA:</p>
+                  <p className="text-sm">{order.courier_notes}</p>
+                </div>
+              )}
+              {order.delivery_failure_reason && (
+                <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-800">
+                  <p className="text-xs font-semibold text-red-700 dark:text-red-400 mb-1">MOTIVO DE FALLA:</p>
+                  <p className="text-sm text-red-900 dark:text-red-300">{order.delivery_failure_reason}</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -316,6 +330,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <SelectItem value="out_for_delivery">En Tránsito</SelectItem>
                 <SelectItem value="delivered">Entregado</SelectItem>
                 <SelectItem value="delivery_failed">Entrega Fallida</SelectItem>
+                <SelectItem value="incident">Incidencia</SelectItem>
                 <SelectItem value="rejected">Rechazado</SelectItem>
                 <SelectItem value="cancelled">Cancelado</SelectItem>
               </SelectContent>
