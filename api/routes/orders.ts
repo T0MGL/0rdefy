@@ -123,14 +123,18 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
 ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { proof_photo_url } = req.body;
+        const { proof_photo_url, payment_method, notes } = req.body;
 
-        console.log(`✅ [ORDERS] Courier confirming delivery for order ${id}`);
+        console.log(`✅ [ORDERS] Courier confirming delivery for order ${id}`, {
+            payment_method,
+            has_notes: !!notes,
+            has_photo: !!proof_photo_url
+        });
 
         // First, get the order to verify it exists and get its store_id
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, store_id, sleeves_status')
+            .select('id, store_id, sleeves_status, courier_id')
             .eq('id', id)
             .single();
 
@@ -155,6 +159,14 @@ ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) =
             updateData.proof_photo_url = proof_photo_url;
         }
 
+        if (payment_method) {
+            updateData.payment_method = payment_method;
+        }
+
+        if (notes) {
+            updateData.courier_notes = notes;
+        }
+
         const { data, error } = await supabaseAdmin
             .from('orders')
             .update(updateData)
@@ -169,6 +181,33 @@ ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) =
             });
         }
 
+        // Create delivery attempt record
+        const { data: existingAttempts } = await supabaseAdmin
+            .from('delivery_attempts')
+            .select('attempt_number')
+            .eq('order_id', id)
+            .order('attempt_number', { ascending: false })
+            .limit(1);
+
+        const attempt_number = existingAttempts && existingAttempts.length > 0
+            ? existingAttempts[0].attempt_number + 1
+            : 1;
+
+        await supabaseAdmin
+            .from('delivery_attempts')
+            .insert({
+                order_id: id,
+                store_id: existingOrder.store_id,
+                carrier_id: existingOrder.courier_id,
+                attempt_number,
+                scheduled_date: new Date().toISOString().split('T')[0],
+                actual_date: new Date().toISOString().split('T')[0],
+                status: 'delivered',
+                payment_method: payment_method || null,
+                notes: notes || null,
+                photo_url: proof_photo_url || null
+            });
+
         // Log status change
         await supabaseAdmin
             .from('order_status_history')
@@ -179,10 +218,10 @@ ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) =
                 new_status: 'delivered',
                 changed_by: 'courier',
                 change_source: 'delivery_app',
-                notes: 'Delivery confirmed by courier'
+                notes: `Delivery confirmed by courier${payment_method ? ` - Payment: ${payment_method}` : ''}${notes ? ` - Notes: ${notes}` : ''}`
             });
 
-        console.log(`✅ [ORDERS] Order ${id} marked as delivered`);
+        console.log(`✅ [ORDERS] Order ${id} marked as delivered with full data sync`);
 
         res.json({
             message: 'Delivery confirmed successfully',
@@ -202,7 +241,7 @@ ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) =
 ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { delivery_failure_reason } = req.body;
+        const { delivery_failure_reason, failure_notes } = req.body;
 
         if (!delivery_failure_reason) {
             return res.status(400).json({
@@ -211,12 +250,15 @@ ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
             });
         }
 
-        console.log(`❌ [ORDERS] Courier reporting failed delivery for order ${id}`);
+        console.log(`❌ [ORDERS] Courier reporting failed delivery for order ${id}`, {
+            reason: delivery_failure_reason,
+            has_notes: !!failure_notes
+        });
 
         // First, get the order to verify it exists and get its store_id
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, store_id, sleeves_status')
+            .select('id, store_id, sleeves_status, courier_id')
             .eq('id', id)
             .single();
 
@@ -229,13 +271,17 @@ ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
         }
 
         const updateData: any = {
-            sleeves_status: 'not_delivered',
+            sleeves_status: 'incident', // Changed to 'incident' to flag for manual review
             delivery_status: 'failed',
             delivery_failure_reason,
             updated_at: new Date().toISOString()
             // Note: Token is NOT deleted immediately to allow failure page to display
             // Token should be cleaned up later via scheduled job (after 24-48 hours)
         };
+
+        if (failure_notes) {
+            updateData.courier_notes = failure_notes;
+        }
 
         const { data, error } = await supabaseAdmin
             .from('orders')
@@ -251,6 +297,32 @@ ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
             });
         }
 
+        // Create delivery attempt record
+        const { data: existingAttempts } = await supabaseAdmin
+            .from('delivery_attempts')
+            .select('attempt_number')
+            .eq('order_id', id)
+            .order('attempt_number', { ascending: false })
+            .limit(1);
+
+        const attempt_number = existingAttempts && existingAttempts.length > 0
+            ? existingAttempts[0].attempt_number + 1
+            : 1;
+
+        await supabaseAdmin
+            .from('delivery_attempts')
+            .insert({
+                order_id: id,
+                store_id: existingOrder.store_id,
+                carrier_id: existingOrder.courier_id,
+                attempt_number,
+                scheduled_date: new Date().toISOString().split('T')[0],
+                actual_date: new Date().toISOString().split('T')[0],
+                status: 'failed',
+                failed_reason: delivery_failure_reason,
+                failure_notes: failure_notes || null
+            });
+
         // Log status change
         await supabaseAdmin
             .from('order_status_history')
@@ -258,13 +330,13 @@ ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
                 order_id: id,
                 store_id: existingOrder.store_id,
                 previous_status: existingOrder.sleeves_status || 'confirmed',
-                new_status: 'not_delivered',
+                new_status: 'incident',
                 changed_by: 'courier',
                 change_source: 'delivery_app',
-                notes: `Delivery failed: ${delivery_failure_reason}`
+                notes: `Delivery failed: ${delivery_failure_reason}${failure_notes ? ` - Additional notes: ${failure_notes}` : ''}`
             });
 
-        console.log(`✅ [ORDERS] Order ${id} marked as not delivered`);
+        console.log(`✅ [ORDERS] Order ${id} marked as incident with full data sync`);
 
         res.json({
             message: 'Delivery failure reported',

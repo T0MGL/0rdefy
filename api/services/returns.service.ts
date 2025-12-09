@@ -72,9 +72,10 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
     .from('orders')
     .select(`
       id,
-      order_number,
-      status,
-      customer_name,
+      shopify_order_number,
+      sleeves_status,
+      customer_first_name,
+      customer_last_name,
       customer_phone,
       total_price,
       line_items,
@@ -84,7 +85,7 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
       delivery_status
     `)
     .eq('store_id', storeId)
-    .or('status.in.(delivered,in_transit,cancelled),delivery_status.eq.failed')
+    .or('sleeves_status.in.(delivered,shipped,cancelled),delivery_status.eq.failed')
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -94,9 +95,9 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
 
   return data.map(order => ({
     id: order.id,
-    order_number: order.order_number,
-    status: order.delivery_status === 'failed' ? 'failed' : order.status,
-    customer_name: order.customer_name,
+    order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
+    status: order.delivery_status === 'failed' ? 'failed' : order.sleeves_status,
+    customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Sin nombre',
     customer_phone: order.customer_phone,
     total_price: order.total_price,
     items_count: order.line_items?.length || 0,
@@ -128,7 +129,7 @@ export async function createReturnSession(
   // Get order details
   const { data: orders, error: ordersError } = await supabaseAdmin
     .from('orders')
-    .select('id, status, line_items')
+    .select('id, sleeves_status, line_items')
     .eq('store_id', storeId)
     .in('id', orderIds);
 
@@ -166,7 +167,7 @@ export async function createReturnSession(
   const sessionOrders = orders.map(order => ({
     session_id: session.id,
     order_id: order.id,
-    original_status: order.status,
+    original_status: order.sleeves_status,
   }));
 
   const { error: ordersLinkError } = await supabaseAdmin
