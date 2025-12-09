@@ -14,11 +14,16 @@ import {
 } from '../types/shopify';
 
 // Conditional import - only if file exists (for backward compatibility)
-let ShopifyGraphQLClientService: any;
+let ShopifyGraphQLClientService: any = null;
 try {
-  ShopifyGraphQLClientService = require('./shopify-graphql-client.service').ShopifyGraphQLClientService;
-} catch (error) {
-  console.warn('[Shopify] GraphQL service not available - using REST API only');
+  const graphqlModule = require('./shopify-graphql-client.service');
+  if (graphqlModule && graphqlModule.ShopifyGraphQLClientService) {
+    ShopifyGraphQLClientService = graphqlModule.ShopifyGraphQLClientService;
+    console.log('[Shopify] GraphQL service loaded successfully');
+  }
+} catch (error: any) {
+  console.warn('[Shopify] GraphQL service not available - using REST API only', error.message);
+  ShopifyGraphQLClientService = null;
 }
 
 // Token bucket rate limiter
@@ -240,10 +245,21 @@ export class ShopifyClientService {
   }
 
   async getProduct(productId: string): Promise<ShopifyProduct> {
-    console.log('⚠️  Using GraphQL for products (REST deprecated)');
+    // Use GraphQL if available, fallback to REST
+    if (this.graphqlClient) {
+      try {
+        console.log('⚠️  Using GraphQL for products (REST deprecated)');
+        const product = await this.graphqlClient.getProduct(productId);
+        return this.convertGraphQLProductToREST(product);
+      } catch (error) {
+        console.warn('[Shopify] GraphQL failed, falling back to REST:', error);
+      }
+    }
 
-    const product = await this.graphqlClient.getProduct(productId);
-    return this.convertGraphQLProductToREST(product);
+    // REST API fallback
+    await this.rateLimiter.consume();
+    const response = await this.client.get(`/products/${productId}.json`);
+    return response.data.product;
   }
 
   async createProduct(productData: {
@@ -261,77 +277,144 @@ export class ShopifyClientService {
     }>;
     images?: Array<{ src: string; alt?: string }>;
   }): Promise<ShopifyProduct> {
-    console.log('⚠️  Using GraphQL for products (REST deprecated)');
+    // Use GraphQL if available, fallback to REST
+    if (this.graphqlClient) {
+      try {
+        console.log('⚠️  Using GraphQL for products (REST deprecated)');
 
-    // Convert REST format to GraphQL format
-    const graphqlInput: any = {
-      title: productData.title,
-      descriptionHtml: productData.body_html,
-      vendor: productData.vendor,
-      productType: productData.product_type,
-      tags: productData.tags ? productData.tags.split(',').map(t => t.trim()) : [],
-      status: productData.status?.toUpperCase() as any || 'DRAFT'
-    };
+        // Convert REST format to GraphQL format
+        const graphqlInput: any = {
+          title: productData.title,
+          descriptionHtml: productData.body_html,
+          vendor: productData.vendor,
+          productType: productData.product_type,
+          tags: productData.tags ? productData.tags.split(',').map(t => t.trim()) : [],
+          status: productData.status?.toUpperCase() as any || 'DRAFT'
+        };
 
-    if (productData.variants && productData.variants.length > 0) {
-      graphqlInput.variants = productData.variants.map(v => ({
-        price: v.price,
-        sku: v.sku,
-        barcode: v.barcode
-      }));
+        if (productData.variants && productData.variants.length > 0) {
+          graphqlInput.variants = productData.variants.map(v => ({
+            price: v.price,
+            sku: v.sku,
+            barcode: v.barcode
+          }));
+        }
+
+        const product = await this.graphqlClient.createProduct(graphqlInput);
+        return this.convertGraphQLProductToREST(product);
+      } catch (error) {
+        console.warn('[Shopify] GraphQL failed, falling back to REST:', error);
+      }
     }
 
-    const product = await this.graphqlClient.createProduct(graphqlInput);
-    return this.convertGraphQLProductToREST(product);
+    // REST API fallback
+    await this.rateLimiter.consume();
+    const response = await this.client.post('/products.json', {
+      product: productData
+    });
+    return response.data.product;
   }
 
   async updateProduct(productId: string, productData: Partial<ShopifyProduct>): Promise<ShopifyProduct> {
-    console.log('⚠️  Using GraphQL for products (REST deprecated)');
+    // Use GraphQL if available, fallback to REST
+    if (this.graphqlClient) {
+      try {
+        console.log('⚠️  Using GraphQL for products (REST deprecated)');
 
-    // Convert REST format to GraphQL format
-    const graphqlInput: any = {};
+        // Convert REST format to GraphQL format
+        const graphqlInput: any = {};
 
-    if (productData.title) graphqlInput.title = productData.title;
-    if (productData.body_html) graphqlInput.descriptionHtml = productData.body_html;
-    if (productData.vendor) graphqlInput.vendor = productData.vendor;
-    if (productData.product_type) graphqlInput.productType = productData.product_type;
-    if (productData.tags) {
-      graphqlInput.tags = typeof productData.tags === 'string'
-        ? productData.tags.split(',').map(t => t.trim())
-        : productData.tags;
+        if (productData.title) graphqlInput.title = productData.title;
+        if (productData.body_html) graphqlInput.descriptionHtml = productData.body_html;
+        if (productData.vendor) graphqlInput.vendor = productData.vendor;
+        if (productData.product_type) graphqlInput.productType = productData.product_type;
+        if (productData.tags) {
+          graphqlInput.tags = typeof productData.tags === 'string'
+            ? productData.tags.split(',').map(t => t.trim())
+            : productData.tags;
+        }
+        if (productData.status) {
+          graphqlInput.status = productData.status.toUpperCase();
+        }
+
+        const product = await this.graphqlClient.updateProduct(productId, graphqlInput);
+        return this.convertGraphQLProductToREST(product);
+      } catch (error) {
+        console.warn('[Shopify] GraphQL failed, falling back to REST:', error);
+      }
     }
-    if (productData.status) {
-      graphqlInput.status = productData.status.toUpperCase();
-    }
 
-    const product = await this.graphqlClient.updateProduct(productId, graphqlInput);
-    return this.convertGraphQLProductToREST(product);
+    // REST API fallback
+    await this.rateLimiter.consume();
+    const response = await this.client.put(`/products/${productId}.json`, {
+      product: productData
+    });
+    return response.data.product;
   }
 
   async deleteProduct(productId: string): Promise<void> {
-    console.log('⚠️  Using GraphQL for products (REST deprecated)');
-    await this.graphqlClient.deleteProduct(productId);
+    // Use GraphQL if available, fallback to REST
+    if (this.graphqlClient) {
+      try {
+        console.log('⚠️  Using GraphQL for products (REST deprecated)');
+        await this.graphqlClient.deleteProduct(productId);
+        return;
+      } catch (error) {
+        console.warn('[Shopify] GraphQL failed, falling back to REST:', error);
+      }
+    }
+
+    // REST API fallback
+    await this.rateLimiter.consume();
+    await this.client.delete(`/products/${productId}.json`);
   }
 
   async updateInventory(inventoryItemId: string, quantity: number, locationId?: string): Promise<void> {
-    console.log('⚠️  Using GraphQL for inventory (REST deprecated)');
+    // Use GraphQL if available, fallback to REST
+    if (this.graphqlClient) {
+      try {
+        console.log('⚠️  Using GraphQL for inventory (REST deprecated)');
 
-    // Get location if not provided
-    let location = locationId;
-    if (!location) {
-      const locations = await this.graphqlClient.getLocations();
-      const activeLocation = locations.find(l => l.isActive);
-      if (!activeLocation) {
-        throw new Error('No active location found');
+        // Get location if not provided
+        let location = locationId;
+        if (!location) {
+          const locations = await this.graphqlClient.getLocations();
+          const activeLocation = locations.find(l => l.isActive);
+          if (!activeLocation) {
+            throw new Error('No active location found');
+          }
+          location = activeLocation.id;
+        }
+
+        await this.graphqlClient.updateInventory(inventoryItemId, location, quantity);
+        return;
+      } catch (error) {
+        console.warn('[Shopify] GraphQL failed, falling back to REST:', error);
       }
-      location = activeLocation.id;
     }
 
-    await this.graphqlClient.updateInventory(inventoryItemId, location, quantity);
+    // REST API fallback
+    await this.rateLimiter.consume();
+
+    // First get locations if not provided
+    let location = locationId;
+    if (!location) {
+      const locationsResponse = await this.client.get('/locations.json');
+      location = locationsResponse.data.locations[0]?.id;
+    }
+
+    await this.client.post('/inventory_levels/set.json', {
+      location_id: location,
+      inventory_item_id: inventoryItemId,
+      available: quantity
+    });
   }
 
   // Helper: Convert GraphQL product format to REST format for backward compatibility
   private convertGraphQLProductToREST(graphqlProduct: any): ShopifyProduct {
+    if (!ShopifyGraphQLClientService) {
+      throw new Error('GraphQL service not available');
+    }
     const numericId = ShopifyGraphQLClientService.extractNumericId(graphqlProduct.id);
 
     return {
