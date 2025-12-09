@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService } from '@/services/analytics.service';
+import { formatCurrency } from '@/utils/currency';
 import {
   LineChart,
   Line,
@@ -79,16 +80,6 @@ export function CashFlowProjection() {
   const totalRevenue = timeline.reduce((sum: number, p: any) => sum + p.revenue[scenario], 0);
   const totalCosts = timeline.reduce((sum: number, p: any) => sum + p.costs[scenario], 0);
   const totalNetCashFlow = totalRevenue - totalCosts;
-
-  // Format currency
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency',
-      currency: 'ARS',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
 
   // Format period label
   const formatPeriodLabel = (period: string) => {
