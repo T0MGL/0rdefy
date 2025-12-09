@@ -9,6 +9,7 @@ import { DailySummary } from '@/components/DailySummary';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { RevenueProjectionCard } from '@/components/RevenueProjectionCard';
+import { CashFlowProjection } from '@/components/CashFlowProjection';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -383,6 +384,9 @@ export default function Dashboard() {
           </LineChart>
         </ResponsiveContainer>
       </Card>
+
+      {/* Cash Flow Projection */}
+      <CashFlowProjection />
 
       {/* Revenue Intelligence Section */}
       <RevenueIntelligence />
