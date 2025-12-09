@@ -9,9 +9,27 @@
     <meta name="theme-color" content="hsl(0, 0%, 98%)" />
 
     <!-- Shopify App Bridge (2025 Modern Setup) -->
-    <!-- App Bridge auto-initializes from CDN - no manual initialization needed -->
-    <meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b" />
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+    <!-- Only load when embedded in Shopify - auto-initializes from CDN -->
+    <script>
+      (function() {
+        // Check if we're embedded in Shopify
+        const urlParams = new URLSearchParams(window.location.search);
+        const shop = urlParams.get('shop');
+        const host = urlParams.get('host');
+        const embedded = urlParams.get('embedded');
+
+        const isEmbedded = !!(shop || host || embedded === '1');
+
+        if (isEmbedded) {
+          // We're in Shopify - inject App Bridge
+          document.write('<meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b">');
+          document.write('<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"><\/script>');
+          console.log('[Shopify] App Bridge loaded - Embedded mode');
+        } else {
+          console.log('[Shopify] Standalone mode - App Bridge not loaded');
+        }
+      })();
+    </script>
 
     <!-- Prevent flash of unstyled content for dark mode -->
     <script>

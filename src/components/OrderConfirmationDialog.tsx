@@ -374,7 +374,7 @@ export function OrderConfirmationDialog({
               <div className="rounded-lg border p-3 bg-muted/50">
                 <p className="text-sm font-medium">Pedido #{order.id.slice(0, 8)}</p>
                 <p className="text-sm text-muted-foreground">Cliente: {order.customer}</p>
-                <p className="text-sm text-muted-foreground">Total: Gs. {order.total.toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">Total: Gs. {(order.total ?? 0).toLocaleString()}</p>
               </div>
             )}
 

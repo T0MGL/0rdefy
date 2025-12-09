@@ -815,7 +815,7 @@ export default function Orders() {
                       )}
                     </td>
                     <td className="py-4 px-6 text-right text-sm font-semibold">
-                      Gs. {order.total.toLocaleString()}
+                      Gs. {(order.total ?? 0).toLocaleString()}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center justify-center gap-1">

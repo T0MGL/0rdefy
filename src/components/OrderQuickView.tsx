@@ -175,7 +175,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
               <div className="flex-1">
                 <p className="font-medium">{order.product}</p>
                 <p className="text-sm text-muted-foreground">Cantidad: {order.quantity}</p>
-                <p className="text-sm font-semibold mt-1">Gs. {order.total.toLocaleString()}</p>
+                <p className="text-sm font-semibold mt-1">Gs. {(order.total ?? 0).toLocaleString()}</p>
               </div>
             </div>
           </div>
@@ -186,7 +186,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
             <div className="p-3 bg-muted rounded-lg space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">Total del Pedido:</span>
-                <span className="text-lg font-bold">Gs. {order.total.toLocaleString()}</span>
+                <span className="text-lg font-bold">Gs. {(order.total ?? 0).toLocaleString()}</span>
               </div>
               {order.payment_method && (
                 <div className="flex justify-between items-center">

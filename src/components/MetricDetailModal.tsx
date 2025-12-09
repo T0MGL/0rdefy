@@ -99,7 +99,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
                     <tr key={o.id} className="border-b">
                       <td className="p-2 font-mono">{o.id}</td>
                       <td className="p-2">{o.customer}</td>
-                      <td className="text-right p-2">Gs. {o.total.toLocaleString()}</td>
+                      <td className="text-right p-2">Gs. {(o.total ?? 0).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
