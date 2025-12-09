@@ -12,7 +12,14 @@ import {
   RateLimitConfig,
   ShopifyIntegration
 } from '../types/shopify';
-import { ShopifyGraphQLClientService } from './shopify-graphql-client.service';
+
+// Conditional import - only if file exists (for backward compatibility)
+let ShopifyGraphQLClientService: any;
+try {
+  ShopifyGraphQLClientService = require('./shopify-graphql-client.service').ShopifyGraphQLClientService;
+} catch (error) {
+  console.warn('[Shopify] GraphQL service not available - using REST API only');
+}
 
 // Token bucket rate limiter
 class TokenBucket {
@@ -62,8 +69,17 @@ export class ShopifyClientService {
   constructor(integration: ShopifyIntegration) {
     this.integration = integration;
 
-    // Initialize GraphQL client for product operations
-    this.graphqlClient = new ShopifyGraphQLClientService(integration);
+    // Initialize GraphQL client for product operations (only if available)
+    if (ShopifyGraphQLClientService) {
+      try {
+        this.graphqlClient = new ShopifyGraphQLClientService(integration);
+        console.log('[Shopify] Using GraphQL API for products');
+      } catch (error) {
+        console.warn('[Shopify] GraphQL initialization failed, using REST API');
+      }
+    } else {
+      console.log('[Shopify] GraphQL not available, using REST API');
+    }
 
     // Initialize rate limiter - Shopify allows 2 requests per second for REST Admin API
     this.rateLimiter = new TokenBucket({
@@ -170,23 +186,56 @@ export class ShopifyClientService {
     since_id?: number;
     fields?: string;
   } = {}): Promise<{ products: ShopifyProduct[]; pagination: any }> {
-    console.log('⚠️  Using GraphQL for products (REST deprecated)');
+    // Use GraphQL if available, fallback to REST
+    if (this.graphqlClient) {
+      try {
+        console.log('⚠️  Using GraphQL for products (REST deprecated)');
 
-    const result = await this.graphqlClient.getProducts({
-      first: params.limit || 50,
-      after: params.page_info
-    });
+        const result = await this.graphqlClient.getProducts({
+          first: params.limit || 50,
+          after: params.page_info
+        });
 
-    // Convert GraphQL response to match REST format for backward compatibility
-    const products = result.products.map((p: any) => this.convertGraphQLProductToREST(p));
+        // Convert GraphQL response to match REST format for backward compatibility
+        const products = result.products.map((p: any) => this.convertGraphQLProductToREST(p));
+
+        return {
+          products,
+          pagination: {
+            has_next: result.pageInfo.hasNextPage,
+            next_cursor: result.pageInfo.endCursor,
+            has_prev: false
+          }
+        };
+      } catch (error) {
+        console.warn('[Shopify] GraphQL failed, falling back to REST:', error);
+        // Fall through to REST implementation below
+      }
+    }
+
+    // REST API fallback (deprecated but works)
+    await this.rateLimiter.consume();
+
+    const queryParams: any = {
+      limit: params.limit || 50,
+      fields: params.fields
+    };
+
+    if (params.page_info) {
+      queryParams.page_info = params.page_info;
+    } else if (params.since_id) {
+      queryParams.since_id = params.since_id;
+    }
+
+    const response = await this.client.get('/products.json', { params: queryParams });
+
+    // Extract pagination info from Link header
+    const linkHeader = response.headers.link || '';
+    const pagination = this.parseLinkHeader(linkHeader);
 
     return {
-      products,
-      pagination: {
-        has_next: result.pageInfo.hasNextPage,
-        next_cursor: result.pageInfo.endCursor,
-        has_prev: false
-      }
+      products: response.data.products || [],
+      pagination
     };
   }
 

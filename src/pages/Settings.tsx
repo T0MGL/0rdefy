@@ -48,6 +48,19 @@ const TIMEZONES = [
   { value: 'America/Santo_Domingo', label: 'Santo Domingo (GMT-4)' },
 ];
 
+// Supported currencies for Latin America
+const CURRENCIES = [
+  { value: 'PYG', label: 'Guaraní Paraguayo (Gs.)', symbol: 'Gs.' },
+  { value: 'ARS', label: 'Peso Argentino ($)', symbol: '$' },
+  { value: 'USD', label: 'Dólar Estadounidense ($)', symbol: '$' },
+  { value: 'BRL', label: 'Real Brasileño (R$)', symbol: 'R$' },
+  { value: 'CLP', label: 'Peso Chileno ($)', symbol: '$' },
+  { value: 'COP', label: 'Peso Colombiano ($)', symbol: '$' },
+  { value: 'MXN', label: 'Peso Mexicano ($)', symbol: '$' },
+  { value: 'UYU', label: 'Peso Uruguayo ($)', symbol: '$' },
+  { value: 'EUR', label: 'Euro (€)', symbol: '€' },
+];
+
 export default function Settings() {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -110,6 +123,7 @@ export default function Settings() {
   });
 
   const [storeTimezone, setStoreTimezone] = useState(currentStore?.timezone || 'America/Asuncion');
+  const [storeCurrency, setStoreCurrency] = useState(currentStore?.currency || 'PYG');
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -292,6 +306,38 @@ export default function Settings() {
       toast({
         title: "Error",
         description: "No se pudo actualizar la zona horaria",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCurrencyChange = async (newCurrency: string) => {
+    try {
+      await apiClient.put(`/auth/stores/${currentStore?.id}/currency`, { currency: newCurrency });
+      setStoreCurrency(newCurrency);
+
+      // Update the currentStore in localStorage
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        const userData = JSON.parse(savedUser);
+        userData.stores = userData.stores.map((s: any) =>
+          s.id === currentStore?.id ? { ...s, currency: newCurrency } : s
+        );
+        localStorage.setItem('user', JSON.stringify(userData));
+      }
+
+      toast({
+        title: "Moneda actualizada",
+        description: "Los precios se mostrarán en la nueva moneda.",
+      });
+
+      // Reload the page to apply currency changes
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (error) {
+      console.error('Error updating currency:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar la moneda",
         variant: "destructive",
       });
     }
@@ -727,7 +773,7 @@ export default function Settings() {
                 />
               </div>
 
-              <div className="py-4">
+              <div className="py-4 border-b">
                 <div className="space-y-3">
                   <Label htmlFor="timezone" className="text-base font-medium flex items-center gap-2">
                     <Globe size={16} />
@@ -744,6 +790,30 @@ export default function Settings() {
                       {TIMEZONES.map((tz) => (
                         <SelectItem key={tz.value} value={tz.value}>
                           {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="py-4">
+                <div className="space-y-3">
+                  <Label htmlFor="currency" className="text-base font-medium flex items-center gap-2">
+                    <CreditCard size={16} />
+                    Moneda
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Selecciona la moneda en la que se mostrarán todos los precios e importes
+                  </p>
+                  <Select value={storeCurrency} onValueChange={handleCurrencyChange}>
+                    <SelectTrigger id="currency" className="w-full">
+                      <SelectValue placeholder="Selecciona una moneda" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map((currency) => (
+                        <SelectItem key={currency.value} value={currency.value}>
+                          {currency.label}
                         </SelectItem>
                       ))}
                     </SelectContent>

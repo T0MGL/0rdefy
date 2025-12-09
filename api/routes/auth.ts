@@ -900,3 +900,80 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
         });
     }
 });
+
+/**
+ * PUT /api/auth/stores/:storeId/currency
+ * Update store currency
+ */
+authRouter.put('/stores/:storeId/currency', verifyToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const { storeId } = req.params;
+        const { currency } = req.body;
+
+        console.log('💰 [UPDATE-CURRENCY] Updating currency for store:', storeId);
+
+        if (!currency) {
+            console.error('❌ [UPDATE-CURRENCY] Missing currency');
+            return res.status(400).json({
+                success: false,
+                error: 'Currency is required'
+            });
+        }
+
+        // Validate currency code (should be 3 characters)
+        if (currency.length !== 3) {
+            console.error('❌ [UPDATE-CURRENCY] Invalid currency code');
+            return res.status(400).json({
+                success: false,
+                error: 'Currency code must be 3 characters (e.g., PYG, USD, ARS)'
+            });
+        }
+
+        // Verify user has access to this store
+        const { data: userStore, error: accessError } = await supabaseAdmin
+            .from('user_stores')
+            .select('role')
+            .eq('user_id', req.userId)
+            .eq('store_id', storeId)
+            .single();
+
+        if (accessError || !userStore) {
+            console.error('❌ [UPDATE-CURRENCY] User does not have access to store');
+            return res.status(403).json({
+                success: false,
+                error: 'Access denied'
+            });
+        }
+
+        // Update store currency
+        const { data: updatedStore, error: updateError } = await supabaseAdmin
+            .from('stores')
+            .update({ currency: currency.toUpperCase(), updated_at: new Date().toISOString() })
+            .eq('id', storeId)
+            .select()
+            .single();
+
+        if (updateError || !updatedStore) {
+            console.error('❌ [UPDATE-CURRENCY] Error updating currency:', updateError);
+            return res.status(500).json({
+                success: false,
+                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update currency',
+                details: process.env.NODE_ENV === 'production' ? undefined : updateError?.message
+            });
+        }
+
+        console.log('✅ [UPDATE-CURRENCY] Currency updated successfully:', currency);
+
+        res.json({
+            success: true,
+            currency: updatedStore.currency
+        });
+    } catch (error: any) {
+        console.error('💥 [UPDATE-CURRENCY] Unexpected error:', error);
+        res.status(500).json({
+            success: false,
+            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update currency',
+            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+        });
+    }
+});
