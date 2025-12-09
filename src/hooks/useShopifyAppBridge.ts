@@ -56,6 +56,13 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         setIsLoading(true);
         setError(null);
 
+        // Check if App Bridge was loaded (set by index.html script)
+        if (!(window as any).__SHOPIFY_EMBEDDED__) {
+          console.log('[Shopify] Not in embedded mode - App Bridge disabled');
+          setIsLoading(false);
+          return;
+        }
+
         // Verificar si estamos en un iframe de Shopify
         const urlParams = new URLSearchParams(window.location.search);
         const host = urlParams.get('host');
@@ -63,7 +70,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         const shop = urlParams.get('shop');
 
         // Si no hay parámetro 'host' o 'embedded', no estamos en Shopify
-        if (!host || embedded !== '1') {
+        if (!host && embedded !== '1' && !shop) {
           console.log('[Shopify] Not running in Shopify embedded app context - standalone mode');
           setIsLoading(false);
           return;

@@ -11,7 +11,7 @@
     <!-- Shopify App Bridge CDN - Required meta tags BEFORE script -->
     <meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b" />
 
-    <!-- Extract shop domain from URL and inject meta tag + load App Bridge ONLY if embedded -->
+    <!-- Extract shop domain from URL and inject meta tag BEFORE App Bridge loads -->
     <script>
       (function() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -22,12 +22,17 @@
         // Check if we're in Shopify embedded mode
         const isShopifyEmbedded = (embedded === '1' || !!host || !!shop);
 
+        // Store flag for later use
+        window.__SHOPIFY_EMBEDDED__ = isShopifyEmbedded;
+
         if (!isShopifyEmbedded) {
-          console.log('[Shopify] Running in STANDALONE mode - App Bridge disabled');
+          console.log('[Shopify] Running in STANDALONE mode - App Bridge will not initialize');
+          // Suppress App Bridge errors by providing a dummy shopify object
+          window.shopify = window.shopify || { environment: { embedded: false } };
           return;
         }
 
-        console.log('[Shopify] Running in EMBEDDED mode - Initializing App Bridge');
+        console.log('[Shopify] Running in EMBEDDED mode - Setting up App Bridge');
 
         // Get shop domain from 'shop' param or decode 'host' param
         let shopDomain = shop;
@@ -47,20 +52,17 @@
           meta.content = shopDomain;
           document.head.appendChild(meta);
           console.log('[Shopify] Injected shop domain meta tag:', shopDomain);
+        } else {
+          console.warn('[Shopify] No shop domain found - App Bridge may fail to initialize');
         }
-
-        // Load App Bridge script ONLY in embedded mode
-        const script = document.createElement('script');
-        script.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
-        script.async = true;
-        script.onload = function() {
-          console.log('[Shopify] App Bridge script loaded successfully');
-        };
-        script.onerror = function() {
-          console.error('[Shopify] Failed to load App Bridge script');
-        };
-        document.head.appendChild(script);
       })();
+    </script>
+
+    <!-- Shopify App Bridge - Load ONLY if embedded (must NOT use async/defer) -->
+    <script>
+      if (window.__SHOPIFY_EMBEDDED__) {
+        document.write('<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"><\/script>');
+      }
     </script>
 
     <!-- Prevent flash of unstyled content for dark mode -->
