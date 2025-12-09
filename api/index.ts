@@ -33,6 +33,7 @@ import { settlementsRouter } from './routes/settlements';
 import { carrierSettlementsRouter } from './routes/carrier-settlements';
 import { codMetricsRouter } from './routes/cod-metrics';
 import warehouseRouter from './routes/warehouse';
+import shippingRouter from './routes/shipping';
 import { inventoryRouter } from './routes/inventory';
 import returnsRouter from './routes/returns';
 import securityRouter from './routes/security';
@@ -426,6 +427,9 @@ app.use('/api/cod-metrics', codMetricsRouter);
 
 // Warehouse routes
 app.use('/api/warehouse', warehouseRouter);
+
+// Shipping routes (Order dispatch to couriers)
+app.use('/api/shipping', shippingRouter);
 
 // Returns routes (Return/Refund processing)
 app.use('/api/returns', returnsRouter);

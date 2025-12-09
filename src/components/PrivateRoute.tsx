@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 
 interface PrivateRouteProps {
   children: React.ReactNode;
@@ -22,7 +23,9 @@ export function PrivateRoute({ children }: PrivateRouteProps) {
 
   if (!user) {
     // Redirect to login but save the attempted location
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    // Preserve Shopify query parameters (shop, host, embedded) for App Bridge
+    const loginPath = preserveShopifyParams('/login');
+    return <Navigate to={loginPath} state={{ from: location }} replace />;
   }
 
   return <>{children}</>;

@@ -4,6 +4,7 @@ import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { formatTimeAgo } from '@/utils/timeUtils';
+import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { Bell, ChevronDown, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
@@ -124,7 +125,9 @@ export function Header() {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/login');
+    // Preserve Shopify query parameters when navigating to login
+    const pathWithShopifyParams = preserveShopifyParams('/login');
+    navigate(pathWithShopifyParams);
   };
 
   // Mark all notifications as read when dropdown opens
@@ -151,7 +154,9 @@ export function Header() {
 
     // Navigate to action URL
     if (notif.actionUrl) {
-      navigate(notif.actionUrl);
+      // Preserve Shopify query parameters when navigating
+      const pathWithShopifyParams = preserveShopifyParams(notif.actionUrl);
+      navigate(pathWithShopifyParams);
     }
 
     // Close dropdown
@@ -368,19 +373,19 @@ export function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="cursor-pointer"
-                onClick={() => navigate('/settings?tab=profile')}
+                onClick={() => navigate(preserveShopifyParams('/settings?tab=profile'))}
               >
                 Perfil
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer"
-                onClick={() => navigate('/settings?tab=billing')}
+                onClick={() => navigate(preserveShopifyParams('/settings?tab=billing'))}
               >
                 Facturación
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer"
-                onClick={() => navigate('/settings?tab=preferences')}
+                onClick={() => navigate(preserveShopifyParams('/settings?tab=preferences'))}
               >
                 Preferencias
               </DropdownMenuItem>

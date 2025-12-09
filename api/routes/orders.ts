@@ -505,6 +505,10 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     total_price,
                     shopify_product_id,
                     shopify_variant_id
+                ),
+                carriers!orders_courier_id_fkey (
+                    id,
+                    name
                 )
             `, { count: 'exact' })
             .eq('store_id', req.storeId)
@@ -577,7 +581,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 total: order.total_price || 0,
                 status: mapStatus(order.sleeves_status),
                 payment_status: order.payment_status,
-                carrier: order.shipping_address?.company || 'Sin transportadora',
+                carrier: order.carriers?.name || 'Sin transportadora',
                 date: order.created_at,
                 phone: order.customer_phone || '',
                 confirmedByWhatsApp: order.sleeves_status === 'confirmed' || order.sleeves_status === 'shipped' || order.sleeves_status === 'delivered',
@@ -642,6 +646,10 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
                     shopify_product_id,
                     shopify_variant_id,
                     properties
+                ),
+                carriers!orders_courier_id_fkey (
+                    id,
+                    name
                 )
             `)
             .eq('id', id)
@@ -693,7 +701,7 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
             total: data.total_price || 0,
             status: mapStatus(data.sleeves_status),
             payment_status: data.payment_status,
-            carrier: data.shipping_address?.company || 'Sin transportadora',
+            carrier: data.carriers?.name || 'Sin transportadora',
             date: data.created_at,
             phone: data.customer_phone || '',
             confirmedByWhatsApp: data.sleeves_status === 'confirmed' || data.sleeves_status === 'shipped' || data.sleeves_status === 'delivered',
@@ -861,7 +869,13 @@ ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             .update(updateData)
             .eq('id', id)
             .eq('store_id', req.storeId)
-            .select()
+            .select(`
+                *,
+                carriers!orders_courier_id_fkey (
+                    id,
+                    name
+                )
+            `)
             .single();
 
         if (error || !data) {
@@ -883,7 +897,7 @@ ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             total: data.total_price || 0,
             status: mapStatus(data.sleeves_status),
             payment_status: data.payment_status,
-            carrier: data.shipping_address?.company || 'Sin transportadora',
+            carrier: data.carriers?.name || 'Sin transportadora',
             date: data.created_at,
             phone: data.customer_phone || '',
             confirmedByWhatsApp: data.sleeves_status === 'confirmed' || data.sleeves_status === 'shipped' || data.sleeves_status === 'delivered',

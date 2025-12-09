@@ -112,7 +112,8 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
     if (!integration) return;
 
     const confirmed = window.confirm(
-      '¿Estás seguro de que deseas desconectar tu tienda de Shopify? Esta acción no eliminará tus datos importados.'
+      '¿Estás seguro de que deseas desconectar tu tienda de Shopify?\n\n' +
+      'Los datos ya importados se conservarán en Ordefy.'
     );
 
     if (!confirmed) return;
@@ -130,13 +131,17 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
         },
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error('Error al desconectar');
+        throw new Error(data.error || 'Error al desconectar');
       }
 
+      // Show success message with manual uninstall reminder
       toast({
-        title: 'Tienda desconectada',
-        description: 'Tu tienda de Shopify ha sido desconectada exitosamente',
+        title: '✅ Integración desconectada',
+        description: '⚠️ IMPORTANTE: Ahora debes desinstalar manualmente la app desde tu panel de Shopify (Apps → Ordefy → Desinstalar)',
+        duration: 10000, // Show for 10 seconds since it's critical
       });
 
       // Call disconnect callback to update UI
@@ -291,7 +296,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
               Desconectar tienda de Shopify
             </Button>
             <p className="text-xs text-muted-foreground">
-              Al desconectar, los datos ya importados se conservarán, pero no se sincronizarán nuevos cambios.
+              Esto desconectará la integración con tu tienda. Los datos ya importados se conservarán en Ordefy.
             </p>
           </div>
         </div>

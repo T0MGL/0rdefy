@@ -803,6 +803,12 @@ shopifyOAuthRouter.get('/status', async (req: Request, res: Response) => {
 // DELETE /api/shopify/disconnect - Disconnect Shopify integration
 // ================================================================
 // Query params: shop (required)
+// IMPORTANT: This endpoint performs full cleanup:
+// 1. Removes all webhooks registered in Shopify
+// 2. Revokes the access token (invalidates credentials)
+// 3. Marks integration as disconnected in database
+// Note: Cannot programmatically uninstall app from Shopify
+//       User must manually uninstall from Shopify admin
 // ================================================================
 shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => {
   try {
@@ -821,10 +827,69 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
 
     console.log('🔌 [SHOPIFY-OAUTH] Disconnecting shop:', shop);
 
-    // Update status to disconnected instead of deleting
-    // (Keep historical record)
-    // Match by shop_domain (OAuth integrations use shop_domain field)
-    const { error } = await supabaseAdmin
+    // Get integration with credentials
+    const { data: integration, error: fetchError } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('shop_domain', shop)
+      .single();
+
+    if (fetchError || !integration) {
+      console.error('❌ [SHOPIFY-OAUTH] Integration not found:', shop);
+      return res.status(404).json({
+        success: false,
+        error: 'Integration not found'
+      });
+    }
+
+    // ================================================================
+    // STEP 1: Remove all webhooks from Shopify
+    // ================================================================
+    console.log('🗑️ [SHOPIFY-OAUTH] Removing webhooks from Shopify...');
+
+    try {
+      const { ShopifyWebhookSetupService } = await import('../services/shopify-webhook-setup.service');
+      const webhookSetup = new ShopifyWebhookSetupService(integration);
+      const removeResult = await webhookSetup.removeAllWebhooks();
+
+      console.log(`✅ [SHOPIFY-OAUTH] Removed ${removeResult.removed} webhooks from Shopify`);
+      if (removeResult.errors.length > 0) {
+        console.warn('⚠️ [SHOPIFY-OAUTH] Some webhooks failed to remove:', removeResult.errors);
+      }
+    } catch (webhookError: any) {
+      console.error('❌ [SHOPIFY-OAUTH] Error removing webhooks:', webhookError);
+      // Continue with disconnection even if webhook removal fails
+    }
+
+    // ================================================================
+    // STEP 2: Revoke access token (invalidate credentials)
+    // ================================================================
+    console.log('🔐 [SHOPIFY-OAUTH] Revoking access token...');
+
+    try {
+      if (integration.access_token) {
+        const revokeUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/access_scopes.json`;
+
+        // Delete access token (this invalidates it)
+        await axios.delete(revokeUrl, {
+          headers: {
+            'X-Shopify-Access-Token': integration.access_token,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        console.log('✅ [SHOPIFY-OAUTH] Access token revoked successfully');
+      }
+    } catch (revokeError: any) {
+      // Token revocation might fail if already revoked or app uninstalled
+      console.warn('⚠️ [SHOPIFY-OAUTH] Could not revoke token (may already be invalid):', revokeError.message);
+      // Continue with disconnection
+    }
+
+    // ================================================================
+    // STEP 3: Mark integration as disconnected in database
+    // ================================================================
+    const { error: updateError } = await supabaseAdmin
       .from('shopify_integrations')
       .update({
         status: 'disconnected',
@@ -832,12 +897,12 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
       })
       .eq('shop_domain', shop);
 
-    if (error) {
-      console.error('❌ [SHOPIFY-OAUTH] Error disconnecting:', error);
+    if (updateError) {
+      console.error('❌ [SHOPIFY-OAUTH] Error updating integration status:', updateError);
       return res.status(500).json({
         success: false,
         error: 'Failed to disconnect integration',
-        message: error.message
+        message: updateError.message
       });
     }
 
@@ -845,7 +910,8 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
 
     res.json({
       success: true,
-      message: 'Shopify integration disconnected'
+      message: 'Shopify integration disconnected. Please manually uninstall the app from your Shopify admin.',
+      note: 'Webhooks removed and credentials revoked. App will appear in Shopify until manually uninstalled.'
     });
 
   } catch (error: any) {

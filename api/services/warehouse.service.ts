@@ -181,7 +181,14 @@ export async function createSession(
 export async function getPickingList(
   sessionId: string,
   storeId: string
-): Promise<PickingSessionItem[]> {
+): Promise<{
+  items: PickingSessionItem[];
+  orders: Array<{
+    id: string;
+    order_number: string;
+    customer_name: string;
+  }>;
+}> {
   try {
     // Verify session belongs to store first
     const { data: session, error: sessionError } = await supabaseAdmin
@@ -205,12 +212,9 @@ export async function getPickingList(
       .eq('picking_session_id', sessionId);
 
     if (itemsError) throw itemsError;
-    if (!items || items.length === 0) {
-      return [];
-    }
 
     // Get product details separately
-    const productIds = items.map(item => item.product_id);
+    const productIds = items?.map(item => item.product_id) || [];
     const { data: products, error: productsError } = await supabaseAdmin
       .from('products')
       .select('id, name, image_url, sku')
@@ -221,8 +225,8 @@ export async function getPickingList(
     // Create product map for quick lookup
     const productMap = new Map(products?.map(p => [p.id, p]) || []);
 
-    // Format response
-    return items.map(item => {
+    // Format items
+    const formattedItems = (items || []).map(item => {
       const product = productMap.get(item.product_id);
       return {
         ...item,
@@ -232,6 +236,34 @@ export async function getPickingList(
         shelf_location: undefined
       };
     });
+
+    // Get orders in this session
+    const { data: sessionOrders, error: ordersError } = await supabaseAdmin
+      .from('picking_session_orders')
+      .select(`
+        order_id,
+        orders (
+          id,
+          shopify_order_number,
+          customer_first_name,
+          customer_last_name
+        )
+      `)
+      .eq('picking_session_id', sessionId);
+
+    if (ordersError) throw ordersError;
+
+    // Format orders
+    const formattedOrders = (sessionOrders || []).map((so: any) => ({
+      id: so.orders.id,
+      order_number: so.orders.shopify_order_number || `ORD-${so.orders.id.slice(0, 8)}`,
+      customer_name: `${so.orders.customer_first_name || ''} ${so.orders.customer_last_name || ''}`.trim() || 'Cliente'
+    }));
+
+    return {
+      items: formattedItems,
+      orders: formattedOrders
+    };
   } catch (error) {
     console.error('Error getting picking list:', error);
     throw error;

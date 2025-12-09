@@ -41,10 +41,16 @@ export default function Warehouse() {
 
   // Picking state
   const [pickingList, setPickingList] = useState<PickingSessionItem[]>([]);
+  const [sessionOrders, setSessionOrders] = useState<Array<{
+    id: string;
+    order_number: string;
+    customer_name: string;
+  }>>([]);
 
   // Packing state
   const [packingData, setPackingData] = useState<PackingListResponse | null>(null);
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const [packingInProgress, setPackingInProgress] = useState(false);
 
   // Print state
   const [printLabelDialogOpen, setPrintLabelDialogOpen] = useState(false);
@@ -79,8 +85,9 @@ export default function Warehouse() {
     if (!currentSession) return;
     setLoading(true);
     try {
-      const list = await warehouseService.getPickingList(currentSession.id);
-      setPickingList(list);
+      const data = await warehouseService.getPickingList(currentSession.id);
+      setPickingList(data.items);
+      setSessionOrders(data.orders);
     } catch (error) {
       console.error('Error loading picking list:', error);
       toast({
@@ -234,7 +241,9 @@ export default function Warehouse() {
   }
 
   async function handlePackItem(orderId: string, productId: string) {
-    if (!currentSession) return;
+    if (!currentSession || packingInProgress) return;
+
+    setPackingInProgress(true);
     try {
       await warehouseService.updatePackingProgress(currentSession.id, orderId, productId);
       toast({
@@ -252,6 +261,8 @@ export default function Warehouse() {
         description: error.response?.data?.details || 'No se pudo empacar el producto',
         variant: 'destructive',
       });
+    } finally {
+      setPackingInProgress(false);
     }
   }
 
@@ -397,6 +408,7 @@ export default function Warehouse() {
         <PickingView
           session={currentSession}
           pickingList={pickingList}
+          sessionOrders={sessionOrders}
           progress={pickingProgress}
           onBack={handleBackToDashboard}
           onUpdateProgress={handleUpdatePickingProgress}
@@ -411,6 +423,7 @@ export default function Warehouse() {
           packingData={packingData}
           selectedItem={selectedItem}
           loading={loading}
+          packingInProgress={packingInProgress}
           onBack={handleBackToDashboard}
           onSelectItem={setSelectedItem}
           onPackItem={handlePackItem}
@@ -751,6 +764,11 @@ function DashboardView({
 interface PickingViewProps {
   session: PickingSession;
   pickingList: PickingSessionItem[];
+  sessionOrders: Array<{
+    id: string;
+    order_number: string;
+    customer_name: string;
+  }>;
   progress: number;
   onBack: () => void;
   onUpdateProgress: (productId: string, newQuantity: number) => void;
@@ -761,6 +779,7 @@ interface PickingViewProps {
 function PickingView({
   session,
   pickingList,
+  sessionOrders,
   progress,
   onBack,
   onUpdateProgress,
@@ -807,6 +826,28 @@ function PickingView({
           Finalizar Recolección
         </Button>
       </div>
+
+      {/* Orders in Session */}
+      {sessionOrders.length > 0 && (
+        <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+            Pedidos en esta sesión ({sessionOrders.length})
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {sessionOrders.map(order => (
+              <Badge
+                key={order.id}
+                variant="outline"
+                className="bg-white dark:bg-blue-900/30 border-blue-300 dark:border-blue-700"
+              >
+                <span className="font-semibold">#{order.order_number}</span>
+                <span className="mx-1">-</span>
+                <span className="text-xs">{order.customer_name}</span>
+              </Badge>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Enhanced Progress Bar */}
       <div className="mb-6 p-6 bg-primary/10 rounded-lg border-2 border-primary/20">
@@ -950,6 +991,7 @@ interface PackingViewProps {
   packingData: PackingListResponse;
   selectedItem: string | null;
   loading: boolean;
+  packingInProgress: boolean;
   onBack: () => void;
   onSelectItem: (productId: string | null) => void;
   onPackItem: (orderId: string, productId: string) => void;
@@ -965,6 +1007,7 @@ function PackingView({
   packingData,
   selectedItem,
   loading,
+  packingInProgress,
   onBack,
   onSelectItem,
   onPackItem,
@@ -1048,13 +1091,13 @@ function PackingView({
               return (
                 <Card
                   key={item.product_id}
-                  className={`p-3 cursor-pointer transition-all ${!hasRemaining
+                  className={`p-3 transition-all ${!hasRemaining || packingInProgress
                     ? 'opacity-50 cursor-not-allowed bg-muted'
                     : isSelected
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/10'
-                      : 'hover:shadow-md'
+                      ? 'border-primary ring-2 ring-primary/20 bg-primary/10 cursor-pointer'
+                      : 'hover:shadow-md cursor-pointer'
                     }`}
-                  onClick={() => hasRemaining && onSelectItem(isSelected ? null : item.product_id)}
+                  onClick={() => hasRemaining && !packingInProgress && onSelectItem(isSelected ? null : item.product_id)}
                 >
                   <div className="flex gap-3">
                     {item.product_image ? (
@@ -1119,11 +1162,11 @@ function PackingView({
                   className={`p-4 transition-all ${order.is_complete
                     ? 'border-green-500 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
                     : needsSelectedItem
-                      ? 'border-green-500 dark:border-green-600 ring-2 ring-green-500/20 shadow-lg cursor-pointer bg-green-50/50 dark:bg-green-950/10'
+                      ? `border-green-500 dark:border-green-600 ring-2 ring-green-500/20 shadow-lg ${packingInProgress ? 'cursor-wait opacity-70' : 'cursor-pointer'} bg-green-50/50 dark:bg-green-950/10`
                       : ''
                     }`}
                   onClick={() => {
-                    if (needsSelectedItem && selectedItemInOrder) {
+                    if (needsSelectedItem && selectedItemInOrder && !packingInProgress) {
                       onPackItem(order.id, selectedItem);
                     }
                   }}

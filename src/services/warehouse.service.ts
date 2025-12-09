@@ -115,10 +115,22 @@ export async function createSession(orderIds: string[]): Promise<PickingSession>
 /**
  * Gets the aggregated picking list for a session
  */
-export async function getPickingList(sessionId: string): Promise<PickingSessionItem[]> {
-  const response = await apiClient.get<PickingSessionItem[]>(
-    `${BASE_URL}/sessions/${sessionId}/picking-list`
-  );
+export async function getPickingList(sessionId: string): Promise<{
+  items: PickingSessionItem[];
+  orders: Array<{
+    id: string;
+    order_number: string;
+    customer_name: string;
+  }>;
+}> {
+  const response = await apiClient.get<{
+    items: PickingSessionItem[];
+    orders: Array<{
+      id: string;
+      order_number: string;
+      customer_name: string;
+    }>;
+  }>(`${BASE_URL}/sessions/${sessionId}/picking-list`);
   return response.data;
 }
 

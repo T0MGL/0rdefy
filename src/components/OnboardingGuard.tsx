@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 
 export function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -31,13 +32,15 @@ export function OnboardingGuard({ children }: { children: React.ReactNode }) {
     // If authenticated but not completed onboarding and not on onboarding page
     if (!isOnboardingCompleted && location.pathname !== '/onboarding') {
       console.log('🔄 [OnboardingGuard] User authenticated but onboarding not completed, redirecting to /onboarding');
-      navigate('/onboarding', { replace: true });
+      const pathWithShopifyParams = preserveShopifyParams('/onboarding');
+      navigate(pathWithShopifyParams, { replace: true });
     }
 
     // If completed and on onboarding page, redirect to dashboard
     if (isOnboardingCompleted && location.pathname === '/onboarding') {
       console.log('✅ [OnboardingGuard] Onboarding already completed, redirecting to dashboard');
-      navigate('/', { replace: true });
+      const pathWithShopifyParams = preserveShopifyParams('/');
+      navigate(pathWithShopifyParams, { replace: true });
     }
   }, [navigate, location.pathname, user, loading]);
 
