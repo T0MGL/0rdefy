@@ -172,4 +172,23 @@ export const analyticsService = {
       return null;
     }
   },
+
+  getCashFlowTimeline: async (periodType: 'day' | 'week' = 'week'): Promise<any> => {
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append('periodType', periodType);
+
+      const response = await fetch(`${API_BASE_URL}/analytics/cash-flow-timeline?${queryParams.toString()}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+      return result.data || null;
+    } catch (error) {
+      console.error('Error loading cash flow timeline:', error);
+      return null;
+    }
+  },
 };

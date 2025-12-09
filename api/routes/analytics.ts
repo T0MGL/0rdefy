@@ -1115,3 +1115,245 @@ analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: 
         });
     }
 });
+
+// ================================================================
+// GET /api/analytics/cash-flow-timeline - Cash flow projection with timeline
+// ================================================================
+// Calculates when orders will be collected based on their status
+// and subtracts costs to show net cash flow over time
+// ================================================================
+analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Response) => {
+    try {
+        const { periodType = 'week' } = req.query; // 'day' or 'week'
+
+        // Get all active orders (not cancelled or returned)
+        const { data: activeOrders, error: ordersError } = await supabaseAdmin
+            .from('orders')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .not('sleeves_status', 'in', '(cancelled,returned)');
+
+        if (ordersError) throw ordersError;
+
+        const orders = activeOrders || [];
+
+        // Get marketing costs (for proration)
+        const { data: campaignsData } = await supabaseAdmin
+            .from('campaigns')
+            .select('investment')
+            .eq('store_id', req.storeId)
+            .eq('status', 'active');
+
+        const totalMarketing = (campaignsData || []).reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
+        const marketingPerOrder = orders.length > 0 ? totalMarketing / orders.length : 0;
+
+        // Collect all unique product IDs for batch query
+        const productIds = new Set<string>();
+        for (const order of orders) {
+            if (order.line_items && Array.isArray(order.line_items)) {
+                for (const item of order.line_items) {
+                    if (item.product_id) {
+                        productIds.add(item.product_id.toString());
+                    }
+                }
+            }
+        }
+
+        // Fetch all products in a single query
+        const productCostMap = new Map<string, number>();
+        if (productIds.size > 0) {
+            const { data: productsData } = await supabaseAdmin
+                .from('products')
+                .select('shopify_product_id, cost')
+                .in('shopify_product_id', Array.from(productIds))
+                .eq('store_id', req.storeId);
+
+            if (productsData) {
+                productsData.forEach(product => {
+                    if (product.shopify_product_id) {
+                        productCostMap.set(product.shopify_product_id, Number(product.cost) || 0);
+                    }
+                });
+            }
+        }
+
+        // Helper function: Calculate days until collection based on order status
+        const getDaysUntilCollection = (status: string): { min: number; max: number; probability: number } => {
+            switch (status) {
+                case 'delivered':
+                    return { min: 0, max: 0, probability: 1.0 }; // Already collected
+                case 'shipped':
+                    return { min: 1, max: 3, probability: 0.90 }; // High probability
+                case 'ready_to_ship':
+                    return { min: 2, max: 5, probability: 0.85 };
+                case 'in_preparation':
+                    return { min: 3, max: 7, probability: 0.80 };
+                case 'confirmed':
+                    return { min: 5, max: 10, probability: 0.70 };
+                case 'pending':
+                    return { min: 7, max: 14, probability: 0.50 }; // Low probability
+                default:
+                    return { min: 7, max: 14, probability: 0.50 };
+            }
+        };
+
+        // Helper function: Get period key from date
+        const getPeriodKey = (date: Date): string => {
+            if (periodType === 'day') {
+                return date.toISOString().split('T')[0]; // YYYY-MM-DD
+            } else {
+                // Week format: YYYY-WXX (e.g., 2025-W01)
+                const year = date.getFullYear();
+                const firstDayOfYear = new Date(year, 0, 1);
+                const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
+                const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+                return `${year}-W${String(weekNumber).padStart(2, '0')}`;
+            }
+        };
+
+        // Initialize timeline data structure
+        const timeline: Record<string, {
+            period: string;
+            revenue: { conservative: number; moderate: number; optimistic: number };
+            costs: { conservative: number; moderate: number; optimistic: number };
+            netCashFlow: { conservative: number; moderate: number; optimistic: number };
+            ordersCount: { conservative: number; moderate: number; optimistic: number };
+        }> = {};
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Process each order
+        for (const order of orders) {
+            const status = order.sleeves_status || 'pending';
+            const { min, max, probability } = getDaysUntilCollection(status);
+
+            // Calculate order costs
+            let productCosts = 0;
+            if (order.line_items && Array.isArray(order.line_items)) {
+                for (const item of order.line_items) {
+                    const productCost = productCostMap.get(item.product_id?.toString()) || 0;
+                    productCosts += productCost * (Number(item.quantity) || 1);
+                }
+            }
+
+            const shippingCost = Number(order.shipping_cost) || 0;
+            const totalCosts = productCosts + shippingCost + marketingPerOrder;
+            const revenue = Number(order.total_price) || 0;
+
+            // Calculate collection dates (conservative, moderate, optimistic)
+            const conservativeDate = new Date(today);
+            conservativeDate.setDate(conservativeDate.getDate() + max); // Pessimistic (max days)
+
+            const moderateDate = new Date(today);
+            moderateDate.setDate(moderateDate.getDate() + Math.ceil((min + max) / 2)); // Average
+
+            const optimisticDate = new Date(today);
+            optimisticDate.setDate(optimisticDate.getDate() + min); // Optimistic (min days)
+
+            // Get period keys
+            const conservativePeriod = getPeriodKey(conservativeDate);
+            const moderatePeriod = getPeriodKey(moderateDate);
+            const optimisticPeriod = getPeriodKey(optimisticDate);
+
+            // Initialize periods if needed
+            [conservativePeriod, moderatePeriod, optimisticPeriod].forEach(period => {
+                if (!timeline[period]) {
+                    timeline[period] = {
+                        period,
+                        revenue: { conservative: 0, moderate: 0, optimistic: 0 },
+                        costs: { conservative: 0, moderate: 0, optimistic: 0 },
+                        netCashFlow: { conservative: 0, moderate: 0, optimistic: 0 },
+                        ordersCount: { conservative: 0, moderate: 0, optimistic: 0 },
+                    };
+                }
+            });
+
+            // Add to timeline (weighted by probability)
+            // Conservative scenario: max days, reduced probability
+            timeline[conservativePeriod].revenue.conservative += revenue * (probability * 0.8);
+            timeline[conservativePeriod].costs.conservative += totalCosts * (probability * 0.8);
+            timeline[conservativePeriod].ordersCount.conservative += probability * 0.8;
+
+            // Moderate scenario: average days, normal probability
+            timeline[moderatePeriod].revenue.moderate += revenue * probability;
+            timeline[moderatePeriod].costs.moderate += totalCosts * probability;
+            timeline[moderatePeriod].ordersCount.moderate += probability;
+
+            // Optimistic scenario: min days, full probability
+            timeline[optimisticPeriod].revenue.optimistic += revenue * probability;
+            timeline[optimisticPeriod].costs.optimistic += totalCosts * probability;
+            timeline[optimisticPeriod].ordersCount.optimistic += probability;
+        }
+
+        // Calculate net cash flow for each period
+        const timelineArray = Object.values(timeline).map(period => ({
+            ...period,
+            revenue: {
+                conservative: Math.round(period.revenue.conservative),
+                moderate: Math.round(period.revenue.moderate),
+                optimistic: Math.round(period.revenue.optimistic),
+            },
+            costs: {
+                conservative: Math.round(period.costs.conservative),
+                moderate: Math.round(period.costs.moderate),
+                optimistic: Math.round(period.costs.optimistic),
+            },
+            netCashFlow: {
+                conservative: Math.round(period.revenue.conservative - period.costs.conservative),
+                moderate: Math.round(period.revenue.moderate - period.costs.moderate),
+                optimistic: Math.round(period.revenue.optimistic - period.costs.optimistic),
+            },
+            ordersCount: {
+                conservative: Math.round(period.ordersCount.conservative * 10) / 10,
+                moderate: Math.round(period.ordersCount.moderate * 10) / 10,
+                optimistic: Math.round(period.ordersCount.optimistic * 10) / 10,
+            },
+        })).sort((a, b) => a.period.localeCompare(b.period));
+
+        // Calculate cumulative cash flow
+        let cumulativeConservative = 0;
+        let cumulativeModerate = 0;
+        let cumulativeOptimistic = 0;
+
+        const timelineWithCumulative = timelineArray.map(period => {
+            cumulativeConservative += period.netCashFlow.conservative;
+            cumulativeModerate += period.netCashFlow.moderate;
+            cumulativeOptimistic += period.netCashFlow.optimistic;
+
+            return {
+                ...period,
+                cumulativeCashFlow: {
+                    conservative: Math.round(cumulativeConservative),
+                    moderate: Math.round(cumulativeModerate),
+                    optimistic: Math.round(cumulativeOptimistic),
+                },
+            };
+        });
+
+        // Calculate summary
+        const summary = {
+            totalRevenue: {
+                conservative: Math.round(orders.reduce((sum, o) => sum + (Number(o.total_price) || 0) * 0.6, 0)),
+                moderate: Math.round(orders.reduce((sum, o) => sum + (Number(o.total_price) || 0) * 0.75, 0)),
+                optimistic: Math.round(orders.reduce((sum, o) => sum + (Number(o.total_price) || 0) * 0.9, 0)),
+            },
+            totalOrders: orders.length,
+            periodType,
+            periodsCount: timelineWithCumulative.length,
+        };
+
+        res.json({
+            data: {
+                timeline: timelineWithCumulative,
+                summary,
+            }
+        });
+    } catch (error: any) {
+        console.error('[GET /api/analytics/cash-flow-timeline] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch cash flow timeline',
+            message: error.message
+        });
+    }
+});
