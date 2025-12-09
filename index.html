@@ -11,12 +11,23 @@
     <!-- Shopify App Bridge CDN - Required meta tags BEFORE script -->
     <meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b" />
 
-    <!-- Extract shop domain from URL and inject meta tag BEFORE App Bridge loads -->
+    <!-- Extract shop domain from URL and inject meta tag + load App Bridge ONLY if embedded -->
     <script>
       (function() {
         const urlParams = new URLSearchParams(window.location.search);
         const shop = urlParams.get('shop');
         const host = urlParams.get('host');
+        const embedded = urlParams.get('embedded');
+
+        // Check if we're in Shopify embedded mode
+        const isShopifyEmbedded = (embedded === '1' || !!host || !!shop);
+
+        if (!isShopifyEmbedded) {
+          console.log('[Shopify] Running in STANDALONE mode - App Bridge disabled');
+          return;
+        }
+
+        console.log('[Shopify] Running in EMBEDDED mode - Initializing App Bridge');
 
         // Get shop domain from 'shop' param or decode 'host' param
         let shopDomain = shop;
@@ -37,11 +48,20 @@
           document.head.appendChild(meta);
           console.log('[Shopify] Injected shop domain meta tag:', shopDomain);
         }
+
+        // Load App Bridge script ONLY in embedded mode
+        const script = document.createElement('script');
+        script.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
+        script.async = true;
+        script.onload = function() {
+          console.log('[Shopify] App Bridge script loaded successfully');
+        };
+        script.onerror = function() {
+          console.error('[Shopify] Failed to load App Bridge script');
+        };
+        document.head.appendChild(script);
       })();
     </script>
-
-    <!-- Shopify App Bridge 3.0 - MUST be loaded AFTER meta tags are ready -->
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
 
     <!-- Prevent flash of unstyled content for dark mode -->
     <script>

@@ -14,6 +14,7 @@ import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 import {
   DollarSign,
   TrendingDown,
@@ -179,7 +180,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <MetricCard
             title="Facturación Bruta"
-            value={`Gs. ${dashboardOverview.revenue.toLocaleString()}`}
+            value={formatCurrency(dashboardOverview.revenue)}
             change={dashboardOverview.changes?.revenue !== null ? Math.abs(dashboardOverview.changes?.revenue || 0) : undefined}
             trend={dashboardOverview.changes?.revenue !== null ? (dashboardOverview.changes?.revenue >= 0 ? 'up' : 'down') : undefined}
             icon={<DollarSign className="text-primary" size={24} />}
@@ -187,7 +188,7 @@ export default function Dashboard() {
           />
           <MetricCard
             title="Beneficio Neto Real"
-            value={`Gs. ${(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit).toLocaleString()}`}
+            value={formatCurrency(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit)}
             change={dashboardOverview.changes?.realNetProfit !== null ? Math.abs(dashboardOverview.changes?.realNetProfit || 0) : undefined}
             trend={dashboardOverview.changes?.realNetProfit !== null ? (dashboardOverview.changes?.realNetProfit >= 0 ? 'up' : 'down') : undefined}
             icon={<TrendingUp className="text-green-600" size={24} />}
@@ -196,7 +197,7 @@ export default function Dashboard() {
           />
           <MetricCard
             title="Proyección de Caja"
-            value={codMetrics ? `Gs. ${codMetrics.pending_cash.toLocaleString()}` : 'Gs. 0'}
+            value={codMetrics ? formatCurrency(codMetrics.pending_cash) : formatCurrency(0)}
             change={undefined}
             trend={undefined}
             icon={<Wallet className="text-blue-600" size={24} />}
@@ -213,7 +214,7 @@ export default function Dashboard() {
           />
           <MetricCard
             title="Ticket Promedio"
-            value={`Gs. ${dashboardOverview.averageOrderValue.toLocaleString()}`}
+            value={formatCurrency(dashboardOverview.averageOrderValue)}
             change={dashboardOverview.changes?.averageOrderValue !== null ? Math.abs(dashboardOverview.changes?.averageOrderValue || 0) : undefined}
             trend={dashboardOverview.changes?.averageOrderValue !== null ? (dashboardOverview.changes?.averageOrderValue >= 0 ? 'up' : 'down') : undefined}
             icon={<ShoppingCart className="text-orange-600" size={24} />}
@@ -269,7 +270,7 @@ export default function Dashboard() {
             />
             <MetricCard
               title="Costo por Pedido"
-              value={`Gs. ${dashboardOverview.costPerOrder.toLocaleString()}`}
+              value={formatCurrency(dashboardOverview.costPerOrder)}
               change={dashboardOverview.changes?.costPerOrder !== null ? Math.abs(dashboardOverview.changes?.costPerOrder || 0) : undefined}
               trend={dashboardOverview.changes?.costPerOrder !== null ? (dashboardOverview.changes?.costPerOrder >= 0 ? 'up' : 'down') : undefined}
               icon={<Package2 className="text-gray-600" size={20} />}
@@ -298,7 +299,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
               title="Costos de Productos"
-              value={`Gs. ${(dashboardOverview.productCosts || dashboardOverview.costs - dashboardOverview.deliveryCosts - dashboardOverview.marketing).toLocaleString()}`}
+              value={formatCurrency(dashboardOverview.productCosts || dashboardOverview.costs - dashboardOverview.deliveryCosts - dashboardOverview.marketing)}
               change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
               trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
               icon={<TrendingDown className="text-red-600" size={20} />}
@@ -306,7 +307,7 @@ export default function Dashboard() {
             />
             <MetricCard
               title="Costos de Envío"
-              value={`Gs. ${(dashboardOverview.deliveryCosts || 0).toLocaleString()}`}
+              value={formatCurrency(dashboardOverview.deliveryCosts || 0)}
               change={dashboardOverview.changes?.deliveryCosts !== null ? Math.abs(dashboardOverview.changes?.deliveryCosts || 0) : undefined}
               trend={dashboardOverview.changes?.deliveryCosts !== null ? (dashboardOverview.changes?.deliveryCosts >= 0 ? 'up' : 'down') : undefined}
               icon={<Truck className="text-orange-600" size={20} />}
@@ -314,7 +315,7 @@ export default function Dashboard() {
             />
             <MetricCard
               title="Marketing"
-              value={`Gs. ${dashboardOverview.marketing.toLocaleString()}`}
+              value={formatCurrency(dashboardOverview.marketing)}
               change={dashboardOverview.changes?.marketing !== null ? Math.abs(dashboardOverview.changes?.marketing || 0) : undefined}
               trend={dashboardOverview.changes?.marketing !== null ? (dashboardOverview.changes?.marketing >= 0 ? 'up' : 'down') : undefined}
               icon={<Megaphone className="text-blue-600" size={20} />}
@@ -322,7 +323,7 @@ export default function Dashboard() {
             />
             <MetricCard
               title={`IVA Recolectado (${dashboardOverview.taxRate}%)`}
-              value={`Gs. ${dashboardOverview.taxCollected.toLocaleString()}`}
+              value={formatCurrency(dashboardOverview.taxCollected)}
               change={dashboardOverview.changes?.taxCollected !== null ? Math.abs(dashboardOverview.changes?.taxCollected || 0) : undefined}
               trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
               icon={<Receipt className="text-orange-600" size={20} />}

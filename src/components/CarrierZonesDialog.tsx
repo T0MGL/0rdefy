@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { carrierZonesService, CarrierZone } from '@/services/carrier-zones.service';
+import { formatCurrency } from '@/utils/currency';
 import { Plus, Pencil, Trash2, MapPin, Loader2 } from 'lucide-react';
 
 interface CarrierZonesDialogProps {
@@ -137,13 +138,8 @@ export function CarrierZonesDialog({ open, onOpenChange, carrierId, carrierName 
     }
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-PY', {
-      style: 'currency',
-      currency: 'PYG',
-      minimumFractionDigits: 0,
-    }).format(value);
-  };
+  // Import formatCurrency from utils instead of defining it locally
+  // This ensures consistent currency formatting across the app
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
