@@ -8,25 +8,63 @@
     <meta name="author" content="Bright Idea" />
     <meta name="theme-color" content="hsl(0, 0%, 98%)" />
 
-    <!-- Shopify App Bridge (2025 Modern Setup) -->
-    <!-- Only load when embedded in Shopify - auto-initializes from CDN -->
+    <!-- Shopify App Bridge (2025 Modern Setup with sessionStorage) -->
     <script>
       (function() {
-        // Check if we're embedded in Shopify
+        // Get parameters from URL
         const urlParams = new URLSearchParams(window.location.search);
         const shop = urlParams.get('shop');
         const host = urlParams.get('host');
         const embedded = urlParams.get('embedded');
 
-        const isEmbedded = !!(shop || host || embedded === '1');
+        // Save to sessionStorage if present (for navigation persistence)
+        if (shop) sessionStorage.setItem('shopify_shop', shop);
+        if (host) sessionStorage.setItem('shopify_host', host);
+        if (embedded) sessionStorage.setItem('shopify_embedded', embedded);
+
+        // Try to get from sessionStorage if not in URL
+        const savedShop = shop || sessionStorage.getItem('shopify_shop');
+        const savedHost = host || sessionStorage.getItem('shopify_host');
+        const savedEmbedded = embedded || sessionStorage.getItem('shopify_embedded');
+
+        // Determine if we're in embedded mode
+        const isEmbedded = !!(savedShop || savedHost || savedEmbedded === '1');
 
         if (isEmbedded) {
-          // We're in Shopify - inject App Bridge
-          document.write('<meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b">');
-          document.write('<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"><\/script>');
-          console.log('[Shopify] App Bridge loaded - Embedded mode');
+          console.log('[Shopify] Embedded mode detected');
+
+          // Inject meta tags
+          const apiKeyMeta = document.createElement('meta');
+          apiKeyMeta.name = 'shopify-api-key';
+          apiKeyMeta.content = '75123c29296179fbd8f253db4196c83b';
+          document.head.appendChild(apiKeyMeta);
+
+          // Inject shop meta if available
+          if (savedShop) {
+            const shopMeta = document.createElement('meta');
+            shopMeta.name = 'shopify-shop';
+            shopMeta.content = savedShop;
+            document.head.appendChild(shopMeta);
+            console.log('[Shopify] Shop domain:', savedShop);
+          }
+
+          // Inject host meta if available
+          if (savedHost) {
+            const hostMeta = document.createElement('meta');
+            hostMeta.name = 'shopify-host';
+            hostMeta.content = savedHost;
+            document.head.appendChild(hostMeta);
+          }
+
+          // Load App Bridge script
+          const script = document.createElement('script');
+          script.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
+          script.async = false; // Load synchronously
+          document.head.appendChild(script);
+
+          console.log('[Shopify] App Bridge loading...');
         } else {
-          console.log('[Shopify] Standalone mode - App Bridge not loaded');
+          console.log('[Shopify] Standalone mode - App Bridge disabled');
         }
       })();
     </script>
