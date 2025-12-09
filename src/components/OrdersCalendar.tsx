@@ -116,7 +116,7 @@ export function OrdersCalendar() {
                 <p className="text-sm font-medium">{order.customer}</p>
                 <p className="text-xs text-muted-foreground">{order.product}</p>
                 <p className="text-sm font-semibold mt-2">
-                  Gs. {order.total.toLocaleString()}
+                  Gs. {(order.total ?? 0).toLocaleString()}
                 </p>
               </div>
             ))}

@@ -932,7 +932,7 @@ ordersRouter.patch('/:id/status', async (req: AuthRequest, res: Response) => {
             rejection_reason
         } = req.body;
 
-        const validStatuses = ['pending', 'confirmed', 'rejected', 'shipped', 'delivered', 'cancelled'];
+        const validStatuses = ['pending', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped'];
         if (!validStatuses.includes(sleeves_status)) {
             return res.status(400).json({
                 error: 'Invalid status',
