@@ -1,0 +1,205 @@
+/**
+ * Shipping Service
+ * Manages the dispatch of orders to couriers
+ * Handles the transition from ready_to_ship → shipped status
+ */
+
+import { supabaseAdmin } from '../db/connection';
+
+export interface Shipment {
+  id: string;
+  store_id: string;
+  order_id: string;
+  courier_id: string | null;
+  shipped_at: string;
+  shipped_by: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReadyToShipOrder {
+  id: string;
+  order_number: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_address: string;
+  carrier_name: string;
+  carrier_id: string;
+  total_items: number;
+  cod_amount: number;
+  created_at: string;
+}
+
+export interface ShipmentResult {
+  shipment_id: string | null;
+  order_id: string;
+  order_number: string;
+  success: boolean;
+  error_message: string | null;
+}
+
+/**
+ * Gets all orders ready to ship for a store
+ */
+export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShipOrder[]> {
+  try {
+    const { data: orders, error } = await supabaseAdmin
+      .from('orders')
+      .select(`
+        id,
+        shopify_order_number,
+        customer_first_name,
+        customer_last_name,
+        customer_phone,
+        customer_address,
+        courier_id,
+        cod_amount,
+        line_items,
+        created_at,
+        carriers!courier_id (
+          id,
+          name
+        )
+      `)
+      .eq('store_id', storeId)
+      .eq('sleeves_status', 'ready_to_ship')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    // Format response
+    return (orders || []).map((order: any) => ({
+      id: order.id,
+      order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
+      customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+      customer_phone: order.customer_phone || '',
+      customer_address: order.customer_address || '',
+      carrier_name: order.carriers?.name || 'Sin transportadora',
+      carrier_id: order.courier_id,
+      total_items: Array.isArray(order.line_items)
+        ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+        : 0,
+      cod_amount: order.cod_amount || 0,
+      created_at: order.created_at
+    }));
+  } catch (error) {
+    console.error('Error getting ready to ship orders:', error);
+    throw error;
+  }
+}
+
+/**
+ * Creates a single shipment and updates order to shipped status
+ */
+export async function createShipment(
+  storeId: string,
+  orderId: string,
+  userId: string,
+  notes?: string
+): Promise<Shipment> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('create_shipment', {
+        p_store_id: storeId,
+        p_order_id: orderId,
+        p_shipped_by: userId,
+        p_notes: notes || null
+      });
+
+    if (error) throw error;
+
+    return data;
+  } catch (error) {
+    console.error('Error creating shipment:', error);
+    throw error;
+  }
+}
+
+/**
+ * Creates multiple shipments at once (batch dispatch)
+ */
+export async function createShipmentsBatch(
+  storeId: string,
+  orderIds: string[],
+  userId: string,
+  notes?: string
+): Promise<ShipmentResult[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('create_shipments_batch', {
+        p_store_id: storeId,
+        p_order_ids: orderIds,
+        p_shipped_by: userId,
+        p_notes: notes || null
+      });
+
+    if (error) throw error;
+
+    return data || [];
+  } catch (error) {
+    console.error('Error creating batch shipments:', error);
+    throw error;
+  }
+}
+
+/**
+ * Gets shipment history for a specific order
+ */
+export async function getOrderShipments(
+  orderId: string,
+  storeId: string
+): Promise<Shipment[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('shipments')
+      .select('*')
+      .eq('order_id', orderId)
+      .eq('store_id', storeId)
+      .order('shipped_at', { ascending: false });
+
+    if (error) throw error;
+
+    return data || [];
+  } catch (error) {
+    console.error('Error getting order shipments:', error);
+    throw error;
+  }
+}
+
+/**
+ * Gets all shipments for a store (with pagination)
+ */
+export async function getShipments(
+  storeId: string,
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ shipments: Shipment[]; total: number }> {
+  try {
+    // Get total count
+    const { count, error: countError } = await supabaseAdmin
+      .from('shipments')
+      .select('*', { count: 'exact', head: true })
+      .eq('store_id', storeId);
+
+    if (countError) throw countError;
+
+    // Get shipments
+    const { data, error } = await supabaseAdmin
+      .from('shipments')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('shipped_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    return {
+      shipments: data || [],
+      total: count || 0
+    };
+  } catch (error) {
+    console.error('Error getting shipments:', error);
+    throw error;
+  }
+}

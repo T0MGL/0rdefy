@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock, Zap } from 'lucide-react';
 import { z } from 'zod';
+import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 
 const loginSchema = z.object({
   email: z.string().email('Ingresa un email válido'),
@@ -80,8 +81,10 @@ export default function Login() {
       });
 
       // Redirect to the page user was trying to access, or dashboard
+      // Preserve Shopify query parameters (shop, host, embedded) for App Bridge
       const from = (location.state as any)?.from?.pathname || '/';
-      navigate(from, { replace: true });
+      const pathWithShopifyParams = preserveShopifyParams(from);
+      navigate(pathWithShopifyParams, { replace: true });
 
     } catch (error) {
       if (error instanceof z.ZodError) {

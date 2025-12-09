@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -383,7 +384,9 @@ export default function Settings() {
         description: "Tu cuenta ha sido eliminada exitosamente.",
       });
       setDeleteDialogOpen(false);
-      navigate('/login');
+      // Preserve Shopify query parameters when navigating to login
+      const pathWithShopifyParams = preserveShopifyParams('/login');
+      navigate(pathWithShopifyParams);
     }
   };
 
@@ -393,7 +396,9 @@ export default function Settings() {
       title: "Sesión cerrada",
       description: "Has cerrado sesión exitosamente.",
     });
-    navigate('/login');
+    // Preserve Shopify query parameters when navigating to login
+    const pathWithShopifyParams = preserveShopifyParams('/login');
+    navigate(pathWithShopifyParams);
   };
 
   const handleDeleteStoreClick = (storeId: string) => {

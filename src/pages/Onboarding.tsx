@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Store, DollarSign, CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { z } from 'zod';
+import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 
 // Validation schemas
 const step1Schema = z.object({
@@ -122,7 +123,9 @@ export default function Onboarding() {
           description: "Debes iniciar sesión para completar el onboarding",
           variant: "destructive",
         });
-        navigate('/login');
+        // Preserve Shopify query parameters when navigating to login
+        const pathWithShopifyParams = preserveShopifyParams('/login');
+        navigate(pathWithShopifyParams);
         return;
       }
 
@@ -161,8 +164,10 @@ export default function Onboarding() {
       });
 
       // Small delay to ensure localStorage is written
+      // Preserve Shopify query parameters (shop, host, embedded) for App Bridge
       setTimeout(() => {
-        navigate('/', { replace: true });
+        const pathWithShopifyParams = preserveShopifyParams('/');
+        navigate(pathWithShopifyParams, { replace: true });
       }, 500);
 
     } catch (error: any) {
@@ -175,7 +180,9 @@ export default function Onboarding() {
           description: "Tu sesión expiró. Por favor inicia sesión nuevamente.",
           variant: "destructive",
         });
-        navigate('/login');
+        // Preserve Shopify query parameters when navigating to login
+        const pathWithShopifyParams = preserveShopifyParams('/login');
+        navigate(pathWithShopifyParams);
       } else {
         toast({
           title: "Error",
@@ -190,7 +197,9 @@ export default function Onboarding() {
 
   const handleSkip = () => {
     localStorage.setItem('onboarding_completed', 'true');
-    navigate('/');
+    // Preserve Shopify query parameters (shop, host, embedded) for App Bridge
+    const pathWithShopifyParams = preserveShopifyParams('/');
+    navigate(pathWithShopifyParams);
   };
 
   return (

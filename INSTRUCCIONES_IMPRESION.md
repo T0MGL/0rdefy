@@ -1,6 +1,6 @@
-# Instrucciones para Completar el Sistema de Impresión
+# Sistema de Impresión de Etiquetas de Envío
 
-## Cambios Aplicados
+## Cambios Aplicados ✅
 
 ### 1. Base de Datos ✅
 - Migración `017_add_printed_status.sql` creada
@@ -13,9 +13,12 @@
 ### 3. Frontend ✅
 - Tipo `Order` actualizado con campos de impresión
 - Servicio `ordersService` con funciones de marcado
-- Formato de etiqueta cambiado a 4x6 pulgadas
+- **Formato optimizado: 4x6 pulgadas PORTRAIT** (compatible con impresoras térmicas)
+- CSS de impresión robusto con tamaños fijos garantizados
 - Instrucciones de feedback para clientes agregadas
 - Handlers de bulk printing implementados
+- **Sistema de clases CSS semánticas** para mejor control del layout
+- **Page-break automático** para impresión en lote
 
 ## Cambios Finales en la UI
 
@@ -252,10 +255,109 @@ Sigue los 5 pasos descritos arriba.
 ✅ Selección múltiple con checkboxes
 ✅ Cola de impresión secuencial
 
-## Soporte
+## Mejoras Técnicas del CSS de Impresión ✅
 
-El nuevo formato de 4x6 pulgadas es compatible con:
-- Impresoras térmicas de etiquetas
-- Impresoras láser/inkjet (papel carta)
-- Impresoras de etiquetas adhesivas
-- Dymo, Zebra, Brother, etc.
+### Optimizaciones Implementadas
+
+1. **Formato Portrait 4x6 pulgadas** (10.16cm x 15.24cm)
+   - `@page { size: 4in 6in portrait; margin: 0; }`
+   - Tamaño estándar para impresoras térmicas de etiquetas
+   - Compatible con Dymo, Zebra, Brother, etc.
+
+2. **Tamaños Fijos y Controlados**
+   - Todas las dimensiones en pulgadas (`in`) para precisión
+   - QR Code: 1.5in x 1.5in (legible y compacto)
+   - Padding: 0.2in (espacio seguro en los bordes)
+   - Gaps y márgenes en unidades físicas (0.04in - 0.1in)
+
+3. **Tipografía Optimizada**
+   - Tamaños de fuente fijos en puntos (pt)
+   - Títulos: 11pt (legible sin ocupar mucho espacio)
+   - Contenido principal: 7-8pt
+   - Detalles secundarios: 5-6pt
+   - Line-height: 1.1-1.3 (compacto pero legible)
+
+4. **Layout Vertical en Print**
+   - Screen: Layout horizontal (QR izquierda, info derecha)
+   - Print: Layout vertical (QR arriba, info abajo)
+   - Aprovecha mejor el espacio en formato portrait
+   - `flex-direction: column` en `.label-content` para print
+
+5. **Control de Desbordamiento**
+   - `overflow: hidden` en contenedor principal
+   - `page-break-inside: avoid` evita cortes de contenido
+   - `page-break-after: always` separa etiquetas en batch
+   - `orphans: 3` y `widows: 3` para mejor control de texto
+
+6. **Preservación de Colores**
+   - `-webkit-print-color-adjust: exact`
+   - `print-color-adjust: exact`
+   - Garantiza que fondos de colores (azul para instrucciones) se impriman correctamente
+
+7. **Sistema de Clases Semánticas**
+   - `.shipping-label` - Contenedor principal
+   - `.qr-section` - Sección del QR code
+   - `.info-section` - Sección de información
+   - `.customer-section`, `.courier-section`, `.products-section` - Secciones específicas
+   - Fácil mantenimiento y modificación
+
+8. **Batch Printing Support**
+   - Cada etiqueta se imprime en su propia página
+   - `page-break-after: always` después de cada etiqueta
+   - Visibilidad controlada: solo se muestra la etiqueta actual
+   - Sin interferencia entre etiquetas consecutivas
+
+## Soporte de Impresoras
+
+El nuevo formato de 4x6 pulgadas portrait es compatible con:
+- **Impresoras térmicas directas**: Dymo, Zebra, Brother
+- **Impresoras de transferencia térmica**: Zebra ZD/ZT series
+- **Impresoras láser/inkjet**: Con papel de etiquetas 4x6
+- **Impresoras de etiquetas adhesivas**: Rollo continuo o hojas
+
+### Configuración Recomendada
+
+**Para impresoras térmicas:**
+- Tamaño de papel: 4" x 6" (10.16cm x 15.24cm)
+- Orientación: Portrait (vertical)
+- Márgenes: Mínimos (0.1in o menos)
+- Escala: 100% (sin ajustar)
+
+**Para impresoras láser/inkjet:**
+- Usar papel de etiquetas adhesivas 4x6
+- Configurar tamaño personalizado en driver
+- Orientación: Portrait
+- Márgenes: 0
+
+## Testing
+
+Para probar el sistema:
+
+1. **Impresión Individual:**
+   ```
+   1. Ir a Pedidos
+   2. Click en ícono de impresora (azul)
+   3. Click en "Imprimir Etiqueta"
+   4. Verificar preview antes de imprimir
+   5. Ícono cambia a verde después de imprimir
+   ```
+
+2. **Impresión en Lote (Batch):**
+   ```
+   1. Seleccionar múltiples pedidos con checkboxes
+   2. Click en "Imprimir X etiquetas"
+   3. Imprimir primera etiqueta
+   4. Click en "Siguiente Etiqueta"
+   5. Repetir hasta completar todas
+   6. Todos los pedidos marcados como impresos
+   ```
+
+3. **Verificar Layout:**
+   ```
+   - QR code centrado arriba (1.5in x 1.5in)
+   - Información del cliente legible (8pt)
+   - Productos listados claramente (7pt)
+   - Instrucciones para cliente visibles (fondo azul)
+   - Link de entrega al final
+   - Todo cabe en 4x6 inches sin cortes
+   ```

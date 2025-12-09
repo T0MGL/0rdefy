@@ -122,10 +122,14 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 **Tables:** picking_sessions, picking_session_orders, picking_session_items, packing_progress
 
-**Recent Fixes (Dec 2025):**
+**Recent Updates (Dec 2024 - Jan 2025):**
 - ✅ Fixed 500 error in picking-list endpoint (query optimization)
 - ✅ Implemented automatic stock tracking system (migration 019)
 - ✅ Improved session code format to DDMMYYYY (Latin American standard)
+- ✅ Added returns system with batch processing (migration 022)
+- ✅ Implemented Shopify order line items normalization (migration 024)
+- ✅ Fixed order creation/deletion protection triggers (migration 023)
+- ✅ Added shipping label print tracking (migration 017)
 
 ### Merchandise (Inbound Shipments)
 **Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`
@@ -144,23 +148,91 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 ### Shopify Integration (Production-Ready)
 **Files:** `src/pages/Integrations.tsx`, `src/components/ShopifyIntegrationModal.tsx`, `api/routes/shopify.ts`, `api/services/shopify-*.service.ts`
+**Documentation:** `SHOPIFY_ORDER_LINE_ITEMS.md`, `SHOPIFY_PRODUCT_SYNC_GUIDE.md`
 
 **Features:**
 - One-time import (products, customers, orders)
-- Bidirectional product sync (update/delete)
+- **Bidirectional product sync:** Ordefy ↔ Shopify (products, inventory, prices)
+- **Order Line Items:** Normalized table with product mapping (replaces JSONB parsing)
 - Webhooks: orders/create, orders/updated, products/delete
 - Webhook reliability: Idempotency (24h TTL), exponential backoff retries (60s→960s, max 5), real-time metrics
 - Rate limiting: 2 req/sec for Shopify API
 - HMAC signature verification
 - Auto-send new orders to n8n (N8N_WEBHOOK_URL)
 
-**Tables:** shopify_integrations, shopify_webhook_events, shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
+**Product Mapping:**
+- `find_product_by_shopify_ids()` - Matches local products by Shopify IDs/SKU
+- `create_line_items_from_shopify()` - Parses order line items from webhooks
+- Automatic inventory updates when products mapped correctly
+- Supports multiple products per order with proper stock tracking
+
+**Sync Features:**
+- When updating product locally → auto-syncs to Shopify (price, stock, name, description)
+- `sync_status` tracking: synced, pending, error
+- Inventory-only updates optimized for speed
+- Field mapping: SKU, category, shopify_product_id, shopify_variant_id
+
+**Tables:**
+- Integration: shopify_integrations, shopify_oauth_states, shopify_import_jobs
+- Webhooks: shopify_webhook_events, shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
+- Orders: order_line_items (normalized line items with product mapping)
+- Sync: shopify_sync_conflicts
 
 **Cron Jobs:**
 ```bash
 */5 * * * * curl -X POST /api/shopify/webhook-retry/process  # Retries
 0 3 * * * curl -X POST /api/shopify/webhook-cleanup         # Cleanup
 ```
+
+### Returns System (Batch Returns Processing)
+**Files:** `src/pages/Returns.tsx`, `api/routes/returns.ts`, `api/services/returns.service.ts`, `db/migrations/022_returns_system.sql`
+
+**Workflow:**
+1. Select eligible orders (delivered, shipped, or cancelled)
+2. Create return session with auto-generated code (RET-DDMMYYYY-NN)
+3. Process each item: Accept (restore stock) or Reject (damaged/defective)
+4. Complete session → updates inventory + order status to 'returned'
+
+**Features:**
+- Batch processing of multiple returns in single session
+- Item-level acceptance/rejection with reasons (damaged, defective, incomplete, wrong_item, other)
+- Automatic inventory restoration for accepted items
+- Audit trail in `inventory_movements` table
+- Session progress tracking
+- Rejection notes for quality control
+
+**Tables:** return_sessions, return_session_orders, return_session_items
+**Functions:** generate_return_session_code, complete_return_session
+
+**Integration with Inventory:**
+- Accepted items → stock incremented + logged as 'return_accepted'
+- Rejected items → no stock change + logged as 'return_rejected' with reason
+- Order status updated to 'returned' on session completion
+
+### Shipping Labels System
+**Files:** `src/components/OrderShippingLabel.tsx`, `src/pages/Orders.tsx`, `db/migrations/017_add_printed_status.sql`
+**Documentation:** `INSTRUCCIONES_IMPRESION.md`
+
+**Features:**
+- 4x6 inch thermal label format (compatible with Dymo, Zebra, Brother)
+- QR code for delivery tracking (links to delivery confirmation page)
+- Customer feedback instructions on label
+- Print tracking: `printed`, `printed_at`, `printed_by` fields
+- Visual indicators: Blue (not printed) → Green (printed)
+- Bulk printing workflow with sequential dialog
+- Multi-select orders for batch label printing
+
+**Label Contents:**
+- QR code with delivery token
+- Customer info (name, phone, address)
+- Courier/carrier name
+- Product list with quantities
+- Delivery instructions for carrier
+- Feedback request for customer
+
+**API Endpoints:**
+- `POST /api/orders/:id/mark-printed` - Mark single order as printed
+- `POST /api/orders/mark-printed-bulk` - Mark multiple orders as printed
 
 ## Database Schema
 
@@ -169,20 +241,25 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 **Tables:**
 - Base: stores, users, user_stores, store_config
 - Business: products, customers, carriers, suppliers, campaigns, additional_values
-- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled)
+- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned), order_line_items
 - History: order_status_history, follow_up_log
 - Delivery: delivery_attempts, daily_settlements, settlement_orders
 - Inventory: inventory_movements (audit log for all stock changes)
 - Merchandise: inbound_shipments, inbound_shipment_items
 - Warehouse: picking_sessions, picking_session_orders, picking_session_items, packing_progress
+- Returns: return_sessions, return_session_orders, return_session_items
 - Shopify: shopify_integrations, shopify_oauth_states, shopify_import_jobs, shopify_webhook_events, shopify_sync_conflicts, shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
 
 **Key Functions:**
 - generate_inbound_reference, receive_shipment_items (inventory updates from suppliers)
 - generate_session_code (warehouse batch codes)
+- generate_return_session_code (returns batch codes)
+- complete_return_session (process returns and update inventory)
 - update_product_stock_on_order_status (automatic stock management)
 - prevent_line_items_edit_after_stock_deducted (data integrity)
 - prevent_order_deletion_after_stock_deducted (data integrity)
+- find_product_by_shopify_ids (product mapping for Shopify orders)
+- create_line_items_from_shopify (normalize Shopify line items)
 
 **Triggers:**
 - Auto-update: customer stats, carrier stats, order status history, delivery tokens, COD calculation, warehouse timestamps
@@ -232,19 +309,25 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - ✅ Multi-store support with role-based access
 - ✅ Real-time analytics with period comparisons
 - ✅ Order management with WhatsApp confirmation
-- ✅ Product inventory management
+- ✅ Product inventory management with automatic stock tracking
 - ✅ Merchandise/Inbound shipments
-- ✅ Warehouse picking & packing
+- ✅ Warehouse picking & packing with batch processing
+- ✅ Returns system with batch processing and inventory restoration
+- ✅ Shipping labels (4x6 thermal) with QR codes and print tracking
 - ✅ Customer/Supplier/Carrier management
 - ✅ Campaign/Ads management
-- ✅ Shopify integration (webhooks, sync)
+- ✅ Shopify integration (bidirectional sync, webhooks, product mapping)
+- ✅ Order line items normalization with product mapping
 - ✅ Dark mode theme system
 - ✅ Global search (Cmd+K)
+- ✅ Intelligent notification system with timezone awareness
 
 **Coming Soon:**
 - 2FA authentication
 - Billing/Subscription system
 - Dropi integration (dropshipping for LATAM)
+- Mercado Libre integration
+- Multi-channel inventory sync
 
 ## Development Notes
 
@@ -257,3 +340,24 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 **TypeScript:** Relaxed settings (`noImplicitAny: false`, `strictNullChecks: false`)
 
 **Storage Keys:** Pattern `neonflow_[entity]`
+
+## Technical Documentation
+
+**Core Systems:**
+- `SHOPIFY_ORDER_LINE_ITEMS.md` - Shopify order normalization and product mapping system
+- `SHOPIFY_PRODUCT_SYNC_GUIDE.md` - Bidirectional product synchronization with Shopify
+- `INSTRUCCIONES_IMPRESION.md` - Shipping label printing system (4x6 thermal labels)
+- `ROADMAP_MEJORAS_UX.md` - Product roadmap and UX improvements (2026)
+
+**Database:**
+- `db/migrations/README.md` - Migration system documentation
+- `db/migrations/000_MASTER_MIGRATION.sql` - Complete schema (idempotent, production-ready)
+
+**Key Migrations:**
+- 011: Merchandise/Inbound shipments system
+- 015: Warehouse picking & packing system
+- 017: Shipping label print tracking
+- 019: Automatic inventory management
+- 022: Returns/refunds system
+- 023: Order creation/deletion protection fixes
+- 024: Shopify order line items normalization

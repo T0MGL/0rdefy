@@ -26,6 +26,7 @@ import {
   ClipboardList,
   PackageX,
   RotateCcw,
+  Send,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -71,6 +72,7 @@ const menuSections: MenuSection[] = [
     icon: Truck,
     items: [
       { path: '/warehouse', label: 'Almacén', icon: Warehouse },
+      { path: '/shipping', label: 'Despacho', icon: Send },
       { path: '/merchandise', label: 'Mercadería', icon: PackageOpen },
       { path: '/carriers', label: 'Transportadoras', icon: Truck },
       { path: '/settlements', label: 'Conciliaciones', icon: DollarSign },
