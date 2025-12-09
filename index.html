@@ -8,62 +8,10 @@
     <meta name="author" content="Bright Idea" />
     <meta name="theme-color" content="hsl(0, 0%, 98%)" />
 
-    <!-- Shopify App Bridge CDN - Required meta tags BEFORE script -->
+    <!-- Shopify App Bridge (2025 Modern Setup) -->
+    <!-- App Bridge auto-initializes from CDN - no manual initialization needed -->
     <meta name="shopify-api-key" content="75123c29296179fbd8f253db4196c83b" />
-
-    <!-- Extract shop domain from URL and inject meta tag BEFORE App Bridge loads -->
-    <script>
-      (function() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const shop = urlParams.get('shop');
-        const host = urlParams.get('host');
-        const embedded = urlParams.get('embedded');
-
-        // Check if we're in Shopify embedded mode
-        const isShopifyEmbedded = (embedded === '1' || !!host || !!shop);
-
-        // Store flag for later use
-        window.__SHOPIFY_EMBEDDED__ = isShopifyEmbedded;
-
-        if (!isShopifyEmbedded) {
-          console.log('[Shopify] Running in STANDALONE mode - App Bridge will not initialize');
-          // Suppress App Bridge errors by providing a dummy shopify object
-          window.shopify = window.shopify || { environment: { embedded: false } };
-          return;
-        }
-
-        console.log('[Shopify] Running in EMBEDDED mode - Setting up App Bridge');
-
-        // Get shop domain from 'shop' param or decode 'host' param
-        let shopDomain = shop;
-        if (!shopDomain && host) {
-          try {
-            const decodedHost = atob(host);
-            shopDomain = decodedHost.split('/')[0];
-          } catch (e) {
-            console.warn('[Shopify] Could not decode host parameter:', e);
-          }
-        }
-
-        // Inject shopify-shop meta tag if we have a shop domain
-        if (shopDomain) {
-          const meta = document.createElement('meta');
-          meta.name = 'shopify-shop';
-          meta.content = shopDomain;
-          document.head.appendChild(meta);
-          console.log('[Shopify] Injected shop domain meta tag:', shopDomain);
-        } else {
-          console.warn('[Shopify] No shop domain found - App Bridge may fail to initialize');
-        }
-      })();
-    </script>
-
-    <!-- Shopify App Bridge - Load ONLY if embedded (must NOT use async/defer) -->
-    <script>
-      if (window.__SHOPIFY_EMBEDDED__) {
-        document.write('<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"><\/script>');
-      }
-    </script>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
 
     <!-- Prevent flash of unstyled content for dark mode -->
     <script>

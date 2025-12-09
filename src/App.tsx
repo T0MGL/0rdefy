@@ -13,7 +13,6 @@ import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { ShopifyInitializer } from "@/components/ShopifyInitializer";
 
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -100,13 +99,12 @@ const App = () => {
             <Toaster />
             <Sonner />
             <BrowserRouter>
-              <ShopifyInitializer>
-                <AuthProvider>
-                  <DateRangeProvider>
-                    <ErrorBoundary>
-                      <OnboardingGuard>
-                  <Suspense fallback={<CardSkeleton count={1} />}>
-                    <Routes>
+              <AuthProvider>
+                <DateRangeProvider>
+                  <ErrorBoundary>
+                    <OnboardingGuard>
+                      <Suspense fallback={<CardSkeleton count={1} />}>
+                        <Routes>
                     {/* Public routes */}
                     <Route path="/login" element={<LoginDemo />} />
                     <Route path="/signup" element={<SignUp />} />
@@ -135,13 +133,12 @@ const App = () => {
                     <Route path="/settlements" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></ProtectedLayout>} />
                     <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
                     <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
-                    </Routes>
-                    </Suspense>
-                      </OnboardingGuard>
-                    </ErrorBoundary>
-                  </DateRangeProvider>
-                </AuthProvider>
-              </ShopifyInitializer>
+                        </Routes>
+                      </Suspense>
+                    </OnboardingGuard>
+                  </ErrorBoundary>
+                </DateRangeProvider>
+              </AuthProvider>
             </BrowserRouter>
           </ThemeProvider>
         </TooltipProvider>
