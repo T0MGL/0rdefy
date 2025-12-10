@@ -31,7 +31,7 @@ import {
   RotateCcw,
   X
 } from 'lucide-react';
-import { api } from '@/services/api.client';
+import apiClient from '@/services/api.client';
 
 interface RetryAttempt {
   id: string;
@@ -118,7 +118,7 @@ export default function Incidents() {
   const loadIncidents = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get('/incidents', {
+      const response = await apiClient.get('/incidents', {
         params: { status: statusFilter }
       });
       setIncidents(response.data.data || []);
@@ -145,7 +145,7 @@ export default function Incidents() {
     }
 
     try {
-      await api.post(`/incidents/${selectedIncident.incident_id}/schedule-retry`, {
+      await apiClient.post(`/incidents/${selectedIncident.incident_id}/schedule-retry`, {
         scheduled_date: scheduledDate,
         notes: scheduleNotes
       });
@@ -173,7 +173,7 @@ export default function Incidents() {
     if (!selectedIncident) return;
 
     try {
-      await api.post(`/incidents/${selectedIncident.incident_id}/resolve`, {
+      await apiClient.post(`/incidents/${selectedIncident.incident_id}/resolve`, {
         resolution_type: resolutionType,
         notes: resolutionNotes
       });
