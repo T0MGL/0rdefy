@@ -8,98 +8,165 @@
     <meta name="author" content="Bright Idea" />
     <meta name="theme-color" content="hsl(0, 0%, 98%)" />
 
-    <!-- Shopify App Bridge (Force Load in iFrame) -->
+    <!-- Shopify App Bridge (AGGRESSIVE LOAD) -->
     <script>
       (function() {
-        console.log('[Shopify Init] Starting App Bridge initialization...');
+        console.log('🚀 [SHOPIFY] === AGGRESSIVE APP BRIDGE LOADER ===');
 
-        // CRITICAL: Detect if we're in an iframe (simplest and most reliable method)
+        // ============================================================
+        // STEP 1: Detect iframe - if true, FORCE LOAD everything
+        // ============================================================
         const isInIframe = window.top !== window.self;
-        console.log('[Shopify Init] Running in iframe:', isInIframe);
+        console.log('🔍 [SHOPIFY] In iframe:', isInIframe);
 
-        // Get parameters from URL
+        if (!isInIframe) {
+          console.log('🏠 [SHOPIFY] Standalone mode - App Bridge disabled');
+          return; // Exit early if not in iframe
+        }
+
+        console.log('🪟 [SHOPIFY] IFRAME DETECTED - FORCE LOADING APP BRIDGE');
+
+        // ============================================================
+        // STEP 2: Set global embedded flag IMMEDIATELY
+        // ============================================================
+        window.__SHOPIFY_EMBEDDED__ = true;
+        console.log('✅ [SHOPIFY] window.__SHOPIFY_EMBEDDED__ = true');
+
+        // ============================================================
+        // STEP 3: Get shop/host from URL (if available)
+        // ============================================================
         const urlParams = new URLSearchParams(window.location.search);
         const shop = urlParams.get('shop');
         const host = urlParams.get('host');
         const embedded = urlParams.get('embedded');
 
-        console.log('[Shopify Init] URL parameters:', { shop, host, embedded });
+        console.log('📋 [SHOPIFY] URL params:', { shop, host, embedded });
 
-        // Save to sessionStorage if present (for navigation persistence)
+        // ============================================================
+        // STEP 4: Save to sessionStorage (for navigation)
+        // ============================================================
         if (shop) {
           sessionStorage.setItem('shopify_shop', shop);
-          console.log('[Shopify Init] Saved shop to sessionStorage:', shop);
+          console.log('💾 [SHOPIFY] Saved shop to sessionStorage:', shop);
         }
         if (host) {
           sessionStorage.setItem('shopify_host', host);
-          console.log('[Shopify Init] Saved host to sessionStorage');
+          console.log('💾 [SHOPIFY] Saved host to sessionStorage');
         }
         if (embedded) {
           sessionStorage.setItem('shopify_embedded', embedded);
-          console.log('[Shopify Init] Saved embedded flag to sessionStorage');
+          console.log('💾 [SHOPIFY] Saved embedded to sessionStorage');
         }
 
-        // Try to get from sessionStorage if not in URL
+        // ============================================================
+        // STEP 5: Try to get from sessionStorage if not in URL
+        // ============================================================
         const savedShop = shop || sessionStorage.getItem('shopify_shop');
         const savedHost = host || sessionStorage.getItem('shopify_host');
-        const savedEmbedded = embedded || sessionStorage.getItem('shopify_embedded');
 
-        console.log('[Shopify Init] SessionStorage values:', { savedShop, savedHost, savedEmbedded });
+        console.log('📦 [SHOPIFY] SessionStorage values:', { savedShop, savedHost });
 
-        // FORCE embedded mode if in iframe, regardless of parameters
-        const isEmbedded = isInIframe;
+        // ============================================================
+        // STEP 6: INJECT API KEY META TAG (UNCONDITIONAL)
+        // ============================================================
+        console.log('🔑 [SHOPIFY] Injecting API key meta tag...');
+        const apiKeyMeta = document.createElement('meta');
+        apiKeyMeta.name = 'shopify-api-key';
+        apiKeyMeta.content = '75123c29296179fbd8f253db4196c83b';
+        document.head.appendChild(apiKeyMeta);
+        console.log('✅ [SHOPIFY] API key meta tag injected');
 
-        if (isEmbedded) {
-          console.log('[Shopify] ✅ EMBEDDED MODE DETECTED - Injecting App Bridge...');
-
-          // CRITICAL: Set global flag for React app to detect embedded mode
-          window.__SHOPIFY_EMBEDDED__ = true;
-          console.log('[Shopify] ✅ Global __SHOPIFY_EMBEDDED__ flag set');
-
-          // ALWAYS inject API key meta tag (REQUIRED for App Bridge)
-          const apiKeyMeta = document.createElement('meta');
-          apiKeyMeta.name = 'shopify-api-key';
-          apiKeyMeta.content = '75123c29296179fbd8f253db4196c83b';
-          document.head.appendChild(apiKeyMeta);
-          console.log('[Shopify] ✅ API key meta tag injected');
-
-          // Inject shop meta if available (from URL or sessionStorage)
-          if (savedShop) {
-            const shopMeta = document.createElement('meta');
-            shopMeta.name = 'shopify-shop';
-            shopMeta.content = savedShop;
-            document.head.appendChild(shopMeta);
-            console.log('[Shopify] ✅ Shop meta tag injected:', savedShop);
-          } else {
-            console.warn('[Shopify] ⚠️  No shop parameter found in URL or sessionStorage');
-          }
-
-          // Inject host meta if available
-          if (savedHost) {
-            const hostMeta = document.createElement('meta');
-            hostMeta.name = 'shopify-host';
-            hostMeta.content = savedHost;
-            document.head.appendChild(hostMeta);
-            console.log('[Shopify] ✅ Host meta tag injected');
-          }
-
-          // ALWAYS load App Bridge script in iframe (even without shop parameter)
-          const script = document.createElement('script');
-          script.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
-          script.async = false; // Force synchronous loading
-          script.onload = function() {
-            console.log('[Shopify] ✅ App Bridge script loaded successfully');
-            console.log('[Shopify] window.shopify available:', !!window.shopify);
-          };
-          script.onerror = function(error) {
-            console.error('[Shopify] ❌ Failed to load App Bridge script:', error);
-          };
-          document.head.appendChild(script);
-
-          console.log('[Shopify] ✅ App Bridge script tag injected and loading...');
+        // ============================================================
+        // STEP 7: INJECT SHOP META TAG (if available)
+        // ============================================================
+        if (savedShop) {
+          console.log('🏪 [SHOPIFY] Injecting shop meta tag:', savedShop);
+          const shopMeta = document.createElement('meta');
+          shopMeta.name = 'shopify-shop';
+          shopMeta.content = savedShop;
+          document.head.appendChild(shopMeta);
+          console.log('✅ [SHOPIFY] Shop meta tag injected');
         } else {
-          console.log('[Shopify] Standalone mode - Not in iframe, App Bridge disabled');
+          console.warn('⚠️  [SHOPIFY] No shop parameter available (yet)');
         }
+
+        // ============================================================
+        // STEP 8: INJECT HOST META TAG (if available)
+        // ============================================================
+        if (savedHost) {
+          console.log('🌐 [SHOPIFY] Injecting host meta tag');
+          const hostMeta = document.createElement('meta');
+          hostMeta.name = 'shopify-host';
+          hostMeta.content = savedHost;
+          document.head.appendChild(hostMeta);
+          console.log('✅ [SHOPIFY] Host meta tag injected');
+        }
+
+        // ============================================================
+        // STEP 9: INJECT APP BRIDGE SCRIPT (UNCONDITIONAL & SYNCHRONOUS)
+        // ============================================================
+        console.log('📜 [SHOPIFY] FORCE LOADING APP BRIDGE SCRIPT...');
+        const script = document.createElement('script');
+        script.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
+        script.async = false; // SYNCHRONOUS - blocks until loaded
+
+        // ============================================================
+        // CRITICAL: Add data attributes for App Bridge CDN auto-init
+        // ============================================================
+        script.setAttribute('data-api-key', '75123c29296179fbd8f253db4196c83b');
+        console.log('✅ [SHOPIFY] Added data-api-key attribute to script');
+
+        if (savedHost) {
+          script.setAttribute('data-host', savedHost);
+          console.log('✅ [SHOPIFY] Added data-host attribute to script:', savedHost);
+        } else {
+          console.warn('⚠️  [SHOPIFY] No host available for data-host attribute');
+        }
+
+        if (savedShop) {
+          script.setAttribute('data-shop', savedShop);
+          console.log('✅ [SHOPIFY] Added data-shop attribute to script:', savedShop);
+        } else {
+          console.warn('⚠️  [SHOPIFY] No shop available for data-shop attribute');
+        }
+
+        script.onload = function() {
+          console.log('✅ [SHOPIFY] ===================================');
+          console.log('✅ [SHOPIFY] APP BRIDGE SCRIPT LOADED!');
+          console.log('✅ [SHOPIFY] window.shopify exists:', !!window.shopify);
+          console.log('✅ [SHOPIFY] window.shopify.createApp exists:', !!(window.shopify && window.shopify.createApp));
+          console.log('✅ [SHOPIFY] ===================================');
+        };
+
+        script.onerror = function(error) {
+          console.error('❌ [SHOPIFY] ===================================');
+          console.error('❌ [SHOPIFY] FAILED TO LOAD APP BRIDGE SCRIPT!');
+          console.error('❌ [SHOPIFY] Error:', error);
+          console.error('❌ [SHOPIFY] ===================================');
+        };
+
+        document.head.appendChild(script);
+        console.log('✅ [SHOPIFY] App Bridge <script> tag injected into <head>');
+        console.log('📋 [SHOPIFY] Script attributes:', {
+          'data-api-key': '***' + script.getAttribute('data-api-key').slice(-8),
+          'data-host': script.getAttribute('data-host') || 'NOT SET',
+          'data-shop': script.getAttribute('data-shop') || 'NOT SET'
+        });
+
+        // ============================================================
+        // STEP 10: Verification
+        // ============================================================
+        console.log('🔍 [SHOPIFY] === FINAL VERIFICATION ===');
+        console.log('   ✅ In iframe:', isInIframe);
+        console.log('   ✅ __SHOPIFY_EMBEDDED__:', window.__SHOPIFY_EMBEDDED__);
+        console.log('   ✅ Script injected: YES');
+        console.log('   ✅ API key meta tag: YES');
+        console.log('   ✅ Script data-api-key: YES');
+        console.log('   📋 Script data-host:', script.getAttribute('data-host') ? 'YES' : '❌ MISSING');
+        console.log('   📋 Script data-shop:', script.getAttribute('data-shop') ? 'YES' : '⚠️  MISSING');
+        console.log('   📋 Shop (sessionStorage):', savedShop || 'NOT AVAILABLE');
+        console.log('   📋 Host (sessionStorage):', savedHost || 'NOT AVAILABLE');
+        console.log('🔍 [SHOPIFY] === END ===');
       })();
     </script>
 
