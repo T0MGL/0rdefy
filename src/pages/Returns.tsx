@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { PackageX, RotateCcw, Check, X, AlertTriangle, ChevronLeft, Plus } from 'lucide-react';
+import { PackageX, RotateCcw, Check, X, AlertTriangle, ChevronLeft, Plus, TrendingDown, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +16,9 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
+import { MetricCard } from '@/components/MetricCard';
+import { formatCurrency } from '@/utils/currency';
+import { analyticsService, ReturnsMetrics } from '@/services/analytics.service';
 import {
   Select,
   SelectContent,
@@ -44,6 +47,7 @@ export default function Returns() {
   // Sessions view state
   const [sessions, setSessions] = useState<ReturnSession[]>([]);
   const [loading, setLoading] = useState(false);
+  const [returnsMetrics, setReturnsMetrics] = useState<ReturnsMetrics | null>(null);
 
   // Create session state
   const [eligibleOrders, setEligibleOrders] = useState<EligibleOrder[]>([]);
@@ -59,8 +63,12 @@ export default function Returns() {
   const loadSessions = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await returnsService.getReturnSessions();
-      setSessions(data);
+      const [sessionsData, metricsData] = await Promise.all([
+        returnsService.getReturnSessions(),
+        analyticsService.getReturnsMetrics().catch(() => null),
+      ]);
+      setSessions(sessionsData);
+      setReturnsMetrics(metricsData);
     } catch (error) {
       console.error('Error loading sessions:', error);
       toast({
@@ -279,6 +287,38 @@ export default function Returns() {
           Nueva Sesión
         </Button>
       </div>
+
+      {/* Métricas de Devolución */}
+      {returnsMetrics && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            title="Tasa de Devolución"
+            value={`${returnsMetrics.returnRate}%`}
+            subtitle={`${returnsMetrics.returnedOrders} de ${returnsMetrics.deliveredOrders + returnsMetrics.returnedOrders} pedidos`}
+            icon={<TrendingDown className="text-red-600" size={20} />}
+          />
+          <MetricCard
+            title="Valor Devuelto"
+            value={formatCurrency(returnsMetrics.returnedValue)}
+            subtitle={`${returnsMetrics.returnedOrders} pedidos devueltos`}
+            icon={<PackageX className="text-orange-600" size={20} />}
+            variant="secondary"
+          />
+          <MetricCard
+            title="Tasa de Aceptación"
+            value={`${returnsMetrics.acceptanceRate}%`}
+            subtitle={`${returnsMetrics.itemsAccepted} aceptados · ${returnsMetrics.itemsRejected} rechazados`}
+            icon={<Check className="text-green-600" size={20} />}
+            variant="accent"
+          />
+          <MetricCard
+            title="Sesiones Completadas"
+            value={returnsMetrics.completedSessions}
+            subtitle={`${returnsMetrics.totalSessions} sesiones totales · ${returnsMetrics.inProgressSessions} en progreso`}
+            icon={<Package className="text-blue-600" size={20} />}
+          />
+        </div>
+      )}
 
       {loading ? (
         <TableSkeleton rows={3} columns={4} />

@@ -654,6 +654,24 @@ export async function updatePackingProgress(
       throw new Error('Session is not in packing status');
     }
 
+    // CRITICAL: Check order status before allowing packing modifications
+    // If order already reached ready_to_ship, stock was decremented and packing is locked
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .select('sleeves_status')
+      .eq('id', orderId)
+      .single();
+
+    if (orderError) throw orderError;
+    if (order.sleeves_status === 'ready_to_ship' ||
+        order.sleeves_status === 'shipped' ||
+        order.sleeves_status === 'delivered') {
+      throw new Error(
+        'Cannot modify packing - order has already been completed and stock was decremented. ' +
+        'This order is now locked to maintain inventory accuracy.'
+      );
+    }
+
     // Get current packing progress
     const { data: progress, error: progressError } = await supabaseAdmin
       .from('packing_progress')
@@ -707,52 +725,9 @@ export async function updatePackingProgress(
 
     if (updateError) throw updateError;
 
-    // Check if order is now complete
-    const { data: orderProgress, error: orderProgressError } = await supabaseAdmin
-      .from('packing_progress')
-      .select('quantity_needed, quantity_packed')
-      .eq('picking_session_id', sessionId)
-      .eq('order_id', orderId);
-
-    if (orderProgressError) throw orderProgressError;
-
-    const orderComplete = orderProgress?.every(p => p.quantity_packed >= p.quantity_needed);
-
-    if (orderComplete) {
-      // CRITICAL: Validate stock availability before moving to ready_to_ship
-      // This prevents race conditions where multiple orders compete for the same stock
-      const { data: stockCheck, error: stockError } = await supabaseAdmin
-        .rpc('check_order_stock_availability', {
-          p_order_id: orderId,
-          p_store_id: storeId
-        });
-
-      if (stockError) {
-        console.error('Error checking stock availability:', stockError);
-        throw new Error('Failed to validate stock availability');
-      }
-
-      // Check if all products have sufficient stock
-      const insufficientStock = stockCheck?.filter((item: any) => !item.is_sufficient);
-
-      if (insufficientStock && insufficientStock.length > 0) {
-        const productNames = insufficientStock
-          .map((item: any) => `${item.product_name} (needs ${item.required_quantity}, available ${item.available_stock})`)
-          .join(', ');
-
-        throw new Error(
-          `Cannot complete packing - insufficient stock for: ${productNames}. ` +
-          `Another order may have used this stock. Please refresh and verify inventory.`
-        );
-      }
-
-      // Update order status to ready_to_ship
-      // The trigger will validate stock again and decrement it atomically
-      await supabaseAdmin
-        .from('orders')
-        .update({ sleeves_status: 'ready_to_ship' })
-        .eq('id', orderId);
-    }
+    // Note: We no longer automatically change to ready_to_ship when packing is complete
+    // The order will remain in 'in_preparation' until the shipping label is printed
+    // This ensures stock is only decremented when the order is truly ready to ship
 
     return updated;
   } catch (error) {
@@ -865,31 +840,9 @@ export async function completeSession(
       throw new Error('All orders must be packed before completing session');
     }
 
-    // Double check: Ensure all orders in session are marked as ready_to_ship
-    // This handles cases where the status update might have failed during individual item packing
-    const { data: sessionOrders, error: ordersError } = await supabaseAdmin
-      .from('picking_session_orders')
-      .select('order_id')
-      .eq('picking_session_id', sessionId);
-
-    if (ordersError) throw ordersError;
-
-    if (sessionOrders && sessionOrders.length > 0) {
-      const orderIds = sessionOrders.map(so => so.order_id);
-
-      // Force update all orders to ready_to_ship if they aren't already
-      // This is a safety mechanism to ensure data consistency
-      const { error: updateOrdersError } = await supabaseAdmin
-        .from('orders')
-        .update({ sleeves_status: 'ready_to_ship' })
-        .in('id', orderIds)
-        .neq('sleeves_status', 'ready_to_ship'); // Only update if not already correct
-
-      if (updateOrdersError) {
-        console.error('Error syncing order status:', updateOrdersError);
-        // We continue anyway since the packing validation passed
-      }
-    }
+    // Note: We no longer force orders to ready_to_ship when completing the session
+    // Orders will remain in 'in_preparation' until their shipping labels are printed
+    // This ensures stock is only decremented when labels are actually printed
 
     // Update session status
     const { data: updated, error: updateError } = await supabaseAdmin

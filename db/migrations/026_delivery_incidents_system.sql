@@ -120,6 +120,8 @@ CREATE OR REPLACE FUNCTION create_incident_on_delivery_failure()
 RETURNS TRIGGER AS $$
 DECLARE
     v_attempt_id UUID;
+    v_incident_id UUID;
+    v_retry_date DATE;
 BEGIN
     -- Only create incident if:
     -- 1. Order status changed to 'incident'
@@ -157,12 +159,34 @@ BEGIN
                 'active',
                 3,
                 0
-            );
+            )
+            RETURNING id INTO v_incident_id;
+
+            -- Auto-create 3 retry attempt slots (scheduled for next 3 business days)
+            FOR i IN 1..3 LOOP
+                v_retry_date := CURRENT_DATE + (i || ' days')::INTERVAL;
+
+                INSERT INTO incident_retry_attempts (
+                    incident_id,
+                    retry_number,
+                    scheduled_date,
+                    rescheduled_by,
+                    status,
+                    courier_notes
+                ) VALUES (
+                    v_incident_id,
+                    i,
+                    v_retry_date,
+                    'system',
+                    'scheduled',
+                    'Reintento automático programado'
+                );
+            END LOOP;
 
             -- Update order flag
             NEW.has_active_incident := TRUE;
 
-            RAISE NOTICE 'Created incident for order %', NEW.id;
+            RAISE NOTICE 'Created incident % with 3 retry slots for order %', v_incident_id, NEW.id;
         END IF;
     END IF;
 

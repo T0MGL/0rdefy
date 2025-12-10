@@ -69,8 +69,15 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             });
         }
 
-        // Check if delivery failed
-        if (data.delivery_status === 'failed' || data.sleeves_status === 'not_delivered') {
+        // Check if order has incident - treat as pending with incident flag
+        // This allows the courier to complete retry attempts
+        if (data.sleeves_status === 'incident' || data.has_active_incident) {
+            console.log(`⚠️ [ORDERS] Order ${data.id} has active incident - showing pending with incident info`);
+            // Continue to return as pending delivery, the frontend will check for incident
+        }
+
+        // Check if delivery failed (but not incident - those are handled above)
+        if ((data.delivery_status === 'failed' || data.sleeves_status === 'not_delivered') && data.sleeves_status !== 'incident') {
             return res.json({
                 delivery_failed: true,
                 message: 'Este pedido no pudo ser entregado',
@@ -85,7 +92,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             });
         }
 
-        // Return delivery information for pending deliveries
+        // Return delivery information for pending deliveries (including incidents)
         const deliveryInfo = {
             id: data.id,
             customer_name: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim(),
@@ -100,6 +107,8 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             payment_method: data.payment_method,
             line_items: data.line_items,
             delivery_status: data.delivery_status,
+            sleeves_status: data.sleeves_status,
+            has_active_incident: data.has_active_incident || false,
             carrier_name: data.carriers?.name,
             store_id: data.store_id
         };
@@ -1623,7 +1632,7 @@ ordersRouter.post('/:id/mark-printed', verifyToken, extractStoreId, async (req: 
         // Verify order exists and belongs to store
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, printed, printed_at')
+            .select('id, printed, printed_at, sleeves_status')
             .eq('id', id)
             .eq('store_id', storeId)
             .single();
@@ -1645,6 +1654,14 @@ ordersRouter.post('/:id/mark-printed', verifyToken, extractStoreId, async (req: 
         if (!existingOrder.printed) {
             updateData.printed_at = new Date().toISOString();
             updateData.printed_by = userId;
+        }
+
+        // CRITICAL: Change order status to ready_to_ship when label is printed
+        // This triggers the stock decrement via the inventory management trigger
+        // Only change if order is in 'in_preparation' (packing complete)
+        if (existingOrder.sleeves_status === 'in_preparation') {
+            updateData.sleeves_status = 'ready_to_ship';
+            console.log(`📦 [ORDERS] Changing order ${id} to ready_to_ship (label printed, stock will be decremented)`);
         }
 
         const { data: updatedOrder, error: updateError } = await supabaseAdmin
@@ -1693,24 +1710,53 @@ ordersRouter.post('/mark-printed-bulk', verifyToken, extractStoreId, async (req:
 
         console.log(`🖨️ [ORDERS] Bulk marking ${order_ids.length} orders as printed by ${userId}`);
 
-        // Update all orders in bulk
-        const { data: updatedOrders, error: updateError } = await supabaseAdmin
+        // Get all orders to check their current status
+        const { data: existingOrders, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .update({
-                printed: true,
-                printed_at: new Date().toISOString(),
-                printed_by: userId,
-                updated_at: new Date().toISOString()
-            })
+            .select('id, printed, sleeves_status')
             .in('id', order_ids)
-            .eq('store_id', storeId)
-            .select();
+            .eq('store_id', storeId);
 
-        if (updateError) {
-            throw updateError;
+        if (fetchError) {
+            throw fetchError;
         }
 
-        console.log(`✅ [ORDERS] ${updatedOrders?.length || 0} orders marked as printed`);
+        // Process each order individually to handle status changes correctly
+        const updatedOrders = [];
+        for (const order of existingOrders || []) {
+            const updateData: any = {
+                printed: true,
+                updated_at: new Date().toISOString()
+            };
+
+            // Set printed_at and printed_by only on first print
+            if (!order.printed) {
+                updateData.printed_at = new Date().toISOString();
+                updateData.printed_by = userId;
+            }
+
+            // CRITICAL: Change to ready_to_ship if order is in in_preparation
+            if (order.sleeves_status === 'in_preparation') {
+                updateData.sleeves_status = 'ready_to_ship';
+                console.log(`📦 [ORDERS] Changing order ${order.id} to ready_to_ship (label printed, stock will be decremented)`);
+            }
+
+            const { data: updated, error: updateError } = await supabaseAdmin
+                .from('orders')
+                .update(updateData)
+                .eq('id', order.id)
+                .eq('store_id', storeId)
+                .select()
+                .single();
+
+            if (updateError) {
+                console.error(`❌ [ORDERS] Error updating order ${order.id}:`, updateError);
+            } else if (updated) {
+                updatedOrders.push(updated);
+            }
+        }
+
+        console.log(`✅ [ORDERS] ${updatedOrders.length} orders marked as printed`);
 
         res.json({
             success: true,

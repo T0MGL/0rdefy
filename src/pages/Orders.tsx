@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { ordersExportColumns } from '@/utils/exportConfigs';
+import { formatCurrency } from '@/utils/currency';
 import {
   Select,
   SelectContent,
@@ -851,7 +852,7 @@ export default function Orders() {
                       )}
                     </td>
                     <td className="py-4 px-6 text-right text-sm font-semibold">
-                      Gs. {(order.total ?? 0).toLocaleString()}
+                      {formatCurrency(order.total ?? 0)}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center justify-center gap-1">

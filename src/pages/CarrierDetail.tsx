@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { carriersService } from '@/services/carriers.service';
+import { formatCurrency } from '@/utils/currency';
 import {
   ArrowLeft,
   Star,
@@ -168,7 +169,7 @@ export default function CarrierDetail() {
                 <DollarSign className="text-purple-600" size={20} />
                 <span className="text-sm text-muted-foreground">Costo/Envío</span>
               </div>
-              <p className="text-3xl font-bold text-card-foreground">Gs. 0</p>
+              <p className="text-3xl font-bold text-card-foreground">{formatCurrency(0)}</p>
             </Card>
           </div>
 
@@ -219,15 +220,15 @@ export default function CarrierDetail() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Tarifa Base</p>
-                <p className="text-2xl font-bold text-card-foreground">Gs. 0</p>
+                <p className="text-2xl font-bold text-card-foreground">{formatCurrency(0)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Precio por Kg</p>
-                <p className="text-2xl font-bold text-card-foreground">Gs. 0</p>
+                <p className="text-2xl font-bold text-card-foreground">{formatCurrency(0)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Precio por Km</p>
-                <p className="text-2xl font-bold text-card-foreground">Gs. 0</p>
+                <p className="text-2xl font-bold text-card-foreground">{formatCurrency(0)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Seguro</p>
@@ -241,7 +242,7 @@ export default function CarrierDetail() {
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Ingresos Totales</p>
-                <p className="text-3xl font-bold text-primary">Gs. 0</p>
+                <p className="text-3xl font-bold text-primary">{formatCurrency(0)}</p>
               </div>
               <div className="pt-4 border-t border-border">
                 <p className="text-sm text-muted-foreground mb-2">Último Envío</p>

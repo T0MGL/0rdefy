@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,6 +13,17 @@ import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+// TypeScript declaration for Shopify App Bridge
+declare global {
+  interface Window {
+    shopify?: {
+      id?: {
+        getToken: () => Promise<string>;
+      };
+    };
+  }
+}
 
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -91,6 +102,22 @@ const ProtectedLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
 const App = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const toggleSidebar = () => setSidebarCollapsed(prev => !prev);
+
+  // Generate Shopify Session Token automatically
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (window.shopify && window.shopify.id) {
+        try {
+          const token = await window.shopify.id.getToken();
+          console.log("✅ Token generated:", token);
+        } catch (error) {
+          console.error("Failed to generate Shopify token:", error);
+        }
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <ErrorBoundary>

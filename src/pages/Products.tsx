@@ -18,6 +18,7 @@ import { Product } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { productsExportColumns } from '@/utils/exportConfigs';
+import { formatCurrency } from '@/utils/currency';
 
 export default function Products() {
   const [showCalculator, setShowCalculator] = useState(false);
@@ -357,11 +358,11 @@ export default function Products() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Precio:</span>
-                    <span className="font-semibold">Gs. {product.price.toLocaleString()}</span>
+                    <span className="font-semibold">{formatCurrency(product.price)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Costo:</span>
-                    <span className="font-semibold">Gs. {product.cost.toLocaleString()}</span>
+                    <span className="font-semibold">{formatCurrency(product.cost)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Rentabilidad:</span>

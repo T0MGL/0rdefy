@@ -14,6 +14,7 @@ import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Customer } from '@/types';
 import { customersExportColumns } from '@/utils/exportConfigs';
+import { formatCurrency } from '@/utils/currency';
 
 // Customer Form Component
 function CustomerForm({
@@ -366,7 +367,7 @@ export default function Customers() {
                   <div className="flex items-center gap-2 text-sm">
                     <ShoppingBag size={16} className="text-muted-foreground" />
                     <span className="text-muted-foreground">
-                      Gastado: <span className="font-semibold">Gs. {customer.total_spent.toLocaleString()}</span>
+                      Gastado: <span className="font-semibold">{formatCurrency(customer.total_spent)}</span>
                     </span>
                   </div>
                 </div>

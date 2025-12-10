@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { merchandiseService } from '@/services/merchandise.service';
 import { productsService } from '@/services/products.service';
 import { suppliersService } from '@/services/suppliers.service';
+import { getCurrencySymbol } from '@/utils/currency';
 import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShipmentItemDTO, ReceiveShipmentItemDTO, Product } from '@/types';
 
 export default function Merchandise() {
@@ -539,7 +540,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
             </div>
 
             <div className="space-y-2">
-              <Label>Costo de Envío (Gs.)</Label>
+              <Label>Costo de Envío ({getCurrencySymbol()})</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -608,7 +609,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                     </div>
 
                     <div className="w-32 space-y-2">
-                      <Label>Costo Unit. (Gs.)</Label>
+                      <Label>Costo Unit. ({getCurrencySymbol()})</Label>
                       <Input
                         type="number"
                         step="0.01"
@@ -661,7 +662,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                         </div>
 
                         <div className="space-y-2">
-                          <Label>Precio de Venta (Gs.)</Label>
+                          <Label>Precio de Venta ({getCurrencySymbol()})</Label>
                           <Input
                             type="number"
                             step="0.01"
@@ -673,7 +674,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                         </div>
 
                         <div className="space-y-2">
-                          <Label>Costo del Producto (Gs.) *</Label>
+                          <Label>Costo del Producto ({getCurrencySymbol()}) *</Label>
                           <Input
                             type="number"
                             step="0.01"
