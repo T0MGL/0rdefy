@@ -135,9 +135,13 @@ export default function Products() {
     if (!productToDelete) return;
 
     try {
-      await productsService.delete(productToDelete.id);
+      const success = await productsService.delete(productToDelete.id);
 
-      // Optimistic update: remove from local state instead of reloading
+      if (!success) {
+        throw new Error('Failed to delete product');
+      }
+
+      // Only update UI after successful server response
       setProducts(prev => prev.filter(p => p.id !== productToDelete.id));
 
       setDeleteDialogOpen(false);
