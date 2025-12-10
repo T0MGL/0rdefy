@@ -11,6 +11,7 @@ import { additionalValuesService } from '@/services/additional-values.service';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { AdditionalValue } from '@/types';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 
 const categoryIcons = {
   marketing: <DollarSign className="text-accent" size={24} />,
@@ -70,7 +71,7 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Monto (Gs.) *</label>
+          <label className="text-sm font-medium">Monto ({getCurrencySymbol()}) *</label>
           <Input
             type="number"
             placeholder="0"
@@ -223,25 +224,25 @@ export default function AdditionalValues() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Marketing"
-          value={`Gs. ${Math.abs(summary.marketing).toLocaleString()}`}
+          value={formatCurrency(Math.abs(summary.marketing))}
           icon={categoryIcons.marketing}
           variant="secondary"
         />
         <MetricCard
           title="Ventas"
-          value={`Gs. ${Math.abs(summary.sales).toLocaleString()}`}
+          value={formatCurrency(Math.abs(summary.sales))}
           icon={categoryIcons.sales}
           variant="primary"
         />
         <MetricCard
           title="Empleados"
-          value={`Gs. ${Math.abs(summary.employees).toLocaleString()}`}
+          value={formatCurrency(Math.abs(summary.employees))}
           icon={categoryIcons.employees}
           variant="purple"
         />
         <MetricCard
           title="Operacional"
-          value={`Gs. ${Math.abs(summary.operational).toLocaleString()}`}
+          value={formatCurrency(Math.abs(summary.operational))}
           icon={categoryIcons.operational}
           variant="accent"
         />
@@ -305,7 +306,7 @@ export default function AdditionalValues() {
                       </Badge>
                     </td>
                     <td className="py-4 px-6 text-right text-sm font-semibold">
-                      Gs. {value.amount.toLocaleString()}
+                      {formatCurrency(value.amount)}
                     </td>
                     <td className="py-4 px-6 text-sm">{value.date}</td>
                     <td className="py-4 px-6">

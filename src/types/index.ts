@@ -15,6 +15,7 @@ export interface DashboardOverview {
   profitMargin: number; // Deprecated: use netMargin instead
   // Real cash metrics (only delivered orders)
   realRevenue?: number; // Ingreso real (solo pedidos entregados)
+  projectedRevenue?: number; // Ingreso proyectado (entregados + en tránsito ajustado por tasa de entrega)
   realProductCosts?: number; // Costo de productos reales (solo pedidos entregados)
   realCosts?: number; // Costos totales reales (solo pedidos entregados)
   realDeliveryCosts?: number; // Costos de envío reales (solo pedidos entregados)
@@ -38,6 +39,7 @@ export interface DashboardOverview {
     revenue: number | null;
     costs: number | null;
     deliveryCosts?: number | null;
+    productCosts?: number | null;
     marketing: number | null;
     grossProfit?: number | null;
     grossMargin?: number | null;
@@ -47,6 +49,7 @@ export interface DashboardOverview {
     realRevenue?: number | null;
     realCosts?: number | null;
     realDeliveryCosts?: number | null;
+    realProductCosts?: number | null;
     realGrossProfit?: number | null;
     realGrossMargin?: number | null;
     realNetProfit?: number | null;

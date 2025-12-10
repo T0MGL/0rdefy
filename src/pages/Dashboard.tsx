@@ -8,7 +8,6 @@ import { QuickActions } from '@/components/QuickActions';
 import { DailySummary } from '@/components/DailySummary';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
-import { RevenueProjectionCard } from '@/components/RevenueProjectionCard';
 import { CashFlowProjection } from '@/components/CashFlowProjection';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
@@ -29,6 +28,7 @@ import {
   ChevronUp,
   Wallet,
   ShoppingCart,
+  Activity,
 } from 'lucide-react';
 import {
   LineChart,
@@ -171,20 +171,27 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <QuickActions />
 
-      {/* Revenue Projection Card (only shows with ≥10% growth) */}
-      {revenueProjection && <RevenueProjectionCard projection={revenueProjection} />}
-
       {/* Priority Metrics - Always Visible */}
       <div>
         <h2 className="text-2xl font-bold mb-4 text-card-foreground">Resumen de Ventas</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
           <MetricCard
             title="Facturación Bruta"
-            value={formatCurrency(dashboardOverview.revenue)}
-            change={dashboardOverview.changes?.revenue !== null ? Math.abs(dashboardOverview.changes?.revenue || 0) : undefined}
-            trend={dashboardOverview.changes?.revenue !== null ? (dashboardOverview.changes?.revenue >= 0 ? 'up' : 'down') : undefined}
+            value={formatCurrency(dashboardOverview.realRevenue ?? dashboardOverview.revenue)}
+            change={dashboardOverview.changes?.realRevenue !== null ? Math.abs(dashboardOverview.changes?.realRevenue || 0) : undefined}
+            trend={dashboardOverview.changes?.realRevenue !== null ? (dashboardOverview.changes?.realRevenue >= 0 ? 'up' : 'down') : undefined}
             icon={<DollarSign className="text-primary" size={24} />}
             variant="primary"
+            subtitle="Solo pedidos entregados"
+          />
+          <MetricCard
+            title="Facturación Proyectada"
+            value={formatCurrency(dashboardOverview.projectedRevenue ?? dashboardOverview.realRevenue ?? dashboardOverview.revenue)}
+            change={undefined}
+            trend={undefined}
+            icon={<Activity className="text-cyan-600" size={24} />}
+            variant="secondary"
+            subtitle="Entregados + en tránsito"
           />
           <MetricCard
             title="Beneficio Neto Real"
@@ -299,19 +306,19 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
               title="Costos de Productos"
-              value={formatCurrency(dashboardOverview.productCosts || dashboardOverview.costs - dashboardOverview.deliveryCosts - dashboardOverview.marketing)}
-              change={dashboardOverview.changes?.costs !== null ? Math.abs(dashboardOverview.changes?.costs || 0) : undefined}
-              trend={dashboardOverview.changes?.costs !== null ? (dashboardOverview.changes?.costs >= 0 ? 'up' : 'down') : undefined}
+              value={formatCurrency(dashboardOverview.realProductCosts ?? dashboardOverview.productCosts)}
+              change={dashboardOverview.changes?.realProductCosts !== null ? Math.abs(dashboardOverview.changes?.realProductCosts || 0) : undefined}
+              trend={dashboardOverview.changes?.realProductCosts !== null ? (dashboardOverview.changes?.realProductCosts >= 0 ? 'up' : 'down') : undefined}
               icon={<TrendingDown className="text-red-600" size={20} />}
-              subtitle="Solo costo de productos"
+              subtitle="Solo pedidos entregados"
             />
             <MetricCard
               title="Costos de Envío"
-              value={formatCurrency(dashboardOverview.deliveryCosts || 0)}
-              change={dashboardOverview.changes?.deliveryCosts !== null ? Math.abs(dashboardOverview.changes?.deliveryCosts || 0) : undefined}
-              trend={dashboardOverview.changes?.deliveryCosts !== null ? (dashboardOverview.changes?.deliveryCosts >= 0 ? 'up' : 'down') : undefined}
+              value={formatCurrency(dashboardOverview.realDeliveryCosts ?? dashboardOverview.deliveryCosts)}
+              change={dashboardOverview.changes?.realDeliveryCosts !== null ? Math.abs(dashboardOverview.changes?.realDeliveryCosts || 0) : undefined}
+              trend={dashboardOverview.changes?.realDeliveryCosts !== null ? (dashboardOverview.changes?.realDeliveryCosts >= 0 ? 'up' : 'down') : undefined}
               icon={<Truck className="text-orange-600" size={20} />}
-              subtitle="Costos de logística"
+              subtitle="Solo pedidos entregados"
             />
             <MetricCard
               title="Marketing"

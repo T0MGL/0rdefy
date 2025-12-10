@@ -191,4 +191,97 @@ export const analyticsService = {
       return null;
     }
   },
+
+  getLogisticsMetrics: async (params?: { startDate?: string; endDate?: string }): Promise<LogisticsMetrics | null> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const url = `${API_BASE_URL}/analytics/logistics-metrics${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await fetch(url, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+      return result.data || null;
+    } catch (error) {
+      console.error('Error loading logistics metrics:', error);
+      return null;
+    }
+  },
+
+  getReturnsMetrics: async (params?: { startDate?: string; endDate?: string }): Promise<ReturnsMetrics | null> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const url = `${API_BASE_URL}/analytics/returns-metrics${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await fetch(url, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+      return result.data || null;
+    } catch (error) {
+      console.error('Error loading returns metrics:', error);
+      return null;
+    }
+  },
 };
+
+// Tipos para las nuevas métricas
+export interface LogisticsMetrics {
+  // Pedidos despachados
+  totalDispatched: number;
+  dispatchedValue: number;
+  // Tasa de fallidos
+  failedRate: number;
+  totalFailed: number;
+  failedOrdersValue: number;
+  // Tasa de rechazo en puerta
+  doorRejectionRate: number;
+  doorRejections: number;
+  deliveryAttempts: number;
+  // Cash collection
+  cashCollectionRate: number;
+  expectedCash: number;
+  collectedCash: number;
+  pendingCashAmount: number;
+  pendingCollectionOrders: number;
+  // Métricas adicionales
+  inTransitOrders: number;
+  inTransitValue: number;
+  avgDeliveryDays: number;
+  avgDeliveryAttempts: number;
+  costPerFailedAttempt: number;
+  // Totales
+  totalOrders: number;
+  deliveredOrders: number;
+}
+
+export interface ReturnsMetrics {
+  // Tasa de devolución
+  returnRate: number;
+  returnedOrders: number;
+  returnedValue: number;
+  deliveredOrders: number;
+  // Sesiones
+  totalSessions: number;
+  completedSessions: number;
+  inProgressSessions: number;
+  // Items
+  totalItemsProcessed: number;
+  itemsAccepted: number;
+  itemsRejected: number;
+  acceptanceRate: number;
+  // Razones de rechazo
+  rejectionReasons: Record<string, number>;
+  // Contexto
+  totalOrders: number;
+}

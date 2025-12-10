@@ -139,7 +139,23 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 .filter(o => o.sleeves_status === 'delivered')
                 .reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
-            // 1.6. DELIVERY COSTS (shipping costs from orders)
+            // 1.6. PROJECTED REVENUE (delivered + shipped adjusted by delivery rate)
+            // Calculate revenue from shipped orders (in transit)
+            const shippedRevenue = ordersList
+                .filter(o => o.sleeves_status === 'shipped')
+                .reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
+
+            // Calculate delivery rate for projection
+            const shippedOrDelivered = ordersList.filter(o =>
+                o.sleeves_status === 'shipped' || o.sleeves_status === 'delivered'
+            ).length;
+            const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
+            const deliveryRateDecimal = shippedOrDelivered > 0 ? (delivered / shippedOrDelivered) : 0.85; // Default 85%
+
+            // Projected revenue = delivered (100%) + shipped (adjusted by delivery rate)
+            const projectedRevenue = realRevenue + (shippedRevenue * deliveryRateDecimal);
+
+            // 1.7. DELIVERY COSTS (shipping costs from orders)
             // These are costs that must be subtracted from profit
             let deliveryCosts = 0;
             let realDeliveryCosts = 0;
@@ -290,19 +306,23 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const realRoasValue = mktg > 0 ? (realRevenue / mktg) : 0;
 
             // 10. DELIVERY RATE
-            // Solo considerar pedidos que fueron despachados (shipped o delivered)
-            // La tasa de entrega debe ser: (entregados / despachados) × 100
-            const shipped = ordersList.filter(o =>
-                o.sleeves_status === 'shipped' ||
-                o.sleeves_status === 'delivered'
-            ).length;
+            // ✅ CORREGIDO: Tasa de entrega para COD
+            // Total despachados = todos los pedidos que salieron del almacén
+            // (ready_to_ship, shipped, delivered, returned, cancelled después de envío, delivery_failed)
+            const dispatched = ordersList.filter(o => {
+                const status = o.sleeves_status;
+                return ['ready_to_ship', 'shipped', 'delivered', 'returned', 'delivery_failed'].includes(status) ||
+                       (status === 'cancelled' && o.shipped_at); // Cancelados después de despacho
+            }).length;
             const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
-            const delivRate = shipped > 0 ? ((delivered / shipped) * 100) : 0;
+            // Tasa de entrega = (Entregados / Total Despachados) × 100
+            const delivRate = dispatched > 0 ? ((delivered / dispatched) * 100) : 0;
 
             return {
                 totalOrders: count,
                 revenue: rev,
                 realRevenue: realRevenue,
+                projectedRevenue: projectedRevenue,
                 // Costos separados para transparencia
                 productCosts: productCosts,
                 realProductCosts: realProductCosts,
@@ -367,6 +387,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             totalOrders: calculateChange(currentMetrics.totalOrders, previousMetrics.totalOrders),
             revenue: calculateChange(currentMetrics.revenue, previousMetrics.revenue),
             costs: calculateChange(currentMetrics.costs, previousMetrics.costs),
+            productCosts: calculateChange(currentMetrics.productCosts, previousMetrics.productCosts),
             deliveryCosts: calculateChange(currentMetrics.deliveryCosts, previousMetrics.deliveryCosts),
             marketing: calculateChange(currentMetrics.marketing, previousMetrics.marketing),
             grossProfit: calculateChange(currentMetrics.grossProfit, previousMetrics.grossProfit),
@@ -375,6 +396,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             netMargin: calculateChange(currentMetrics.netMargin, previousMetrics.netMargin),
             realRevenue: calculateChange(currentMetrics.realRevenue, previousMetrics.realRevenue),
             realCosts: calculateChange(currentMetrics.realCosts, previousMetrics.realCosts),
+            realProductCosts: calculateChange(currentMetrics.realProductCosts, previousMetrics.realProductCosts),
             realDeliveryCosts: calculateChange(currentMetrics.realDeliveryCosts, previousMetrics.realDeliveryCosts),
             realGrossProfit: calculateChange(currentMetrics.realGrossProfit, previousMetrics.realGrossProfit),
             realGrossMargin: calculateChange(currentMetrics.realGrossMargin, previousMetrics.realGrossMargin),
@@ -406,6 +428,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 profitMargin: parseFloat(netMargin.toFixed(1)), // Deprecated: same as netMargin for backwards compatibility
                 // Real cash metrics (only delivered orders)
                 realRevenue: Math.round(currentMetrics.realRevenue),
+                projectedRevenue: Math.round(currentMetrics.projectedRevenue),
                 realProductCosts: Math.round(currentMetrics.realProductCosts),
                 realDeliveryCosts: Math.round(currentMetrics.realDeliveryCosts),
                 realCosts: Math.round(currentMetrics.realCosts),
@@ -434,6 +457,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     totalOrders: changes.totalOrders,
                     revenue: changes.revenue,
                     costs: changes.costs,
+                    productCosts: changes.productCosts,
                     deliveryCosts: changes.deliveryCosts,
                     marketing: changes.marketing,
                     grossProfit: changes.grossProfit,
@@ -442,6 +466,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     netMargin: changes.netMargin,
                     realRevenue: changes.realRevenue,
                     realCosts: changes.realCosts,
+                    realProductCosts: changes.realProductCosts,
                     realDeliveryCosts: changes.realDeliveryCosts,
                     realGrossProfit: changes.realGrossProfit,
                     realGrossMargin: changes.realGrossMargin,
@@ -1354,6 +1379,340 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
         console.error('[GET /api/analytics/cash-flow-timeline] Error:', error);
         res.status(500).json({
             error: 'Failed to fetch cash flow timeline',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/analytics/logistics-metrics - Métricas de logística avanzadas
+// ================================================================
+// Métricas críticas para e-commerce COD:
+// - Tasa de pedidos fallidos
+// - Pedidos despachados
+// - Tasa de rechazo en puerta
+// - Cash collection efficiency
+// ================================================================
+analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        // Build date filter
+        let dateFilter: { start: Date; end: Date };
+        if (startDate && endDate) {
+            dateFilter = {
+                start: new Date(startDate as string),
+                end: new Date(toEndOfDay(endDate as string))
+            };
+        } else {
+            // Default: last 30 days
+            const now = new Date();
+            dateFilter = {
+                end: now,
+                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+            };
+        }
+
+        // Get all orders in the period
+        const { data: ordersData, error: ordersError } = await supabaseAdmin
+            .from('orders')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .gte('created_at', dateFilter.start.toISOString())
+            .lte('created_at', dateFilter.end.toISOString());
+
+        if (ordersError) throw ordersError;
+
+        const orders = ordersData || [];
+
+        // ===== PEDIDOS DESPACHADOS =====
+        // Pedidos que salieron del almacén (ready_to_ship, shipped, delivered, cancelled después de envío, returned)
+        const dispatchedStatuses = ['ready_to_ship', 'shipped', 'delivered', 'returned'];
+        const dispatchedOrders = orders.filter(o => dispatchedStatuses.includes(o.sleeves_status));
+        const totalDispatched = dispatchedOrders.length;
+
+        // ===== TASA DE PEDIDOS FALLIDOS =====
+        // Fallidos = Cancelados después de despacho + Devueltos + Entregas fallidas
+        // Un pedido "fallido" es aquel donde se invirtió en logística pero no se recuperó el dinero
+        const failedAfterDispatch = orders.filter(o => {
+            // Cancelled después de que fue despachado (tiene shipped_at o fue enviado)
+            if (o.sleeves_status === 'cancelled' && o.shipped_at) return true;
+            // Returned
+            if (o.sleeves_status === 'returned') return true;
+            // Delivery failed
+            if (o.sleeves_status === 'delivery_failed') return true;
+            return false;
+        });
+        const totalFailed = failedAfterDispatch.length;
+
+        // Tasa de fallidos = (Fallidos / Total Despachados) × 100
+        const failedRate = totalDispatched > 0
+            ? parseFloat(((totalFailed / totalDispatched) * 100).toFixed(1))
+            : 0;
+
+        // Valor perdido en pedidos fallidos
+        const failedOrdersValue = failedAfterDispatch.reduce((sum, o) =>
+            sum + (Number(o.total_price) || 0), 0
+        );
+
+        // ===== TASA DE RECHAZO EN PUERTA =====
+        // Pedidos rechazados por el cliente al momento de la entrega
+        // Típicamente: customer_refused, delivery_failed con razón de rechazo
+        const doorRejections = orders.filter(o => {
+            // Buscar en el campo de razón de fallo o status específico
+            const rejectionReasons = ['customer_refused', 'rechazado', 'no_acepta', 'refused'];
+            const failedReason = (o.failed_reason || '').toLowerCase();
+            const deliveryStatus = (o.delivery_status || '').toLowerCase();
+
+            return o.sleeves_status === 'delivery_failed' ||
+                   rejectionReasons.some(r => failedReason.includes(r) || deliveryStatus.includes(r));
+        });
+
+        // Intentos de entrega = Pedidos que llegaron a la puerta (shipped o superior)
+        const deliveryAttempts = orders.filter(o =>
+            ['shipped', 'delivered', 'delivery_failed', 'returned'].includes(o.sleeves_status)
+        ).length;
+
+        // Tasa de rechazo en puerta = (Rechazos / Intentos de entrega) × 100
+        const doorRejectionRate = deliveryAttempts > 0
+            ? parseFloat(((doorRejections.length / deliveryAttempts) * 100).toFixed(1))
+            : 0;
+
+        // ===== CASH COLLECTION EFFICIENCY =====
+        // Eficiencia en el cobro de dinero en efectivo (COD)
+        // Cash Collection = (Dinero Cobrado / Dinero Esperado de Entregados) × 100
+
+        // Dinero esperado: Total de pedidos entregados (deberían haberse cobrado)
+        const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
+        const expectedCash = deliveredOrders.reduce((sum, o) =>
+            sum + (Number(o.total_price) || 0), 0
+        );
+
+        // Dinero cobrado: Pedidos con payment_status = 'collected' o 'paid'
+        const collectedOrders = orders.filter(o =>
+            o.payment_status === 'collected' || o.payment_status === 'paid'
+        );
+        const collectedCash = collectedOrders.reduce((sum, o) =>
+            sum + (Number(o.total_price) || 0), 0
+        );
+
+        // Cash collection efficiency
+        const cashCollectionRate = expectedCash > 0
+            ? parseFloat(((collectedCash / expectedCash) * 100).toFixed(1))
+            : 0;
+
+        // Dinero pendiente de cobro (entregado pero no cobrado)
+        const pendingCollection = deliveredOrders.filter(o =>
+            o.payment_status !== 'collected' && o.payment_status !== 'paid'
+        );
+        const pendingCashAmount = pendingCollection.reduce((sum, o) =>
+            sum + (Number(o.total_price) || 0), 0
+        );
+
+        // ===== MÉTRICAS ADICIONALES ÚTILES =====
+        // Pedidos en tránsito
+        const inTransitOrders = orders.filter(o => o.sleeves_status === 'shipped');
+        const inTransitValue = inTransitOrders.reduce((sum, o) =>
+            sum + (Number(o.total_price) || 0), 0
+        );
+
+        // Tiempo promedio de entrega (días)
+        const deliveredWithDates = deliveredOrders.filter(o => o.created_at && o.delivered_at);
+        let avgDeliveryDays = 0;
+        if (deliveredWithDates.length > 0) {
+            const totalDays = deliveredWithDates.reduce((sum, o) => {
+                const created = new Date(o.created_at).getTime();
+                const delivered = new Date(o.delivered_at).getTime();
+                return sum + (delivered - created) / (1000 * 60 * 60 * 24);
+            }, 0);
+            avgDeliveryDays = parseFloat((totalDays / deliveredWithDates.length).toFixed(1));
+        }
+
+        // Intentos promedio de entrega
+        const ordersWithAttempts = orders.filter(o => o.delivery_attempts && o.delivery_attempts > 0);
+        const avgDeliveryAttempts = ordersWithAttempts.length > 0
+            ? parseFloat((ordersWithAttempts.reduce((sum, o) => sum + (o.delivery_attempts || 0), 0) / ordersWithAttempts.length).toFixed(1))
+            : 1;
+
+        // Costo por intento fallido (estimado)
+        // Asumimos costo de envío promedio × intentos fallidos
+        const avgShippingCost = orders.length > 0
+            ? orders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0) / orders.length
+            : 0;
+        const costPerFailedAttempt = avgShippingCost * avgDeliveryAttempts;
+
+        res.json({
+            data: {
+                // Pedidos despachados
+                totalDispatched,
+                dispatchedValue: Math.round(dispatchedOrders.reduce((sum, o) => sum + (Number(o.total_price) || 0), 0)),
+
+                // Tasa de fallidos
+                failedRate,
+                totalFailed,
+                failedOrdersValue: Math.round(failedOrdersValue),
+
+                // Tasa de rechazo en puerta
+                doorRejectionRate,
+                doorRejections: doorRejections.length,
+                deliveryAttempts,
+
+                // Cash collection
+                cashCollectionRate,
+                expectedCash: Math.round(expectedCash),
+                collectedCash: Math.round(collectedCash),
+                pendingCashAmount: Math.round(pendingCashAmount),
+                pendingCollectionOrders: pendingCollection.length,
+
+                // Métricas adicionales
+                inTransitOrders: inTransitOrders.length,
+                inTransitValue: Math.round(inTransitValue),
+                avgDeliveryDays,
+                avgDeliveryAttempts,
+                costPerFailedAttempt: Math.round(costPerFailedAttempt),
+
+                // Totales para contexto
+                totalOrders: orders.length,
+                deliveredOrders: deliveredOrders.length,
+            }
+        });
+    } catch (error: any) {
+        console.error('[GET /api/analytics/logistics-metrics] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch logistics metrics',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/analytics/returns-metrics - Métricas de devoluciones
+// ================================================================
+analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        // Build date filter
+        let dateFilter: { start: Date; end: Date };
+        if (startDate && endDate) {
+            dateFilter = {
+                start: new Date(startDate as string),
+                end: new Date(toEndOfDay(endDate as string))
+            };
+        } else {
+            // Default: last 30 days
+            const now = new Date();
+            dateFilter = {
+                end: now,
+                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+            };
+        }
+
+        // Get all orders in the period
+        const { data: ordersData, error: ordersError } = await supabaseAdmin
+            .from('orders')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .gte('created_at', dateFilter.start.toISOString())
+            .lte('created_at', dateFilter.end.toISOString());
+
+        if (ordersError) throw ordersError;
+
+        const orders = ordersData || [];
+
+        // ===== TASA DE DEVOLUCIÓN =====
+        // Devoluciones sobre pedidos entregados
+        // Tasa = (Pedidos Devueltos / Pedidos Entregados + Devueltos) × 100
+
+        const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
+        const returnedOrders = orders.filter(o => o.sleeves_status === 'returned');
+
+        const totalDeliveredAndReturned = deliveredOrders.length + returnedOrders.length;
+        const returnRate = totalDeliveredAndReturned > 0
+            ? parseFloat(((returnedOrders.length / totalDeliveredAndReturned) * 100).toFixed(1))
+            : 0;
+
+        // Valor de devoluciones
+        const returnedValue = returnedOrders.reduce((sum, o) =>
+            sum + (Number(o.total_price) || 0), 0
+        );
+
+        // Get return sessions for more detailed metrics
+        const { data: returnSessions, error: sessionsError } = await supabaseAdmin
+            .from('return_sessions')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .gte('created_at', dateFilter.start.toISOString())
+            .lte('created_at', dateFilter.end.toISOString());
+
+        if (sessionsError) {
+            console.error('[GET /api/analytics/returns-metrics] Sessions query error:', sessionsError);
+        }
+
+        const sessions = returnSessions || [];
+        const completedSessions = sessions.filter(s => s.status === 'completed');
+
+        // Get return items for acceptance/rejection breakdown
+        let items: any[] = [];
+        if (sessions.length > 0) {
+            const { data: returnItems, error: itemsError } = await supabaseAdmin
+                .from('return_session_items')
+                .select('quantity_accepted, quantity_rejected, rejection_reason')
+                .in('session_id', sessions.map(s => s.id));
+
+            if (itemsError) {
+                console.error('[GET /api/analytics/returns-metrics] Items query error:', itemsError);
+            }
+            items = returnItems || [];
+        }
+
+        // Calculate acceptance vs rejection
+        const totalAccepted = items.reduce((sum, i) => sum + (i.quantity_accepted || 0), 0);
+        const totalRejected = items.reduce((sum, i) => sum + (i.quantity_rejected || 0), 0);
+        const totalItems = totalAccepted + totalRejected;
+
+        const acceptanceRate = totalItems > 0
+            ? parseFloat(((totalAccepted / totalItems) * 100).toFixed(1))
+            : 0;
+
+        // Rejection reasons breakdown
+        const rejectionReasons: Record<string, number> = {};
+        items.forEach(item => {
+            if (item.rejection_reason && item.quantity_rejected > 0) {
+                rejectionReasons[item.rejection_reason] = (rejectionReasons[item.rejection_reason] || 0) + item.quantity_rejected;
+            }
+        });
+
+        res.json({
+            data: {
+                // Tasa de devolución principal
+                returnRate,
+                returnedOrders: returnedOrders.length,
+                returnedValue: Math.round(returnedValue),
+                deliveredOrders: deliveredOrders.length,
+
+                // Sesiones de devolución
+                totalSessions: sessions.length,
+                completedSessions: completedSessions.length,
+                inProgressSessions: sessions.filter(s => s.status === 'in_progress').length,
+
+                // Items procesados
+                totalItemsProcessed: totalItems,
+                itemsAccepted: totalAccepted,
+                itemsRejected: totalRejected,
+                acceptanceRate,
+
+                // Razones de rechazo
+                rejectionReasons,
+
+                // Contexto
+                totalOrders: orders.length,
+            }
+        });
+    } catch (error: any) {
+        console.error('[GET /api/analytics/returns-metrics] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch returns metrics',
             message: error.message
         });
     }

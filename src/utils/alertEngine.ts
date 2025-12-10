@@ -13,12 +13,11 @@ export function generateAlerts(data: AlertEngineData): Alert[] {
 
   if (orders.length === 0) return alerts;
 
-  // Analizar tasa de confirmación
-  const pendingOrders = orders.filter(o => o.status === 'pending');
-  const confirmedOrders = orders.filter(o => o.confirmedByWhatsApp);
+  // ✅ CORREGIDO: Analizar tasa de confirmación usando confirmedByWhatsApp
+  const confirmedOrders = orders.filter(o => o.confirmedByWhatsApp === true);
   const confirmationRate = (confirmedOrders.length / orders.length) * 100;
-  
-  if (confirmationRate < 50) {
+
+  if (confirmationRate < 50 && orders.length > 10) {
     alerts.push({
       id: 'low-confirmation',
       severity: 'critical',
@@ -30,50 +29,59 @@ export function generateAlerts(data: AlertEngineData): Alert[] {
       dismissed: false,
     });
   }
-  
-  // Analizar ROAS
-  if (overview.roi < 2) {
+
+  // ✅ CORREGIDO: Analizar ROI real (no proyectado) con threshold realista para LATAM COD
+  // ROI típico en e-commerce COD en LATAM: 1.2x - 1.5x es aceptable
+  const realRoi = overview.realRoi || overview.roi;
+  if (realRoi < 1.2 && overview.totalOrders > 20) {
     alerts.push({
       id: 'low-roi',
       severity: 'warning',
       title: 'ROI por debajo del objetivo',
-      description: `El ROI actual es ${overview.roi}x. El objetivo es mantenerlo por encima de 2x.`,
+      description: `El ROI real es ${realRoi.toFixed(2)}x. El objetivo mínimo es 1.2x para mantener rentabilidad.`,
       actionUrl: '/ads',
       actionLabel: 'Revisar campañas',
       timestamp: new Date().toISOString(),
       dismissed: false,
     });
   }
-  
-  // Analizar stock crítico
-  const lowStockProducts = orders.filter(o => o.quantity < 5);
-  if (lowStockProducts.length > 0) {
-    alerts.push({
-      id: 'low-stock',
-      severity: 'warning',
-      title: 'Productos con stock bajo',
-      description: `${lowStockProducts.length} productos tienen menos de 5 unidades en stock.`,
-      actionUrl: '/products',
-      actionLabel: 'Ver productos',
-      timestamp: new Date().toISOString(),
-      dismissed: false,
-    });
-  }
-  
-  // Analizar transportadoras
-  const poorPerformers = carriers.filter(c => (c.delivery_rate || 0) < 75);
+
+  // ✅ ELIMINADO: Alerta de stock bajo desde orders (no tiene sentido)
+  // El stock se debe analizar desde la tabla de productos directamente
+
+  // ✅ CORREGIDO: Analizar transportadoras con threshold realista para COD
+  // En COD, una tasa de entrega del 70% es considerada aceptable en LATAM
+  const poorPerformers = carriers.filter(c =>
+    (c.delivery_rate || 0) < 70 &&
+    (c.total_deliveries || c.totalShipments || 0) > 10 // Solo si tiene suficientes entregas
+  );
   if (poorPerformers.length > 0) {
     alerts.push({
       id: 'poor-carriers',
       severity: 'warning',
       title: 'Transportadoras con bajo rendimiento',
-      description: `${poorPerformers.length} transportadoras tienen tasa de entrega inferior al 75%.`,
+      description: `${poorPerformers.length} transportadoras tienen tasa de entrega inferior al 70%.`,
       actionUrl: '/carriers',
       actionLabel: 'Ver transportadoras',
       timestamp: new Date().toISOString(),
       dismissed: false,
     });
   }
-  
+
+  // ✅ NUEVO: Analizar margen neto bajo (crítico para la salud del negocio)
+  const netMargin = overview.realNetMargin || overview.netMargin;
+  if (netMargin < 15 && overview.totalOrders > 20) {
+    alerts.push({
+      id: 'low-net-margin',
+      severity: 'critical',
+      title: 'Margen neto muy bajo',
+      description: `El margen neto es ${netMargin.toFixed(1)}%. Se recomienda mantenerlo por encima del 15% para rentabilidad sostenible.`,
+      actionUrl: '/dashboard',
+      actionLabel: 'Ver métricas',
+      timestamp: new Date().toISOString(),
+      dismissed: false,
+    });
+  }
+
   return alerts;
 }

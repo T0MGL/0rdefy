@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { MetricCard } from '@/components/MetricCard';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { analyticsService } from '@/services/analytics.service';
+import { analyticsService, LogisticsMetrics } from '@/services/analytics.service';
 import { codMetricsService } from '@/services/cod-metrics.service';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ConfirmationMetrics } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
+import { formatCurrency } from '@/utils/currency';
 import {
   Truck,
   CheckCircle2,
@@ -19,6 +20,10 @@ import {
   PackageCheck,
   Clock,
   TrendingUp,
+  XCircle,
+  DoorOpen,
+  Banknote,
+  PackageX,
 } from 'lucide-react';
 import {
   PieChart,
@@ -48,6 +53,7 @@ export default function DashboardLogistics() {
   const [confirmationMetrics, setConfirmationMetrics] = useState<ConfirmationMetrics | null>(null);
   const [orderStatusData, setOrderStatusData] = useState<any[]>([]);
   const [codMetrics, setCodMetrics] = useState<any>(null);
+  const [logisticsMetrics, setLogisticsMetrics] = useState<LogisticsMetrics | null>(null);
 
   // Memoize status map to avoid recreation
   const statusMap = useMemo(() => ({
@@ -83,7 +89,7 @@ export default function DashboardLogistics() {
         endDate: dateRange.endDate,
       };
 
-      const [overview, confirmation, statusDist, codData] = await Promise.all([
+      const [overview, confirmation, statusDist, codData, logisticsData] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getConfirmationMetrics(dateParams),
         analyticsService.getOrderStatusDistribution(dateParams),
@@ -91,6 +97,7 @@ export default function DashboardLogistics() {
           start_date: dateParams.startDate,
           end_date: dateParams.endDate,
         }).catch(() => null),
+        analyticsService.getLogisticsMetrics(dateParams).catch(() => null),
       ]);
 
       // Check if request was aborted before updating state
@@ -101,6 +108,7 @@ export default function DashboardLogistics() {
       setDashboardOverview(overview);
       setConfirmationMetrics(confirmation);
       setCodMetrics(codData);
+      setLogisticsMetrics(logisticsData);
 
       // Transform status distribution for pie chart
       const transformedStatus = statusDist.map(item => ({
@@ -205,6 +213,41 @@ export default function DashboardLogistics() {
         </div>
       </div>
 
+      {/* Nuevas Métricas de Logística Avanzada */}
+      {logisticsMetrics && (
+        <div>
+          <h2 className="text-2xl font-bold mb-4 text-card-foreground">Métricas de Logística</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <MetricCard
+              title="Pedidos Despachados"
+              value={logisticsMetrics.totalDispatched}
+              subtitle={formatCurrency(logisticsMetrics.dispatchedValue)}
+              icon={<PackageCheck className="text-blue-600" size={20} />}
+              variant="secondary"
+            />
+            <MetricCard
+              title="Tasa de Pedidos Fallidos"
+              value={`${logisticsMetrics.failedRate}%`}
+              subtitle={`${logisticsMetrics.totalFailed} pedidos · ${formatCurrency(logisticsMetrics.failedOrdersValue)} perdidos`}
+              icon={<XCircle className="text-red-600" size={20} />}
+            />
+            <MetricCard
+              title="Tasa de Rechazo en Puerta"
+              value={`${logisticsMetrics.doorRejectionRate}%`}
+              subtitle={`${logisticsMetrics.doorRejections} rechazos de ${logisticsMetrics.deliveryAttempts} intentos`}
+              icon={<DoorOpen className="text-orange-600" size={20} />}
+            />
+            <MetricCard
+              title="Cash Collection"
+              value={`${logisticsMetrics.cashCollectionRate}%`}
+              subtitle={`Cobrado: ${formatCurrency(logisticsMetrics.collectedCash)} · Pendiente: ${formatCurrency(logisticsMetrics.pendingCashAmount)}`}
+              icon={<Banknote className="text-green-600" size={20} />}
+              variant="accent"
+            />
+          </div>
+        </div>
+      )}
+
       {/* COD Metrics Section */}
       {codMetrics && (
         <div>
@@ -212,13 +255,13 @@ export default function DashboardLogistics() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
               title="Cobrado Hoy"
-              value={`Gs. ${(codMetrics.collected_today || 0).toLocaleString()}`}
+              value={formatCurrency(codMetrics.collected_today || 0)}
               icon={<CheckCircle2 className="text-green-600" size={20} />}
               variant="accent"
             />
             <MetricCard
               title="Proyección de Caja"
-              value={`Gs. ${(codMetrics.pending_cash || 0).toLocaleString()}`}
+              value={formatCurrency(codMetrics.pending_cash || 0)}
               icon={<TrendingUp className="text-blue-600" size={20} />}
               variant="secondary"
             />
@@ -262,7 +305,7 @@ export default function DashboardLogistics() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <MetricCard
                 title="Pérdidas por Fallos"
-                value={`Gs. ${(codMetrics.failed_deliveries_loss || 0).toLocaleString()}`}
+                value={formatCurrency(codMetrics.failed_deliveries_loss || 0)}
                 icon={<AlertCircle className="text-red-600" size={20} />}
               />
               <MetricCard
