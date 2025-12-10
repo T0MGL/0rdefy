@@ -3,12 +3,10 @@ import { MetricCard } from '@/components/MetricCard';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService } from '@/services/analytics.service';
-import { codMetricsService } from '@/services/cod-metrics.service';
 import { QuickActions } from '@/components/QuickActions';
 import { DailySummary } from '@/components/DailySummary';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
-import { CashFlowProjection } from '@/components/CashFlowProjection';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -26,7 +24,6 @@ import {
   Receipt,
   ChevronDown,
   ChevronUp,
-  Wallet,
   ShoppingCart,
   Activity,
 } from 'lucide-react';
@@ -54,7 +51,6 @@ export default function Dashboard() {
   // Real analytics data
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
-  const [codMetrics, setCodMetrics] = useState<any>(null);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -82,13 +78,9 @@ export default function Dashboard() {
 
       console.log('📊 Loading dashboard data with params:', dateParams);
 
-      const [overview, chart, codData] = await Promise.all([
+      const [overview, chart] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getChartData(dateRange.days, dateParams),
-        codMetricsService.getMetrics({
-          start_date: dateParams.startDate,
-          end_date: dateParams.endDate,
-        }).catch(() => null), // Fail silently if COD metrics not available
       ]);
 
       // Check if request was aborted before updating state
@@ -99,7 +91,6 @@ export default function Dashboard() {
 
       setDashboardOverview(overview);
       setChartData(chart);
-      setCodMetrics(codData);
     } catch (error: any) {
       // Ignore abort errors
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
@@ -174,7 +165,7 @@ export default function Dashboard() {
       {/* Priority Metrics - Always Visible */}
       <div>
         <h2 className="text-2xl font-bold mb-4 text-card-foreground">Resumen de Ventas</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <MetricCard
             title="Facturación Bruta"
             value={formatCurrency(dashboardOverview.realRevenue ?? dashboardOverview.revenue)}
@@ -201,14 +192,6 @@ export default function Dashboard() {
             icon={<TrendingUp className="text-green-600" size={24} />}
             variant="accent"
             subtitle="Solo pedidos entregados"
-          />
-          <MetricCard
-            title="Proyección de Caja"
-            value={codMetrics ? formatCurrency(codMetrics.pending_cash) : formatCurrency(0)}
-            change={undefined}
-            trend={undefined}
-            icon={<Wallet className="text-blue-600" size={24} />}
-            variant="secondary"
           />
           <MetricCard
             title="Tasa de Entrega"
@@ -392,9 +375,6 @@ export default function Dashboard() {
           </LineChart>
         </ResponsiveContainer>
       </Card>
-
-      {/* Cash Flow Projection */}
-      <CashFlowProjection />
 
       {/* Revenue Intelligence Section */}
       <RevenueIntelligence />
