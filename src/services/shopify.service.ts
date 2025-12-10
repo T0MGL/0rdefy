@@ -128,10 +128,44 @@ export const startShopifyOAuth = (shop: string, userId?: string, storeId?: strin
 };
 
 // ================================================================
+// SYNC ORDERS FROM SHOPIFY
+// ================================================================
+// Manually trigger order synchronization from Shopify
+// ================================================================
+export const syncOrdersFromShopify = async (): Promise<{
+  success: boolean;
+  job_ids?: string[];
+  integration_id?: string;
+  message?: string;
+  error?: string;
+}> => {
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/shopify/sync-orders`,
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to sync orders from Shopify');
+    }
+
+    return response.json();
+  } catch (error: unknown) {
+    console.error('[SHOPIFY-SERVICE] Error syncing orders:', error);
+    throw error;
+  }
+};
+
+// ================================================================
 // EXPORT SERVICE
 // ================================================================
 export const shopifyService = {
   getIntegration: getShopifyIntegration,
   disconnect: disconnectShopify,
   startOAuth: startShopifyOAuth,
+  syncOrders: syncOrdersFromShopify,
 };

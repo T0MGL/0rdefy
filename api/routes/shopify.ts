@@ -321,6 +321,51 @@ shopifyRouter.post('/manual-sync', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// POST /api/shopify/sync-orders
+// Sincronizar pedidos desde Shopify manualmente
+shopifyRouter.post('/sync-orders', async (req: AuthRequest, res: Response) => {
+  try {
+    const storeId = req.storeId;
+
+    // Obtener integracion activa
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('status', 'active')
+      .single();
+
+    if (error || !integration) {
+      return res.status(404).json({
+        success: false,
+        error: 'Integración de Shopify no encontrada'
+      });
+    }
+
+    // Iniciar importación de pedidos
+    const importService = new ShopifyImportService(supabaseAdmin, integration);
+    const jobIds = await importService.startImport({
+      job_type: 'manual',
+      import_types: ['orders'],
+      force_full_sync: false
+    });
+
+    res.json({
+      success: true,
+      job_ids: jobIds,
+      message: 'Sincronización de pedidos iniciada',
+      integration_id: integration.id
+    });
+
+  } catch (error: any) {
+    console.error('Error sincronizando pedidos:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Error iniciando sincronización de pedidos'
+    });
+  }
+});
+
 // GET /api/shopify/import-status/:integration_id
 // Obtener estado de importacion en tiempo real
 shopifyRouter.get('/import-status/:integration_id', async (req: AuthRequest, res: Response) => {

@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, MessageSquare, Map, Package2, Edit, Trash2, Printer, Check } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, MessageSquare, Map, Package2, Edit, Trash2, Printer, Check, RefreshCw } from 'lucide-react';
 import { DeliveryMap } from '@/components/DeliveryMap';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
@@ -43,6 +43,7 @@ const statusColors = {
   in_transit: 'bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800',
   delivered: 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800',
   cancelled: 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800',
+  incident: 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800',
 };
 
 const statusLabels = {
@@ -51,6 +52,7 @@ const statusLabels = {
   in_transit: 'En Tránsito',
   delivered: 'Entregado',
   cancelled: 'Cancelado',
+  incident: 'Incidencia',
 };
 
 export default function Orders() {
@@ -82,6 +84,7 @@ export default function Orders() {
   const [isPrintingBulk, setIsPrintingBulk] = useState(false);
   const [bulkPrintOrders, setBulkPrintOrders] = useState<Order[]>([]);
   const [bulkPrintIndex, setBulkPrintIndex] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { toast } = useToast();
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
   const { getDateRange } = useDateRange();
@@ -365,6 +368,27 @@ export default function Orders() {
     }
   }, [orderToDelete, toast]);
 
+  // Manual refresh for impatient users
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast({
+        title: '✅ Actualizado',
+        description: 'Lista de pedidos actualizada',
+      });
+    } catch (error) {
+      console.error('Error refreshing orders:', error);
+      toast({
+        title: '❌ Error',
+        description: 'No se pudo actualizar la lista de pedidos',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refetch, toast]);
+
   // Memoize filtered orders to avoid recalculation on every render
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
@@ -551,7 +575,19 @@ export default function Orders() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Pedidos</h2>
-          <p className="text-muted-foreground">{filteredOrders.length} pedidos encontrados</p>
+          <div className="flex items-center gap-3">
+            <p className="text-muted-foreground">{filteredOrders.length} pedidos encontrados</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="gap-2 text-xs h-7 px-2 text-muted-foreground hover:text-foreground"
+              title="Actualizar lista de pedidos"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+            </Button>
+          </div>
         </div>
         <div className="flex gap-2">
           {selectedOrderIds.size > 0 && (
