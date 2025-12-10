@@ -124,26 +124,39 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
           return;
         }
 
-        // Validar que tengamos shopDomain antes de inicializar
-        if (!shopDomain) {
-          console.error('[Shopify] Could not determine shop domain from URL parameters');
-          setError(new Error('Missing shop domain parameter'));
+        // Validar que tengamos al menos host o shopDomain
+        if (!host && !shopDomain) {
+          console.error('[Shopify] Could not determine shop or host from parameters');
+          setError(new Error('Missing shop and host parameters'));
           setIsLoading(false);
           return;
         }
 
-        console.log('[Shopify] Initializing App Bridge 3.0 CDN with host:', host);
+        console.log('[Shopify] Initializing App Bridge 3.0 CDN');
+        console.log('[Shopify]   Host:', host || 'N/A');
+        console.log('[Shopify]   Shop:', shopDomain || 'N/A');
 
         // Inicializar App Bridge 3.0 CDN con el client_id del shopify.app.toml
-        // NOTA: El parámetro 'shop' NO es necesario cuando usamos App Bridge CDN
-        // El host parameter es suficiente para identificar la tienda
         const CLIENT_ID = '75123c29296179fbd8f253db4196c83b';
-        const shopifyApp = window.shopify.createApp({
+
+        const appConfig: any = {
           apiKey: CLIENT_ID,
-          host: host,        // Host parameter from Shopify (suficiente para CDN)
-          shop: shopDomain,  // Required for App Bridge Next
           forceRedirect: true, // Redirigir automáticamente cuando no esté embebido
-        });
+        };
+
+        // Add host if available (preferred for App Bridge CDN)
+        if (host) {
+          appConfig.host = host;
+        }
+
+        // Add shop if available
+        if (shopDomain) {
+          appConfig.shop = shopDomain;
+        }
+
+        console.log('[Shopify] Creating app with config:', { ...appConfig, apiKey: '***' });
+
+        const shopifyApp = window.shopify.createApp(appConfig);
 
         setApp(shopifyApp);
 
