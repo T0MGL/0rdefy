@@ -173,19 +173,19 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             }
 
             // Fetch all products in a single query
-            // FIX: Match by shopify_product_id instead of internal id
+            // Use local product IDs (UUIDs) from line_items to match products
             const productCostMap = new Map<string, number>();
             if (productIds.size > 0) {
                 const { data: productsData } = await supabaseAdmin
                     .from('products')
-                    .select('shopify_product_id, cost')
-                    .in('shopify_product_id', Array.from(productIds))
+                    .select('id, cost')
+                    .in('id', Array.from(productIds))
                     .eq('store_id', req.storeId);
 
                 if (productsData) {
                     productsData.forEach(product => {
-                        if (product.shopify_product_id) {
-                            productCostMap.set(product.shopify_product_id, Number(product.cost) || 0);
+                        if (product.id) {
+                            productCostMap.set(product.id, Number(product.cost) || 0);
                         }
                     });
                 }
@@ -201,7 +201,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 if (order.line_items && Array.isArray(order.line_items)) {
                     let orderCost = 0;
                     for (const item of order.line_items) {
-                        // Use product_id (which is the Shopify ID) to look up cost
+                        // Use product_id (local UUID) to look up cost
                         const productCost = productCostMap.get(item.product_id?.toString()) || 0;
                         const itemCost = productCost * Number(item.quantity || 1);
                         orderCost += itemCost;
@@ -530,19 +530,19 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         }
 
         // Fetch all products in a single query
-        // FIX: Match by shopify_product_id instead of internal id
+        // Use local product IDs (UUIDs) from line_items to match products
         const productCostMap = new Map<string, number>();
         if (productIds.size > 0) {
             const { data: productsData } = await supabaseAdmin
                 .from('products')
-                .select('shopify_product_id, cost')
-                .in('shopify_product_id', Array.from(productIds))
+                .select('id, cost')
+                .in('id', Array.from(productIds))
                 .eq('store_id', req.storeId);
 
             if (productsData) {
                 productsData.forEach(product => {
-                    if (product.shopify_product_id) {
-                        productCostMap.set(product.shopify_product_id, Number(product.cost) || 0);
+                    if (product.id) {
+                        productCostMap.set(product.id, Number(product.cost) || 0);
                     }
                 });
             }
@@ -1160,18 +1160,19 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
         }
 
         // Fetch all products in a single query
+        // Use local product IDs (UUIDs) from line_items to match products
         const productCostMap = new Map<string, number>();
         if (productIds.size > 0) {
             const { data: productsData } = await supabaseAdmin
                 .from('products')
-                .select('shopify_product_id, cost')
-                .in('shopify_product_id', Array.from(productIds))
+                .select('id, cost')
+                .in('id', Array.from(productIds))
                 .eq('store_id', req.storeId);
 
             if (productsData) {
                 productsData.forEach(product => {
-                    if (product.shopify_product_id) {
-                        productCostMap.set(product.shopify_product_id, Number(product.cost) || 0);
+                    if (product.id) {
+                        productCostMap.set(product.id, Number(product.cost) || 0);
                     }
                 });
             }

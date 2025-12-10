@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { IncidentRetryChecklist } from '@/components/IncidentRetryChecklist';
 import {
   CheckCircle,
   XCircle,
@@ -28,7 +29,7 @@ type DeliveryState =
   | { type: 'rated_thanks'; message: string }
   | { type: 'failed'; message: string; reason: string; data?: any }
   | { type: 'not_found'; message: string }
-  | { type: 'pending'; data: any };
+  | { type: 'pending'; data: any; hasIncident?: boolean; incident?: any };
 
 export default function Delivery() {
   const { token } = useParams<{ token: string }>();
@@ -51,7 +52,8 @@ export default function Delivery() {
 
   const fetchOrderByToken = async (token: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/token/${token}`);
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${apiUrl}/api/orders/token/${token}`);
       const result = await response.json();
 
       if (result.already_delivered) {
@@ -77,10 +79,25 @@ export default function Delivery() {
           message: result.message,
         });
       } else {
-        setState({
-          type: 'pending',
-          data: result.data,
-        });
+        // Check if order has active incident
+        try {
+          const incidentResponse = await fetch(`${apiUrl}/api/incidents/order/${result.data.id}/active`);
+          const incidentResult = await incidentResponse.json();
+
+          setState({
+            type: 'pending',
+            data: result.data,
+            hasIncident: incidentResult.has_incident,
+            incident: incidentResult.has_incident ? incidentResult.data : null,
+          });
+        } catch (incidentError) {
+          console.error('Error fetching incident:', incidentError);
+          // Continue without incident data
+          setState({
+            type: 'pending',
+            data: result.data,
+          });
+        }
       }
     } catch (error) {
       console.error('Error fetching order:', error);
@@ -865,14 +882,43 @@ export default function Delivery() {
           </Card>
         )}
 
-        {/* Actions */}
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle>Acciones de Entrega</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Confirm Delivery Section */}
-            <div className="space-y-3 p-4 border rounded-lg bg-green-50 dark:bg-green-950/20">
+        {/* Incident Retry Checklist (if incident exists) */}
+        {state.hasIncident && state.incident && (
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle>Incidencia de Entrega</CardTitle>
+              <CardDescription>
+                Este pedido tiene una incidencia activa. Completa uno de los intentos programados.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <IncidentRetryChecklist
+                incidentId={state.incident.incident_id}
+                orderId={state.data.id}
+                currentRetryCount={state.incident.current_retry_count}
+                maxRetries={state.incident.max_retry_attempts}
+                retryAttempts={state.incident.retry_attempts || []}
+                onSuccess={() => {
+                  toast({
+                    title: 'Intento completado',
+                    description: 'El intento ha sido registrado correctamente',
+                  });
+                  fetchOrderByToken(token!);
+                }}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Normal Actions (only if no incident) */}
+        {!state.hasIncident && (
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle>Acciones de Entrega</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Confirm Delivery Section */}
+              <div className="space-y-3 p-4 border rounded-lg bg-green-50 dark:bg-green-950/20">
               <div className="space-y-2">
                 <Label htmlFor="payment-method" className="text-sm font-medium">
                   Método de pago *
@@ -995,6 +1041,7 @@ export default function Delivery() {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
   );
