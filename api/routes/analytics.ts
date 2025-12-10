@@ -314,7 +314,6 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 return ['ready_to_ship', 'shipped', 'delivered', 'returned', 'delivery_failed'].includes(status) ||
                        (status === 'cancelled' && o.shipped_at); // Cancelados después de despacho
             }).length;
-            const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
             // Tasa de entrega = (Entregados / Total Despachados) × 100
             const delivRate = dispatched > 0 ? ((delivered / dispatched) * 100) : 0;
 
