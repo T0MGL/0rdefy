@@ -8,44 +8,70 @@
     <meta name="author" content="Bright Idea" />
     <meta name="theme-color" content="hsl(0, 0%, 98%)" />
 
-    <!-- Shopify App Bridge (2025 Modern Setup with sessionStorage) -->
+    <!-- Shopify App Bridge (Force Load in iFrame) -->
     <script>
       (function() {
+        console.log('[Shopify Init] Starting App Bridge initialization...');
+
+        // CRITICAL: Detect if we're in an iframe (simplest and most reliable method)
+        const isInIframe = window.top !== window.self;
+        console.log('[Shopify Init] Running in iframe:', isInIframe);
+
         // Get parameters from URL
         const urlParams = new URLSearchParams(window.location.search);
         const shop = urlParams.get('shop');
         const host = urlParams.get('host');
         const embedded = urlParams.get('embedded');
 
+        console.log('[Shopify Init] URL parameters:', { shop, host, embedded });
+
         // Save to sessionStorage if present (for navigation persistence)
-        if (shop) sessionStorage.setItem('shopify_shop', shop);
-        if (host) sessionStorage.setItem('shopify_host', host);
-        if (embedded) sessionStorage.setItem('shopify_embedded', embedded);
+        if (shop) {
+          sessionStorage.setItem('shopify_shop', shop);
+          console.log('[Shopify Init] Saved shop to sessionStorage:', shop);
+        }
+        if (host) {
+          sessionStorage.setItem('shopify_host', host);
+          console.log('[Shopify Init] Saved host to sessionStorage');
+        }
+        if (embedded) {
+          sessionStorage.setItem('shopify_embedded', embedded);
+          console.log('[Shopify Init] Saved embedded flag to sessionStorage');
+        }
 
         // Try to get from sessionStorage if not in URL
         const savedShop = shop || sessionStorage.getItem('shopify_shop');
         const savedHost = host || sessionStorage.getItem('shopify_host');
         const savedEmbedded = embedded || sessionStorage.getItem('shopify_embedded');
 
-        // Determine if we're in embedded mode
-        const isEmbedded = !!(savedShop || savedHost || savedEmbedded === '1');
+        console.log('[Shopify Init] SessionStorage values:', { savedShop, savedHost, savedEmbedded });
+
+        // FORCE embedded mode if in iframe, regardless of parameters
+        const isEmbedded = isInIframe;
 
         if (isEmbedded) {
-          console.log('[Shopify] Embedded mode detected');
+          console.log('[Shopify] ✅ EMBEDDED MODE DETECTED - Injecting App Bridge...');
 
-          // Inject meta tags
+          // CRITICAL: Set global flag for React app to detect embedded mode
+          window.__SHOPIFY_EMBEDDED__ = true;
+          console.log('[Shopify] ✅ Global __SHOPIFY_EMBEDDED__ flag set');
+
+          // ALWAYS inject API key meta tag (REQUIRED for App Bridge)
           const apiKeyMeta = document.createElement('meta');
           apiKeyMeta.name = 'shopify-api-key';
           apiKeyMeta.content = '75123c29296179fbd8f253db4196c83b';
           document.head.appendChild(apiKeyMeta);
+          console.log('[Shopify] ✅ API key meta tag injected');
 
-          // Inject shop meta if available
+          // Inject shop meta if available (from URL or sessionStorage)
           if (savedShop) {
             const shopMeta = document.createElement('meta');
             shopMeta.name = 'shopify-shop';
             shopMeta.content = savedShop;
             document.head.appendChild(shopMeta);
-            console.log('[Shopify] Shop domain:', savedShop);
+            console.log('[Shopify] ✅ Shop meta tag injected:', savedShop);
+          } else {
+            console.warn('[Shopify] ⚠️  No shop parameter found in URL or sessionStorage');
           }
 
           // Inject host meta if available
@@ -54,17 +80,25 @@
             hostMeta.name = 'shopify-host';
             hostMeta.content = savedHost;
             document.head.appendChild(hostMeta);
+            console.log('[Shopify] ✅ Host meta tag injected');
           }
 
-          // Load App Bridge script
+          // ALWAYS load App Bridge script in iframe (even without shop parameter)
           const script = document.createElement('script');
           script.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
-          script.async = false; // Load synchronously
+          script.async = false; // Force synchronous loading
+          script.onload = function() {
+            console.log('[Shopify] ✅ App Bridge script loaded successfully');
+            console.log('[Shopify] window.shopify available:', !!window.shopify);
+          };
+          script.onerror = function(error) {
+            console.error('[Shopify] ❌ Failed to load App Bridge script:', error);
+          };
           document.head.appendChild(script);
 
-          console.log('[Shopify] App Bridge loading...');
+          console.log('[Shopify] ✅ App Bridge script tag injected and loading...');
         } else {
-          console.log('[Shopify] Standalone mode - App Bridge disabled');
+          console.log('[Shopify] Standalone mode - Not in iframe, App Bridge disabled');
         }
       })();
     </script>

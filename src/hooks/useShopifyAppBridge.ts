@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 // Extend Window interface to include Shopify App Bridge 3.0
 declare global {
   interface Window {
+    __SHOPIFY_EMBEDDED__?: boolean;
     shopify?: {
       environment?: {
         embedded?: boolean;
@@ -57,23 +58,37 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         setError(null);
 
         // Check if App Bridge was loaded (set by index.html script)
-        if (!(window as any).__SHOPIFY_EMBEDDED__) {
+        if (!window.__SHOPIFY_EMBEDDED__) {
           console.log('[Shopify] Not in embedded mode - App Bridge disabled');
           setIsLoading(false);
           return;
         }
 
-        // Verificar si estamos en un iframe de Shopify
-        const urlParams = new URLSearchParams(window.location.search);
-        const host = urlParams.get('host');
-        const embedded = urlParams.get('embedded');
-        const shop = urlParams.get('shop');
+        console.log('[Shopify] Embedded mode flag detected, initializing...');
 
-        // Si no hay parámetro 'host' o 'embedded', no estamos en Shopify
+        // Get parameters from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        let host = urlParams.get('host');
+        let embedded = urlParams.get('embedded');
+        let shop = urlParams.get('shop');
+
+        // CRITICAL: Try sessionStorage if parameters are missing from URL
+        if (!host) {
+          host = sessionStorage.getItem('shopify_host');
+          console.log('[Shopify] Retrieved host from sessionStorage:', host);
+        }
+        if (!embedded) {
+          embedded = sessionStorage.getItem('shopify_embedded');
+        }
+        if (!shop) {
+          shop = sessionStorage.getItem('shopify_shop');
+          console.log('[Shopify] Retrieved shop from sessionStorage:', shop);
+        }
+
+        // If still no parameters, we can't initialize (but we're in iframe, so warn)
         if (!host && embedded !== '1' && !shop) {
-          console.log('[Shopify] Not running in Shopify embedded app context - standalone mode');
-          setIsLoading(false);
-          return;
+          console.warn('[Shopify] ⚠️  In iframe but missing Shopify parameters. App Bridge may not work.');
+          // Don't return - try to initialize anyway
         }
 
         // Extraer shop domain desde host si no está en parámetros directos

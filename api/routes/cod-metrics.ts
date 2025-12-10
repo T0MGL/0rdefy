@@ -39,7 +39,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     // Calculate confirmation rate
     const confirmedOrders = orders?.filter(o =>
-      ['confirmed', 'preparing', 'out_for_delivery', 'delivered'].includes(o.sleeves_status)
+      ['confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'delivered'].includes(o.sleeves_status)
     ).length || 0;
     const totalOrders = orders?.length || 0;
     const confirmation_rate = totalOrders > 0
@@ -62,25 +62,25 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     // Calculate failed deliveries loss
     const failedOrders = orders?.filter(o =>
-      o.sleeves_status === 'delivery_failed' || o.payment_status === 'failed'
+      o.sleeves_status === 'cancelled' || o.payment_status === 'failed'
     ) || [];
     const failed_deliveries_loss = failedOrders.reduce((sum, o) =>
       sum + Number(o.total_price || 0), 0
     );
 
-    // Calculate pending cash (ALL pending payment orders - confirmed, preparing, ready_to_ship, out_for_delivery)
+    // Calculate pending cash (ALL pending payment orders - confirmed, in_preparation, ready_to_ship, shipped)
     // This gives a more accurate cash flow projection by including all orders that will generate cash soon
     const pendingPaymentOrders = orders?.filter(o =>
       o.payment_status === 'pending' &&
-      ['confirmed', 'preparing', 'ready_to_ship', 'out_for_delivery', 'in_preparation'].includes(o.sleeves_status)
+      ['confirmed', 'in_preparation', 'ready_to_ship', 'shipped'].includes(o.sleeves_status)
     ) || [];
     const pending_cash = pendingPaymentOrders.reduce((sum, o) =>
       sum + Number(o.total_price || 0), 0
     );
 
-    // Keep track of out_for_delivery separately for other metrics
+    // Keep track of shipped orders separately for other metrics
     const outForDeliveryOrders = orders?.filter(o =>
-      o.sleeves_status === 'out_for_delivery' && o.payment_status === 'pending'
+      o.sleeves_status === 'shipped' && o.payment_status === 'pending'
     ) || [];
 
     // Calculate collected today
@@ -169,7 +169,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
 
       dailyMetrics[date].total_orders++;
 
-      if (['confirmed', 'preparing', 'out_for_delivery', 'delivered'].includes(order.sleeves_status)) {
+      if (['confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'delivered'].includes(order.sleeves_status)) {
         dailyMetrics[date].confirmed++;
       }
 
@@ -254,11 +254,11 @@ codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
         carrierMetrics[carrierId].delivered++;
       }
 
-      if (order.sleeves_status === 'delivery_failed') {
+      if (order.sleeves_status === 'cancelled') {
         carrierMetrics[carrierId].failed++;
       }
 
-      if (order.sleeves_status === 'out_for_delivery') {
+      if (order.sleeves_status === 'shipped') {
         carrierMetrics[carrierId].in_delivery++;
       }
 
