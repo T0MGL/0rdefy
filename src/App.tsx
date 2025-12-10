@@ -13,6 +13,7 @@ import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ShopifyAppBridgeProvider } from "@/components/ShopifyAppBridgeProvider";
 
 // TypeScript declaration for Shopify App Bridge
 declare global {
@@ -52,6 +53,7 @@ const Onboarding = lazy(() => import("./pages/Onboarding"));
 const LoginDemo = lazy(() => import("./pages/LoginDemo"));
 const SignUp = lazy(() => import("./pages/SignUp"));
 const Delivery = lazy(() => import("./pages/Delivery"));
+const ShopifyOAuthCallback = lazy(() => import("./pages/ShopifyOAuthCallback"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Optimized QueryClient configuration
@@ -103,34 +105,19 @@ const App = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const toggleSidebar = () => setSidebarCollapsed(prev => !prev);
 
-  // Generate Shopify Session Token automatically
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (window.shopify && window.shopify.id) {
-        try {
-          const token = await window.shopify.id.getToken();
-          console.log("✅ Token generated:", token);
-        } catch (error) {
-          console.error("Failed to generate Shopify token:", error);
-        }
-      }
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, []);
-
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <ThemeProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <AuthProvider>
-                <DateRangeProvider>
-                  <ErrorBoundary>
-                    <OnboardingGuard>
+            <ShopifyAppBridgeProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <AuthProvider>
+                  <DateRangeProvider>
+                    <ErrorBoundary>
+                      <OnboardingGuard>
                       <Suspense fallback={<CardSkeleton count={1} />}>
                         <Routes>
                     {/* Public routes */}
@@ -138,6 +125,7 @@ const App = () => {
                     <Route path="/signup" element={<SignUp />} />
                     <Route path="/onboarding" element={<Onboarding />} />
                     <Route path="/delivery/:token" element={<Delivery />} />
+                    <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />
 
                     {/* Protected routes with layout */}
                     <Route path="/" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></ProtectedLayout>} />
@@ -164,11 +152,12 @@ const App = () => {
                     <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
                         </Routes>
                       </Suspense>
-                    </OnboardingGuard>
-                  </ErrorBoundary>
-                </DateRangeProvider>
-              </AuthProvider>
-            </BrowserRouter>
+                      </OnboardingGuard>
+                    </ErrorBoundary>
+                  </DateRangeProvider>
+                </AuthProvider>
+              </BrowserRouter>
+            </ShopifyAppBridgeProvider>
           </ThemeProvider>
         </TooltipProvider>
       </QueryClientProvider>

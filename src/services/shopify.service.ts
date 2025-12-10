@@ -113,18 +113,51 @@ export const disconnectShopify = async (shop: string): Promise<void> => {
 // ================================================================
 // START OAUTH FLOW
 // ================================================================
-// Redirects to Shopify OAuth auth endpoint
+// Starts OAuth flow - uses popup if in iframe (Shopify embedded mode)
+// otherwise redirects normally
 // ================================================================
 export const startShopifyOAuth = (shop: string, userId?: string, storeId?: string): void => {
   const params = new URLSearchParams({ shop });
   if (userId) params.append('user_id', userId);
   if (storeId) params.append('store_id', storeId);
 
-  const authUrl = `${API_BASE}/api/shopify-oauth/auth?${params.toString()}`;
-  console.log('[SHOPIFY-SERVICE] Redirecting to OAuth:', authUrl);
+  // Detect if we're in an iframe (Shopify embedded mode)
+  const isInIframe = window.top !== window.self;
 
-  // Redirect to OAuth flow
-  window.location.href = authUrl;
+  if (isInIframe) {
+    // Add popup=true flag to signal backend to use popup callback page
+    params.append('popup', 'true');
+  }
+
+  const authUrl = `${API_BASE}/api/shopify-oauth/auth?${params.toString()}`;
+  console.log('[SHOPIFY-SERVICE] Starting OAuth:', authUrl);
+  console.log('[SHOPIFY-SERVICE] Embedded mode (iframe):', isInIframe);
+
+  if (isInIframe) {
+    // Open OAuth in popup window (Shopify embedded mode)
+    const width = 600;
+    const height = 700;
+    const left = (window.screen.width - width) / 2;
+    const top = (window.screen.height - height) / 2;
+
+    const popup = window.open(
+      authUrl,
+      'shopify-oauth',
+      `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no`
+    );
+
+    if (!popup) {
+      console.error('[SHOPIFY-SERVICE] ❌ Popup blocked! User must allow popups.');
+      alert('Por favor permite las ventanas emergentes para conectar con Shopify.');
+      return;
+    }
+
+    console.log('[SHOPIFY-SERVICE] ✅ OAuth popup opened');
+  } else {
+    // Normal redirect (standalone mode)
+    console.log('[SHOPIFY-SERVICE] Redirecting to OAuth (standalone mode)');
+    window.location.href = authUrl;
+  }
 };
 
 // ================================================================

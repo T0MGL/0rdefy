@@ -344,9 +344,9 @@ const isValidShopDomain = (shop: string): boolean => {
 // ================================================================
 const handleOAuthStart = async (req: Request, res: Response) => {
   try {
-    const { shop, user_id, store_id } = req.query;
+    const { shop, user_id, store_id, popup } = req.query;
 
-    console.log('🚀 [SHOPIFY-OAUTH] Auth request:', { shop, user_id, store_id });
+    console.log('🚀 [SHOPIFY-OAUTH] Auth request:', { shop, user_id, store_id, popup });
 
     // Validate environment variables
     if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET || !SHOPIFY_REDIRECT_URI) {
@@ -387,6 +387,7 @@ const handleOAuthStart = async (req: Request, res: Response) => {
         user_id: user_id || null,
         store_id: store_id || null,
         shop_domain: shop,
+        is_popup: popup === 'true', // Store popup mode flag
         expires_at: expiresAt.toISOString(),
         used: false
       }]);
@@ -736,8 +737,19 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
     console.log('🔗 [SHOPIFY-OAUTH] APP_URL env var:', process.env.APP_URL);
     console.log('🔗 [SHOPIFY-OAUTH] Final APP_URL:', APP_URL);
-    console.log('🔗 [SHOPIFY-OAUTH] Redirecting to:', redirectUrl);
-    res.redirect(redirectUrl);
+
+    // Check if this is a popup OAuth flow (Shopify embedded mode)
+    if (stateData.is_popup) {
+      console.log('🪟 [SHOPIFY-OAUTH] Popup mode detected - redirecting to callback page');
+      // Redirect to special callback page that closes popup and notifies parent
+      const popupCallbackUrl = `${APP_URL}/shopify-oauth-callback?status=success&shop=${shop}${webhookResults.failed > 0 ? `&webhooks_failed=${webhookResults.failed}` : '&webhooks=ok'}`;
+      console.log('🔗 [SHOPIFY-OAUTH] Redirecting popup to:', popupCallbackUrl);
+      res.redirect(popupCallbackUrl);
+    } else {
+      // Normal redirect (standalone mode)
+      console.log('🔗 [SHOPIFY-OAUTH] Redirecting to:', redirectUrl);
+      res.redirect(redirectUrl);
+    }
 
   } catch (error: any) {
     console.error('💥 [SHOPIFY-OAUTH] Callback error:', error);
@@ -748,6 +760,20 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
         status: error.response?.status,
         data: error.response?.data
       });
+    }
+
+    // Check if we're in popup mode for error redirect
+    const stateParam = req.query.state;
+    if (stateParam) {
+      const { data: stateData } = await supabaseAdmin
+        .from('shopify_oauth_states')
+        .select('is_popup')
+        .eq('state', stateParam)
+        .single();
+
+      if (stateData?.is_popup) {
+        return res.redirect(`${APP_URL}/shopify-oauth-callback?status=error&error=callback_failed`);
+      }
     }
 
     res.redirect(`${APP_URL}/integrations?status=error&integration=shopify&error=callback_failed`);

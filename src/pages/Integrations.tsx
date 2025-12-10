@@ -69,7 +69,73 @@ export default function Integrations() {
     checkExistingIntegration();
   }, []);
 
-  // Check OAuth callback query params
+  // Listen for popup OAuth completion (Shopify embedded mode)
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Verify message is from our domain for security
+      if (event.origin !== window.location.origin) {
+        console.warn('[INTEGRATIONS] Ignoring postMessage from unknown origin:', event.origin);
+        return;
+      }
+
+      // Check if this is a Shopify OAuth completion message
+      if (event.data?.type === 'shopify-oauth-complete') {
+        console.log('[INTEGRATIONS] Received OAuth completion from popup:', event.data);
+
+        const { status, shop, error, webhooksFailed, webhooksOk } = event.data;
+
+        if (status === 'success' && shop) {
+          // Check webhook registration status
+          if (webhooksFailed && webhooksFailed > 0) {
+            toast({
+              title: '⚠️ Shopify conectado con advertencias',
+              description: `Tu tienda ${shop} se conectó, pero ${webhooksFailed} webhook(s) fallaron. Revisa el panel de diagnósticos.`,
+              variant: 'destructive',
+            });
+          } else if (webhooksOk) {
+            toast({
+              title: '✅ Shopify conectado exitosamente',
+              description: `Tu tienda ${shop} y todos los webhooks se configuraron correctamente`,
+            });
+          } else {
+            toast({
+              title: '✅ Shopify conectado',
+              description: `Tu tienda ${shop} se ha conectado exitosamente`,
+            });
+          }
+
+          setConnectedIntegrations(prev =>
+            prev.includes('shopify') ? prev : [...prev, 'shopify']
+          );
+        } else if (error) {
+          const errorMessages: Record<string, string> = {
+            missing_params: 'Faltan parámetros requeridos',
+            invalid_signature: 'Firma HMAC inválida',
+            invalid_state: 'Estado de sesión inválido',
+            expired_state: 'La sesión ha expirado',
+            no_token: 'No se recibió token de acceso',
+            callback_failed: 'Error en el proceso de autorización',
+          };
+
+          toast({
+            title: '❌ Error al conectar Shopify',
+            description: errorMessages[error] || 'Ocurrió un error inesperado. Intenta nuevamente.',
+            variant: 'destructive',
+          });
+        }
+      }
+    };
+
+    // Add event listener for postMessage
+    window.addEventListener('message', handleMessage);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [toast]);
+
+  // Check OAuth callback query params (standalone mode redirect)
   useEffect(() => {
     const status = searchParams.get('status');
     const error = searchParams.get('error');
