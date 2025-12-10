@@ -27,6 +27,7 @@ import {
   PackageX,
   RotateCcw,
   Send,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -63,6 +64,7 @@ const menuSections: MenuSection[] = [
     items: [
       { path: '/orders', label: 'Pedidos', icon: ShoppingCart },
       { path: '/returns', label: 'Devoluciones', icon: RotateCcw },
+      { path: '/incidents', label: 'Incidencias', icon: AlertCircle },
       { path: '/customers', label: 'Clientes', icon: UserCircle },
       { path: '/ads', label: 'Anuncios', icon: Megaphone },
     ],

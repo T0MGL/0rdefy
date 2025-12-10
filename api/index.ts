@@ -37,6 +37,7 @@ import shippingRouter from './routes/shipping';
 import { inventoryRouter } from './routes/inventory';
 import returnsRouter from './routes/returns';
 import securityRouter from './routes/security';
+import { incidentsRouter } from './routes/incidents';
 
 // Load environment variables
 dotenv.config();
@@ -393,6 +394,10 @@ app.use('/api/orders/:id/delivery-fail', deliveryTokenLimiter);
 app.use('/api/orders/:id/rate-delivery', deliveryTokenLimiter);
 app.use('/api/orders/:id/cancel', deliveryTokenLimiter);
 
+// Apply delivery token limiter to public incident endpoints
+app.use('/api/incidents/order/', deliveryTokenLimiter);
+app.use('/api/incidents/retry/', deliveryTokenLimiter);
+
 // Apply write operations limiter to all API routes
 app.use('/api/', writeOperationsLimiter);
 
@@ -421,6 +426,7 @@ app.use('/api/shopify/compliance', shopifyComplianceRouter);
 
 // COD (Cash on Delivery) routes
 app.use('/api/delivery-attempts', deliveryAttemptsRouter);
+app.use('/api/incidents', incidentsRouter); // Delivery incidents and retry system
 app.use('/api/settlements', settlementsRouter);
 app.use('/api/carrier-settlements', carrierSettlementsRouter); // Carrier deferred payments
 app.use('/api/cod-metrics', codMetricsRouter);
