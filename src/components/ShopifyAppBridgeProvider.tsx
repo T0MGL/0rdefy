@@ -1,5 +1,5 @@
 // ================================================================
-// SHOPIFY APP BRIDGE PROVIDER (HYBRID & ROBUST)
+// SHOPIFY APP BRIDGE PROVIDER (V4 NATIVE FIX)
 // ================================================================
 import React, { useEffect, useState, useRef } from 'react';
 import { isShopifyEmbedded } from '@/utils/waitForAppBridge';
@@ -15,91 +15,71 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
   const initialized = useRef(false);
 
   useEffect(() => {
-    // 1. Si no es embedded (navegador normal), no hacemos nada
+    // 1. Si no es embedded, salir
     if (!isShopifyEmbedded()) return;
     if (initialized.current) return;
     initialized.current = true;
 
     const setupAppBridge = async () => {
-      console.log("🛠 [Provider] Iniciando configuración de App Bridge...");
+      console.log("🛠 [Provider] Iniciando vigilancia de App Bridge...");
 
-      // ============================================================
-      // ESTRATEGIA A: Esperar a la inicialización automática del HTML
-      // ============================================================
       let attempts = 0;
-      const checkAutoInit = setInterval(async () => {
+      const checkInterval = setInterval(async () => {
         attempts++;
-        
-        // Si ya existe .id, el HTML funcionó perfecto
+
+        // ============================================================
+        // CASO DE ÉXITO: App Bridge ya generó el ID
+        // ============================================================
         if (window.shopify && window.shopify.id) {
-          clearInterval(checkAutoInit);
-          console.log("✅ [Provider] Detectada inicialización automática (HTML).");
+          clearInterval(checkInterval);
+          console.log("✅ [Provider] App Bridge conectado exitosamente.");
           await generateToken();
           return;
         }
 
         // ============================================================
-        // ESTRATEGIA B: FALLBACK MANUAL (Si el HTML falla tras 2 segundos)
+        // INTENTO DE RESCATE (Si el script existe pero está dormido)
         // ============================================================
-        if (attempts >= 4) { // 4 intentos de 500ms = 2 segundos
-          console.warn("⚠️ [Provider] HTML Auto-init lento o fallido. Forzando inicialización manual...");
-          clearInterval(checkAutoInit);
-          forceManualInit();
+        if (window.shopify && !window.shopify.id && attempts % 5 === 0) {
+           console.log(`⚠️ [Provider] App Bridge cargado pero sin ID (Intento ${attempts}). Reinyectando configuración...`);
+           
+           // Recuperar datos
+           const urlParams = new URLSearchParams(window.location.search);
+           const host = urlParams.get("host") || sessionStorage.getItem("shopify_host");
+           const shop = urlParams.get("shop") || sessionStorage.getItem("shopify_shop");
+           const apiKey = "e4ac05aaca557fdb387681f0f209335d"; // TU API KEY
+
+           // Inyección directa de configuración (Truco para V4)
+           if (host && shop) {
+               window.shopify.config = {
+                   apiKey: apiKey,
+                   host: host,
+                   shop: shop,
+                   forceRedirect: true
+               };
+           }
+        }
+
+        // ============================================================
+        // TIMEOUT (20 segundos)
+        // ============================================================
+        if (attempts >= 40) { 
+          clearInterval(checkInterval);
+          console.error("❌ [Provider] Timeout definitivo. App Bridge no respondió.");
+          // Aún así renderizamos la app para no dejar pantalla blanca
+          setIsReady(true);
         }
       }, 500);
-    };
-
-    const forceManualInit = async () => {
-      try {
-        if (!window.shopify || !window.shopify.createApp) {
-          console.error("❌ [Provider] El script base de App Bridge no cargó.");
-          return;
-        }
-
-        // Recuperar datos frescos de la URL o SessionStorage
-        const urlParams = new URLSearchParams(window.location.search);
-        const host = urlParams.get("host") || sessionStorage.getItem("shopify_host");
-        const shop = urlParams.get("shop") || sessionStorage.getItem("shopify_shop");
-        const apiKey = "e4ac05aaca557fdb387681f0f209335d"; // TU API KEY CORRECTA
-
-        if (!host || !apiKey) {
-          console.error("❌ [Provider] Faltan datos para init manual:", { host, apiKey });
-          return;
-        }
-
-        console.log("🔧 [Provider] Ejecutando createApp manual...", { shop, host });
-        
-        // FORZAMOS LA CREACIÓN DE LA APP
-        window.shopify.createApp({
-          apiKey: apiKey,
-          shop: shop,
-          host: host,
-          forceRedirect: true
-        });
-
-        // Damos un momento para que se asiente y pedimos token
-        setTimeout(async () => {
-            if (window.shopify.id) {
-                console.log("✅ [Provider] Inicialización manual exitosa.");
-                await generateToken();
-            } else {
-                console.error("❌ [Provider] Falló incluso la inicialización manual.");
-            }
-        }, 1000);
-
-      } catch (err) {
-        console.error("❌ [Provider] Error fatal en init manual:", err);
-      }
     };
 
     const generateToken = async () => {
       try {
         const token = await window.shopify.id.getToken();
-        console.log("🎉 [Provider] TOKEN DE SESIÓN OBTENIDO");
+        console.log("🎉 [Provider] TOKEN OBTENIDO:", token);
         localStorage.setItem('shopify_session_token', token);
         setIsReady(true);
       } catch (e) {
-        console.error("❌ [Provider] Error al pedir el token:", e);
+        console.error("❌ [Provider] Error al pedir token:", e);
       }
     };
 
