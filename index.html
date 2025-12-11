@@ -111,18 +111,8 @@
         script.async = false; // SYNCHRONOUS - blocks until loaded
 
         // ============================================================
-        // CRITICAL: Add data attributes for App Bridge CDN auto-init
+        // MINIMALIST APPROACH: Only set data-shop, let App Bridge auto-detect the rest
         // ============================================================
-        script.setAttribute('data-api-key', 'e4ac05aaca557fdb387681f0f209335d');
-        console.log('✅ [SHOPIFY] Added data-api-key attribute to script');
-
-        if (savedHost) {
-          script.setAttribute('data-host', savedHost);
-          console.log('✅ [SHOPIFY] Added data-host attribute to script:', savedHost);
-        } else {
-          console.warn('⚠️  [SHOPIFY] No host available for data-host attribute');
-        }
-
         if (savedShop) {
           script.setAttribute('data-shop', savedShop);
           console.log('✅ [SHOPIFY] Added data-shop attribute to script:', savedShop);
@@ -148,8 +138,6 @@
         document.head.appendChild(script);
         console.log('✅ [SHOPIFY] App Bridge <script> tag injected into <head>');
         console.log('📋 [SHOPIFY] Script attributes:', {
-          'data-api-key': '***' + script.getAttribute('data-api-key').slice(-8),
-          'data-host': script.getAttribute('data-host') || 'NOT SET',
           'data-shop': script.getAttribute('data-shop') || 'NOT SET'
         });
 
@@ -160,12 +148,10 @@
         console.log('   ✅ In iframe:', isInIframe);
         console.log('   ✅ __SHOPIFY_EMBEDDED__:', window.__SHOPIFY_EMBEDDED__);
         console.log('   ✅ Script injected: YES');
-        console.log('   ✅ API key meta tag: YES');
-        console.log('   ✅ Script data-api-key: YES');
-        console.log('   📋 Script data-host:', script.getAttribute('data-host') ? 'YES' : '❌ MISSING');
+        console.log('   ✅ API key meta tag: e4ac05aaca557fdb387681f0f209335d');
         console.log('   📋 Script data-shop:', script.getAttribute('data-shop') ? 'YES' : '⚠️  MISSING');
         console.log('   📋 Shop (sessionStorage):', savedShop || 'NOT AVAILABLE');
-        console.log('   📋 Host (sessionStorage):', savedHost || 'NOT AVAILABLE');
+        console.log('   ℹ️  data-host and data-api-key: Auto-detected by App Bridge');
         console.log('🔍 [SHOPIFY] === END ===');
       })();
     </script>
