@@ -121,7 +121,8 @@ export class ShopifyInventorySyncService {
       const { shopDomain, accessToken, variantId, newStock, productName } = params;
 
       // Shopify API endpoint
-      const baseUrl = `https://${shopDomain}/admin/api/2024-01`;
+      const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+      const baseUrl = `https://${shopDomain}/admin/api/${apiVersion}`;
 
       // Step 1: Get inventory item ID from variant
       console.log(`🔍 [INVENTORY-SYNC] Getting inventory item ID for variant ${variantId}...`);

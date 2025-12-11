@@ -16,21 +16,44 @@ const apiClient = axios.create({
   },
 });
 
-// No token validation in interceptor - let server handle it
-// Token will last full 7 days without client-side interruptions
-// Server will return 401 if token is actually invalid/expired
-apiClient.interceptors.request.use((config) => {
-  // Prioridad: Usar token de sesión de Shopify si está disponible
-  const shopifySessionToken = localStorage.getItem('shopify_session_token');
+// Request interceptor - Get fresh tokens for each request
+// Priority: Shopify App Bridge token > Regular auth token
+apiClient.interceptors.request.use(async (config) => {
   const authToken = localStorage.getItem('auth_token');
   const storeId = localStorage.getItem('current_store_id');
 
-  // Si estamos en contexto de Shopify embedded app, usar el session token
-  if (shopifySessionToken) {
-    config.headers.Authorization = `Bearer ${shopifySessionToken}`;
-    config.headers['X-Shopify-Session'] = 'true'; // Flag para el backend
+  // Check if we're in Shopify embedded mode
+  const isEmbedded = window.top !== window.self;
+
+  // If in embedded mode and window.shopify is available, get a FRESH token
+  if (isEmbedded && (window as any).shopify) {
+    try {
+      console.log('🔑 [API] Getting fresh Shopify session token...');
+
+      // Import getSessionToken dynamically to avoid circular dependencies
+      const { getSessionToken } = await import('@shopify/app-bridge/utilities');
+      const freshToken = await getSessionToken((window as any).shopify);
+
+      if (freshToken) {
+        console.log('✅ [API] Fresh token obtained for request');
+        config.headers.Authorization = `Bearer ${freshToken}`;
+        config.headers['X-Shopify-Session'] = 'true'; // Flag for backend
+
+        // Update localStorage with fresh token
+        localStorage.setItem('shopify_session_token', freshToken);
+      }
+    } catch (error) {
+      console.error('❌ [API] Failed to get fresh Shopify token:', error);
+
+      // Fallback to stored token
+      const shopifySessionToken = localStorage.getItem('shopify_session_token');
+      if (shopifySessionToken) {
+        config.headers.Authorization = `Bearer ${shopifySessionToken}`;
+        config.headers['X-Shopify-Session'] = 'true';
+      }
+    }
   }
-  // Si no, usar el token de autenticación normal
+  // Use regular auth token for standalone mode
   else if (authToken) {
     config.headers.Authorization = `Bearer ${authToken}`;
   }
@@ -45,21 +68,54 @@ apiClient.interceptors.request.use((config) => {
 // Response interceptor for global error handling
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     if (error.response) {
       const { status } = error.response;
 
       // Handle 401 Unauthorized - Token expired or invalid
       if (status === 401) {
-        console.warn('⚠️ [API] 401 Unauthorized - Clearing session');
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('current_store_id');
-        localStorage.removeItem('onboarding_completed');
+        console.warn('⚠️ [API] 401 Unauthorized - Session invalid');
 
-        // Redirect to login if not already there
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
+        // Check if we're in Shopify embedded mode
+        const isEmbedded = window.top !== window.self;
+
+        if (isEmbedded && (window as any).shopify) {
+          // IN EMBEDDED MODE: Do NOT redirect, try to refresh token
+          console.log('🔄 [API] Embedded mode - Attempting token refresh...');
+
+          try {
+            // Try to get a fresh token from Shopify
+            const { getSessionToken } = await import('@shopify/app-bridge/utilities');
+            const freshToken = await getSessionToken((window as any).shopify);
+
+            if (freshToken) {
+              console.log('✅ [API] Token refreshed, retrying request...');
+              localStorage.setItem('shopify_session_token', freshToken);
+
+              // Retry the original request with the fresh token
+              const originalRequest = error.config;
+              originalRequest.headers.Authorization = `Bearer ${freshToken}`;
+              originalRequest.headers['X-Shopify-Session'] = 'true';
+
+              return apiClient(originalRequest);
+            }
+          } catch (refreshError) {
+            console.error('❌ [API] Failed to refresh token in embedded mode:', refreshError);
+            // Show error message but don't redirect (would be blocked in iframe)
+            console.error('⚠️ [API] Session expired. Please refresh the Shopify admin page.');
+          }
+        } else {
+          // IN STANDALONE MODE: Clear session and redirect to login
+          console.log('🏠 [API] Standalone mode - Clearing session and redirecting to login');
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+          localStorage.removeItem('current_store_id');
+          localStorage.removeItem('onboarding_completed');
+
+          // Redirect to login if not already there
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
         }
       }
 
