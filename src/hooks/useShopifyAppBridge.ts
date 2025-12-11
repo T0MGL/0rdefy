@@ -137,7 +137,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         console.log('[Shopify]   Shop:', shopDomain || 'N/A');
 
         // Inicializar App Bridge 3.0 CDN con el client_id del shopify.app.toml
-        const CLIENT_ID = '75123c29296179fbd8f253db4196c83b';
+        const CLIENT_ID = 'e4ac05aaca557fdb387681f0f209335d';
 
         const appConfig: any = {
           apiKey: CLIENT_ID,

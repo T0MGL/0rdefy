@@ -37,7 +37,7 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
 
         // Create App Bridge instance
         const config: any = {
-          apiKey: '75123c29296179fbd8f253db4196c83b',
+          apiKey: 'e4ac05aaca557fdb387681f0f209335d',
           forceRedirect: true,
         };
 

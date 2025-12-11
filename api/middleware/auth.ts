@@ -10,7 +10,7 @@ if (!JWT_SECRET) {
 
 // Shopify App Secret for session token validation
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
-const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || '75123c29296179fbd8f253db4196c83b';
+const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || 'e4ac05aaca557fdb387681f0f209335d';
 
 const JWT_ALGORITHM = 'HS256';
 const JWT_ISSUER = 'ordefy-api';
