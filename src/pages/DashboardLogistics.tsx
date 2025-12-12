@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { MetricCard } from '@/components/MetricCard';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { analyticsService, LogisticsMetrics } from '@/services/analytics.service';
+import { analyticsService, LogisticsMetrics, IncidentsMetrics } from '@/services/analytics.service';
 import { codMetricsService } from '@/services/cod-metrics.service';
 import { MetricDetailModal } from '@/components/MetricDetailModal';
 import { useDateRange } from '@/contexts/DateRangeContext';
@@ -54,6 +54,7 @@ export default function DashboardLogistics() {
   const [orderStatusData, setOrderStatusData] = useState<any[]>([]);
   const [codMetrics, setCodMetrics] = useState<any>(null);
   const [logisticsMetrics, setLogisticsMetrics] = useState<LogisticsMetrics | null>(null);
+  const [incidentsMetrics, setIncidentsMetrics] = useState<IncidentsMetrics | null>(null);
 
   // Memoize status map to avoid recreation
   const statusMap = useMemo(() => ({
@@ -89,7 +90,7 @@ export default function DashboardLogistics() {
         endDate: dateRange.endDate,
       };
 
-      const [overview, confirmation, statusDist, codData, logisticsData] = await Promise.all([
+      const [overview, confirmation, statusDist, codData, logisticsData, incidentsData] = await Promise.all([
         analyticsService.getOverview(dateParams),
         analyticsService.getConfirmationMetrics(dateParams),
         analyticsService.getOrderStatusDistribution(dateParams),
@@ -98,6 +99,7 @@ export default function DashboardLogistics() {
           end_date: dateParams.endDate,
         }).catch(() => null),
         analyticsService.getLogisticsMetrics(dateParams).catch(() => null),
+        analyticsService.getIncidentsMetrics(dateParams).catch(() => null),
       ]);
 
       // Check if request was aborted before updating state
@@ -109,6 +111,7 @@ export default function DashboardLogistics() {
       setConfirmationMetrics(confirmation);
       setCodMetrics(codData);
       setLogisticsMetrics(logisticsData);
+      setIncidentsMetrics(incidentsData);
 
       // Transform status distribution for pie chart
       const transformedStatus = statusDist.map(item => ({
@@ -217,7 +220,7 @@ export default function DashboardLogistics() {
       {logisticsMetrics && (
         <div>
           <h2 className="text-2xl font-bold mb-4 text-card-foreground">Métricas de Logística</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
               title="Pedidos Despachados"
               value={logisticsMetrics.totalDispatched}
@@ -244,6 +247,14 @@ export default function DashboardLogistics() {
               icon={<Banknote className="text-green-600" size={20} />}
               variant="accent"
             />
+            {incidentsMetrics && (
+              <MetricCard
+                title="Incidencias"
+                value={incidentsMetrics.totalIncidents}
+                subtitle={`Activas: ${incidentsMetrics.activeIncidents} · Resueltas: ${incidentsMetrics.resolvedIncidents}`}
+                icon={<AlertCircle className="text-yellow-600" size={20} />}
+              />
+            )}
           </div>
         </div>
       )}

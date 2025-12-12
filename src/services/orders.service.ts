@@ -375,4 +375,25 @@ export const ordersService = {
       return false;
     }
   },
+
+  reconcile: async (ids: string[]): Promise<boolean> => {
+    try {
+      // NOTE: If backend has a bulk endpoint, use it. For now, we loop.
+      const reconciledAt = new Date().toISOString();
+
+      const promises = ids.map(id =>
+        fetch(`${API_BASE_URL}/orders/${id}`, {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify({ reconciled_at: reconciledAt })
+        })
+      );
+
+      await Promise.all(promises);
+      return true;
+    } catch (error) {
+      console.error('Error reconciling orders:', error);
+      return false;
+    }
+  },
 };

@@ -29,9 +29,14 @@ export const ordersExportColumns: ExportColumn[] = [
       const statusLabels: Record<string, string> = {
         pending: 'Pendiente',
         confirmed: 'Confirmado',
+        in_preparation: 'En Preparación',
+        ready_to_ship: 'Preparado',
+        shipped: 'En Tránsito',
         in_transit: 'En Tránsito',
         delivered: 'Entregado',
+        returned: 'Devuelto',
         cancelled: 'Cancelado',
+        incident: 'Incidencia',
       };
       return statusLabels[value] || value;
     }

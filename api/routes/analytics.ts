@@ -1720,3 +1720,91 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
         });
     }
 });
+
+// ================================================================
+// GET /api/analytics/incidents-metrics - Métricas de incidencias
+// ================================================================
+analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        // Build date filter
+        let dateFilter: { start: Date; end: Date };
+        if (startDate && endDate) {
+            dateFilter = {
+                start: new Date(startDate as string),
+                end: new Date(toEndOfDay(endDate as string))
+            };
+        } else {
+            // Default: last 30 days
+            const now = new Date();
+            dateFilter = {
+                end: now,
+                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+            };
+        }
+
+        // Get all incidents in the period
+        const { data: incidentsData, error: incidentsError } = await supabaseAdmin
+            .from('delivery_incidents')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .gte('created_at', dateFilter.start.toISOString())
+            .lte('created_at', dateFilter.end.toISOString());
+
+        if (incidentsError) throw incidentsError;
+
+        const incidents = incidentsData || [];
+
+        // ===== TOTAL DE INCIDENCIAS =====
+        const totalIncidents = incidents.length;
+
+        // ===== INCIDENCIAS POR ESTADO =====
+        const activeIncidents = incidents.filter(i => i.status === 'active');
+        const resolvedIncidents = incidents.filter(i => i.status === 'resolved');
+        const expiredIncidents = incidents.filter(i => i.status === 'expired');
+
+        // ===== TIPOS DE RESOLUCIÓN =====
+        const deliveredResolutions = resolvedIncidents.filter(i => i.resolution_type === 'delivered');
+        const cancelledResolutions = resolvedIncidents.filter(i => i.resolution_type === 'cancelled');
+        const customerRejectedResolutions = resolvedIncidents.filter(i => i.resolution_type === 'customer_rejected');
+
+        // ===== TASA DE RESOLUCIÓN EXITOSA =====
+        // Resolución exitosa = entregados después de incidencia
+        const successRate = resolvedIncidents.length > 0
+            ? parseFloat(((deliveredResolutions.length / resolvedIncidents.length) * 100).toFixed(1))
+            : 0;
+
+        // ===== REINTENTOS PROMEDIO =====
+        const avgRetries = incidents.length > 0
+            ? parseFloat((incidents.reduce((sum, i) => sum + (i.current_retry_count || 0), 0) / incidents.length).toFixed(1))
+            : 0;
+
+        res.json({
+            data: {
+                // Total de incidencias
+                totalIncidents,
+
+                // Estados
+                activeIncidents: activeIncidents.length,
+                resolvedIncidents: resolvedIncidents.length,
+                expiredIncidents: expiredIncidents.length,
+
+                // Resoluciones
+                deliveredAfterIncident: deliveredResolutions.length,
+                cancelledIncidents: cancelledResolutions.length,
+                customerRejectedIncidents: customerRejectedResolutions.length,
+
+                // Tasas
+                successRate,
+                avgRetries,
+            }
+        });
+    } catch (error: any) {
+        console.error('[GET /api/analytics/incidents-metrics] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch incidents metrics',
+            message: error.message
+        });
+    }
+});

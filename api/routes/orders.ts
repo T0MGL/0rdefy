@@ -143,7 +143,7 @@ ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) =
         // First, get the order to verify it exists and get its store_id
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, store_id, sleeves_status, courier_id')
+            .select('id, store_id, sleeves_status, courier_id, has_active_incident')
             .eq('id', id)
             .single();
 
@@ -152,6 +152,15 @@ ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) =
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El pedido no existe'
+            });
+        }
+
+        // Check if order has an active incident
+        if (existingOrder.has_active_incident) {
+            console.warn(`⚠️ [ORDERS] Order ${id} has an active incident - delivery must be confirmed through incident retry`);
+            return res.status(400).json({
+                error: 'Active incident',
+                message: 'Este pedido tiene una incidencia activa. Debes completar uno de los intentos programados en lugar de confirmar directamente.'
             });
         }
 
@@ -267,7 +276,7 @@ ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
         // First, get the order to verify it exists and get its store_id
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, store_id, sleeves_status, courier_id')
+            .select('id, store_id, sleeves_status, courier_id, has_active_incident')
             .eq('id', id)
             .single();
 
@@ -276,6 +285,15 @@ ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El pedido no existe'
+            });
+        }
+
+        // Check if order has an active incident
+        if (existingOrder.has_active_incident) {
+            console.warn(`⚠️ [ORDERS] Order ${id} has an active incident - failure must be reported through incident retry`);
+            return res.status(400).json({
+                error: 'Active incident',
+                message: 'Este pedido tiene una incidencia activa. Debes completar uno de los intentos programados en lugar de reportar directamente.'
             });
         }
 
@@ -827,6 +845,7 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
             subtotal_price,
             total_tax,
             total_shipping,
+            shipping_cost,
             currency = 'USD',
             financial_status,
             payment_status,
@@ -871,6 +890,7 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
                 subtotal_price,
                 total_tax: total_tax ?? 0.0,
                 total_shipping: total_shipping ?? 0.0,
+                shipping_cost: shipping_cost ?? 0.0,
                 currency,
                 financial_status: financial_status || 'pending',
                 payment_status: payment_status || 'pending',
@@ -921,6 +941,7 @@ ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             subtotal_price,
             total_tax,
             total_shipping,
+            shipping_cost,
             currency,
             upsell_added
         } = req.body;
@@ -942,6 +963,7 @@ ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (subtotal_price !== undefined) updateData.subtotal_price = subtotal_price;
         if (total_tax !== undefined) updateData.total_tax = total_tax;
         if (total_shipping !== undefined) updateData.total_shipping = total_shipping;
+        if (shipping_cost !== undefined) updateData.shipping_cost = shipping_cost;
         if (currency !== undefined) updateData.currency = currency;
         if (upsell_added !== undefined) updateData.upsell_added = upsell_added;
 

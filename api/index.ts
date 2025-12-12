@@ -18,6 +18,7 @@ import { customersRouter } from './routes/customers';
 import { analyticsRouter } from './routes/analytics';
 import { suppliersRouter } from './routes/suppliers';
 import { additionalValuesRouter } from './routes/additional-values';
+import { recurringValuesRouter } from './routes/recurring-values';
 import { campaignsRouter } from './routes/campaigns';
 import { carriersRouter } from './routes/carriers';
 import { couriersRouter } from './routes/couriers';
@@ -316,7 +317,7 @@ app.use((req: any, res: Response, next: NextFunction) => {
     // Handle all Shopify webhook routes (including GDPR and app uninstall)
     // Support both singular and plural: /api/shopify/webhook/ AND /api/shopify/webhooks/
     const isWebhookRoute = req.path.startsWith('/api/shopify/webhook/') ||
-                          req.path.startsWith('/api/shopify/webhooks/');
+        req.path.startsWith('/api/shopify/webhooks/');
 
     if (isWebhookRoute) {
         let data = '';
@@ -413,6 +414,7 @@ app.use('/api/customers', customersRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/suppliers', suppliersRouter);
 app.use('/api/additional-values', additionalValuesRouter);
+app.use('/api/recurring-values', recurringValuesRouter);
 app.use('/api/campaigns', campaignsRouter);
 app.use('/api/carriers', carriersRouter);
 app.use('/api/couriers', couriersRouter); // Repartidores (delivery personnel)

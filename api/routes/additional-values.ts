@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { RecurringValuesService } from '../services/recurring-values.service';
 
 export const additionalValuesRouter = Router();
 
@@ -28,6 +29,11 @@ additionalValuesRouter.get('/', async (req: AuthRequest, res: Response) => {
             sort_by = 'date',
             sort_order = 'DESC'
         } = req.query;
+
+        // Process recurring values first to ensure data is up to date
+        // Note: This operation is non-blocking to user experience if handled carefully, 
+        // but for now we await it to guarantee consistency on load.
+        await RecurringValuesService.processRecurringValues(req.storeId || '');
 
         // Build base query
         let query = supabaseAdmin
