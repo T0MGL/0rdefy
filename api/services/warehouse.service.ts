@@ -840,9 +840,35 @@ export async function completeSession(
       throw new Error('All orders must be packed before completing session');
     }
 
-    // Note: We no longer force orders to ready_to_ship when completing the session
-    // Orders will remain in 'in_preparation' until their shipping labels are printed
-    // This ensures stock is only decremented when labels are actually printed
+    // Get all orders in this session
+    const { data: sessionOrders, error: ordersError } = await supabaseAdmin
+      .from('picking_session_orders')
+      .select('order_id')
+      .eq('picking_session_id', sessionId);
+
+    if (ordersError) throw ordersError;
+
+    const orderIds = sessionOrders?.map(so => so.order_id) || [];
+
+    // Update all orders to ready_to_ship
+    // This triggers the automatic stock decrement via trigger_update_stock_on_order_status
+    if (orderIds.length > 0) {
+      const { error: orderUpdateError } = await supabaseAdmin
+        .from('orders')
+        .update({
+          sleeves_status: 'ready_to_ship',
+          updated_at: new Date().toISOString()
+        })
+        .in('id', orderIds)
+        .eq('sleeves_status', 'in_preparation'); // Only update orders still in_preparation
+
+      if (orderUpdateError) {
+        console.error('Error updating orders to ready_to_ship:', orderUpdateError);
+        throw new Error('Failed to update orders status');
+      }
+
+      console.log(`✅ Updated ${orderIds.length} orders to ready_to_ship (stock will be automatically decremented)`);
+    }
 
     // Update session status
     const { data: updated, error: updateError } = await supabaseAdmin

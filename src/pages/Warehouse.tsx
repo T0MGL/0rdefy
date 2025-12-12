@@ -4,8 +4,8 @@
  * Optimized for manual input without barcode scanners
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,6 +14,9 @@ import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { useDateRange } from '@/contexts/DateRangeContext';
+import { MetricCard } from '@/components/MetricCard';
+import { analyticsService, LogisticsMetrics } from '@/services/analytics.service';
 import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
@@ -30,6 +33,7 @@ type View = 'dashboard' | 'picking' | 'packing';
 
 export default function Warehouse() {
   const { toast } = useToast();
+  const { getDateRange } = useDateRange();
   const [view, setView] = useState<View>('dashboard');
   const [currentSession, setCurrentSession] = useState<PickingSession | null>(null);
 
@@ -38,6 +42,7 @@ export default function Warehouse() {
   const [activeSessions, setActiveSessions] = useState<PickingSession[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [logisticsMetrics, setLogisticsMetrics] = useState<LogisticsMetrics | null>(null);
 
   // Picking state
   const [pickingList, setPickingList] = useState<PickingSessionItem[]>([]);
@@ -60,15 +65,30 @@ export default function Warehouse() {
   const [batchPrintDialogOpen, setBatchPrintDialogOpen] = useState(false);
   const [selectedOrdersForPrint, setSelectedOrdersForPrint] = useState<Set<string>>(new Set());
 
+  // Calculate date ranges from global context
+  const dateRange = useMemo(() => {
+    const range = getDateRange();
+    const result = {
+      startDate: range.from.toISOString().split('T')[0],
+      endDate: range.to.toISOString().split('T')[0],
+    };
+    return result;
+  }, [getDateRange]);
+
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const [orders, sessions] = await Promise.all([
+      const [orders, sessions, metrics] = await Promise.all([
         warehouseService.getConfirmedOrders(),
-        warehouseService.getActiveSessions()
+        warehouseService.getActiveSessions(),
+        analyticsService.getLogisticsMetrics({
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+        }).catch(() => null)
       ]);
       setConfirmedOrders(orders);
       setActiveSessions(sessions);
+      setLogisticsMetrics(metrics);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       toast({
@@ -79,7 +99,7 @@ export default function Warehouse() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, dateRange]);
 
   const loadPickingList = useCallback(async () => {
     if (!currentSession) return;
@@ -398,6 +418,7 @@ export default function Warehouse() {
           activeSessions={activeSessions}
           selectedOrders={selectedOrders}
           loading={loading}
+          logisticsMetrics={logisticsMetrics}
           onToggleOrder={toggleOrderSelection}
           onCreateSession={handleCreateSession}
           onResumeSession={handleResumeSession}
@@ -515,6 +536,7 @@ interface DashboardViewProps {
   activeSessions: PickingSession[];
   selectedOrders: Set<string>;
   loading: boolean;
+  logisticsMetrics: LogisticsMetrics | null;
   onToggleOrder: (orderId: string) => void;
   onCreateSession: () => void;
   onResumeSession: (session: PickingSession) => void;
@@ -525,6 +547,7 @@ function DashboardView({
   activeSessions,
   selectedOrders,
   loading,
+  logisticsMetrics,
   onToggleOrder,
   onCreateSession,
   onResumeSession
@@ -541,6 +564,19 @@ function DashboardView({
         </div>
         <Package className="h-10 w-10 text-primary" />
       </div>
+
+      {/* Metrics Section */}
+      {logisticsMetrics && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            title="Despachados"
+            value={logisticsMetrics.totalDispatched.toString()}
+            icon={<TrendingUp className="text-blue-600" size={24} />}
+            variant="secondary"
+            subtitle="Pedidos enviados"
+          />
+        </div>
+      )}
 
       {/* 3-Column Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -820,7 +856,7 @@ function PickingView({
           onClick={onFinish}
           disabled={!allPicked || loading}
           size="lg"
-          className={allPicked ? 'bg-green-600 hover:bg-green-700' : ''}
+          className={allPicked ? 'bg-green-500 hover:bg-green-600' : ''}
         >
           <Check className="h-4 w-4 mr-2" />
           Finalizar Recolección
@@ -853,7 +889,7 @@ function PickingView({
       <div className="mb-6 p-6 bg-primary/10 rounded-lg border-2 border-primary/20">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-full ${allPicked ? 'bg-green-600' : 'bg-primary'}`}>
+            <div className={`p-2 rounded-full ${allPicked ? 'bg-green-500' : 'bg-primary'}`}>
               {allPicked ? (
                 <Check className="h-5 w-5 text-white" />
               ) : (
@@ -896,7 +932,7 @@ function PickingView({
             >
               {/* Checkmark Badge for Completed Items */}
               {isComplete && (
-                <div className="absolute top-2 right-2 bg-green-600 rounded-full p-1">
+                <div className="absolute top-2 right-2 bg-green-500 rounded-full p-1">
                   <Check className="h-4 w-4 text-white" />
                 </div>
               )}
@@ -1193,7 +1229,7 @@ function PackingView({
                     </div>
                     {order.is_complete ? (
                       <div className="flex items-center gap-2">
-                        <Badge className="bg-green-600 dark:bg-green-500">
+                        <Badge className="bg-green-500">
                           <Check className="h-3 w-3 mr-1" />
                           Listo
                         </Badge>
