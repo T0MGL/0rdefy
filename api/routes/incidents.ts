@@ -103,15 +103,26 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
         // Get retry attempt details
         const { data: retryAttempt, error: fetchError } = await supabaseAdmin
             .from('incident_retry_attempts')
-            .select('*, delivery_incidents!inner(order_id, store_id)')
+            .select('incident_id, retry_number, scheduled_date')
             .eq('id', retry_id)
             .single();
 
         if (fetchError || !retryAttempt) {
+            console.error('❌ [INCIDENTS] Retry not found:', fetchError);
             return res.status(404).json({ error: 'Retry attempt not found' });
         }
 
-        const incident = retryAttempt.delivery_incidents;
+        // Get incident details separately
+        const { data: incident, error: incidentError } = await supabaseAdmin
+            .from('delivery_incidents')
+            .select('order_id, store_id')
+            .eq('id', retryAttempt.incident_id)
+            .single();
+
+        if (incidentError || !incident) {
+            console.error('❌ [INCIDENTS] Incident not found:', incidentError);
+            return res.status(404).json({ error: 'Incident not found' });
+        }
 
         // Update retry attempt
         const { error: updateError } = await supabaseAdmin

@@ -356,7 +356,9 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
     const { error: orderError } = await supabaseAdmin
       .from('orders')
       .update({
-        status: 'delivery_failed',
+        sleeves_status: 'incident', // Use 'incident' to trigger automatic incident creation
+        delivery_status: 'failed',
+        delivery_failure_reason: failed_reason,
         failed_reason,
         updated_at: new Date().toISOString()
       })
