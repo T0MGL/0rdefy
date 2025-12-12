@@ -398,12 +398,20 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
 incidentsRouter.post('/:id/resolve', async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { resolution_type, notes } = req.body;
+        const { resolution_type, notes, payment_method } = req.body;
 
-        if (!resolution_type || !['cancelled', 'customer_rejected', 'other'].includes(resolution_type)) {
+        if (!resolution_type || !['cancelled', 'customer_rejected', 'delivered', 'other'].includes(resolution_type)) {
             return res.status(400).json({
                 error: 'Invalid resolution_type',
-                valid_types: ['cancelled', 'customer_rejected', 'other']
+                valid_types: ['cancelled', 'customer_rejected', 'delivered', 'other']
+            });
+        }
+
+        // Validate payment_method if resolution_type is 'delivered'
+        if (resolution_type === 'delivered' && !payment_method) {
+            return res.status(400).json({
+                error: 'Payment method required',
+                message: 'payment_method is required when resolution_type is "delivered"'
             });
         }
 
@@ -431,23 +439,34 @@ incidentsRouter.post('/:id/resolve', async (req: AuthRequest, res: Response) => 
 
         // Update order status based on resolution
         let orderStatus = 'cancelled';
+        let paymentStatus = undefined;
+
         if (resolution_type === 'customer_rejected') {
             orderStatus = 'not_delivered';
+        } else if (resolution_type === 'delivered') {
+            orderStatus = 'delivered';
+            paymentStatus = 'collected';
+        }
+
+        const orderUpdates: any = {
+            sleeves_status: orderStatus,
+            has_active_incident: false,
+            updated_at: new Date().toISOString()
+        };
+
+        if (paymentStatus) {
+            orderUpdates.payment_status = paymentStatus;
         }
 
         await supabaseAdmin
             .from('orders')
-            .update({
-                sleeves_status: orderStatus,
-                has_active_incident: false,
-                updated_at: new Date().toISOString()
-            })
+            .update(orderUpdates)
             .eq('id', incident.order_id);
 
-        console.log('✅ [INCIDENTS] Incident resolved');
+        console.log('✅ [INCIDENTS] Incident resolved', resolution_type === 'delivered' ? 'and order marked as delivered' : '');
 
         res.json({
-            message: 'Incident resolved',
+            message: resolution_type === 'delivered' ? 'Incident resolved and order marked as delivered' : 'Incident resolved',
             data: incident
         });
     } catch (error: any) {

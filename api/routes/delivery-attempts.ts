@@ -294,12 +294,38 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
       return res.status(404).json({ error: 'Delivery attempt not found' });
     }
 
+    // Check if order has active incident
+    const { data: activeIncident } = await supabaseAdmin
+      .from('delivery_incidents')
+      .select('id, order_id')
+      .eq('order_id', attempt.order_id)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    // If there's an active incident, resolve it automatically
+    if (activeIncident) {
+      console.log('🔄 [DELIVERY-ATTEMPTS] Auto-resolving active incident:', activeIncident.id);
+
+      await supabaseAdmin
+        .from('delivery_incidents')
+        .update({
+          status: 'resolved',
+          resolution_type: 'delivered',
+          resolution_notes: notes || 'Auto-resolved when marked as delivered',
+          resolved_at: new Date().toISOString(),
+          resolved_by: 'courier',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', activeIncident.id);
+    }
+
     // Update order status and payment_status
     const { error: orderError } = await supabaseAdmin
       .from('orders')
       .update({
         status: 'delivered',
         payment_status: 'collected',
+        has_active_incident: false,
         updated_at: new Date().toISOString()
       })
       .eq('id', attempt.order_id);
@@ -309,8 +335,11 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
     }
 
     res.json({
-      message: 'Delivery marked as successful',
-      data: attempt
+      message: activeIncident
+        ? 'Delivery marked as successful and incident auto-resolved'
+        : 'Delivery marked as successful',
+      data: attempt,
+      incident_resolved: !!activeIncident
     });
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);

@@ -108,6 +108,7 @@ export default function Incidents() {
   const [scheduleNotes, setScheduleNotes] = useState('');
   const [resolutionType, setResolutionType] = useState('cancelled');
   const [resolutionNotes, setResolutionNotes] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('efectivo');
   const [statusFilter, setStatusFilter] = useState('active');
   const { toast } = useToast();
 
@@ -172,26 +173,45 @@ export default function Incidents() {
   const handleResolveIncident = async () => {
     if (!selectedIncident) return;
 
+    // Validate payment_method if resolution_type is 'delivered'
+    if (resolutionType === 'delivered' && !paymentMethod) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Debe seleccionar un método de pago al marcar como entregado'
+      });
+      return;
+    }
+
     try {
-      await apiClient.post(`/incidents/${selectedIncident.incident_id}/resolve`, {
+      const payload: any = {
         resolution_type: resolutionType,
         notes: resolutionNotes
-      });
+      };
+
+      if (resolutionType === 'delivered') {
+        payload.payment_method = paymentMethod;
+      }
+
+      await apiClient.post(`/incidents/${selectedIncident.incident_id}/resolve`, payload);
 
       toast({
         title: 'Incidencia resuelta',
-        description: 'La incidencia se resolvió correctamente'
+        description: resolutionType === 'delivered'
+          ? 'La incidencia se resolvió y el pedido se marcó como entregado'
+          : 'La incidencia se resolvió correctamente'
       });
 
       setResolveDialogOpen(false);
       setResolutionNotes('');
+      setPaymentMethod('efectivo');
       loadIncidents();
     } catch (error: any) {
       console.error('Error resolving incident:', error);
       toast({
         variant: 'destructive',
         title: 'Error al resolver incidencia',
-        description: error.response?.data?.error || 'No se pudo resolver la incidencia'
+        description: error.response?.data?.message || error.response?.data?.error || 'No se pudo resolver la incidencia'
       });
     }
   };
@@ -601,6 +621,7 @@ export default function Incidents() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="delivered">Entregado ✅</SelectItem>
                   <SelectItem value="cancelled">Cancelado</SelectItem>
                   <SelectItem value="customer_rejected">Cliente Rechazó</SelectItem>
                   <SelectItem value="other">Otro</SelectItem>
@@ -608,9 +629,30 @@ export default function Incidents() {
               </Select>
             </div>
 
+            {resolutionType === 'delivered' && (
+              <div>
+                <label className="text-sm font-medium mb-1 block">
+                  Método de Pago *
+                </label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="efectivo">Efectivo</SelectItem>
+                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
+                    <SelectItem value="transferencia">Transferencia</SelectItem>
+                    <SelectItem value="yape">Yape</SelectItem>
+                    <SelectItem value="plin">Plin</SelectItem>
+                    <SelectItem value="otro">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div>
               <label className="text-sm font-medium mb-1 block">
-                Notas
+                Notas {resolutionType === 'delivered' ? '(opcional)' : ''}
               </label>
               <Textarea
                 value={resolutionNotes}
@@ -626,13 +668,14 @@ export default function Incidents() {
                 onClick={() => {
                   setResolveDialogOpen(false);
                   setResolutionNotes('');
+                  setPaymentMethod('efectivo');
                 }}
               >
                 Cancelar
               </Button>
               <Button onClick={handleResolveIncident}>
                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                Resolver
+                {resolutionType === 'delivered' ? 'Marcar como Entregado' : 'Resolver'}
               </Button>
             </div>
           </div>
