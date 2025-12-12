@@ -113,8 +113,9 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
           <SheetTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span>
-                Pedido {order.shopify_order_number ? `SH#${order.shopify_order_number}` :
-                        order.shopify_order_id ? `SH#${order.shopify_order_id}` :
+                Pedido {order.shopify_order_name ||
+                        (order.shopify_order_number ? `#${order.shopify_order_number}` : null) ||
+                        (order.shopify_order_id ? `SH#${order.shopify_order_id}` : null) ||
                         `OR#${order.id.substring(0, 8)}`}
               </span>
               {order.shopify_order_id && (
@@ -202,6 +203,19 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <span className="text-sm text-muted-foreground">Total del Pedido:</span>
                 <span className="text-lg font-bold">Gs. {(order.total ?? 0).toLocaleString()}</span>
               </div>
+              {order.payment_gateway && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Gateway:</span>
+                  <Badge variant="outline" className="text-xs">
+                    {order.payment_gateway === 'shopify_payments' ? 'Shopify Payments' :
+                     order.payment_gateway === 'manual' ? 'Manual' :
+                     order.payment_gateway === 'cash_on_delivery' ? 'Contra Entrega' :
+                     order.payment_gateway === 'paypal' ? 'PayPal' :
+                     order.payment_gateway === 'mercadopago' ? 'MercadoPago' :
+                     order.payment_gateway}
+                  </Badge>
+                </div>
+              )}
               {order.payment_method && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Método de Pago:</span>
@@ -338,13 +352,13 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
               <SelectContent>
                 <SelectItem value="pending">Pendiente</SelectItem>
                 <SelectItem value="confirmed">Confirmado</SelectItem>
-                <SelectItem value="preparing">Preparando</SelectItem>
-                <SelectItem value="out_for_delivery">En Tránsito</SelectItem>
+                <SelectItem value="in_preparation">En Preparación</SelectItem>
+                <SelectItem value="ready_to_ship">Preparado</SelectItem>
+                <SelectItem value="shipped">En Tránsito</SelectItem>
                 <SelectItem value="delivered">Entregado</SelectItem>
-                <SelectItem value="delivery_failed">Entrega Fallida</SelectItem>
-                <SelectItem value="incident">Incidencia</SelectItem>
-                <SelectItem value="rejected">Rechazado</SelectItem>
+                <SelectItem value="returned">Devuelto</SelectItem>
                 <SelectItem value="cancelled">Cancelado</SelectItem>
+                <SelectItem value="incident">Incidencia</SelectItem>
               </SelectContent>
             </Select>
             <Button

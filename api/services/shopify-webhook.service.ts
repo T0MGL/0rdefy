@@ -577,11 +577,17 @@ export class ShopifyWebhookService {
     const primaryPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shippingAddr?.phone || '';
     const backupPhone = billingAddr?.phone && billingAddr.phone !== primaryPhone ? billingAddr.phone : '';
 
+    // Extract payment gateway information
+    const paymentGateway = shopifyOrder.payment_gateway_names?.[0] ||
+                          shopifyOrder.gateway ||
+                          (shopifyOrder.financial_status === 'pending' ? 'pending' : 'unknown');
+
     return {
       store_id: storeId,
       customer_id: customerId,
       shopify_order_id: shopifyOrder.id.toString(),
       shopify_order_number: shopifyOrder.order_number.toString(),
+      shopify_order_name: shopifyOrder.name || `#${shopifyOrder.order_number}`,
       shopify_data: shopifyOrder,
       shopify_raw_json: shopifyOrder,
       last_synced_at: new Date().toISOString(),
@@ -614,9 +620,14 @@ export class ShopifyWebhookService {
       total_shipping: parseFloat(shopifyOrder.total_shipping || '0'),
       currency: shopifyOrder.currency || 'USD',
 
+      // Payment
+      payment_gateway: paymentGateway,
+      payment_method: this.mapPaymentGatewayToMethod(paymentGateway),
+
       // Status
       financial_status: shopifyOrder.financial_status || 'pending',
       fulfillment_status: shopifyOrder.fulfillment_status,
+      cancel_reason: shopifyOrder.cancel_reason || null,
 
       // Metadata
       order_status_url: shopifyOrder.order_status_url,
@@ -624,8 +635,25 @@ export class ShopifyWebhookService {
       note: shopifyOrder.note,
       created_at: shopifyOrder.created_at,
       updated_at: shopifyOrder.updated_at || shopifyOrder.created_at,
-      processed_at: shopifyOrder.processed_at || shopifyOrder.created_at
+      processed_at: shopifyOrder.processed_at || shopifyOrder.created_at,
+      cancelled_at: shopifyOrder.cancelled_at || null
     };
+  }
+
+  // Mapear gateway de Shopify a método de pago local
+  private mapPaymentGatewayToMethod(gateway: string): string {
+    const gatewayMap: Record<string, string> = {
+      'shopify_payments': 'online',
+      'manual': 'cash',
+      'cash_on_delivery': 'cash_on_delivery',
+      'paypal': 'online',
+      'stripe': 'online',
+      'mercadopago': 'online',
+      'pending': 'pending',
+      'unknown': 'online'
+    };
+
+    return gatewayMap[gateway.toLowerCase()] || 'online';
   }
 
   // Mapear estado de pedido de Shopify a estado interno

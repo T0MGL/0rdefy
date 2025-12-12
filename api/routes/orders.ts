@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
+import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
 
 export const ordersRouter = Router();
 
@@ -1086,6 +1087,9 @@ ordersRouter.patch('/:id/status', async (req: AuthRequest, res: Response) => {
 
         if (sleeves_status === 'cancelled' || sleeves_status === 'rejected') {
             updateData.cancelled_at = new Date().toISOString();
+            if (rejection_reason) {
+                updateData.cancel_reason = rejection_reason;
+            }
         }
 
         // If changing from cancelled to any deliverable status, reset delivery fields
@@ -1103,13 +1107,49 @@ ordersRouter.patch('/:id/status', async (req: AuthRequest, res: Response) => {
             .update(updateData)
             .eq('id', id)
             .eq('store_id', req.storeId)
-            .select()
+            .select('*, carriers(name), order_line_items(id, quantity, product_id, product_name, title, sku, variant_title, price)')
             .single();
 
         if (error || !data) {
             return res.status(404).json({
                 error: 'Order not found'
             });
+        }
+
+        // Sync cancellation to Shopify if order is from Shopify
+        if ((sleeves_status === 'cancelled' || sleeves_status === 'rejected' || sleeves_status === 'returned') &&
+            data.shopify_order_id) {
+            try {
+                console.log(`🔄 [SHOPIFY-SYNC] Cancelling Shopify order ${data.shopify_order_id} (status: ${sleeves_status})`);
+
+                // Get Shopify integration for this store
+                const { data: integration } = await supabaseAdmin
+                    .from('shopify_integrations')
+                    .select('*')
+                    .eq('store_id', req.storeId)
+                    .eq('status', 'active')
+                    .single();
+
+                if (integration) {
+                    const shopifyClient = new ShopifyGraphQLClientService(integration);
+
+                    // Cancel order in Shopify
+                    await shopifyClient.cancelOrder(
+                        data.shopify_order_id,
+                        rejection_reason || 'cancelled',
+                        false, // Don't notify customer (we handle that)
+                        false  // Don't refund automatically
+                    );
+
+                    console.log(`✅ [SHOPIFY-SYNC] Successfully cancelled Shopify order ${data.shopify_order_id}`);
+                } else {
+                    console.warn(`⚠️  [SHOPIFY-SYNC] No active Shopify integration found for store ${req.storeId}`);
+                }
+            } catch (shopifyError: any) {
+                console.error(`❌ [SHOPIFY-SYNC] Failed to cancel Shopify order:`, shopifyError);
+                // Don't fail the entire request - log the error and continue
+                // The order is already cancelled in Ordefy
+            }
         }
 
         // If token was regenerated (reactivation from cancelled), generate new QR code

@@ -68,6 +68,9 @@ export interface Order {
   id: string;
   shopify_order_id?: string; // ID de Shopify (ej: "5678901234")
   shopify_order_number?: string; // Número de orden de Shopify (ej: "1001")
+  shopify_order_name?: string; // Nombre de orden de Shopify (ej: "#1001")
+  payment_gateway?: string; // Gateway de pago (shopify_payments, manual, paypal, etc.)
+  cancel_reason?: string; // Razón de cancelación del pedido
   customer: string;
   address?: string;
   product: string;
