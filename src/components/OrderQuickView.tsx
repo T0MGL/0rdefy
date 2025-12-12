@@ -46,25 +46,37 @@ interface OrderQuickViewProps {
 const statusColors = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
   confirmed: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
+  in_preparation: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
+  ready_to_ship: 'bg-cyan-500/20 text-cyan-700 border-cyan-500/30',
+  shipped: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
+  in_transit: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
+  delivered: 'bg-primary/20 text-primary border-primary/30',
+  returned: 'bg-gray-500/20 text-gray-700 border-gray-500/30',
+  cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
+  incident: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
+  // Estados legacy
   preparing: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
   out_for_delivery: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
-  delivered: 'bg-primary/20 text-primary border-primary/30',
   delivery_failed: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
-  incident: 'bg-red-500/20 text-red-700 border-red-500/30',
   rejected: 'bg-red-500/20 text-red-700 border-red-500/30',
-  cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
 };
 
 const statusLabels = {
   pending: 'Pendiente',
   confirmed: 'Confirmado',
+  in_preparation: 'En Preparación',
+  ready_to_ship: 'Preparado',
+  shipped: 'En Tránsito',
+  in_transit: 'En Tránsito',
+  delivered: 'Entregado',
+  returned: 'Devuelto',
+  cancelled: 'Cancelado',
+  incident: 'Incidencia',
+  // Estados legacy
   preparing: 'Preparando',
   out_for_delivery: 'En Tránsito',
-  delivered: 'Entregado',
   delivery_failed: 'Entrega Fallida',
-  incident: 'Incidencia',
   rejected: 'Rechazado',
-  cancelled: 'Cancelado',
 };
 
 export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: OrderQuickViewProps) {

@@ -233,6 +233,27 @@ export const analyticsService = {
       return null;
     }
   },
+
+  getIncidentsMetrics: async (params?: { startDate?: string; endDate?: string }): Promise<IncidentsMetrics | null> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const url = `${API_BASE_URL}/analytics/incidents-metrics${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await fetch(url, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+      return result.data || null;
+    } catch (error) {
+      console.error('Error loading incidents metrics:', error);
+      return null;
+    }
+  },
 };
 
 // Tipos para las nuevas métricas
@@ -284,4 +305,20 @@ export interface ReturnsMetrics {
   rejectionReasons: Record<string, number>;
   // Contexto
   totalOrders: number;
+}
+
+export interface IncidentsMetrics {
+  // Total de incidencias
+  totalIncidents: number;
+  // Estados
+  activeIncidents: number;
+  resolvedIncidents: number;
+  expiredIncidents: number;
+  // Resoluciones
+  deliveredAfterIncident: number;
+  cancelledIncidents: number;
+  customerRejectedIncidents: number;
+  // Tasas
+  successRate: number;
+  avgRetries: number;
 }

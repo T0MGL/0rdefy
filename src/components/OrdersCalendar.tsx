@@ -8,9 +8,14 @@ import type { Order } from '@/types';
 const statusColors = {
   pending: 'bg-yellow-500',
   confirmed: 'bg-blue-500',
+  in_preparation: 'bg-indigo-500',
+  ready_to_ship: 'bg-cyan-500',
+  shipped: 'bg-purple-500',
   in_transit: 'bg-purple-500',
   delivered: 'bg-primary',
+  returned: 'bg-gray-500',
   cancelled: 'bg-red-500',
+  incident: 'bg-orange-500',
 };
 
 export function OrdersCalendar() {

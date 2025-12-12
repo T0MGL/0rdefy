@@ -37,8 +37,6 @@ export default function Delivery() {
   const [state, setState] = useState<DeliveryState>({ type: 'loading' });
   const [submitting, setSubmitting] = useState(false);
   const [failureReason, setFailureReason] = useState('');
-  const [photoUrl, setPhotoUrl] = useState('');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [failureNotes, setFailureNotes] = useState('');
   const [rating, setRating] = useState(0);
@@ -126,41 +124,9 @@ export default function Delivery() {
       const authToken = localStorage.getItem('auth_token');
       const storeId = state.data.store_id;
 
-      let uploadedPhotoUrl = photoUrl;
-
-      // Si hay un archivo de foto, subirlo primero
-      if (photoFile) {
-        const formData = new FormData();
-        formData.append('file', photoFile);
-        formData.append('store_id', storeId);
-        formData.append('order_id', state.data.id);
-
-        const uploadResponse = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/delivery-attempts/upload-photo`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${authToken}`,
-              'X-Store-ID': storeId,
-            },
-            body: formData,
-          }
-        );
-
-        if (uploadResponse.ok) {
-          const uploadResult = await uploadResponse.json();
-          uploadedPhotoUrl = uploadResult.url;
-        } else {
-          console.warn('Failed to upload photo, continuing without it');
-        }
-      }
-
       const payload: any = {
         payment_method: paymentMethod,
       };
-      if (uploadedPhotoUrl) {
-        payload.proof_photo_url = uploadedPhotoUrl;
-      }
 
       const response = await fetch(
         `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data.id}/delivery-confirm`,
@@ -176,7 +142,8 @@ export default function Delivery() {
       );
 
       if (!response.ok) {
-        throw new Error('Failed to confirm delivery');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to confirm delivery');
       }
 
       toast({
@@ -186,11 +153,11 @@ export default function Delivery() {
 
       // Refresh to show delivered state
       fetchOrderByToken(token!);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error confirming delivery:', error);
       toast({
         title: 'Error',
-        description: 'No se pudo confirmar la entrega',
+        description: error.message || 'No se pudo confirmar la entrega',
         variant: 'destructive',
       });
     } finally {
@@ -238,7 +205,8 @@ export default function Delivery() {
       );
 
       if (!response.ok) {
-        throw new Error('Failed to report failure');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to report failure');
       }
 
       toast({
@@ -248,11 +216,11 @@ export default function Delivery() {
 
       // Refresh to show failed state
       fetchOrderByToken(token!);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error reporting failure:', error);
       toast({
         title: 'Error',
-        description: 'No se pudo reportar la falla',
+        description: error.message || 'No se pudo reportar la falla',
         variant: 'destructive',
       });
     } finally {
@@ -385,7 +353,7 @@ export default function Delivery() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="p-4 bg-green-50 dark:bg-green-950/20 rounded-lg">
+              <div className="p-4 bg-accent rounded-lg">
                 <p className="text-sm font-medium mb-2">Ya calificaste esta entrega</p>
                 <div className="flex items-center justify-center gap-1 mb-2">
                   {[1, 2, 3, 4, 5].map((star) => (
@@ -547,11 +515,11 @@ export default function Delivery() {
             )}
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-4 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-200 dark:border-orange-800">
-              <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-2">
+            <div className="p-4 bg-accent rounded-lg border border-border">
+              <p className="text-sm font-medium mb-2">
                 ¿Qué deseas hacer con este pedido?
               </p>
-              <p className="text-xs text-orange-700 dark:text-orange-300">
+              <p className="text-xs text-muted-foreground">
                 Puedes programar un reintento de entrega o cancelar el pedido definitivamente.
               </p>
             </div>
@@ -791,18 +759,18 @@ export default function Delivery() {
 
         {/* COD (Cash on Delivery) Alert */}
         {orderData.cod_amount > 0 && (
-          <Card className="bg-yellow-500/10 border-yellow-500">
+          <Card className="bg-accent border-border">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-yellow-500/20 rounded-full">
-                  <svg className="h-6 w-6 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="p-2 bg-primary/20 rounded-full">
+                  <svg className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="font-bold text-lg text-yellow-500">Cobro en Efectivo</p>
+                  <p className="font-bold text-lg text-primary">Cobro en Efectivo</p>
                   <p className="text-sm text-muted-foreground">Debes cobrar al cliente:</p>
-                  <p className="text-2xl font-bold text-yellow-400 mt-1">
+                  <p className="text-2xl font-bold text-primary mt-1">
                     ${orderData.cod_amount?.toLocaleString()} {orderData.payment_method === 'efectivo' ? 'en efectivo' : ''}
                   </p>
                 </div>
@@ -815,26 +783,26 @@ export default function Delivery() {
 
         {/* Google Maps Location Card - Prominent for Couriers */}
         {orderData.customer_address && (
-          <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+          <Card className="bg-accent border-border">
             <CardContent className="p-4">
               <div className="flex items-start gap-3 mb-3">
-                <div className="p-2 bg-blue-600 rounded-full">
-                  <MapPin className="h-5 w-5 text-white" />
+                <div className="p-2 bg-primary rounded-full">
+                  <MapPin className="h-5 w-5 text-primary-foreground" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                  <h3 className="font-semibold mb-1">
                     Ubicación de Entrega
                   </h3>
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                  <p className="text-sm">
                     {orderData.customer_address}
                   </p>
                   {orderData.neighborhood && (
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {orderData.neighborhood}
                     </p>
                   )}
                   {orderData.address_reference && (
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Ref: {orderData.address_reference}
                     </p>
                   )}
@@ -843,7 +811,7 @@ export default function Delivery() {
 
               <div className="grid grid-cols-1 gap-2">
                 <Button
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold h-12"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold h-12"
                   onClick={() => {
                     const { google_maps_link, latitude, longitude, customer_address, neighborhood } = orderData;
 
@@ -871,7 +839,7 @@ export default function Delivery() {
 
                 <Button
                   variant="outline"
-                  className="w-full border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                  className="w-full"
                   onClick={openInMaps}
                 >
                   <MapPin className="h-4 w-4 mr-2" />
@@ -918,7 +886,8 @@ export default function Delivery() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Confirm Delivery Section */}
-              <div className="space-y-3 p-4 border rounded-lg bg-green-50 dark:bg-green-950/20">
+              <div className="space-y-3 p-4 border rounded-lg bg-accent">
+              <Label className="text-base font-semibold">✅ Confirmar Entrega</Label>
               <div className="space-y-2">
                 <Label htmlFor="payment-method" className="text-sm font-medium">
                   Método de pago *
@@ -936,24 +905,6 @@ export default function Delivery() {
                     <SelectItem value="otro">Otro</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="photo-file" className="text-sm font-medium">
-                  Foto de evidencia (opcional)
-                </Label>
-                <input
-                  type="file"
-                  id="photo-file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={(e) => setPhotoFile(e.target.files?.[0] || null)}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                />
-                {photoFile && (
-                  <p className="text-xs text-muted-foreground">
-                    Archivo seleccionado: {photoFile.name} ({(photoFile.size / 1024).toFixed(1)} KB)
-                  </p>
-                )}
               </div>
 
               <Button
@@ -977,7 +928,8 @@ export default function Delivery() {
             </div>
 
             {/* Report Failure Section */}
-            <div className="space-y-3 p-4 border rounded-lg bg-red-50 dark:bg-red-950/20">
+            <div className="space-y-3 p-4 border rounded-lg bg-accent">
+              <Label className="text-base font-semibold">❌ Reportar Falla</Label>
               <div className="space-y-2">
                 <Label htmlFor="reason" className="text-sm font-medium">
                   Motivo de falla *
