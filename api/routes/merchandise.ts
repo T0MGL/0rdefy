@@ -379,10 +379,78 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
       .eq('id', id)
       .single();
 
+    // ================================================================
+    // SHOPIFY SYNC: Sync inventory to Shopify after reception
+    // ================================================================
+    const syncWarnings: string[] = [];
+
+    // Check if we have an active Shopify integration
+    const { data: integration } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('store_id', req.storeId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (integration) {
+      try {
+        // Get all products that were updated in this shipment
+        const { data: shipmentItems } = await supabaseAdmin
+          .from('inbound_shipment_items')
+          .select('product_id')
+          .eq('shipment_id', id);
+
+        if (shipmentItems && shipmentItems.length > 0) {
+          const productIds = shipmentItems.map(item => item.product_id);
+
+          // Fetch products with their current stock and Shopify IDs
+          const { data: products } = await supabaseAdmin
+            .from('products')
+            .select('id, name, stock, shopify_variant_id, shopify_product_id')
+            .in('id', productIds)
+            .eq('store_id', req.storeId);
+
+          // Filter products that are linked to Shopify
+          const productsToSync = (products || [])
+            .filter(p => p.shopify_variant_id || p.shopify_product_id)
+            .map(p => ({
+              productId: p.id,
+              newStock: p.stock
+            }));
+
+          if (productsToSync.length > 0) {
+            console.log(`🔄 [MERCHANDISE-RECEIVE] Syncing ${productsToSync.length} products to Shopify...`);
+
+            const { ShopifyInventorySyncService } = await import('../services/shopify-inventory-sync.service');
+            const syncService = new ShopifyInventorySyncService(supabaseAdmin);
+
+            const syncResult = await syncService.batchSyncInventoryToShopify({
+              storeId: req.storeId,
+              products: productsToSync
+            });
+
+            console.log(`✅ [MERCHANDISE-RECEIVE] Shopify sync complete: ${syncResult.success} success, ${syncResult.failed} failed`);
+
+            if (syncResult.failed > 0) {
+              syncResult.errors.forEach(err => {
+                syncWarnings.push(`Product ${err.productId}: ${err.error}`);
+              });
+            }
+          } else {
+            console.log(`ℹ️  [MERCHANDISE-RECEIVE] No Shopify-linked products to sync`);
+          }
+        }
+      } catch (syncError: any) {
+        console.error('[MERCHANDISE-RECEIVE] Error syncing to Shopify:', syncError);
+        syncWarnings.push('Failed to sync inventory to Shopify: ' + syncError.message);
+      }
+    }
+
     res.json({
       success: true,
       ...result,
-      shipment: updatedShipment
+      shipment: updatedShipment,
+      sync_warnings: syncWarnings.length > 0 ? syncWarnings : undefined
     });
   } catch (error: any) {
     console.error(`[POST /api/merchandise/${req.params.id}/receive] Error:`, error);

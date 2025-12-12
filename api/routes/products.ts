@@ -211,8 +211,9 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
-// POST /api/products - Create new product
+// POST /api/products - Create new product (MANUAL)
 // ================================================================
+// For creating products from Shopify dropdown, use /from-shopify endpoint instead
 productsRouter.post('/', async (req: AuthRequest, res: Response) => {
     try {
         const {
@@ -235,6 +236,16 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
                 message: 'name and price are required fields'
             });
         }
+
+        // Check if we have an active Shopify integration
+        const { data: integration } = await supabaseAdmin
+            .from('shopify_integrations')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        let syncWarnings: string[] = [];
 
         const { data, error } = await supabaseAdmin
             .from('products')
@@ -265,9 +276,42 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
             throw error;
         }
 
+        // If product is NEW (no Shopify ID) and we have Shopify integration, publish to Shopify
+        if (!shopify_product_id && integration) {
+            try {
+                console.log(`🚀 [PRODUCT-CREATE] Auto-publishing new product to Shopify...`);
+                const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
+                const syncResult = await syncService.publishProductToShopify(data.id);
+
+                if (!syncResult.success) {
+                    console.warn(`Product created locally but failed to publish to Shopify: ${syncResult.error}`);
+                    syncWarnings.push('Failed to publish to Shopify: ' + syncResult.error);
+                } else {
+                    console.log(`✅ [PRODUCT-CREATE] Product auto-published to Shopify successfully`);
+
+                    // Fetch updated product with Shopify IDs
+                    const { data: updatedProduct } = await supabaseAdmin
+                        .from('products')
+                        .select('*')
+                        .eq('id', data.id)
+                        .single();
+
+                    return res.status(201).json({
+                        message: 'Product created and published to Shopify successfully',
+                        data: updatedProduct || data,
+                        sync_warnings: syncWarnings.length > 0 ? syncWarnings : undefined
+                    });
+                }
+            } catch (syncError: any) {
+                console.error('Error auto-publishing to Shopify:', syncError);
+                syncWarnings.push('Failed to publish to Shopify: ' + syncError.message);
+            }
+        }
+
         res.status(201).json({
             message: 'Product created successfully',
-            data
+            data,
+            sync_warnings: syncWarnings.length > 0 ? syncWarnings : undefined
         });
     } catch (error: any) {
         console.error('[POST /api/products] Error:', error);

@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers, TrendingUp } from 'lucide-react';
+import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -15,8 +15,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useDateRange } from '@/contexts/DateRangeContext';
-import { MetricCard } from '@/components/MetricCard';
-import { analyticsService, LogisticsMetrics } from '@/services/analytics.service';
 import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
@@ -42,7 +40,6 @@ export default function Warehouse() {
   const [activeSessions, setActiveSessions] = useState<PickingSession[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [logisticsMetrics, setLogisticsMetrics] = useState<LogisticsMetrics | null>(null);
 
   // Picking state
   const [pickingList, setPickingList] = useState<PickingSessionItem[]>([]);
@@ -78,17 +75,12 @@ export default function Warehouse() {
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const [orders, sessions, metrics] = await Promise.all([
+      const [orders, sessions] = await Promise.all([
         warehouseService.getConfirmedOrders(),
         warehouseService.getActiveSessions(),
-        analyticsService.getLogisticsMetrics({
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-        }).catch(() => null)
       ]);
       setConfirmedOrders(orders);
       setActiveSessions(sessions);
-      setLogisticsMetrics(metrics);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       toast({
@@ -418,7 +410,6 @@ export default function Warehouse() {
           activeSessions={activeSessions}
           selectedOrders={selectedOrders}
           loading={loading}
-          logisticsMetrics={logisticsMetrics}
           onToggleOrder={toggleOrderSelection}
           onCreateSession={handleCreateSession}
           onResumeSession={handleResumeSession}
@@ -536,7 +527,6 @@ interface DashboardViewProps {
   activeSessions: PickingSession[];
   selectedOrders: Set<string>;
   loading: boolean;
-  logisticsMetrics: LogisticsMetrics | null;
   onToggleOrder: (orderId: string) => void;
   onCreateSession: () => void;
   onResumeSession: (session: PickingSession) => void;
@@ -547,7 +537,6 @@ function DashboardView({
   activeSessions,
   selectedOrders,
   loading,
-  logisticsMetrics,
   onToggleOrder,
   onCreateSession,
   onResumeSession
@@ -564,19 +553,6 @@ function DashboardView({
         </div>
         <Package className="h-10 w-10 text-primary" />
       </div>
-
-      {/* Metrics Section */}
-      {logisticsMetrics && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <MetricCard
-            title="Despachados"
-            value={logisticsMetrics.totalDispatched.toString()}
-            icon={<TrendingUp className="text-blue-600" size={24} />}
-            variant="secondary"
-            subtitle="Pedidos enviados"
-          />
-        </div>
-      )}
 
       {/* 3-Column Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

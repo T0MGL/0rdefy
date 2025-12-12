@@ -438,4 +438,66 @@ export class ShopifyGraphQLClientService {
     if (id.startsWith('gid://')) return id;
     return `gid://shopify/${resourceType}/${id}`;
   }
+
+  // Cancel order (GraphQL)
+  async cancelOrder(orderId: string, reason?: string, notifyCustomer = false, refund = false): Promise<any> {
+    const mutation = `
+      mutation orderCancel($orderId: ID!, $notifyCustomer: Boolean, $reason: OrderCancelReason, $refund: Boolean) {
+        orderCancel(orderId: $orderId, notifyCustomer: $notifyCustomer, reason: $reason, refund: $refund) {
+          orderCancelUserErrors {
+            field
+            message
+          }
+          job {
+            id
+            done
+          }
+        }
+      }
+    `;
+
+    // Ensure orderId has the gid://shopify/Order/ prefix
+    const gid = orderId.startsWith('gid://')
+      ? orderId
+      : `gid://shopify/Order/${orderId}`;
+
+    // Map reason to Shopify's OrderCancelReason enum
+    const shopifyReason = this.mapCancelReasonToShopify(reason);
+
+    const variables = {
+      orderId: gid,
+      notifyCustomer,
+      reason: shopifyReason,
+      refund
+    };
+
+    const result = await this.query(mutation, variables);
+
+    if (result.orderCancel.orderCancelUserErrors?.length > 0) {
+      throw new Error(
+        `Order cancellation failed: ${result.orderCancel.orderCancelUserErrors
+          .map((e: any) => e.message)
+          .join(', ')}`
+      );
+    }
+
+    return result.orderCancel.job;
+  }
+
+  // Map internal cancel reason to Shopify's OrderCancelReason enum
+  private mapCancelReasonToShopify(reason?: string): string | undefined {
+    if (!reason) return 'OTHER';
+
+    const reasonMap: Record<string, string> = {
+      'customer': 'CUSTOMER',
+      'inventory': 'INVENTORY',
+      'fraud': 'FRAUD',
+      'declined': 'DECLINED',
+      'other': 'OTHER',
+      'returned': 'OTHER',
+      'stock': 'INVENTORY'
+    };
+
+    return reasonMap[reason.toLowerCase()] || 'OTHER';
+  }
 }

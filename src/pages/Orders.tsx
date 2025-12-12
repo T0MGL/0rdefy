@@ -783,9 +783,10 @@ export default function Orders() {
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-mono">
-                          {order.shopify_order_number ? `SH#${order.shopify_order_number}` :
-                            order.shopify_order_id ? `SH#${order.shopify_order_id}` :
-                              `OR#${order.id.substring(0, 8)}`}
+                          {order.shopify_order_name ||
+                            (order.shopify_order_number ? `#${order.shopify_order_number}` : null) ||
+                            (order.shopify_order_id ? `SH#${order.shopify_order_id}` : null) ||
+                            `OR#${order.id.substring(0, 8)}`}
                         </span>
                         {order.shopify_order_id && (
                           <Badge
@@ -793,6 +794,20 @@ export default function Orders() {
                             className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs px-1.5 py-0"
                           >
                             Shopify
+                          </Badge>
+                        )}
+                        {order.payment_gateway && (
+                          <Badge
+                            variant="outline"
+                            className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 text-xs px-1.5 py-0"
+                            title={`Gateway: ${order.payment_gateway}`}
+                          >
+                            {order.payment_gateway === 'shopify_payments' ? '💳' :
+                             order.payment_gateway === 'manual' ? '📝' :
+                             order.payment_gateway === 'cash_on_delivery' ? '💵' :
+                             order.payment_gateway === 'paypal' ? 'PP' :
+                             order.payment_gateway === 'mercadopago' ? 'MP' :
+                             '💰'}
                           </Badge>
                         )}
                       </div>
@@ -815,9 +830,13 @@ export default function Orders() {
                         <SelectContent>
                           <SelectItem value="pending">Pendiente</SelectItem>
                           <SelectItem value="confirmed">Confirmado</SelectItem>
-                          <SelectItem value="in_transit">En Tránsito</SelectItem>
+                          <SelectItem value="in_preparation">En Preparación</SelectItem>
+                          <SelectItem value="ready_to_ship">Preparado</SelectItem>
+                          <SelectItem value="shipped">En Tránsito</SelectItem>
                           <SelectItem value="delivered">Entregado</SelectItem>
+                          <SelectItem value="returned">Devuelto</SelectItem>
                           <SelectItem value="cancelled">Cancelado</SelectItem>
+                          <SelectItem value="incident">Incidencia</SelectItem>
                         </SelectContent>
                       </Select>
                     </td>

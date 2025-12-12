@@ -148,11 +148,12 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 ### Shopify Integration (Production-Ready)
 **Files:** `src/pages/Integrations.tsx`, `src/components/ShopifyIntegrationModal.tsx`, `api/routes/shopify.ts`, `api/services/shopify-*.service.ts`
-**Documentation:** `SHOPIFY_ORDER_LINE_ITEMS.md`, `SHOPIFY_PRODUCT_SYNC_GUIDE.md`
+**Documentation:** `SHOPIFY_ORDER_LINE_ITEMS.md`, `SHOPIFY_PRODUCT_SYNC_GUIDE.md`, `SHOPIFY_INVENTORY_SYNC.md`
 
 **Features:**
 - One-time import (products, customers, orders)
 - **Bidirectional product sync:** Ordefy ↔ Shopify (products, inventory, prices)
+- **Automatic inventory sync:** All stock changes auto-sync to Shopify (NEW: Dec 2025)
 - **Order Line Items:** Normalized table with product mapping (replaces JSONB parsing)
 - Webhooks: orders/create, orders/updated, products/delete
 - Webhook reliability: Idempotency (24h TTL), exponential backoff retries (60s→960s, max 5), real-time metrics
@@ -168,9 +169,12 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 **Sync Features:**
 - When updating product locally → auto-syncs to Shopify (price, stock, name, description)
+- **NEW: Creating product** → Auto-publishes to Shopify with stock OR fetches inventory from Shopify
+- **NEW: Receiving merchandise** → Batch syncs all updated products to Shopify
 - `sync_status` tracking: synced, pending, error
 - Inventory-only updates optimized for speed
 - Field mapping: SKU, category, shopify_product_id, shopify_variant_id
+- Non-blocking error handling: Local operations always succeed, sync errors only warn
 
 **Tables:**
 - Integration: shopify_integrations, shopify_oauth_states, shopify_import_jobs
@@ -310,13 +314,14 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - ✅ Real-time analytics with period comparisons
 - ✅ Order management with WhatsApp confirmation
 - ✅ Product inventory management with automatic stock tracking
-- ✅ Merchandise/Inbound shipments
+- ✅ Merchandise/Inbound shipments with automatic Shopify sync
 - ✅ Warehouse picking & packing with batch processing
 - ✅ Returns system with batch processing and inventory restoration
 - ✅ Shipping labels (4x6 thermal) with QR codes and print tracking
 - ✅ Customer/Supplier/Carrier management
 - ✅ Campaign/Ads management
 - ✅ Shopify integration (bidirectional sync, webhooks, product mapping)
+- ✅ Automatic inventory sync to Shopify (product creation, stock updates, merchandise reception)
 - ✅ Order line items normalization with product mapping
 - ✅ Dark mode theme system
 - ✅ Global search (Cmd+K)
@@ -346,6 +351,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 **Core Systems:**
 - `SHOPIFY_ORDER_LINE_ITEMS.md` - Shopify order normalization and product mapping system
 - `SHOPIFY_PRODUCT_SYNC_GUIDE.md` - Bidirectional product synchronization with Shopify
+- `SHOPIFY_INVENTORY_SYNC.md` - Automatic inventory synchronization (Ordefy ↔ Shopify)
 - `INSTRUCCIONES_IMPRESION.md` - Shipping label printing system (4x6 thermal labels)
 - `ROADMAP_MEJORAS_UX.md` - Product roadmap and UX improvements (2026)
 
