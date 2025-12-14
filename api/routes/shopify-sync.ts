@@ -8,7 +8,7 @@
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
-import { ShopifyAPIService } from '../services/shopify-api.service';
+import { ShopifyClientService } from '../services/shopify-client.service';
 
 export const shopifySyncRouter = Router();
 
@@ -94,13 +94,13 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
-    const shopifyAPI = new ShopifyAPIService(integration.shop, integration.access_token);
+    const shopifyClient = new ShopifyClientService(integration);
 
     // Create sync log
     logId = await createSyncLog(req.storeId!, 'products', 'import');
 
-    // Fetch all products from Shopify
-    const shopifyProducts = await shopifyAPI.getAllProducts();
+    // Fetch all products from Shopify (using GraphQL)
+    const shopifyProducts = await shopifyClient.getAllProducts();
     console.log(`📦 [SHOPIFY SYNC] Fetched ${shopifyProducts.length} products from Shopify`);
 
     let synced = 0;
@@ -213,13 +213,22 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
-    const shopifyAPI = new ShopifyAPIService(integration.shop, integration.access_token);
+    const shopifyClient = new ShopifyClientService(integration);
 
     // Create sync log
     logId = await createSyncLog(req.storeId!, 'customers', 'import');
 
-    // Fetch all customers from Shopify
-    const shopifyCustomers = await shopifyAPI.getAllCustomers();
+    // Fetch all customers from Shopify (REST API - not deprecated)
+    let shopifyCustomers: any[] = [];
+    let pageInfo: string | undefined;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await shopifyClient.getCustomers({ limit: 250, page_info: pageInfo });
+      shopifyCustomers = [...shopifyCustomers, ...result.customers];
+      pageInfo = result.pagination.next_cursor;
+      hasMore = result.pagination.has_next;
+    }
     console.log(`👥 [SHOPIFY SYNC] Fetched ${shopifyCustomers.length} customers from Shopify`);
 
     let synced = 0;
@@ -330,7 +339,7 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
-    const shopifyAPI = new ShopifyAPIService(integration.shop, integration.access_token);
+    const shopifyClient = new ShopifyClientService(integration);
 
     // Create sync log
     logId = await createSyncLog(req.storeId!, 'inventory', 'export');
@@ -360,8 +369,8 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
 
     for (const product of products) {
       try {
-        const inventoryItemId = parseInt(product.shopify_variant_id);
-        await shopifyAPI.updateInventory(inventoryItemId, product.stock);
+        // Note: shopify_variant_id is actually the inventory_item_id for inventory updates
+        await shopifyClient.updateInventory(product.shopify_variant_id, product.stock);
         synced++;
 
         if (synced % 10 === 0) {

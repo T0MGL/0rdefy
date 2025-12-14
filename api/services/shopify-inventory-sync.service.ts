@@ -7,7 +7,7 @@
 // ================================================================
 
 import { SupabaseClient } from '@supabase/supabase-js';
-import axios from 'axios';
+import { ShopifyClientService } from './shopify-client.service';
 
 export class ShopifyInventorySyncService {
   private supabaseAdmin: SupabaseClient;
@@ -65,14 +65,14 @@ export class ShopifyInventorySyncService {
         };
       }
 
-      // 4. Update inventory in Shopify
-      await this.updateShopifyInventory({
-        shopDomain: integration.shop_domain,
-        accessToken: integration.access_token,
-        variantId: product.shopify_variant_id || product.shopify_product_id!,
-        newStock: params.newStock,
-        productName: product.name
-      });
+      // 4. Update inventory in Shopify using GraphQL client
+      const shopifyClient = new ShopifyClientService(integration);
+      await shopifyClient.updateInventory(
+        product.shopify_variant_id || product.shopify_product_id!,
+        params.newStock
+      );
+
+      console.log(`✅ [INVENTORY-SYNC] Successfully synced inventory to Shopify for "${product.name}"`);
 
       // 5. Update sync status in database
       await this.supabaseAdmin
@@ -107,97 +107,6 @@ export class ShopifyInventorySyncService {
     }
   }
 
-  /**
-   * Update inventory level in Shopify using the REST Admin API
-   */
-  private async updateShopifyInventory(params: {
-    shopDomain: string;
-    accessToken: string;
-    variantId: string;
-    newStock: number;
-    productName: string;
-  }): Promise<void> {
-    try {
-      const { shopDomain, accessToken, variantId, newStock, productName } = params;
-
-      // Shopify API endpoint
-      const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
-      const baseUrl = `https://${shopDomain}/admin/api/${apiVersion}`;
-
-      // Step 1: Get inventory item ID from variant
-      console.log(`🔍 [INVENTORY-SYNC] Getting inventory item ID for variant ${variantId}...`);
-
-      const variantResponse = await axios.get(
-        `${baseUrl}/variants/${variantId}.json`,
-        {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      const inventoryItemId = variantResponse.data.variant.inventory_item_id;
-
-      if (!inventoryItemId) {
-        throw new Error('No inventory_item_id found for variant');
-      }
-
-      console.log(`📦 [INVENTORY-SYNC] Found inventory item ID: ${inventoryItemId}`);
-
-      // Step 2: Get inventory locations
-      const locationsResponse = await axios.get(
-        `${baseUrl}/locations.json`,
-        {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      const location = locationsResponse.data.locations.find((loc: any) => loc.active);
-
-      if (!location) {
-        throw new Error('No active location found in Shopify');
-      }
-
-      console.log(`📍 [INVENTORY-SYNC] Using location: ${location.name} (${location.id})`);
-
-      // Step 3: Set inventory level
-      console.log(`🔄 [INVENTORY-SYNC] Updating inventory to ${newStock} for "${productName}"...`);
-
-      await axios.post(
-        `${baseUrl}/inventory_levels/set.json`,
-        {
-          location_id: location.id,
-          inventory_item_id: inventoryItemId,
-          available: newStock
-        },
-        {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      console.log(`✅ [INVENTORY-SYNC] Inventory updated successfully in Shopify for "${productName}"`);
-
-    } catch (error: any) {
-      if (error.response) {
-        console.error(`❌ [INVENTORY-SYNC] Shopify API error:`, {
-          status: error.response.status,
-          data: error.response.data,
-          headers: error.response.headers
-        });
-        throw new Error(
-          `Shopify API error (${error.response.status}): ${JSON.stringify(error.response.data)}`
-        );
-      }
-      throw error;
-    }
-  }
 
   /**
    * Sync inventory for multiple products (batch operation)
