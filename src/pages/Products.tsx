@@ -2,6 +2,12 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ProfitabilityCalculator } from '@/components/ProfitabilityCalculator';
 import { ProductForm } from '@/components/forms/ProductForm';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -11,7 +17,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { productsService } from '@/services/products.service';
 import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
-import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag } from 'lucide-react';
+import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Product } from '@/types';
@@ -32,6 +38,7 @@ export default function Products() {
   const [stockAdjustment, setStockAdjustment] = useState<number>(0);
   const [hasShopifyIntegration, setHasShopifyIntegration] = useState(false);
   const [isPublishing, setIsPublishing] = useState<string | null>(null);
+  const [formMode, setFormMode] = useState<'manual' | 'shopify'>('manual');
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
 
@@ -51,11 +58,19 @@ export default function Products() {
 
   const handleCreate = () => {
     setSelectedProduct(null);
+    setFormMode('manual');
+    setDialogOpen(true);
+  };
+
+  const handleImportShopify = () => {
+    setSelectedProduct(null);
+    setFormMode('shopify');
     setDialogOpen(true);
   };
 
   const handleEdit = (product: Product) => {
     setSelectedProduct(product);
+    setFormMode('manual'); // Editing is always manual form for now
     setDialogOpen(true);
   };
 
@@ -290,18 +305,32 @@ export default function Products() {
             title="Catálogo de Productos - Ordefy"
             variant="outline"
           />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button className="gap-2">
+                <Plus size={18} />
+                Agregar Producto
+                <ChevronDown size={14} className="ml-1 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleCreate} className="gap-2 cursor-pointer">
+                <Plus size={16} />
+                Crear Manualmente
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleImportShopify}
+                disabled={!hasShopifyIntegration}
+                className="gap-2 cursor-pointer"
+              >
+                <Download size={16} />
+                Importar de Shopify
+                {!hasShopifyIntegration && <span className="ml-auto text-xs text-muted-foreground">(No conectado)</span>}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
-            onClick={() => {
-              console.log('🖱️ [PRODUCTS] Button clicked');
-              handleCreate();
-            }}
-            className="gap-2"
-          >
-            <Plus size={18} />
-            Agregar Producto
-          </Button>
-          <Button 
-            variant="outline" 
+            variant="outline"
             className="gap-2"
             onClick={() => setShowCalculator(!showCalculator)}
           >
@@ -320,11 +349,10 @@ export default function Products() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
           >
-            <Card className={`overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50 ${
-              isHighlighted(product.id)
-                ? 'ring-2 ring-yellow-400 dark:ring-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-                : ''
-            }`}>
+            <Card className={`overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50 ${isHighlighted(product.id)
+              ? 'ring-2 ring-yellow-400 dark:ring-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+              : ''
+              }`}>
               <div className="aspect-square bg-muted flex items-center justify-center">
                 <img
                   src={product.image}
@@ -440,6 +468,7 @@ export default function Products() {
           </DialogHeader>
           <ProductForm
             product={selectedProduct || undefined}
+            initialMode={formMode}
             onSubmit={handleSubmit}
             onCancel={() => setDialogOpen(false)}
           />

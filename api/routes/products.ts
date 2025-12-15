@@ -222,11 +222,14 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
             sku,
             price,
             cost,
+            packaging_cost,
+            additional_cost,
             stock = 0,
             category,
             image_url,
             shopify_product_id,
-            is_active = true
+            is_active = true,
+            is_service = false
         } = req.body;
 
         // Validation
@@ -256,11 +259,14 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
                 sku,
                 price: parseFloat(price),
                 cost: cost ? parseFloat(cost) : null,
+                packaging_cost: is_service ? 0 : (packaging_cost ? parseFloat(packaging_cost) : 0),
+                additional_cost: additional_cost ? parseFloat(additional_cost) : 0,
                 stock: parseInt(stock),
                 category,
                 image_url,
                 shopify_product_id,
-                is_active
+                is_active,
+                is_service
             }])
             .select()
             .single();
@@ -437,11 +443,14 @@ productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             sku,
             price,
             cost,
+            packaging_cost,
+            additional_cost,
             stock,
             category,
             image_url,
             shopify_product_id,
-            is_active
+            is_active,
+            is_service
         } = req.body;
 
         const updateData: any = {
@@ -453,11 +462,19 @@ productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (sku !== undefined) updateData.sku = sku;
         if (price !== undefined) updateData.price = parseFloat(price);
         if (cost !== undefined) updateData.cost = parseFloat(cost);
+        if (packaging_cost !== undefined) updateData.packaging_cost = parseFloat(packaging_cost);
+        if (additional_cost !== undefined) updateData.additional_cost = parseFloat(additional_cost);
         if (stock !== undefined) updateData.stock = parseInt(stock);
         if (category !== undefined) updateData.category = category;
         if (image_url !== undefined) updateData.image_url = image_url;
         if (shopify_product_id !== undefined) updateData.shopify_product_id = shopify_product_id;
         if (is_active !== undefined) updateData.is_active = is_active;
+        if (is_service !== undefined) {
+            updateData.is_service = is_service;
+            if (is_service) {
+                updateData.packaging_cost = 0;
+            }
+        }
 
         const { data, error } = await supabaseAdmin
             .from('products')

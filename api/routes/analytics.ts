@@ -198,14 +198,20 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             if (productIds.size > 0) {
                 const { data: productsData } = await supabaseAdmin
                     .from('products')
-                    .select('id, cost')
+                    .select('id, cost, packaging_cost, additional_cost')
                     .in('id', Array.from(productIds))
                     .eq('store_id', req.storeId);
 
                 if (productsData) {
                     productsData.forEach(product => {
                         if (product.id) {
-                            productCostMap.set(product.id, Number(product.cost) || 0);
+                            // Calculate total unit cost including packaging and extras
+                            const baseCost = Number(product.cost) || 0;
+                            const packaging = Number(product.packaging_cost) || 0;
+                            const additional = Number(product.additional_cost) || 0;
+                            const totalUnitCost = baseCost + packaging + additional;
+
+                            productCostMap.set(product.id, totalUnitCost);
                         }
                     });
                 }
@@ -316,7 +322,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const dispatched = ordersList.filter(o => {
                 const status = o.sleeves_status;
                 return ['ready_to_ship', 'shipped', 'delivered', 'returned', 'delivery_failed'].includes(status) ||
-                       (status === 'cancelled' && o.shipped_at); // Cancelados después de despacho
+                    (status === 'cancelled' && o.shipped_at); // Cancelados después de despacho
             }).length;
             // Tasa de entrega = (Entregados / Total Despachados) × 100
             const delivRate = dispatched > 0 ? ((delivered / dispatched) * 100) : 0;
@@ -1468,7 +1474,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             const deliveryStatus = (o.delivery_status || '').toLowerCase();
 
             return o.sleeves_status === 'delivery_failed' ||
-                   rejectionReasons.some(r => failedReason.includes(r) || deliveryStatus.includes(r));
+                rejectionReasons.some(r => failedReason.includes(r) || deliveryStatus.includes(r));
         });
 
         // Intentos de entrega = Pedidos que llegaron a la puerta (shipped o superior)

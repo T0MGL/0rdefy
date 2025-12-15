@@ -146,6 +146,9 @@ export interface Product {
   stock: number;
   price: number;
   cost: number;
+  packaging_cost?: number;
+  additional_cost?: number;
+  is_service?: boolean;
   profitability: number;
   sales: number;
   // Shopify integration fields
@@ -223,7 +226,7 @@ export interface ChartData {
 }
 
 export interface MetricCardProps {
-  title: string;
+  title: string | React.ReactNode;
   value: string | number;
   change?: number;
   trend?: 'up' | 'down';

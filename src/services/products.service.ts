@@ -40,6 +40,8 @@ export const productsService = {
         stock: p.stock,
         price: p.price,
         cost: p.cost,
+        packaging_cost: p.packaging_cost,
+        additional_cost: p.additional_cost,
         profitability: p.profitability || ((p.price - p.cost) / p.price * 100).toFixed(1),
         sales: p.sales || 0,
         shopify_product_id: p.shopify_product_id || null,
@@ -68,6 +70,8 @@ export const productsService = {
         stock: data.stock,
         price: data.price,
         cost: data.cost,
+        packaging_cost: data.packaging_cost,
+        additional_cost: data.additional_cost,
         profitability: data.profitability || ((data.price - data.cost) / data.price * 100).toFixed(1),
         sales: data.sales || 0,
         shopify_product_id: data.shopify_product_id || null,
@@ -87,6 +91,9 @@ export const productsService = {
         stock: product.stock,
         price: product.price,
         cost: product.cost,
+        packaging_cost: product.packaging_cost,
+        additional_cost: product.additional_cost,
+        is_service: product.is_service,
       };
 
       const response = await fetch(`${API_BASE_URL}/products`, {
@@ -110,6 +117,8 @@ export const productsService = {
         stock: result.data.stock,
         price: result.data.price,
         cost: result.data.cost,
+        packaging_cost: result.data.packaging_cost,
+        additional_cost: result.data.additional_cost,
         profitability: product.profitability || 0,
         sales: product.sales || 0,
         shopify_product_id: result.data.shopify_product_id || null,
@@ -129,6 +138,9 @@ export const productsService = {
       if (data.stock !== undefined) backendData.stock = data.stock;
       if (data.price !== undefined) backendData.price = data.price;
       if (data.cost !== undefined) backendData.cost = data.cost;
+      if (data.packaging_cost !== undefined) backendData.packaging_cost = data.packaging_cost;
+      if (data.additional_cost !== undefined) backendData.additional_cost = data.additional_cost;
+      if (data.is_service !== undefined) backendData.is_service = data.is_service;
 
       const response = await fetch(`${API_BASE_URL}/products/${id}`, {
         method: 'PUT',

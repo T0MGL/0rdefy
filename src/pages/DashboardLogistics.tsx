@@ -38,6 +38,7 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
+import { InfoTooltip } from '@/components/InfoTooltip';
 
 export default function DashboardLogistics() {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
@@ -185,7 +186,14 @@ export default function DashboardLogistics() {
         <h2 className="text-2xl font-bold mb-4 text-card-foreground">Métricas Principales</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <MetricCard
-            title="Tasa de Entrega"
+            title={
+              <div className="flex items-center">
+                Tasa de Entrega
+                <InfoTooltip
+                  content="Porcentaje de pedidos entregados exitosamente sobre el total de pedidos despachados. Excluye cancelaciones previas al despacho."
+                />
+              </div>
+            }
             value={`${(dashboardOverview.deliveryRate || 0).toFixed(1)}%`}
             change={dashboardOverview.changes?.deliveryRate !== null && dashboardOverview.changes?.deliveryRate !== undefined ? Math.abs(dashboardOverview.changes.deliveryRate) : undefined}
             trend={dashboardOverview.changes?.deliveryRate !== null && dashboardOverview.changes?.deliveryRate !== undefined ? (dashboardOverview.changes.deliveryRate >= 0 ? 'up' : 'down') : undefined}
