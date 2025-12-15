@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+```
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer, Copy, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { ShippingLabelTemplate } from './ShippingLabelTemplate';
+import { UniversalLabel } from '@/components/printing/UniversalLabel';
 
 interface OrderShippingLabelProps {
   orderId: string;
@@ -41,7 +42,7 @@ export function OrderShippingLabel({
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
-  // Construct the order object expected by the template
+  // Map props to UniversalLabel data structure
   const orderData = {
     id: orderId,
     order_number: orderId.slice(0, 8).toUpperCase(), // Simplified display ID
@@ -60,7 +61,7 @@ export function OrderShippingLabel({
     }))
   };
 
-  const deliveryUrl = `${window.location.origin}/delivery/${deliveryToken}`;
+  const deliveryUrl = `${ window.location.origin } /delivery/${ deliveryToken } `;
 
   const handlePrint = () => {
     window.print();
@@ -76,7 +77,7 @@ export function OrderShippingLabel({
       setCopied(true);
       toast({
         title: 'Link copiado',
-        description: 'El link de entrega ha sido copiado al portapapeles',
+        description: 'Link de entrega copiado al portapapeles',
       });
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
@@ -93,34 +94,26 @@ export function OrderShippingLabel({
       {/* Actions - Only visible on screen, not in print */}
       <div className="flex gap-2 justify-end print:hidden">
         <Button variant="outline" onClick={handleCopyLink} className="gap-2">
-          {copied ? (
-            <>
-              <Check size={16} />
-              Copiado
-            </>
-          ) : (
-            <>
-              <Copy size={16} />
-              Copiar Link
-            </>
-          )}
+          {copied ? <Check size={16} /> : <Copy size={16} />}
+          {copied ? 'Copiado' : 'Link'}
         </Button>
-        <Button onClick={handlePrint} className="gap-2">
+        <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
           <Printer size={16} />
-          Imprimir Etiqueta
+          Imprimir (4x6)
         </Button>
       </div>
 
-      {/* Preview Container - Mimic Print View but Scaled Down if needed */}
-      <div className="border border-gray-200 rounded-md overflow-hidden bg-gray-50 flex items-center justify-center p-4 print:p-0 print:border-none print:bg-white print:block">
-        {/* 
-            We use a wrapper to control the preview size on screen.
-            In print, the component's own print styles take over.
-         */}
-        <div className="w-[600px] h-[400px] bg-white shadow-sm print:shadow-none print:w-full print:h-full">
-          <ShippingLabelTemplate order={orderData} />
-        </div>
+      {/* Preview Container - Scaled to fit screen but maintains ratio */}
+      <div className="bg-gray-100 p-4 rounded-md flex justify-center print:p-0 print:bg-white print:block">
+         <div className="overflow-hidden shadow-lg print:shadow-none" style={{ width: '400px', height: '600px' }}>
+             {/* 
+                We force the container to be 1:1 scale of standard 4inch width for preview 
+                (Assuming user screen is standard DPI, 4in approx 384px-400px)
+             */}
+            <UniversalLabel order={orderData} className="w-full h-full" />
+         </div>
       </div>
     </div>
   );
 }
+```

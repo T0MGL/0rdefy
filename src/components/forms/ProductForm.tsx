@@ -5,6 +5,8 @@ import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { InfoTooltip } from '@/components/InfoTooltip';
 import {
   Form,
   FormControl,
@@ -33,6 +35,9 @@ const manualProductSchema = z.object({
   image: z.string().url('URL inválida').or(z.literal('')),
   price: z.number({ required_error: 'El precio es requerido' }).positive('El precio debe ser mayor a 0'),
   cost: z.number({ required_error: 'El costo es requerido' }).positive('El costo debe ser mayor a 0'),
+  packaging_cost: z.number().nonnegative().optional().default(0),
+  additional_cost: z.number().nonnegative().optional().default(0),
+  is_service: z.boolean().default(false),
   stock: z.number({ required_error: 'El stock es requerido' }).int().min(0, 'El stock no puede ser negativo'),
 });
 
@@ -42,6 +47,7 @@ interface ProductFormProps {
   product?: Product;
   onSubmit: (data: any) => void;
   onCancel: () => void;
+  initialMode?: 'shopify' | 'manual';
 }
 
 interface ShopifyProduct {
@@ -57,7 +63,7 @@ interface ShopifyProduct {
   }>;
 }
 
-export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
+export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual' }: ProductFormProps) {
   const [mode, setMode] = useState<'shopify' | 'manual' | 'loading'>('loading');
   const [loading, setLoading] = useState(false);
   const [shopifyProducts, setShopifyProducts] = useState<ShopifyProduct[]>([]);
@@ -65,6 +71,22 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
   const [selectedVariant, setSelectedVariant] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Initialize mode
+  useEffect(() => {
+    // If we have an initial mode passed (e.g. from parent based on user choice), use it
+    // If not, explicit manual default or based on editing product
+    if (product) {
+      setMode('manual'); // Editing is always manual form for now, even if it has shopify_id
+    } else {
+      setMode(initialMode);
+    }
+
+    // If mode is shopify, load products
+    if (initialMode === 'shopify' && !product) {
+      loadShopifyProducts();
+    }
+  }, [initialMode, product]);
 
   // Form para modo manual
   const form = useForm<ManualProductFormValues>({
@@ -77,39 +99,20 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
       image: product?.image || '',
       price: product?.price || undefined,
       cost: product?.cost || undefined,
+      packaging_cost: product?.packaging_cost || 0,
+      additional_cost: product?.additional_cost || 0,
+      is_service: product?.is_service || false,
       stock: product?.stock || undefined,
     },
   });
 
-  // Detectar si hay integración de Shopify al montar
-  useEffect(() => {
-    checkShopifyIntegration();
-  }, []);
+  const isService = form.watch('is_service');
 
-  const checkShopifyIntegration = async () => {
-    setLoading(true);
-    try {
-      const products = await productsService.getShopifyProducts();
-      if (products.length > 0 || products) {
-        // Hay integración de Shopify
-        setMode('shopify');
-        setShopifyProducts(products);
-      } else {
-        // No hay integración, usar modo manual
-        setMode('manual');
-      }
-    } catch (error: any) {
-      // Si hay error 404, significa que no hay integración
-      if (error.message?.includes('404') || error.message?.includes('No active Shopify integration')) {
-        setMode('manual');
-      } else {
-        console.error('Error checking Shopify integration:', error);
-        setMode('manual');
-      }
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (isService) {
+      form.setValue('packaging_cost', 0);
     }
-  };
+  }, [isService, form]);
 
   const loadShopifyProducts = async (search?: string) => {
     setLoading(true);
@@ -435,7 +438,77 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
             name="cost"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Costo (Gs.) *</FormLabel>
+                <FormLabel>Costo Producto (Gs.) *</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    {...field}
+                    value={field.value ?? ''}
+                    onChange={(e) => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <FormField
+          control={form.control}
+          name="is_service"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+              <div className="space-y-1 leading-none">
+                <FormLabel className="flex items-center">
+                  Es un Servicio / Intangible (Upsell)
+                  <InfoTooltip
+                    content="Activa esta opción para productos intangibles (Delivery, Seguros, Propinas). Esto elimina automáticamente los costos de empaque del cálculo de rentabilidad."
+                  />
+                </FormLabel>
+                <p className="text-sm text-muted-foreground">
+                  Activar para ítems como Delivery Rápido, Seguros o Propinas que no requieren empaque físico.
+                </p>
+              </div>
+            </FormItem>
+          )}
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          {!isService && (
+            <FormField
+              control={form.control}
+              name="packaging_cost"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Costo Empaque (Gs.) <span className="text-xs text-muted-foreground">(Opcional)</span></FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      {...field}
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          <FormField
+            control={form.control}
+            name="additional_cost"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Costos Adicionales (Gs.) <span className="text-xs text-muted-foreground">(Opcional)</span></FormLabel>
                 <FormControl>
                   <Input
                     type="number"
@@ -456,7 +529,12 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           name="stock"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{product ? 'Stock Actual' : 'Stock Inicial'} *</FormLabel>
+              <FormLabel className="flex items-center">
+                {product ? 'Stock Actual' : 'Stock Inicial'} *
+                <InfoTooltip
+                  content="Físico: Todo lo que hay en el almacén. Disponible: Físico menos las unidades reservadas en pedidos pendientes de despacho."
+                />
+              </FormLabel>
               <FormControl>
                 <Input
                   type="number"

@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { analyticsService } from '@/services/analytics.service';
 import { ordersService } from '@/services/orders.service';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { InfoTooltip } from '@/components/InfoTooltip';
 import type { DashboardOverview, Product } from '@/types';
 
 const getMarginColor = (margin: number) => {
@@ -105,7 +106,7 @@ export function RevenueIntelligence() {
 
   // Calculate net margin data
   const marketing = overview.marketing;
-  const shipping = 0; // TODO: Add shipping costs when available
+  const shipping = overview.deliveryCosts;
   const ops = 0; // TODO: Add operational costs when available
   const netProfit = overview.netProfit;
 
@@ -119,7 +120,7 @@ export function RevenueIntelligence() {
 
   // Calculate product profitability
   const productProfitability = topProducts.map((product) => {
-    const revenue = product.sales_revenue || (product.sales * Number(product.price));
+    const revenue = product.sales * Number(product.price);
     const cogs = product.sales * Number(product.cost || 0);
     const margin = revenue - cogs;
     const marginPercent = revenue > 0 ? parseFloat(((margin / revenue) * 100).toFixed(1)) : 0;
@@ -180,6 +181,28 @@ export function RevenueIntelligence() {
           data={productProfitability}
           filename="revenue-intelligence"
           variant="default"
+          columns={[
+            { header: 'Producto', key: 'product' },
+            { header: 'Unidades', key: 'units' },
+            { header: 'Stock', key: 'stock' },
+            {
+              header: 'Precio',
+              key: 'price',
+              format: (val: any) => new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(Number(val))
+            },
+            {
+              header: 'Ingresos',
+              key: 'revenue',
+              format: (val: any) => new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(Number(val))
+            },
+            {
+              header: 'COGS',
+              key: 'cogs',
+              format: (val: any) => new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(Number(val))
+            },
+            { header: 'Margen (%)', key: 'marginPercent', format: (val: any) => `${val}%` },
+            { header: 'ROI', key: 'roi', format: (val: any) => `${val}%` },
+          ]}
         />
       </div>
 
@@ -238,7 +261,12 @@ export function RevenueIntelligence() {
         {/* Card 2: Net Margin */}
         <Card className="border-primary/20">
           <CardHeader>
-            <CardTitle className="text-base">Margen Neto Real</CardTitle>
+            <CardTitle className="text-base flex items-center">
+              Margen Neto Real
+              <InfoTooltip
+                content="Cálculo: (Ventas Totales - Devoluciones) - (Costo de Productos + Costos de Envío + Costos de Empaque). Representa tu ganancia líquida antes de impuestos."
+              />
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-4">
@@ -258,7 +286,15 @@ export function RevenueIntelligence() {
               <div className="flex-1 space-y-1.5">
                 {netMarginData.map((item) => (
                   <div key={item.name} className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{item.name}</span>
+                    <span className="text-muted-foreground flex items-center">
+                      {item.name}
+                      {item.name === 'NETO' && (
+                        <InfoTooltip
+                          content="Porcentaje de beneficio que retienes por cada venta. Fórmula: (Beneficio Neto / Ventas Totales) × 100."
+                          side="left"
+                        />
+                      )}
+                    </span>
                     <span className="font-semibold text-card-foreground">
                       Gs. {item.value}
                     </span>
