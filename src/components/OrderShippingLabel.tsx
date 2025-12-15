@@ -1,4 +1,3 @@
-```
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer, Copy, Check } from 'lucide-react';
@@ -61,7 +60,7 @@ export function OrderShippingLabel({
     }))
   };
 
-  const deliveryUrl = `${ window.location.origin } /delivery/${ deliveryToken } `;
+  const deliveryUrl = `${window.location.origin}/delivery/${deliveryToken}`;
 
   const handlePrint = () => {
     window.print();
@@ -105,15 +104,14 @@ export function OrderShippingLabel({
 
       {/* Preview Container - Scaled to fit screen but maintains ratio */}
       <div className="bg-gray-100 p-4 rounded-md flex justify-center print:p-0 print:bg-white print:block">
-         <div className="overflow-hidden shadow-lg print:shadow-none" style={{ width: '400px', height: '600px' }}>
-             {/* 
+        <div className="overflow-hidden shadow-lg print:shadow-none" style={{ width: '400px', height: '600px' }}>
+          {/* 
                 We force the container to be 1:1 scale of standard 4inch width for preview 
                 (Assuming user screen is standard DPI, 4in approx 384px-400px)
              */}
-            <UniversalLabel order={orderData} className="w-full h-full" />
-         </div>
+          <UniversalLabel order={orderData} className="w-full h-full" />
+        </div>
       </div>
     </div>
   );
 }
-```
