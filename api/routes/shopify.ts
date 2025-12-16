@@ -1051,6 +1051,103 @@ shopifyRouter.get('/integration', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// GET /api/shopify/debug
+// Endpoint de diagnóstico para importación de Shopify
+shopifyRouter.get('/debug', async (req: AuthRequest, res: Response) => {
+  try {
+    const storeId = req.storeId;
+
+    // 1. Obtener integración
+    const { data: integration, error: integrationError } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('status', 'active')
+      .single();
+
+    if (integrationError || !integration) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontró integración activa'
+      });
+    }
+
+    // 2. Obtener jobs de importación
+    const { data: jobs, error: jobsError } = await supabaseAdmin
+      .from('shopify_import_jobs')
+      .select('*')
+      .eq('integration_id', integration.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    // 3. Contar productos importados
+    const { count: productCount, error: productCountError } = await supabaseAdmin
+      .from('products')
+      .select('id', { count: 'exact', head: true })
+      .eq('store_id', storeId)
+      .not('shopify_product_id', 'is', null);
+
+    // 4. Probar conexión con Shopify API
+    let shopifyTest: { success: boolean; productCount: number; error: string | null } = {
+      success: false,
+      productCount: 0,
+      error: null
+    };
+    try {
+      const shopifyClient = new ShopifyClientService(integration);
+      const testConnection = await shopifyClient.testConnection();
+
+      if (testConnection.success) {
+        const { products } = await shopifyClient.getProducts({ limit: 5 });
+        shopifyTest = {
+          success: true,
+          productCount: products.length,
+          error: null
+        };
+      } else {
+        shopifyTest.error = testConnection.error || 'Error desconocido';
+      }
+    } catch (apiError: any) {
+      shopifyTest.error = apiError.message || 'Error de conexión';
+    }
+
+    res.json({
+      success: true,
+      diagnostic: {
+        integration: {
+          id: integration.id,
+          shop_domain: integration.shop_domain,
+          status: integration.status,
+          last_sync_at: integration.last_sync_at
+        },
+        import_jobs: {
+          total: jobs?.length || 0,
+          jobs: jobs?.map(j => ({
+            id: j.id,
+            type: j.job_type,
+            resource: j.resource_type,
+            status: j.status,
+            items_processed: j.items_processed || 0,
+            total_items: j.total_items || 0,
+            error: j.error,
+            created_at: j.created_at,
+            completed_at: j.completed_at
+          })) || []
+        },
+        products_in_ordefy: productCount || 0,
+        shopify_api_test: shopifyTest
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error en diagnóstico:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // GET /api/shopify/webhook-health
 // Obtener salud de webhooks para monitoreo
 shopifyRouter.get('/webhook-health', async (req: AuthRequest, res: Response) => {
