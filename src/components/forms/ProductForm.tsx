@@ -300,47 +300,52 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
 
         {/* Costos del Producto */}
         {selectedVariant && (
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium">Configurar Costos</h3>
+          <div className="space-y-4 border-t pt-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold">Configurar Costos</h3>
+              <span className="text-xs text-muted-foreground">(Opcional)</span>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Costo del Producto (Gs.)
+                <div className="flex items-center gap-1.5">
+                  <label className="text-sm font-medium">Costo del Producto (Gs.)</label>
                   <InfoTooltip content="Costo de adquisición o producción del producto" />
-                </label>
+                </div>
                 <Input
                   type="number"
-                  placeholder="0"
+                  placeholder="Ej: 21500"
                   value={shopifyCost ?? ''}
                   onChange={(e) => setShopifyCost(e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Costo de Packaging (Gs.)
-                  <InfoTooltip content="Costo del empaque y materiales de envío" />
-                </label>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  value={shopifyPackagingCost}
-                  onChange={(e) => setShopifyPackagingCost(e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                />
-              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-sm font-medium">Packaging (Gs.)</label>
+                    <InfoTooltip content="Costo del empaque y materiales de envío" />
+                  </div>
+                  <Input
+                    type="number"
+                    placeholder="Ej: 1500"
+                    value={shopifyPackagingCost}
+                    onChange={(e) => setShopifyPackagingCost(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Costos Adicionales (Gs.)
-                  <InfoTooltip content="Otros costos asociados al producto" />
-                </label>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  value={shopifyAdditionalCosts}
-                  onChange={(e) => setShopifyAdditionalCosts(e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                />
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-sm font-medium">Adicionales (Gs.)</label>
+                    <InfoTooltip content="Otros costos (etiquetas, comisiones, etc.)" />
+                  </div>
+                  <Input
+                    type="number"
+                    placeholder="Ej: 500"
+                    value={shopifyAdditionalCosts}
+                    onChange={(e) => setShopifyAdditionalCosts(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                  />
+                </div>
               </div>
             </div>
           </div>
