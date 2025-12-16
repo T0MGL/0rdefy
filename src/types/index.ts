@@ -147,7 +147,7 @@ export interface Product {
   price: number;
   cost: number;
   packaging_cost?: number;
-  additional_cost?: number;
+  additional_costs?: number;
   is_service?: boolean;
   profitability: number;
   sales: number;

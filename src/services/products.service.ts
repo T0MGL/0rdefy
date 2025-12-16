@@ -36,15 +36,19 @@ export const productsService = {
       return products.map((p: any) => ({
         id: p.id,
         name: p.name,
+        sku: p.sku || '',
+        description: p.description || '',
+        category: p.category || '',
         image: p.image_url || p.image || '',
         stock: p.stock,
         price: p.price,
         cost: p.cost,
-        packaging_cost: p.packaging_cost,
-        additional_cost: p.additional_cost,
+        packaging_cost: p.packaging_cost || 0,
+        additional_costs: p.additional_costs || 0,
         profitability: p.profitability || ((p.price - p.cost) / p.price * 100).toFixed(1),
         sales: p.sales || 0,
         shopify_product_id: p.shopify_product_id || null,
+        shopify_variant_id: p.shopify_variant_id || null,
       }));
     } catch (error) {
       console.error('Error loading products:', error);
@@ -66,15 +70,19 @@ export const productsService = {
       return {
         id: data.id,
         name: data.name,
+        sku: data.sku || '',
+        description: data.description || '',
+        category: data.category || '',
         image: data.image_url || data.image || '',
         stock: data.stock,
         price: data.price,
         cost: data.cost,
-        packaging_cost: data.packaging_cost,
-        additional_cost: data.additional_cost,
+        packaging_cost: data.packaging_cost || 0,
+        additional_costs: data.additional_costs || 0,
         profitability: data.profitability || ((data.price - data.cost) / data.price * 100).toFixed(1),
         sales: data.sales || 0,
         shopify_product_id: data.shopify_product_id || null,
+        shopify_variant_id: data.shopify_variant_id || null,
       };
     } catch (error) {
       console.error('Error loading product:', error);
@@ -87,12 +95,15 @@ export const productsService = {
       // Transform frontend format to backend format
       const backendProduct = {
         name: product.name,
+        sku: product.sku,
+        description: product.description,
+        category: product.category,
         image_url: product.image,
         stock: product.stock,
         price: product.price,
         cost: product.cost,
         packaging_cost: product.packaging_cost,
-        additional_cost: product.additional_cost,
+        additional_costs: product.additional_costs,
         is_service: product.is_service,
       };
 
@@ -113,15 +124,19 @@ export const productsService = {
       return {
         id: result.data.id,
         name: result.data.name,
+        sku: result.data.sku || '',
+        description: result.data.description || '',
+        category: result.data.category || '',
         image: result.data.image_url || product.image,
         stock: result.data.stock,
         price: result.data.price,
         cost: result.data.cost,
-        packaging_cost: result.data.packaging_cost,
-        additional_cost: result.data.additional_cost,
+        packaging_cost: result.data.packaging_cost || 0,
+        additional_costs: result.data.additional_costs || 0,
         profitability: product.profitability || 0,
         sales: product.sales || 0,
         shopify_product_id: result.data.shopify_product_id || null,
+        shopify_variant_id: result.data.shopify_variant_id || null,
       };
     } catch (error) {
       console.error('Error creating product:', error);
@@ -134,12 +149,15 @@ export const productsService = {
       // Transform frontend format to backend format
       const backendData: any = {};
       if (data.name !== undefined) backendData.name = data.name;
+      if (data.sku !== undefined) backendData.sku = data.sku;
+      if (data.description !== undefined) backendData.description = data.description;
+      if (data.category !== undefined) backendData.category = data.category;
       if (data.image !== undefined) backendData.image_url = data.image;
       if (data.stock !== undefined) backendData.stock = data.stock;
       if (data.price !== undefined) backendData.price = data.price;
       if (data.cost !== undefined) backendData.cost = data.cost;
       if (data.packaging_cost !== undefined) backendData.packaging_cost = data.packaging_cost;
-      if (data.additional_cost !== undefined) backendData.additional_cost = data.additional_cost;
+      if (data.additional_costs !== undefined) backendData.additional_costs = data.additional_costs;
       if (data.is_service !== undefined) backendData.is_service = data.is_service;
 
       const response = await fetch(`${API_BASE_URL}/products/${id}`, {
@@ -160,13 +178,19 @@ export const productsService = {
       return {
         id: result.data.id,
         name: result.data.name,
+        sku: result.data.sku || '',
+        description: result.data.description || '',
+        category: result.data.category || '',
         image: result.data.image_url || '',
         stock: result.data.stock,
         price: result.data.price,
         cost: result.data.cost,
+        packaging_cost: result.data.packaging_cost || 0,
+        additional_costs: result.data.additional_costs || 0,
         profitability: data.profitability || 0,
         sales: data.sales || 0,
         shopify_product_id: result.data.shopify_product_id || null,
+        shopify_variant_id: result.data.shopify_variant_id || null,
       };
     } catch (error) {
       console.error('Error updating product:', error);
@@ -213,14 +237,19 @@ export const productsService = {
     }
   },
 
-  createFromShopify: async (shopifyProductId: string, shopifyVariantId: string): Promise<Product> => {
+  createFromShopify: async (
+    shopifyProductId: string,
+    shopifyVariantId: string,
+    costs?: { cost?: number; packaging_cost?: number; additional_costs?: number }
+  ): Promise<Product> => {
     try {
       const response = await fetch(`${API_BASE_URL}/products/from-shopify`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
           shopify_product_id: shopifyProductId,
-          shopify_variant_id: shopifyVariantId
+          shopify_variant_id: shopifyVariantId,
+          ...(costs || {})
         }),
       });
 
@@ -235,13 +264,19 @@ export const productsService = {
       return {
         id: result.data.id,
         name: result.data.name,
+        sku: result.data.sku || '',
+        description: result.data.description || '',
+        category: result.data.category || '',
         image: result.data.image_url || '',
         stock: result.data.stock,
         price: result.data.price,
         cost: result.data.cost,
+        packaging_cost: result.data.packaging_cost || 0,
+        additional_costs: result.data.additional_costs || 0,
         profitability: 0,
         sales: 0,
         shopify_product_id: result.data.shopify_product_id || null,
+        shopify_variant_id: result.data.shopify_variant_id || null,
       };
     } catch (error) {
       console.error('Error creating product from Shopify:', error);
