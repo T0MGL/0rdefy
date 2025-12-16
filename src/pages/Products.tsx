@@ -284,13 +284,14 @@ export default function Products() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>
-                {selectedProduct ? 'Editar Producto' : 'Nuevo Producto'}
+                {selectedProduct ? 'Editar Producto' : formMode === 'shopify' ? 'Importar desde Shopify' : 'Nuevo Producto'}
               </DialogTitle>
             </DialogHeader>
             <ProductForm
               product={selectedProduct || undefined}
               onSubmit={handleSubmit}
               onCancel={() => setDialogOpen(false)}
+              initialMode={formMode}
             />
           </DialogContent>
         </Dialog>
@@ -477,7 +478,7 @@ export default function Products() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {selectedProduct ? 'Editar Producto' : 'Nuevo Producto'}
+              {selectedProduct ? 'Editar Producto' : formMode === 'shopify' ? 'Importar desde Shopify' : 'Nuevo Producto'}
             </DialogTitle>
           </DialogHeader>
           <ProductForm
