@@ -327,7 +327,7 @@ export default function Shipping() {
                           </Badge>
                           {/* Show Store Name in Global View */}
                           {(order as any).store_name && (
-                            <Badge variant="outline" className="text-[10px] h-5 bg-purple-50 text-purple-700 border-purple-200">
+                            <Badge variant="secondary" className="font-medium text-[11px] h-6 px-3 bg-secondary/50 text-secondary-foreground border border-border shadow-sm">
                               {(order as any).store_name}
                             </Badge>
                           )}

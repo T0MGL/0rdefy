@@ -822,7 +822,7 @@ export default function Orders() {
                       {isGlobalView && (
                         <td className="py-4 px-6">
                           {(order as any).store_name && (
-                            <Badge variant="outline" className="text-[10px] h-5 bg-blue-50 text-blue-700 border-blue-200">
+                            <Badge variant="secondary" className="font-medium text-[11px] h-6 px-3 bg-secondary/50 text-secondary-foreground border border-border shadow-sm">
                               {(order as any).store_name}
                             </Badge>
                           )}
@@ -858,15 +858,12 @@ export default function Orders() {
                       </td>
                       <td className="py-4 px-6 text-sm">{getCarrierName(order.carrier)}</td>
                       <td className="py-4 px-6 text-center">
-                        {order.confirmedByWhatsApp ? (
-                          <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800">
-                            <CheckCircle size={14} className="mr-1" />
-                            Confirmado
-                          </Badge>
-                        ) : order.status === 'cancelled' || order.status === 'rejected' ? (
-                          <Badge variant="outline" className="bg-gray-50 dark:bg-gray-950/20 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-800">
-                            <XCircle size={14} className="mr-1" />
-                            {order.status === 'cancelled' ? 'Cancelado' : 'Rechazado'}
+                        {order.status !== 'pending' ? (
+                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                            {order.status === 'confirmed' && <CheckCircle size={14} className="mr-1" />}
+                            {order.status === 'cancelled' && <XCircle size={14} className="mr-1" />}
+                            {order.status === 'delivered' && <CheckCircle size={14} className="mr-1" />}
+                            {statusLabels[order.status]}
                           </Badge>
                         ) : (
                           <div className="flex gap-1 justify-center">
