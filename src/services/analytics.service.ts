@@ -6,10 +6,14 @@ const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'https://api.ordefy.io'}
 const defaultOverview: DashboardOverview = {
   totalOrders: 0,
   revenue: 0,
+  productCosts: 0,
   costs: 0,
   deliveryCosts: 0,
   marketing: 0,
+  grossProfit: 0,
+  grossMargin: 0,
   netProfit: 0,
+  netMargin: 0,
   profitMargin: 0,
   realRevenue: 0,
   realCosts: 0,
@@ -26,11 +30,12 @@ const defaultOverview: DashboardOverview = {
 };
 
 const defaultConfirmationMetrics: ConfirmationMetrics = {
-  total: 0,
-  confirmed: 0,
-  pending: 0,
-  rejected: 0,
+  totalPending: 0,
+  totalConfirmed: 0,
   confirmationRate: 0,
+  avgConfirmationTime: 0,
+  confirmationsToday: 0,
+  pendingToday: 0,
 };
 
 // Helper function to get headers with store ID
@@ -60,7 +65,8 @@ export const analyticsService = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const result = await response.json();
-      return result.data || defaultOverview;
+      // Merge with defaults to ensure all fields are present
+      return { ...defaultOverview, ...result.data };
     } catch (error) {
       console.error('Error loading overview:', error);
       return defaultOverview;
@@ -105,7 +111,7 @@ export const analyticsService = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const result = await response.json();
-      return result.data || defaultConfirmationMetrics;
+      return { ...defaultConfirmationMetrics, ...result.data };
     } catch (error) {
       console.error('Error loading confirmation metrics:', error);
       return defaultConfirmationMetrics;

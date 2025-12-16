@@ -15,6 +15,7 @@ interface OrderShippingLabelProps {
   deliveryNotes?: string;
   courierName?: string;
   codAmount?: number;
+  paymentMethod?: string;
   products: Array<{
     name: string;
     quantity: number;
@@ -34,6 +35,7 @@ export function OrderShippingLabel({
   deliveryNotes,
   courierName,
   codAmount,
+  paymentMethod,
   products,
   onClose,
   onPrinted,
@@ -53,6 +55,7 @@ export function OrderShippingLabel({
     delivery_notes: deliveryNotes,
     carrier_name: courierName,
     cod_amount: codAmount,
+    payment_method: paymentMethod,
     delivery_link_token: deliveryToken,
     items: products.map(p => ({
       product_name: p.name,

@@ -51,6 +51,7 @@ export interface OrderForPacking {
   carrier_id?: string;
   carrier_name?: string;
   cod_amount?: number;
+  payment_method?: string;
   printed?: boolean;
   printed_at?: string;
   items: Array<{

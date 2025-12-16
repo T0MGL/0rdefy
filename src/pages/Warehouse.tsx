@@ -487,6 +487,7 @@ export default function Warehouse() {
               deliveryNotes={orderToPrint.delivery_notes}
               courierName={orderToPrint.carrier_name}
               codAmount={orderToPrint.cod_amount}
+              paymentMethod={orderToPrint.payment_method}
               products={orderToPrint.items.map(item => ({
                 name: item.product_name,
                 quantity: item.quantity_needed,
@@ -521,6 +522,7 @@ export default function Warehouse() {
                   delivery_notes: order.delivery_notes,
                   carrier_name: order.carrier_name,
                   cod_amount: order.cod_amount,
+                  payment_method: order.payment_method,
                   delivery_link_token: order.delivery_link_token,
                   items: order.items.map(item => ({
                     product_name: item.product_name,
@@ -579,231 +581,230 @@ function DashboardView({
         <GlobalViewToggle enabled={isGlobalView} onToggle={onToggleGlobalView} />
         <Package className="h-10 w-10 text-primary" />
       </div>
-    </div>
 
-      {/* 3-Column Grid Layout */ }
-  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    {/* Column 1: Active Sessions */}
-    <Card className="p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Layers className="h-5 w-5 text-primary" />
-        <h2 className="text-lg font-semibold">Sesiones Activas</h2>
-        <Badge variant="secondary" className="ml-auto">
-          {activeSessions.length}
-        </Badge>
-      </div>
+      {/* 3-Column Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Column 1: Active Sessions */}
+        <Card className="p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Layers className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">Sesiones Activas</h2>
+            <Badge variant="secondary" className="ml-auto">
+              {activeSessions.length}
+            </Badge>
+          </div>
 
-      {activeSessions.length === 0 ? (
-        <div className="text-center py-8">
-          <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
-          <p className="text-sm text-muted-foreground">
-            No hay sesiones activas
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {activeSessions.map(session => (
-            <Card
-              key={session.id}
-              className="p-3 cursor-pointer hover:shadow-md hover:border-primary transition-all"
-              onClick={() => onResumeSession(session)}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono font-bold text-sm">
-                  {session.code}
-                </span>
-                <Badge
-                  variant={session.status === 'picking' ? 'default' : 'secondary'}
-                  className="text-xs"
-                >
-                  {session.status === 'picking' ? '📦 Picking' : '📋 Packing'}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {new Date(session.created_at).toLocaleString('es-ES', {
-                  day: '2-digit',
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
+          {activeSessions.length === 0 ? (
+            <div className="text-center py-8">
+              <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                No hay sesiones activas
               </p>
-              {/* Show Store Name in Global View */}
-              {(session as any).store_name && (
-                <Badge variant="outline" className="mt-2 text-[10px] h-5 bg-blue-50 text-blue-700 border-blue-200">
-                  {(session as any).store_name}
-                </Badge>
-              )}
-            </Card>
-          ))}
-        </div>
-      )}
-    </Card>
-
-    {/* Column 2: Ready Orders */}
-    <Card className="p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <PackageCheck className="h-5 w-5 text-primary" />
-        <h2 className="text-lg font-semibold">Listos para Picking</h2>
-        <Badge variant="secondary" className="ml-auto">
-          {confirmedOrders.length}
-        </Badge>
-      </div>
-
-      {confirmedOrders.length === 0 ? (
-        <div className="text-center py-8">
-          <PackageCheck className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
-          <p className="text-sm text-muted-foreground">
-            No hay pedidos confirmados
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="space-y-2 max-h-[400px] overflow-y-auto mb-4">
-            {confirmedOrders.map(order => (
-              <Card
-                key={order.id}
-                className={`p-3 transition-all cursor-pointer ${selectedOrders.has(order.id)
-                  ? 'border-primary bg-primary/5'
-                  : 'hover:border-primary/50'
-                  }`}
-                onClick={() => onToggleOrder(order.id)}
-              >
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    checked={selectedOrders.has(order.id)}
-                    onCheckedChange={() => onToggleOrder(order.id)}
-                    className="mt-0.5"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-sm">
-                        #{order.order_number}
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        {order.total_items} items
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {order.customer_name}
-                    </p>
-                    {/* Show Store Name in Global View */}
-                    {(order as any).store_name && (
-                      <Badge variant="outline" className="mt-1 text-[10px] h-4 px-1 bg-amber-50 text-amber-700 border-amber-200">
-                        {(order as any).store_name}
-                      </Badge>
-                    )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activeSessions.map(session => (
+                <Card
+                  key={session.id}
+                  className="p-3 cursor-pointer hover:shadow-md hover:border-primary transition-all"
+                  onClick={() => onResumeSession(session)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono font-bold text-sm">
+                      {session.code}
+                    </span>
+                    <Badge
+                      variant={session.status === 'picking' ? 'default' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {session.status === 'picking' ? '📦 Picking' : '📋 Packing'}
+                    </Badge>
                   </div>
-                </div>
-              </Card>
-            ))}
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(session.created_at).toLocaleString('es-ES', {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </p>
+                  {/* Show Store Name in Global View */}
+                  {(session as any).store_name && (
+                    <Badge variant="outline" className="mt-2 text-[10px] h-5 bg-blue-50 text-blue-700 border-blue-200">
+                      {(session as any).store_name}
+                    </Badge>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Column 2: Ready Orders */}
+        <Card className="p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <PackageCheck className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">Listos para Picking</h2>
+            <Badge variant="secondary" className="ml-auto">
+              {confirmedOrders.length}
+            </Badge>
           </div>
 
-          <Button
-            onClick={onCreateSession}
-            disabled={selectedOrders.size === 0 || loading}
-            className="w-full"
-            size="lg"
-          >
-            <PackageCheck className="h-4 w-4 mr-2" />
-            Iniciar Preparación ({selectedOrders.size})
-          </Button>
-        </>
-      )}
-    </Card>
+          {confirmedOrders.length === 0 ? (
+            <div className="text-center py-8">
+              <PackageCheck className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                No hay pedidos confirmados
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2 max-h-[400px] overflow-y-auto mb-4">
+                {confirmedOrders.map(order => (
+                  <Card
+                    key={order.id}
+                    className={`p-3 transition-all cursor-pointer ${selectedOrders.has(order.id)
+                      ? 'border-primary bg-primary/5'
+                      : 'hover:border-primary/50'
+                      }`}
+                    onClick={() => onToggleOrder(order.id)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={selectedOrders.has(order.id)}
+                        onCheckedChange={() => onToggleOrder(order.id)}
+                        className="mt-0.5"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-sm">
+                            #{order.order_number}
+                          </span>
+                          <Badge variant="outline" className="text-xs">
+                            {order.total_items} items
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {order.customer_name}
+                        </p>
+                        {/* Show Store Name in Global View */}
+                        {(order as any).store_name && (
+                          <Badge variant="outline" className="mt-1 text-[10px] h-4 px-1 bg-amber-50 text-amber-700 border-amber-200">
+                            {(order as any).store_name}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
 
-    {/* Column 3: Workflow Guide */}
-    <Card className="p-6 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="p-2 bg-blue-600 rounded-full">
-          <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-100">
-          Flujo de Trabajo
-        </h2>
+              <Button
+                onClick={onCreateSession}
+                disabled={selectedOrders.size === 0 || loading}
+                className="w-full"
+                size="lg"
+              >
+                <PackageCheck className="h-4 w-4 mr-2" />
+                Iniciar Preparación ({selectedOrders.size})
+              </Button>
+            </>
+          )}
+        </Card>
+
+        {/* Column 3: Workflow Guide */}
+        <Card className="p-6 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="p-2 bg-blue-600 rounded-full">
+              <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-100">
+              Flujo de Trabajo
+            </h2>
+          </div>
+
+          <ol className="space-y-4">
+            <li className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
+                1
+              </div>
+              <div>
+                <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
+                  Selecciona Pedidos
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  Marca los pedidos confirmados que deseas preparar
+                </p>
+              </div>
+            </li>
+
+            <li className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
+                2
+              </div>
+              <div>
+                <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
+                  Crea Sesión de Picking
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  Inicia una nueva sesión de recolección
+                </p>
+              </div>
+            </li>
+
+            <li className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
+                3
+              </div>
+              <div>
+                <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
+                  Recoge Productos
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  Usa los contadores para marcar productos recolectados
+                </p>
+              </div>
+            </li>
+
+            <li className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
+                4
+              </div>
+              <div>
+                <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
+                  Empaca Pedidos
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  Asigna productos a cada pedido individual
+                </p>
+              </div>
+            </li>
+
+            <li className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
+                5
+              </div>
+              <div>
+                <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
+                  Imprime Etiquetas
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  Genera etiquetas de envío para cada pedido
+                </p>
+              </div>
+            </li>
+          </ol>
+
+          <div className="mt-6 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg border border-blue-300 dark:border-blue-700">
+            <p className="text-xs text-blue-800 dark:text-blue-200 font-medium">
+              💡 Tip: Puedes reanudar sesiones activas en cualquier momento
+            </p>
+          </div>
+        </Card>
       </div>
-
-      <ol className="space-y-4">
-        <li className="flex gap-3">
-          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
-            1
-          </div>
-          <div>
-            <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
-              Selecciona Pedidos
-            </p>
-            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-              Marca los pedidos confirmados que deseas preparar
-            </p>
-          </div>
-        </li>
-
-        <li className="flex gap-3">
-          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
-            2
-          </div>
-          <div>
-            <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
-              Crea Sesión de Picking
-            </p>
-            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-              Inicia una nueva sesión de recolección
-            </p>
-          </div>
-        </li>
-
-        <li className="flex gap-3">
-          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
-            3
-          </div>
-          <div>
-            <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
-              Recoge Productos
-            </p>
-            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-              Usa los contadores para marcar productos recolectados
-            </p>
-          </div>
-        </li>
-
-        <li className="flex gap-3">
-          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
-            4
-          </div>
-          <div>
-            <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
-              Empaca Pedidos
-            </p>
-            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-              Asigna productos a cada pedido individual
-            </p>
-          </div>
-        </li>
-
-        <li className="flex gap-3">
-          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
-            5
-          </div>
-          <div>
-            <p className="font-semibold text-sm text-blue-900 dark:text-blue-100">
-              Imprime Etiquetas
-            </p>
-            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-              Genera etiquetas de envío para cada pedido
-            </p>
-          </div>
-        </li>
-      </ol>
-
-      <div className="mt-6 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg border border-blue-300 dark:border-blue-700">
-        <p className="text-xs text-blue-800 dark:text-blue-200 font-medium">
-          💡 Tip: Puedes reanudar sesiones activas en cualquier momento
-        </p>
-      </div>
-    </Card>
-  </div>
     </div >
   );
 }
