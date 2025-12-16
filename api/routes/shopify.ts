@@ -1399,6 +1399,70 @@ shopifyRouter.delete('/webhooks/remove-all', async (req: AuthRequest, res: Respo
   }
 });
 
+// DELETE /api/shopify/disconnect
+// Desconectar integración de Shopify
+shopifyRouter.delete('/disconnect', async (req: AuthRequest, res: Response) => {
+  try {
+    const storeId = req.storeId;
+    const shopDomain = req.query.shop as string;
+
+    if (!shopDomain) {
+      return res.status(400).json({
+        success: false,
+        error: 'Se requiere el parámetro shop'
+      });
+    }
+
+    // Obtener integración
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('shop_domain', shopDomain)
+      .eq('status', 'active')
+      .single();
+
+    if (error || !integration) {
+      return res.status(404).json({
+        success: false,
+        error: 'Integración no encontrada'
+      });
+    }
+
+    // Marcar integración como desconectada
+    const { error: updateError } = await supabaseAdmin
+      .from('shopify_integrations')
+      .update({
+        status: 'disconnected',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', integration.id);
+
+    if (updateError) throw updateError;
+
+    // Intentar eliminar webhooks de Shopify (no bloqueante)
+    try {
+      const webhookSetup = new ShopifyWebhookSetupService(integration);
+      await webhookSetup.removeAllWebhooks();
+    } catch (webhookError) {
+      console.warn('⚠️ No se pudieron eliminar webhooks:', webhookError);
+      // No fallar la desconexión si los webhooks no se pueden eliminar
+    }
+
+    res.json({
+      success: true,
+      message: 'Integración desconectada exitosamente'
+    });
+
+  } catch (error: any) {
+    console.error('Error desconectando Shopify:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Error al desconectar la integración'
+    });
+  }
+});
+
 // ================================================================
 // GDPR MANDATORY WEBHOOKS FOR PUBLIC SHOPIFY APPS
 // ================================================================

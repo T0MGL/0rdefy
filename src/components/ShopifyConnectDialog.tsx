@@ -9,16 +9,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { shopifyService } from '@/services/shopify.service';
 
 interface ShopifyConnectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onBack?: () => void; // Allow going back to method selector
 }
 
-export function ShopifyConnectDialog({ open, onOpenChange }: ShopifyConnectDialogProps) {
+export function ShopifyConnectDialog({ open, onOpenChange, onBack }: ShopifyConnectDialogProps) {
   const { user, currentStore } = useAuth();
   const [shopDomain, setShopDomain] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -82,17 +83,31 @@ export function ShopifyConnectDialog({ open, onOpenChange }: ShopifyConnectDialo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <img
-              src="https://cdn.shopify.com/shopifycloud/brochure/assets/brand-assets/shopify-logo-primary-logo-456baa801ee66a0a435671082365958316831c9960c480451dd0330bcdae304f.svg"
-              alt="Shopify"
-              className="h-6"
-            />
-            Conectar con Shopify
-          </DialogTitle>
-          <DialogDescription>
-            Ingresa el dominio de tu tienda Shopify para conectar y sincronizar productos y clientes. Las nuevas órdenes se cargarán automáticamente.
-          </DialogDescription>
+          <div className="flex items-start gap-3">
+            {onBack && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="mt-1"
+                onClick={onBack}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <div className="flex-1">
+              <DialogTitle className="flex items-center gap-2">
+                <img
+                  src="https://cdn.shopify.com/shopifycloud/brochure/assets/brand-assets/shopify-logo-primary-logo-456baa801ee66a0a435671082365958316831c9960c480451dd0330bcdae304f.svg"
+                  alt="Shopify"
+                  className="h-6"
+                />
+                Conectar con Shopify (OAuth)
+              </DialogTitle>
+              <DialogDescription>
+                Ingresa el dominio de tu tienda Shopify para conectar y sincronizar productos y clientes. Las nuevas órdenes se cargarán automáticamente.
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="space-y-4 py-4">

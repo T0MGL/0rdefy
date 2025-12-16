@@ -113,7 +113,8 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
 
     const confirmed = window.confirm(
       '¿Estás seguro de que deseas desconectar tu tienda de Shopify?\n\n' +
-      'Los datos ya importados se conservarán en Ordefy.'
+      'Los datos ya importados se conservarán en Ordefy.\n\n' +
+      'IMPORTANTE: También debes desinstalar manualmente la Custom App desde tu panel de Shopify (Settings → Apps → Develop apps → Ordefy Integration → Uninstall).'
     );
 
     if (!confirmed) return;
@@ -123,7 +124,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify-oauth/disconnect?shop=${integration.shop_domain}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/disconnect?shop=${integration.shop_domain}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -133,18 +134,16 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
 
       const data = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !data.success) {
         throw new Error(data.error || 'Error al desconectar');
       }
 
-      // Show success message with manual uninstall reminder
       toast({
         title: '✅ Integración desconectada',
-        description: '⚠️ IMPORTANTE: Ahora debes desinstalar manualmente la app desde tu panel de Shopify (Apps → Ordefy → Desinstalar)',
-        duration: 10000, // Show for 10 seconds since it's critical
+        description: 'Recuerda desinstalar la Custom App desde tu panel de Shopify para completar el proceso.',
+        duration: 8000,
       });
 
-      // Call disconnect callback to update UI
       onDisconnect?.();
       onOpenChange(false);
     } catch (error: any) {
@@ -235,11 +234,11 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               {/* Sync All (only products + customers, never orders) */}
               <Button
                 variant="default"
-                className="col-span-2 gap-2"
+                className="gap-2"
                 onClick={() => handleManualSync('all')}
                 disabled={isSyncing}
               >
@@ -251,36 +250,10 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
                 ) : (
                   <>
                     <RefreshCw size={16} />
-                    Sincronizar Productos y Clientes
+                    Sincronizar Todo (Productos y Clientes)
                   </>
                 )}
               </Button>
-
-              {/* Products */}
-              {integration.import_products && (
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => handleManualSync('products')}
-                  disabled={isSyncing}
-                >
-                  <Package size={16} />
-                  Productos
-                </Button>
-              )}
-
-              {/* Customers */}
-              {integration.import_customers && (
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => handleManualSync('customers')}
-                  disabled={isSyncing}
-                >
-                  <Users size={16} />
-                  Clientes
-                </Button>
-              )}
             </div>
           </div>
 
