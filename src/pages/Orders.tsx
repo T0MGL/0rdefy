@@ -4,7 +4,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { OrderQuickView } from '@/components/OrderQuickView';
 import { OrdersCalendar } from '@/components/OrdersCalendar';
 import { OrderForm } from '@/components/forms/OrderForm';
-import { FollowUpSettings } from '@/components/FollowUpSettings';
 import { ExportButton } from '@/components/ExportButton';
 import { OrderConfirmationDialog } from '@/components/OrderConfirmationDialog';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
@@ -996,31 +995,6 @@ export default function Orders() {
             onSubmit={handleCreateOrder}
             onCancel={() => setDialogOpen(false)}
           />
-        </DialogContent>
-      </Dialog>
-
-      {/* Follow-Up Settings Dialog */}
-      <Dialog open={followUpDialogOpen} onOpenChange={setFollowUpDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Configuración de Follow-ups por WhatsApp</DialogTitle>
-          </DialogHeader>
-          <FollowUpSettings />
-        </DialogContent>
-      </Dialog>
-
-      {/* Delivery Map Dialog */}
-      <Dialog open={mapDialogOpen} onOpenChange={setMapDialogOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh]">
-          <DialogHeader>
-            <DialogTitle>Mapa de Entregas</DialogTitle>
-          </DialogHeader>
-          <div className="h-[600px]">
-            <DeliveryMap
-              orders={filteredOrders.filter(o => o.latitude && o.longitude)}
-              height="100%"
-            />
-          </div>
         </DialogContent>
       </Dialog>
 
