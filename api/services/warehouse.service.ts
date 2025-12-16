@@ -523,6 +523,7 @@ export async function getPackingList(
           delivery_link_token,
           courier_id,
           cod_amount,
+          payment_method,
           printed,
           printed_at
         )
@@ -581,6 +582,7 @@ export async function getPackingList(
         carrier_id: order.courier_id,
         carrier_name: order.courier_id ? carrierMap.get(order.courier_id) : undefined,
         cod_amount: order.cod_amount,
+        payment_method: order.payment_method,
         printed: order.printed,
         printed_at: order.printed_at,
         items,

@@ -15,6 +15,7 @@ export interface UniversalLabelProps {
         delivery_notes?: string;
         carrier_name?: string;
         cod_amount?: number;
+        payment_method?: string;
         delivery_link_token: string;
         financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
         items: Array<{
@@ -31,9 +32,21 @@ export function UniversalLabel({ order, className = '' }: UniversalLabelProps) {
     const deliveryUrl = `${window.location.origin}/delivery/${order.delivery_link_token}`;
 
     // Decide payment status box
-    const isCOD = order.cod_amount && order.cod_amount > 0;
+    // Check both payment_method and cod_amount to ensure correct display
+    const isCOD = (order.payment_method === 'cash' || order.payment_method === 'efectivo') &&
+                  order.cod_amount &&
+                  order.cod_amount > 0;
     // If explicitly paid or no COD amount, treat as standard/paid
     const isPaid = !isCOD;
+
+    // Debug logging (can be removed after verification)
+    console.log('🏷️ Label Data:', {
+        orderId: order.id,
+        payment_method: order.payment_method,
+        cod_amount: order.cod_amount,
+        isCOD,
+        isPaid
+    });
 
     useEffect(() => {
         QRCode.toDataURL(deliveryUrl, {

@@ -14,6 +14,7 @@ interface OrderForBatchPrint {
   delivery_notes?: string;
   carrier_name?: string;
   cod_amount?: number;
+  payment_method?: string;
   delivery_link_token: string;
   items: Array<{
     product_name: string;
