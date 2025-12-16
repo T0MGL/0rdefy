@@ -165,7 +165,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 created_at,
                 store_id,
                 stores (name),
-                carriers (name),
+                carriers!orders_carrier_id_fkey (name),
                 order_line_items (product_name, quantity)
             `, { count: 'exact' })
             .in('store_id', storeIds)
@@ -247,7 +247,7 @@ unifiedRouter.get('/shipping/ready', async (req: AuthRequest, res: Response) => 
                 customer_last_name,
                 customer_address,
                 customer_phone,
-                carriers (name),
+                carriers!orders_carrier_id_fkey (name),
                 payment_method,
                 cod_amount,
                 store_id,
