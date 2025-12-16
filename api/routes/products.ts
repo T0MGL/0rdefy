@@ -701,60 +701,64 @@ productsRouter.patch('/:id/stock', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
-// DELETE /api/products/:id - Delete product (soft delete recommended)
+// DELETE /api/products/:id - Delete product
+// Query params:
+//   - hard_delete: 'true' | 'false' (default: 'false' for soft delete)
+//   - delete_from_shopify: 'true' | 'false' (default: 'false', only applies if hard_delete=true)
 // ================================================================
 productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { hard_delete = 'false' } = req.query;
+        const { hard_delete = 'false', delete_from_shopify = 'false' } = req.query;
 
         if (hard_delete === 'true') {
-            // Check if product has Shopify integration first
-            const { data: product } = await supabaseAdmin
-                .from('products')
-                .select('shopify_product_id')
-                .eq('id', id)
-                .eq('store_id', req.storeId)
-                .maybeSingle();
+            // Hard delete - permanently remove from database
+            // Optionally also delete from Shopify if delete_from_shopify=true
 
-            if (product && product.shopify_product_id) {
-                // Check for active Shopify integration
-                const { data: integration } = await supabaseAdmin
-                    .from('shopify_integrations')
-                    .select('*')
+            // Check if product has Shopify integration and should be deleted there too
+            if (delete_from_shopify === 'true') {
+                const { data: product } = await supabaseAdmin
+                    .from('products')
+                    .select('shopify_product_id')
+                    .eq('id', id)
                     .eq('store_id', req.storeId)
-                    .eq('status', 'active')
                     .maybeSingle();
 
-                if (integration) {
-                    try {
-                        const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
-                        const syncResult = await syncService.deleteProductFromShopify(id);
+                if (product && product.shopify_product_id) {
+                    // Check for active Shopify integration
+                    const { data: integration } = await supabaseAdmin
+                        .from('shopify_integrations')
+                        .select('*')
+                        .eq('store_id', req.storeId)
+                        .eq('status', 'active')
+                        .maybeSingle();
 
-                        if (!syncResult.success) {
-                            console.warn(`Product delete failed on Shopify: ${syncResult.error}`);
+                    if (integration) {
+                        try {
+                            const syncService = new ShopifyProductSyncService(supabaseAdmin, integration);
+                            const syncResult = await syncService.deleteProductFromShopify(id);
+
+                            if (!syncResult.success) {
+                                console.warn(`Product delete failed on Shopify: ${syncResult.error}`);
+                                return res.status(500).json({
+                                    error: 'Failed to delete product from Shopify',
+                                    details: syncResult.error
+                                });
+                            }
+
+                            console.log(`Product ${id} successfully deleted from Shopify and locally`);
+                        } catch (syncError: any) {
+                            console.error('Error deleting from Shopify:', syncError);
                             return res.status(500).json({
                                 error: 'Failed to delete product from Shopify',
-                                details: syncResult.error
+                                details: syncError.message
                             });
                         }
-
-                        console.log(`Product ${id} successfully deleted from Shopify and locally`);
-                        return res.json({
-                            message: 'Product deleted from Shopify and locally',
-                            id
-                        });
-                    } catch (syncError: any) {
-                        console.error('Error deleting from Shopify:', syncError);
-                        return res.status(500).json({
-                            error: 'Failed to delete product from Shopify',
-                            details: syncError.message
-                        });
                     }
                 }
             }
 
-            // Hard delete (no Shopify integration or no shopify_product_id)
+            // Delete locally (always happens in hard delete)
             const { data, error } = await supabaseAdmin
                 .from('products')
                 .delete()
@@ -769,9 +773,14 @@ productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
                 });
             }
 
+            const message = delete_from_shopify === 'true'
+                ? 'Product deleted from local database and Shopify'
+                : 'Product deleted from local database only';
+
             return res.json({
-                message: 'Product deleted permanently',
-                id: data.id
+                message,
+                id: data.id,
+                deleted_from_shopify: delete_from_shopify === 'true'
             });
         } else {
             // Soft delete (set is_active to false)
