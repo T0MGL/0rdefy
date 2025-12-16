@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign } from 'lucide-react';
+import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import * as shippingService from '@/services/shipping.service';
 import { unifiedService } from '@/services/unified.service';
 import { GlobalViewToggle } from '@/components/GlobalViewToggle';
+import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 
 export default function Shipping() {
@@ -24,6 +25,7 @@ export default function Shipping() {
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false);
+  const [singleDispatchOrder, setSingleDispatchOrder] = useState<ReadyToShipOrder | null>(null);
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [dispatching, setDispatching] = useState(false);
 
@@ -91,7 +93,46 @@ export default function Shipping() {
       });
       return;
     }
+    setSingleDispatchOrder(null);
     setDispatchDialogOpen(true);
+  }
+
+  function handleOpenSingleDispatch(order: ReadyToShipOrder) {
+    setSingleDispatchOrder(order);
+    setSelectedOrders(new Set([order.id]));
+    setDispatchDialogOpen(true);
+  }
+
+  function handleGenerateManifest() {
+    if (selectedOrders.size === 0) {
+      toast({
+        title: 'Error',
+        description: 'Por favor selecciona al menos un pedido',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const selectedOrdersList = orders.filter(o => selectedOrders.has(o.id));
+
+    // Get carrier name from first order (all should have same carrier in batch)
+    const carrierName = selectedOrdersList[0]?.carrier_name || 'Transportadora';
+
+    // Get store info from localStorage
+    const storeName = localStorage.getItem('store_name') || 'Mi Tienda';
+
+    DeliveryManifestGenerator.generate({
+      orders: selectedOrdersList,
+      carrierName,
+      dispatchDate: new Date(),
+      storeName,
+      notes: dispatchNotes || undefined,
+    });
+
+    toast({
+      title: 'Orden de entrega generada',
+      description: `PDF descargado con ${selectedOrdersList.length} pedido(s)`,
+    });
   }
 
   async function handleDispatch() {
@@ -122,6 +163,7 @@ export default function Shipping() {
       setDispatchDialogOpen(false);
       setDispatchNotes('');
       setSelectedOrders(new Set());
+      setSingleDispatchOrder(null);
       await loadOrders();
     } catch (error: any) {
       console.error('Error dispatching orders:', error);
@@ -209,6 +251,16 @@ export default function Shipping() {
               {allSelected ? 'Deseleccionar todos' : 'Seleccionar todos'}
             </span>
             <div className="flex-1" />
+            <Button
+              onClick={handleGenerateManifest}
+              disabled={selectedOrders.size === 0 || loading}
+              variant="outline"
+              size="lg"
+              className="gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              Generar Orden de Entrega
+            </Button>
             <Button
               onClick={handleOpenDispatchDialog}
               disabled={selectedOrders.size === 0 || loading}
@@ -312,7 +364,7 @@ export default function Shipping() {
                       </div>
 
                       {/* Footer */}
-                      <div className="mt-3 pt-3 border-t">
+                      <div className="mt-3 pt-3 border-t flex items-center justify-between">
                         <p className="text-xs text-muted-foreground">
                           Creado: {new Date(order.created_at).toLocaleDateString('es-ES', {
                             day: '2-digit',
@@ -322,6 +374,18 @@ export default function Shipping() {
                             minute: '2-digit'
                           })}
                         </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-2 h-7 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenSingleDispatch(order);
+                          }}
+                        >
+                          <Send className="h-3 w-3" />
+                          Despachar
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -336,13 +400,43 @@ export default function Shipping() {
       <Dialog open={dispatchDialogOpen} onOpenChange={setDispatchDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirmar Despacho</DialogTitle>
+            <DialogTitle>
+              {singleDispatchOrder ? 'Despachar Pedido' : 'Confirmar Despacho'}
+            </DialogTitle>
             <DialogDescription>
-              Se marcarán {selectedOrders.size} pedido(s) como "En Tránsito"
+              {singleDispatchOrder
+                ? `Despachar pedido #${singleDispatchOrder.order_number} a ${singleDispatchOrder.carrier_name}`
+                : `Se marcarán ${selectedOrders.size} pedido(s) como "En Tránsito"`
+              }
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {!singleDispatchOrder && (
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                <div className="flex gap-3">
+                  <FileText className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100 mb-2">
+                      Orden de Entrega
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
+                      Genera una orden de entrega legal antes de despachar. Este documento debe ser firmado por el encargado y el repartidor.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                      onClick={handleGenerateManifest}
+                    >
+                      <Download className="h-4 w-4" />
+                      Descargar Orden de Entrega
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <p className="text-sm font-medium mb-2">Pedidos seleccionados:</p>
               <div className="flex flex-wrap gap-2">
