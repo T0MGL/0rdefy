@@ -147,11 +147,11 @@ export default function Products() {
     }
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = async (deleteFromShopify: boolean = false) => {
     if (!productToDelete) return;
 
     try {
-      const success = await productsService.delete(productToDelete.id);
+      const success = await productsService.delete(productToDelete.id, deleteFromShopify);
 
       if (!success) {
         throw new Error('Failed to delete product');
@@ -163,9 +163,9 @@ export default function Products() {
       setDeleteDialogOpen(false);
       setProductToDelete(null);
 
-      const deletionMessage = productToDelete.shopify_product_id
-        ? 'El producto ha sido eliminado de tu inventario y de Shopify.'
-        : 'El producto ha sido eliminado exitosamente.';
+      const deletionMessage = deleteFromShopify
+        ? 'El producto ha sido eliminado de tu inventario local y de Shopify.'
+        : 'El producto ha sido eliminado de tu inventario local. Permanece en Shopify.';
 
       toast({
         title: 'Producto eliminado',
@@ -490,19 +490,81 @@ export default function Products() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="¿Eliminar producto?"
-        description={
-          productToDelete?.shopify_product_id
-            ? `⚠️ Este producto está vinculado con Shopify y será eliminado también de tu tienda de Shopify. Esta acción no se puede deshacer.`
-            : 'Esta acción no se puede deshacer. El producto será eliminado permanentemente.'
-        }
-        onConfirm={confirmDelete}
-        variant="destructive"
-        confirmText="Eliminar"
-      />
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>¿Eliminar producto?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {productToDelete?.shopify_product_id ? (
+              <>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Este producto está vinculado con Shopify. Elige cómo deseas eliminarlo:
+                  </p>
+                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                    <p className="text-sm text-amber-800 dark:text-amber-400">
+                      ⚠️ <strong>Importante:</strong> Esta acción no se puede deshacer.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => confirmDelete(false)}
+                    className="w-full justify-start text-left"
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className="font-semibold">Solo de Ordefy</span>
+                      <span className="text-xs text-muted-foreground">El producto permanecerá en Shopify</span>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => confirmDelete(true)}
+                    className="w-full justify-start text-left"
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className="font-semibold">De Ordefy y Shopify</span>
+                      <span className="text-xs opacity-90">El producto será eliminado de ambas plataformas</span>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setDeleteDialogOpen(false)}
+                    className="w-full"
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Esta acción no se puede deshacer. El producto será eliminado permanentemente de tu inventario.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteDialogOpen(false)}
+                    className="flex-1"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => confirmDelete(false)}
+                    className="flex-1"
+                  >
+                    Eliminar
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Stock Adjustment Dialog */}
       <Dialog open={stockDialogOpen} onOpenChange={setStockDialogOpen}>

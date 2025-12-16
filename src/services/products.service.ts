@@ -198,10 +198,16 @@ export const productsService = {
     }
   },
 
-  delete: async (id: string): Promise<boolean> => {
+  delete: async (id: string, deleteFromShopify: boolean = false): Promise<boolean> => {
     try {
       // Use hard delete to permanently remove product from database
-      const response = await fetch(`${API_BASE_URL}/products/${id}?hard_delete=true`, {
+      // Optionally also delete from Shopify if deleteFromShopify=true
+      const params = new URLSearchParams({
+        hard_delete: 'true',
+        delete_from_shopify: deleteFromShopify ? 'true' : 'false'
+      });
+
+      const response = await fetch(`${API_BASE_URL}/products/${id}?${params}`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
