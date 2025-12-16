@@ -1,6 +1,7 @@
 // Shopify API Client Service
-// Handles all communication with Shopify Admin API
-// Uses GraphQL for products (REST deprecated), REST for orders/customers
+// Handles all communication with Shopify Admin API (2025-10)
+// - Products: GraphQL ONLY (REST deprecated since 2024-04)
+// - Orders/Customers: REST API (still supported in 2025-10)
 // Implements rate limiting, error handling, and pagination
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
@@ -12,19 +13,7 @@ import {
   RateLimitConfig,
   ShopifyIntegration
 } from '../types/shopify';
-
-// Conditional import - only if file exists (for backward compatibility)
-let ShopifyGraphQLClientService: any = null;
-try {
-  const graphqlModule = require('./shopify-graphql-client.service');
-  if (graphqlModule && graphqlModule.ShopifyGraphQLClientService) {
-    ShopifyGraphQLClientService = graphqlModule.ShopifyGraphQLClientService;
-    console.log('[Shopify] GraphQL service loaded successfully');
-  }
-} catch (error: any) {
-  console.warn('[Shopify] GraphQL service not available - using REST API only', error.message);
-  ShopifyGraphQLClientService = null;
-}
+import { ShopifyGraphQLClientService } from './shopify-graphql-client.service';
 
 // Token bucket rate limiter
 class TokenBucket {
@@ -74,16 +63,13 @@ export class ShopifyClientService {
   constructor(integration: ShopifyIntegration) {
     this.integration = integration;
 
-    // Initialize GraphQL client for product operations (only if available)
-    if (ShopifyGraphQLClientService) {
-      try {
-        this.graphqlClient = new ShopifyGraphQLClientService(integration);
-        console.log('[Shopify] Using GraphQL API for products');
-      } catch (error) {
-        console.warn('[Shopify] GraphQL initialization failed, using REST API');
-      }
-    } else {
-      console.log('[Shopify] GraphQL not available, using REST API');
+    // Initialize GraphQL client for product operations (REQUIRED - REST is deprecated)
+    try {
+      this.graphqlClient = new ShopifyGraphQLClientService(integration);
+      console.log('[Shopify] ✅ GraphQL API initialized (2025-10)');
+    } catch (error: any) {
+      console.error('[Shopify] ❌ CRITICAL: GraphQL initialization failed:', error.message);
+      throw new Error(`GraphQL client initialization failed: ${error.message}`);
     }
 
     // Initialize rate limiter - Shopify allows 2 requests per second for REST Admin API
@@ -183,7 +169,9 @@ export class ShopifyClientService {
     }
   }
 
-  // Products API methods (GraphQL - REST deprecated as of 2024-04)
+  // ================================================================
+  // PRODUCTS API - GraphQL ONLY (REST deprecated since 2024-04)
+  // ================================================================
 
   async getProducts(params: {
     limit?: number;
@@ -191,12 +179,8 @@ export class ShopifyClientService {
     since_id?: number;
     fields?: string;
   } = {}): Promise<{ products: ShopifyProduct[]; pagination: any }> {
-    // GraphQL ONLY - REST deprecated as of 2024-04
-    if (!this.graphqlClient) {
-      throw new Error('GraphQL client not available. Cannot use deprecated REST API for products.');
-    }
-
-    console.log('✅ Using GraphQL for products (REST deprecated)');
+    // Use GraphQL API exclusively (REST is deprecated for products in 2025-10)
+    console.log('✅ Using GraphQL API 2025-10 for products');
 
     const result = await this.graphqlClient.getProducts({
       first: params.limit || 50,
@@ -246,12 +230,8 @@ export class ShopifyClientService {
   }
 
   async getProduct(productId: string): Promise<ShopifyProduct> {
-    // GraphQL ONLY - REST deprecated as of 2024-04
-    if (!this.graphqlClient) {
-      throw new Error('GraphQL client not available. Cannot use deprecated REST API for products.');
-    }
-
-    console.log('✅ Using GraphQL for products (REST deprecated)');
+    // GraphQL ONLY - REST deprecated in 2025-10
+    console.log('✅ Using GraphQL API 2025-10 for product');
     const product = await this.graphqlClient.getProduct(productId);
     return this.convertGraphQLProductToREST(product);
   }
@@ -271,12 +251,8 @@ export class ShopifyClientService {
     }>;
     images?: Array<{ src: string; alt?: string }>;
   }): Promise<ShopifyProduct> {
-    // GraphQL ONLY - REST deprecated as of 2024-04
-    if (!this.graphqlClient) {
-      throw new Error('GraphQL client not available. Cannot use deprecated REST API for products.');
-    }
-
-    console.log('✅ Using GraphQL for products (REST deprecated)');
+    // GraphQL ONLY - REST deprecated in 2025-10
+    console.log('✅ Using GraphQL API 2025-10 for product creation');
 
     // Convert REST format to GraphQL format
     const graphqlInput: any = {
@@ -301,12 +277,8 @@ export class ShopifyClientService {
   }
 
   async updateProduct(productId: string, productData: Partial<ShopifyProduct>): Promise<ShopifyProduct> {
-    // GraphQL ONLY - REST deprecated as of 2024-04
-    if (!this.graphqlClient) {
-      throw new Error('GraphQL client not available. Cannot use deprecated REST API for products.');
-    }
-
-    console.log('✅ Using GraphQL for products (REST deprecated)');
+    // GraphQL ONLY - REST deprecated in 2025-10
+    console.log('✅ Using GraphQL API 2025-10 for product update');
 
     // Convert REST format to GraphQL format
     const graphqlInput: any = {};
@@ -329,22 +301,14 @@ export class ShopifyClientService {
   }
 
   async deleteProduct(productId: string): Promise<void> {
-    // GraphQL ONLY - REST deprecated as of 2024-04
-    if (!this.graphqlClient) {
-      throw new Error('GraphQL client not available. Cannot use deprecated REST API for products.');
-    }
-
-    console.log('✅ Using GraphQL for products (REST deprecated)');
+    // GraphQL ONLY - REST deprecated in 2025-10
+    console.log('✅ Using GraphQL API 2025-10 for product deletion');
     await this.graphqlClient.deleteProduct(productId);
   }
 
   async updateInventory(inventoryItemId: string, quantity: number, locationId?: string): Promise<void> {
-    // GraphQL ONLY - REST deprecated as of 2024-04
-    if (!this.graphqlClient) {
-      throw new Error('GraphQL client not available. Cannot use deprecated REST API for inventory.');
-    }
-
-    console.log('✅ Using GraphQL for inventory (REST deprecated)');
+    // GraphQL ONLY - REST deprecated in 2025-10
+    console.log('✅ Using GraphQL API 2025-10 for inventory update');
 
     // Get location if not provided
     let location = locationId;
@@ -395,7 +359,9 @@ export class ShopifyClientService {
     } as ShopifyProduct;
   }
 
-  // Customers API methods
+  // ================================================================
+  // CUSTOMERS API - REST (still supported in 2025-10)
+  // ================================================================
 
   async getCustomers(params: {
     limit?: number;
@@ -448,7 +414,9 @@ export class ShopifyClientService {
     return response.data.customer;
   }
 
-  // Orders API methods
+  // ================================================================
+  // ORDERS API - REST (still supported in 2025-10)
+  // ================================================================
 
   async getOrders(params: {
     limit?: number;
