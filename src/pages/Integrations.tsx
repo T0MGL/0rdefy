@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ShopifyIntegrationModal } from '@/components/ShopifyIntegrationModal';
+import { ShopifyConnectionMethodDialog } from '@/components/ShopifyConnectionMethodDialog';
+import { ShopifyManualConnectDialog } from '@/components/ShopifyManualConnectDialog';
 import { ShopifyConnectDialog } from '@/components/ShopifyConnectDialog';
-import { ShopifySyncStatus } from '@/components/ShopifySyncStatus';
-import { ShopifyDiagnostics } from '@/components/ShopifyDiagnostics';
 import { Store, Package, Clock, CheckCircle2, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
@@ -42,9 +41,10 @@ const integrations: Integration[] = [
 
 export default function Integrations() {
   const { toast } = useToast();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [shopifyModalOpen, setShopifyModalOpen] = useState(false);
-  const [shopifyConnectDialogOpen, setShopifyConnectDialogOpen] = useState(false);
+  const [shopifyMethodDialogOpen, setShopifyMethodDialogOpen] = useState(false);
+  const [shopifyOAuthDialogOpen, setShopifyOAuthDialogOpen] = useState(false);
+  const [shopifyManualDialogOpen, setShopifyManualDialogOpen] = useState(false);
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([]);
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
 
@@ -69,157 +69,24 @@ export default function Integrations() {
     checkExistingIntegration();
   }, []);
 
-  // Listen for popup OAuth completion (Shopify embedded mode)
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Verify message is from our domain for security
-      if (event.origin !== window.location.origin) {
-        console.warn('[INTEGRATIONS] Ignoring postMessage from unknown origin:', event.origin);
-        return;
-      }
-
-      // Check if this is a Shopify OAuth completion message
-      if (event.data?.type === 'shopify-oauth-complete') {
-        console.log('[INTEGRATIONS] Received OAuth completion from popup:', event.data);
-
-        const { status, shop, error, webhooksFailed, webhooksOk } = event.data;
-
-        if (status === 'success' && shop) {
-          // Check webhook registration status
-          if (webhooksFailed && webhooksFailed > 0) {
-            toast({
-              title: '⚠️ Shopify conectado con advertencias',
-              description: `Tu tienda ${shop} se conectó, pero ${webhooksFailed} webhook(s) fallaron. Revisa el panel de diagnósticos.`,
-              variant: 'destructive',
-            });
-          } else if (webhooksOk) {
-            toast({
-              title: '✅ Shopify conectado exitosamente',
-              description: `Tu tienda ${shop} y todos los webhooks se configuraron correctamente`,
-            });
-          } else {
-            toast({
-              title: '✅ Shopify conectado',
-              description: `Tu tienda ${shop} se ha conectado exitosamente`,
-            });
-          }
-
-          setConnectedIntegrations(prev =>
-            prev.includes('shopify') ? prev : [...prev, 'shopify']
-          );
-        } else if (error) {
-          const errorMessages: Record<string, string> = {
-            missing_params: 'Faltan parámetros requeridos',
-            invalid_signature: 'Firma HMAC inválida',
-            invalid_state: 'Estado de sesión inválido',
-            expired_state: 'La sesión ha expirado',
-            no_token: 'No se recibió token de acceso',
-            callback_failed: 'Error en el proceso de autorización',
-          };
-
-          toast({
-            title: '❌ Error al conectar Shopify',
-            description: errorMessages[error] || 'Ocurrió un error inesperado. Intenta nuevamente.',
-            variant: 'destructive',
-          });
-        }
-      }
-    };
-
-    // Add event listener for postMessage
-    window.addEventListener('message', handleMessage);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [toast]);
-
-  // Check OAuth callback query params (standalone mode redirect)
-  useEffect(() => {
-    const status = searchParams.get('status');
-    const error = searchParams.get('error');
-    const shop = searchParams.get('shop');
-    const webhooksFailed = searchParams.get('webhooks_failed');
-    const webhooksSuccess = searchParams.get('webhooks_success');
-    const webhooksOk = searchParams.get('webhooks');
-
-    if (status === 'success' && shop) {
-      // Check webhook registration status
-      if (webhooksFailed && parseInt(webhooksFailed) > 0) {
-        toast({
-          title: '⚠️ Shopify conectado con advertencias',
-          description: `Tu tienda ${shop} se conectó, pero ${webhooksFailed} webhook(s) fallaron. Revisa el panel de diagnósticos.`,
-          variant: 'destructive',
-        });
-      } else if (webhooksOk === 'ok') {
-        toast({
-          title: '✅ Shopify conectado exitosamente',
-          description: `Tu tienda ${shop} y todos los webhooks se configuraron correctamente`,
-        });
-      } else {
-        toast({
-          title: '✅ Shopify conectado',
-          description: `Tu tienda ${shop} se ha conectado exitosamente`,
-        });
-      }
-
-      setConnectedIntegrations(prev =>
-        prev.includes('shopify') ? prev : [...prev, 'shopify']
-      );
-      // Clean up URL params
-      searchParams.delete('status');
-      searchParams.delete('shop');
-      searchParams.delete('integration');
-      searchParams.delete('webhooks_failed');
-      searchParams.delete('webhooks_success');
-      searchParams.delete('webhooks');
-      setSearchParams(searchParams);
-    } else if (error) {
-      const errorMessages: Record<string, string> = {
-        missing_params: 'Faltan parámetros requeridos',
-        invalid_signature: 'Firma HMAC inválida',
-        invalid_state: 'Estado de sesión inválido',
-        expired_state: 'La sesión ha expirado',
-        no_token: 'No se recibió token de acceso',
-        callback_failed: 'Error en el proceso de autorización',
-      };
-
-      toast({
-        title: '❌ Error al conectar Shopify',
-        description: errorMessages[error] || 'Ocurrió un error inesperado. Intenta nuevamente.',
-        variant: 'destructive',
-      });
-
-      // Clean up URL params
-      searchParams.delete('error');
-      searchParams.delete('status');
-      searchParams.delete('integration');
-      setSearchParams(searchParams);
-    }
-  }, [searchParams, setSearchParams, toast]);
-
   const handleShopifySuccess = () => {
-    setConnectedIntegrations(prev => [...prev, 'shopify']);
-    toast({
-      title: '✅ Shopify conectado',
-      description: 'Tu tienda Shopify se ha integrado correctamente',
-    });
+    setConnectedIntegrations(prev =>
+      prev.includes('shopify') ? prev : [...prev, 'shopify']
+    );
   };
 
   const handleShopifyDisconnect = () => {
-    // Remove shopify from connected integrations after disconnect
     setConnectedIntegrations(prev => prev.filter(id => id !== 'shopify'));
   };
 
   const handleIntegrationClick = (integration: Integration) => {
     if (integration.id === 'shopify') {
       if (connectedIntegrations.includes('shopify')) {
-        // If already connected, show the old modal for management
+        // If already connected, show management modal
         setShopifyModalOpen(true);
       } else {
-        // If not connected, show the new OAuth connect dialog
-        setShopifyConnectDialogOpen(true);
+        // If not connected, show method selector
+        setShopifyMethodDialogOpen(true);
       }
     } else if (integration.status === 'coming_soon') {
       toast({
@@ -227,6 +94,22 @@ export default function Integrations() {
         description: 'Esta integración estará disponible pronto',
       });
     }
+  };
+
+  const handleSelectOAuth = () => {
+    setShopifyMethodDialogOpen(false);
+    setShopifyOAuthDialogOpen(true);
+  };
+
+  const handleSelectManual = () => {
+    setShopifyMethodDialogOpen(false);
+    setShopifyManualDialogOpen(true);
+  };
+
+  const handleBackToMethodSelector = () => {
+    setShopifyOAuthDialogOpen(false);
+    setShopifyManualDialogOpen(false);
+    setShopifyMethodDialogOpen(true);
   };
 
   const IntegrationSkeleton = ({ index }: { index: number }) => (
@@ -349,14 +232,6 @@ export default function Integrations() {
         </p>
       </div>
 
-      {/* Estado de sincronizacion de Shopify */}
-      {connectedIntegrations.includes('shopify') && (
-        <>
-          <ShopifySyncStatus />
-          <ShopifyDiagnostics />
-        </>
-      )}
-
       {/* E-commerce Platforms Category */}
       <div className="space-y-4">
         <div className="border-l-4 border-primary pl-4">
@@ -421,10 +296,27 @@ export default function Integrations() {
         onDisconnect={handleShopifyDisconnect}
       />
 
-      {/* Shopify Connect Dialog (for new OAuth connection) */}
+      {/* Shopify Connection Method Selector */}
+      <ShopifyConnectionMethodDialog
+        open={shopifyMethodDialogOpen}
+        onOpenChange={setShopifyMethodDialogOpen}
+        onSelectOAuth={handleSelectOAuth}
+        onSelectManual={handleSelectManual}
+      />
+
+      {/* Shopify OAuth Connect Dialog (recommended) */}
       <ShopifyConnectDialog
-        open={shopifyConnectDialogOpen}
-        onOpenChange={setShopifyConnectDialogOpen}
+        open={shopifyOAuthDialogOpen}
+        onOpenChange={setShopifyOAuthDialogOpen}
+        onBack={handleBackToMethodSelector}
+      />
+
+      {/* Shopify Manual Connect Dialog (custom app) */}
+      <ShopifyManualConnectDialog
+        open={shopifyManualDialogOpen}
+        onOpenChange={setShopifyManualDialogOpen}
+        onSuccess={handleShopifySuccess}
+        onBack={handleBackToMethodSelector}
       />
     </div>
   );
