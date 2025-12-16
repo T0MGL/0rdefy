@@ -36,6 +36,9 @@ const getUserStoreIds = async (userId: string) => {
 // ================================================================
 unifiedRouter.get('/warehouse/ready', async (req: AuthRequest, res: Response) => {
     try {
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ error: 'User not authenticated' });
+        }
         const storeIds = await getUserStoreIds(req.user.id);
 
         if (storeIds.length === 0) {
@@ -67,7 +70,7 @@ unifiedRouter.get('/warehouse/ready', async (req: AuthRequest, res: Response) =>
             order_number: order.order_number,
             customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim(),
             store_id: order.store_id,
-            store_name: order.stores?.name || 'Unknown Store',
+            store_name: Array.isArray(order.stores) ? (order.stores as any)[0]?.name : (order.stores as any)?.name || 'Unknown Store',
             created_at: order.created_at,
             total_items: order.order_line_items?.[0]?.count || 0
         }));
@@ -76,7 +79,11 @@ unifiedRouter.get('/warehouse/ready', async (req: AuthRequest, res: Response) =>
 
     } catch (error) {
         console.error('[GET /api/unified/warehouse/ready] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch unified warehouse data' });
+        res.status(500).json({
+            error: 'Failed to fetch unified warehouse data',
+            details: error instanceof Error ? error.message : String(error),
+            raw: error
+        });
     }
 });
 
@@ -85,6 +92,9 @@ unifiedRouter.get('/warehouse/ready', async (req: AuthRequest, res: Response) =>
 // ================================================================
 unifiedRouter.get('/warehouse/sessions', async (req: AuthRequest, res: Response) => {
     try {
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ error: 'User not authenticated' });
+        }
         const storeIds = await getUserStoreIds(req.user.id);
         if (storeIds.length === 0) return res.json({ data: [] });
 
@@ -110,14 +120,18 @@ unifiedRouter.get('/warehouse/sessions', async (req: AuthRequest, res: Response)
             status: session.status,
             created_at: session.created_at,
             store_id: session.store_id,
-            store_name: session.stores?.name
+            store_name: Array.isArray(session.stores) ? (session.stores as any)[0]?.name : (session.stores as any)?.name
         }));
 
         res.json({ data: transformed });
 
     } catch (error) {
         console.error('[GET /api/unified/warehouse/sessions] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch unified sessions' });
+        res.status(500).json({
+            error: 'Failed to fetch unified sessions',
+            details: error instanceof Error ? error.message : String(error),
+            raw: error
+        });
     }
 });
 
@@ -125,6 +139,9 @@ unifiedRouter.get('/warehouse/sessions', async (req: AuthRequest, res: Response)
 // ORDERS: Consolidated List (ALL STORES)
 // ================================================================
 unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
+    if (!req.user || !req.user.id) {
+        return res.status(401).json({ error: 'User not authenticated' });
+    }
     try {
         const { limit = '50', offset = '0', status } = req.query;
         const storeIds = await getUserStoreIds(req.user.id);
@@ -172,18 +189,22 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 ?.map((item: any) => `${item.quantity}x ${item.product_name}`)
                 .join(', ') || 'Sin productos';
 
+            // Safely access array properties from join
+            const carrierData = Array.isArray(order.carriers) ? order.carriers[0] : order.carriers;
+            const storeData = Array.isArray(order.stores) ? order.stores[0] : order.stores;
+
             return {
                 id: order.id,
                 order_number: order.order_number,
                 customer: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim(),
                 product: productStr,
-                carrier: order.carriers?.name || 'Pendiente',
+                carrier: carrierData?.name || 'Pendiente',
                 total: order.total_price,
                 status: order.sleeves_status,
                 payment_status: order.payment_status,
                 date: order.created_at,
                 store_id: order.store_id,
-                store_name: order.stores?.name
+                store_name: storeData?.name
             };
         });
 
@@ -198,7 +219,11 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
 
     } catch (error) {
         console.error('[GET /api/unified/orders] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch unified orders' });
+        res.status(500).json({
+            error: 'Failed to fetch unified orders',
+            details: error instanceof Error ? error.message : String(error),
+            raw: error
+        });
     }
 });
 
@@ -207,6 +232,9 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
 // ================================================================
 unifiedRouter.get('/shipping/ready', async (req: AuthRequest, res: Response) => {
     try {
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ error: 'User not authenticated' });
+        }
         const storeIds = await getUserStoreIds(req.user.id);
         if (storeIds.length === 0) return res.json({ data: [] });
 
@@ -236,16 +264,20 @@ unifiedRouter.get('/shipping/ready', async (req: AuthRequest, res: Response) => 
             order_number: order.order_number,
             customer: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim(),
             address: order.customer_address,
-            carrier_name: order.carriers?.name || 'Pending',
+            carrier_name: Array.isArray(order.carriers) ? (order.carriers as any)[0]?.name : (order.carriers as any)?.name || 'Pending',
             cod_amount: order.cod_amount,
             store_id: order.store_id,
-            store_name: order.stores?.name
+            store_name: Array.isArray(order.stores) ? (order.stores as any)[0]?.name : (order.stores as any)?.name
         }));
 
         res.json({ data: transformed });
 
     } catch (error) {
         console.error('[GET /api/unified/shipping/ready] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch unified dispatch data' });
+        res.status(500).json({
+            error: 'Failed to fetch unified dispatch data',
+            details: error instanceof Error ? error.message : String(error),
+            raw: error
+        });
     }
 });

@@ -23,7 +23,11 @@ export const unifiedService = {
             const response = await fetch(`${API_BASE_URL}/unified/warehouse/ready`, {
                 headers: getHeaders(),
             });
-            if (!response.ok) throw new Error('Failed to fetch unified warehouse data');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Unified Warehouse API Error:', errorData);
+                throw new Error(errorData.details || 'Failed to fetch unified warehouse data');
+            }
             const result = await response.json();
             return result.data || [];
         } catch (error) {
@@ -37,7 +41,11 @@ export const unifiedService = {
             const response = await fetch(`${API_BASE_URL}/unified/warehouse/sessions`, {
                 headers: getHeaders(),
             });
-            if (!response.ok) throw new Error('Failed to fetch unified sessions');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Unified Sessions API Error:', errorData);
+                throw new Error(errorData.details || 'Failed to fetch unified sessions');
+            }
             const result = await response.json();
             return result.data || [];
         } catch (error) {
@@ -57,7 +65,11 @@ export const unifiedService = {
                 headers: getHeaders(),
             });
 
-            if (!response.ok) throw new Error('Failed to fetch unified orders');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Unified Orders API Error:', errorData);
+                throw new Error(errorData.details || 'Failed to fetch unified orders');
+            }
             const result = await response.json();
             return result;
         } catch (error) {
@@ -71,7 +83,11 @@ export const unifiedService = {
             const response = await fetch(`${API_BASE_URL}/unified/shipping/ready`, {
                 headers: getHeaders(),
             });
-            if (!response.ok) throw new Error('Failed to fetch unified dispatch data');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Unified Dispatch API Error:', errorData);
+                throw new Error(errorData.details || 'Failed to fetch unified dispatch data');
+            }
             const result = await response.json();
             return result.data || [];
         } catch (error) {
