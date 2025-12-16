@@ -117,15 +117,21 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
         const transformedData = (data || []).map(product => ({
             id: product.id,
             name: product.name,
+            sku: product.sku || '',
+            description: product.description || '',
+            category: product.category || '',
             image: product.image_url || 'https://via.placeholder.com/400x300?text=Product',
             stock: product.stock || 0,
             price: product.price || 0,
             cost: product.cost || 0,
+            packaging_cost: product.packaging_cost || 0,
+            additional_costs: product.additional_costs || 0,
             profitability: product.cost && product.price
                 ? parseFloat((((product.price - product.cost) / product.price) * 100).toFixed(1))
                 : 0,
             sales: salesByProduct[product.id] || 0,
-            shopify_product_id: product.shopify_product_id || null
+            shopify_product_id: product.shopify_product_id || null,
+            shopify_variant_id: product.shopify_variant_id || null
         }));
 
         res.json({
@@ -189,15 +195,21 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
         const transformedData = {
             id: data.id,
             name: data.name,
+            sku: data.sku || '',
+            description: data.description || '',
+            category: data.category || '',
             image: data.image_url || 'https://via.placeholder.com/400x300?text=Product',
             stock: data.stock || 0,
             price: data.price || 0,
             cost: data.cost || 0,
+            packaging_cost: data.packaging_cost || 0,
+            additional_costs: data.additional_costs || 0,
             profitability: data.cost && data.price
                 ? parseFloat((((data.price - data.cost) / data.price) * 100).toFixed(1))
                 : 0,
             sales,
-            shopify_product_id: data.shopify_product_id || null
+            shopify_product_id: data.shopify_product_id || null,
+            shopify_variant_id: data.shopify_variant_id || null
         };
 
         res.json(transformedData);
@@ -333,7 +345,7 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => {
     try {
-        const { shopify_product_id, shopify_variant_id } = req.body;
+        const { shopify_product_id, shopify_variant_id, cost, packaging_cost, additional_costs } = req.body;
 
         // Validation
         if (!shopify_product_id || !shopify_variant_id) {
@@ -399,7 +411,11 @@ productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => 
             description: shopifyProduct.body_html || '',
             sku: variant.sku || '',
             price: parseFloat(variant.price || '0'),
-            cost: parseFloat(variant.compare_at_price || variant.price || '0') * 0.6, // Estimate 60% of price as cost
+            cost: cost !== undefined
+                ? parseFloat(cost.toString())
+                : parseFloat(variant.compare_at_price || variant.price || '0') * 0.6, // Estimate 60% of price as cost if not provided
+            packaging_cost: packaging_cost !== undefined ? parseFloat(packaging_cost.toString()) : 0,
+            additional_costs: additional_costs !== undefined ? parseFloat(additional_costs.toString()) : 0,
             stock: variant.inventory_quantity || 0,
             category: shopifyProduct.product_type || '',
             image_url: shopifyProduct.image?.src || shopifyProduct.images?.[0]?.src || '',

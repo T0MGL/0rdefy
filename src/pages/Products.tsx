@@ -255,15 +255,29 @@ export default function Products() {
             <p className="text-muted-foreground">Gestiona tu catálogo de productos</p>
           </div>
         </div>
-        <EmptyState
-          icon={PackageOpen}
-          title="No hay productos en tu catálogo"
-          description="Comienza agregando tu primer producto para empezar a vender."
-          action={{
-            label: 'Agregar Primer Producto',
-            onClick: handleCreate,
-          }}
-        />
+
+        {/* Custom Empty State with multiple options */}
+        <div className="flex flex-col items-center justify-center py-12 px-4">
+          <div className="rounded-full bg-primary/10 p-4 mb-4">
+            <PackageOpen className="h-12 w-12 text-primary" />
+          </div>
+          <h3 className="text-xl font-semibold mb-2">No hay productos en tu catálogo</h3>
+          <p className="text-muted-foreground text-center mb-6 max-w-md">
+            Comienza agregando tu primer producto manualmente o impórtalo desde Shopify.
+          </p>
+          <div className="flex gap-3">
+            <Button onClick={handleCreate} variant="default">
+              <Plus className="h-4 w-4 mr-2" />
+              Crear Producto
+            </Button>
+            {hasShopifyIntegration && (
+              <Button onClick={handleImportShopify} variant="outline">
+                <Upload className="h-4 w-4 mr-2" />
+                Importar desde Shopify
+              </Button>
+            )}
+          </div>
+        </div>
 
         {/* Product Form Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

@@ -36,7 +36,7 @@ const manualProductSchema = z.object({
   price: z.number({ required_error: 'El precio es requerido' }).positive('El precio debe ser mayor a 0'),
   cost: z.number({ required_error: 'El costo es requerido' }).positive('El costo debe ser mayor a 0'),
   packaging_cost: z.number().nonnegative().optional().default(0),
-  additional_cost: z.number().nonnegative().optional().default(0),
+  additional_costs: z.number().nonnegative().optional().default(0),
   is_service: z.boolean().default(false),
   stock: z.number({ required_error: 'El stock es requerido' }).int().min(0, 'El stock no puede ser negativo'),
 });
@@ -71,6 +71,9 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
   const [selectedVariant, setSelectedVariant] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [shopifyCost, setShopifyCost] = useState<number | undefined>(undefined);
+  const [shopifyPackagingCost, setShopifyPackagingCost] = useState<number>(0);
+  const [shopifyAdditionalCosts, setShopifyAdditionalCosts] = useState<number>(0);
 
   // Initialize mode
   useEffect(() => {
@@ -93,14 +96,14 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
     resolver: zodResolver(manualProductSchema),
     defaultValues: {
       name: product?.name || '',
-      description: '',
-      sku: '',
-      category: '',
+      description: product?.description || '',
+      sku: product?.sku || '',
+      category: product?.category || '',
       image: product?.image || '',
       price: product?.price || undefined,
       cost: product?.cost || undefined,
       packaging_cost: product?.packaging_cost || 0,
-      additional_cost: product?.additional_cost || 0,
+      additional_costs: product?.additional_costs || 0,
       is_service: product?.is_service || false,
       stock: product?.stock || undefined,
     },
@@ -141,7 +144,12 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
     try {
       const product = await productsService.createFromShopify(
         selectedProduct,
-        selectedVariant
+        selectedVariant,
+        {
+          cost: shopifyCost,
+          packaging_cost: shopifyPackagingCost,
+          additional_costs: shopifyAdditionalCosts
+        }
       );
       onSubmit(product);
     } catch (error: any) {
@@ -285,6 +293,54 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
               <div>
                 <span className="text-muted-foreground">Stock:</span>
                 <p className="font-medium">{selectedVariantData.inventory_quantity}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Costos del Producto */}
+        {selectedVariant && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium">Configurar Costos</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Costo del Producto (Gs.)
+                  <InfoTooltip content="Costo de adquisición o producción del producto" />
+                </label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={shopifyCost ?? ''}
+                  onChange={(e) => setShopifyCost(e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Costo de Packaging (Gs.)
+                  <InfoTooltip content="Costo del empaque y materiales de envío" />
+                </label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={shopifyPackagingCost}
+                  onChange={(e) => setShopifyPackagingCost(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Costos Adicionales (Gs.)
+                  <InfoTooltip content="Otros costos asociados al producto" />
+                </label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={shopifyAdditionalCosts}
+                  onChange={(e) => setShopifyAdditionalCosts(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                />
               </div>
             </div>
           </div>
@@ -505,7 +561,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
 
           <FormField
             control={form.control}
-            name="additional_cost"
+            name="additional_costs"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Costos Adicionales (Gs.) <span className="text-xs text-muted-foreground">(Opcional)</span></FormLabel>
