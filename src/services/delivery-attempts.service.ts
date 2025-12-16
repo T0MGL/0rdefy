@@ -6,7 +6,7 @@
 
 import { DeliveryAttempt } from '@/types';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('auth_token');

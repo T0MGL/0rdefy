@@ -25,7 +25,7 @@ export interface Carrier {
   contact_email?: string;
 }
 
-let API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+let API_URL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 API_URL = API_URL.trim();
 API_URL = API_URL.replace(/(\/api\/?)+$/i, '');
 API_URL = API_URL.replace(/\/+$/, '');

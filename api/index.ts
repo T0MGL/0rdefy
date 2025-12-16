@@ -39,6 +39,7 @@ import { inventoryRouter } from './routes/inventory';
 import returnsRouter from './routes/returns';
 import securityRouter from './routes/security';
 import { incidentsRouter } from './routes/incidents';
+import { unifiedRouter } from './routes/unified';
 
 // Load environment variables
 dotenv.config();
@@ -435,6 +436,7 @@ app.use('/api/cod-metrics', codMetricsRouter);
 
 // Warehouse routes
 app.use('/api/warehouse', warehouseRouter);
+app.use('/api/unified', unifiedRouter);
 
 // Shipping routes (Order dispatch to couriers)
 app.use('/api/shipping', shippingRouter);

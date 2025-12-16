@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 
 // Defensive: Ensure we don't have double /api/api/
 // Remove all trailing slashes and /api segments using regex
