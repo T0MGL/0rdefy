@@ -8,7 +8,7 @@ export interface ExportColumn<T = any> {
   header: string;
   key: keyof T | string;
   width?: number;
-  format?: (value: any) => string;
+  format?: (value: any, row?: T) => string;
 }
 
 export interface ExportOptions<T = any> {
@@ -34,7 +34,7 @@ class ExportService {
     const rows = data.map(item =>
       columns.map(col => {
         const value = this.getNestedValue(item, col.key as string);
-        return col.format ? col.format(value) : this.formatValue(value);
+        return col.format ? col.format(value, item) : this.formatValue(value);
       })
     );
 
@@ -61,7 +61,7 @@ class ExportService {
     const rows = data.map(item =>
       columns.map(col => {
         const value = this.getNestedValue(item, col.key as string);
-        return col.format ? col.format(value) : value;
+        return col.format ? col.format(value, item) : value;
       })
     );
 
@@ -120,7 +120,7 @@ class ExportService {
     const rows = data.map(item =>
       columns.map(col => {
         const value = this.getNestedValue(item, col.key as string);
-        return col.format ? col.format(value) : this.formatValue(value);
+        return col.format ? col.format(value, item) : this.formatValue(value);
       })
     );
 

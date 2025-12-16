@@ -128,7 +128,12 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
     try {
         const { limit = '50', offset = '0', status } = req.query;
         const storeIds = await getUserStoreIds(req.user.id);
-        if (storeIds.length === 0) return res.json({ data: [], pagination: { total: 0 } });
+        console.log(`[GET /api/unified/orders] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
+
+        if (storeIds.length === 0) {
+            console.log('[GET /api/unified/orders] No stores found for user');
+            return res.json({ data: [], pagination: { total: 0 } });
+        }
 
         let query = supabaseAdmin
             .from('orders')
@@ -155,7 +160,11 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
         }
 
         const { data, error, count } = await query;
-        if (error) throw error;
+        if (error) {
+            console.error('[GET /api/unified/orders] Query Error:', error);
+            throw error;
+        }
+        console.log(`[GET /api/unified/orders] Fetched ${data?.length} orders (Total: ${count})`);
 
         const transformed = data.map(order => {
             // Construct product string

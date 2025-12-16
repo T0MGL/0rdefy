@@ -4,7 +4,18 @@ import { ExportColumn } from '@/services/export.service';
  * Export configuration for Orders
  */
 export const ordersExportColumns: ExportColumn[] = [
-  { header: 'ID Pedido', key: 'id', width: 20 },
+  {
+    header: 'ID Pedido',
+    key: 'id',
+    width: 20,
+    format: (value, row: any) => {
+      // Use the same logic as the UI to display friendly order IDs
+      return row.shopify_order_name ||
+        (row.shopify_order_number ? `#${row.shopify_order_number}` : null) ||
+        (row.shopify_order_id ? `SH#${row.shopify_order_id}` : null) ||
+        `OR#${value.substring(0, 8)}`;
+    }
+  },
   { header: 'Cliente', key: 'customer', width: 20 },
   { header: 'Teléfono', key: 'phone', width: 15 },
   { header: 'Dirección', key: 'address', width: 30 },
@@ -50,16 +61,21 @@ export const ordersExportColumns: ExportColumn[] = [
   },
   {
     header: 'Método de Pago',
-    key: 'paymentMethod',
+    key: 'payment_method',
     width: 15,
     format: (value) => {
+      if (!value) return 'No especificado';
       const methodLabels: Record<string, string> = {
         cash: 'Efectivo',
+        efectivo: 'Efectivo',
         card: 'Tarjeta',
         transfer: 'Transferencia',
+        online: 'Online',
+        yape: 'Yape',
+        plin: 'Plin',
         pending: 'Pendiente',
       };
-      return methodLabels[value] || value;
+      return methodLabels[value.toLowerCase()] || value;
     }
   },
   {

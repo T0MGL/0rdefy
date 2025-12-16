@@ -35,8 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, MessageSquare, Map, Package2, Edit, Trash2, Printer, Check, RefreshCw } from 'lucide-react';
-import { DeliveryMap } from '@/components/DeliveryMap';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2 } from 'lucide-react';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
 
@@ -82,8 +81,6 @@ export default function Orders() {
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
-  const [mapDialogOpen, setMapDialogOpen] = useState(false);
   const [attemptsDialogOpen, setAttemptsDialogOpen] = useState(false);
   const [selectedOrderForAttempts, setSelectedOrderForAttempts] = useState<Order | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -611,55 +608,43 @@ export default function Orders() {
           </div>
         </div>
       </div>
-      <div className="flex gap-2">
-        {/* Global View Toggle */}
-        <div className="mr-2">
+      <div className="flex items-center justify-between gap-2">
+        {/* Global View Toggle - Left */}
+        <div className="mr-auto">
           <GlobalViewToggle enabled={isGlobalView} onToggle={setIsGlobalView} />
         </div>
 
-        {selectedOrderIds.size > 0 && (
+        {/* Actions - Right */}
+        <div className="flex items-center gap-2">
+          {selectedOrderIds.size > 0 && (
+            <Button
+              variant="default"
+              onClick={handleBulkPrint}
+              className="gap-2 bg-blue-600 hover:bg-blue-700"
+            >
+              <Printer size={18} />
+              Imprimir {selectedOrderIds.size} etiqueta{selectedOrderIds.size > 1 ? 's' : ''}
+            </Button>
+          )}
+
+          <ExportButton
+            data={filteredOrders}
+            filename="pedidos"
+            columns={ordersExportColumns}
+            title="Reporte de Pedidos - Ordefy"
+            variant="outline"
+          />
           <Button
-            variant="default"
-            onClick={handleBulkPrint}
-            className="gap-2 bg-blue-600 hover:bg-blue-700"
+            onClick={() => {
+              console.log('🖱️ [ORDERS] Button clicked');
+              setDialogOpen(true);
+            }}
+            className="gap-2"
           >
-            <Printer size={18} />
-            Imprimir {selectedOrderIds.size} etiqueta{selectedOrderIds.size > 1 ? 's' : ''}
+            <Plus size={18} />
+            Nuevo Pedido
           </Button>
-        )}
-        <Button
-          variant="outline"
-          onClick={() => setMapDialogOpen(true)}
-          className="gap-2"
-        >
-          <Map size={18} />
-          Ver Mapa
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => setFollowUpDialogOpen(true)}
-          className="gap-2"
-        >
-          <MessageSquare size={18} />
-          Follow-ups
-        </Button>
-        <ExportButton
-          data={filteredOrders}
-          filename="pedidos"
-          columns={ordersExportColumns}
-          title="Reporte de Pedidos - Ordefy"
-          variant="outline"
-        />
-        <Button
-          onClick={() => {
-            console.log('🖱️ [ORDERS] Button clicked');
-            setDialogOpen(true);
-          }}
-          className="gap-2"
-        >
-          <Plus size={18} />
-          Nuevo Pedido
-        </Button>
+        </div>
       </div>
 
       {/* Filtros con chips de estado */}
