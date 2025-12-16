@@ -4,7 +4,7 @@
 // Manages zone-based pricing for carriers
 // ================================================================
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 
 export interface CarrierZone {
   id: string;

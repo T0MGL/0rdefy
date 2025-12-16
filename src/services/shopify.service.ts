@@ -6,7 +6,7 @@
 
 import { ShopifyIntegration } from '@/types';
 
-let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
 while (cleanBaseURL.endsWith('/api')) {
   cleanBaseURL = cleanBaseURL.slice(0, -4);

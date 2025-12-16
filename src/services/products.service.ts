@@ -1,6 +1,6 @@
 import { Product } from '@/types';
 
-let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.trim();
 cleanBaseURL = cleanBaseURL.replace(/(\/api\/?)+$/i, '');
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
