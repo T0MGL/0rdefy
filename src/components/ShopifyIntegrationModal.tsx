@@ -3,7 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Store, RefreshCw, Package, Users, ShoppingCart, CheckCircle2 } from 'lucide-react';
+import { Store, RefreshCw, Package, Users, ShoppingCart, CheckCircle2, Bug } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface ShopifyIntegration {
   id: string;
@@ -28,6 +29,8 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
   const [integration, setIntegration] = useState<ShopifyIntegration | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   // Load Shopify integration when modal opens
   useEffect(() => {
@@ -105,6 +108,42 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
       });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleDebug = async () => {
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const storeId = localStorage.getItem('current_store_id');
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/debug`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Store-ID': storeId || '',
+        },
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setDebugInfo(data.diagnostic);
+        setShowDebugInfo(true);
+        toast({
+          title: '🔍 Diagnóstico completado',
+          description: `Productos en Shopify: ${data.diagnostic.shopify_api_test.productCount}, En Ordefy: ${data.diagnostic.products_in_ordefy}`,
+        });
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error en diagnóstico',
+        description: error.message || 'No se pudo obtener información de diagnóstico',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -234,13 +273,13 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {/* Sync All (only products + customers, never orders) */}
               <Button
                 variant="default"
-                className="gap-2"
+                className="col-span-2 gap-2"
                 onClick={() => handleManualSync('all')}
-                disabled={isSyncing}
+                disabled={isSyncing || isLoading}
               >
                 {isSyncing ? (
                   <>
@@ -254,7 +293,49 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
                   </>
                 )}
               </Button>
+
+              {/* Debug Button */}
+              <Button
+                variant="outline"
+                className="col-span-2 gap-2"
+                onClick={handleDebug}
+                disabled={isLoading || isSyncing}
+              >
+                <Bug size={16} />
+                Ver diagnóstico de importación
+              </Button>
             </div>
+
+            {/* Debug Info */}
+            {showDebugInfo && debugInfo && (
+              <Alert>
+                <Bug className="h-4 w-4" />
+                <AlertDescription className="space-y-2 mt-2">
+                  <div className="text-sm space-y-1">
+                    <p><strong>Productos en Ordefy:</strong> {debugInfo.products_in_ordefy}</p>
+                    <p><strong>Productos en Shopify:</strong> {debugInfo.shopify_api_test.productCount}</p>
+                    <p><strong>Jobs de importación:</strong> {debugInfo.import_jobs.total}</p>
+                    {debugInfo.shopify_api_test.error && (
+                      <p className="text-destructive"><strong>Error API:</strong> {debugInfo.shopify_api_test.error}</p>
+                    )}
+                    {debugInfo.import_jobs.jobs.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer font-semibold">Ver jobs</summary>
+                        <div className="mt-2 space-y-2 text-xs">
+                          {debugInfo.import_jobs.jobs.map((job: any, i: number) => (
+                            <div key={i} className="border-l-2 border-primary pl-2">
+                              <p><strong>{job.resource}</strong> - {job.status}</p>
+                              <p>Procesados: {job.items_processed}/{job.total_items}</p>
+                              {job.error && <p className="text-destructive">Error: {job.error}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
 
           {/* Danger Zone */}
