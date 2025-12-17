@@ -345,7 +345,7 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => {
     try {
-        const { shopify_product_id, shopify_variant_id, cost, packaging_cost, additional_costs } = req.body;
+        const { shopify_product_id, shopify_variant_id, cost, packaging_cost, additional_costs, is_service } = req.body;
 
         // Validation
         if (!shopify_product_id || !shopify_variant_id) {
@@ -421,7 +421,8 @@ productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => 
             image_url: shopifyProduct.image?.src || shopifyProduct.images?.[0]?.src || '',
             shopify_product_id: shopify_product_id,
             shopify_variant_id: shopify_variant_id,
-            is_active: shopifyProduct.status === 'active'
+            is_active: shopifyProduct.status === 'active',
+            is_service: is_service || false
         };
 
         const { data, error } = await supabaseAdmin

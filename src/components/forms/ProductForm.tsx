@@ -74,6 +74,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
   const [shopifyCost, setShopifyCost] = useState<number | undefined>(undefined);
   const [shopifyPackagingCost, setShopifyPackagingCost] = useState<number>(0);
   const [shopifyAdditionalCosts, setShopifyAdditionalCosts] = useState<number>(0);
+  const [shopifyIsService, setShopifyIsService] = useState<boolean>(false);
 
   // Initialize mode
   useEffect(() => {
@@ -148,7 +149,8 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
         {
           cost: shopifyCost,
           packaging_cost: shopifyPackagingCost,
-          additional_costs: shopifyAdditionalCosts
+          additional_costs: shopifyAdditionalCosts,
+          is_service: shopifyIsService
         }
       );
       onSubmit(product);
@@ -298,54 +300,80 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
           </div>
         )}
 
-        {/* Costos del Producto */}
+        {/* Tipo de Producto y Costos */}
         {selectedVariant && (
           <div className="space-y-4 border-t pt-4">
+            {/* Checkbox: Es un Servicio */}
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold">Configurar Costos</h3>
-              <span className="text-xs text-muted-foreground">(Opcional)</span>
+              <Checkbox
+                id="shopify-is-service"
+                checked={shopifyIsService}
+                onCheckedChange={(checked) => {
+                  setShopifyIsService(checked as boolean);
+                  // Si es servicio, limpiar costos de packaging
+                  if (checked) {
+                    setShopifyPackagingCost(0);
+                  }
+                }}
+              />
+              <label
+                htmlFor="shopify-is-service"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+              >
+                Es un servicio (no requiere inventario físico)
+              </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <label className="text-sm font-medium">Costo del Producto (Gs.)</label>
-                  <InfoTooltip content="Costo de adquisición o producción del producto" />
-                </div>
-                <Input
-                  type="number"
-                  placeholder="Ej: 21500"
-                  value={shopifyCost ?? ''}
-                  onChange={(e) => setShopifyCost(e.target.value === '' ? undefined : parseFloat(e.target.value))}
-                />
+            {/* Costos del Producto */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold">Configurar Costos</h3>
+                <span className="text-xs text-muted-foreground">(Opcional)</span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
-                    <label className="text-sm font-medium">Packaging (Gs.)</label>
-                    <InfoTooltip content="Costo del empaque y materiales de envío" />
+                    <label className="text-sm font-medium">Costo del Producto (Gs.)</label>
+                    <InfoTooltip content="Costo de adquisición o producción del producto" />
                   </div>
                   <Input
                     type="number"
-                    placeholder="Ej: 1500"
-                    value={shopifyPackagingCost}
-                    onChange={(e) => setShopifyPackagingCost(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                    placeholder="Ej: 21500"
+                    value={shopifyCost ?? ''}
+                    onChange={(e) => setShopifyCost(e.target.value === '' ? undefined : parseFloat(e.target.value))}
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-sm font-medium">Adicionales (Gs.)</label>
-                    <InfoTooltip content="Otros costos (etiquetas, comisiones, etc.)" />
+                {!shopifyIsService && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-sm font-medium">Packaging (Gs.)</label>
+                        <InfoTooltip content="Costo del empaque y materiales de envío" />
+                      </div>
+                      <Input
+                        type="number"
+                        placeholder="Ej: 1500"
+                        value={shopifyPackagingCost}
+                        onChange={(e) => setShopifyPackagingCost(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-sm font-medium">Adicionales (Gs.)</label>
+                        <InfoTooltip content="Otros costos (etiquetas, comisiones, etc.)" />
+                      </div>
+                      <Input
+                        type="number"
+                        placeholder="Ej: 500"
+                        value={shopifyAdditionalCosts}
+                        onChange={(e) => setShopifyAdditionalCosts(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                      />
+                    </div>
                   </div>
-                  <Input
-                    type="number"
-                    placeholder="Ej: 500"
-                    value={shopifyAdditionalCosts}
-                    onChange={(e) => setShopifyAdditionalCosts(e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                  />
-                </div>
+                )}
               </div>
             </div>
           </div>
