@@ -413,8 +413,10 @@ productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => 
             price: parseFloat(variant.price || '0'),
             cost: cost !== undefined
                 ? parseFloat(cost.toString())
-                : parseFloat(variant.compare_at_price || variant.price || '0') * 0.6, // Estimate 60% of price as cost if not provided
-            packaging_cost: packaging_cost !== undefined ? parseFloat(packaging_cost.toString()) : 0,
+                : is_service
+                    ? 0  // Services have 0 cost by default
+                    : parseFloat(variant.compare_at_price || variant.price || '0') * 0.6, // Estimate 60% of price as cost if not provided
+            packaging_cost: is_service ? 0 : (packaging_cost !== undefined ? parseFloat(packaging_cost.toString()) : 0),
             additional_costs: additional_costs !== undefined ? parseFloat(additional_costs.toString()) : 0,
             stock: variant.inventory_quantity || 0,
             category: shopifyProduct.product_type || '',

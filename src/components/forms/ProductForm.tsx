@@ -34,11 +34,20 @@ const manualProductSchema = z.object({
   category: z.string().optional(),
   image: z.string().url('URL inválida').or(z.literal('')),
   price: z.number({ required_error: 'El precio es requerido' }).positive('El precio debe ser mayor a 0'),
-  cost: z.number({ required_error: 'El costo es requerido' }).positive('El costo debe ser mayor a 0'),
+  cost: z.number().optional().nullable(),
   packaging_cost: z.number().nonnegative().optional().default(0),
   additional_costs: z.number().nonnegative().optional().default(0),
   is_service: z.boolean().default(false),
   stock: z.number({ required_error: 'El stock es requerido' }).int().min(0, 'El stock no puede ser negativo'),
+}).refine((data) => {
+  // Si NO es un servicio, el costo es requerido
+  if (!data.is_service && (data.cost === null || data.cost === undefined || data.cost <= 0)) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'El costo es requerido para productos físicos',
+  path: ['cost'],
 });
 
 type ManualProductFormValues = z.infer<typeof manualProductSchema>;
@@ -527,11 +536,14 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
             name="cost"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Costo Producto (Gs.) *</FormLabel>
+                <FormLabel>
+                  Costo Producto (Gs.) {!isService && '*'}
+                  {isService && <span className="text-xs text-muted-foreground ml-1">(Opcional)</span>}
+                </FormLabel>
                 <FormControl>
                   <Input
                     type="number"
-                    placeholder="0"
+                    placeholder={isService ? "0 (opcional)" : "0"}
                     {...field}
                     value={field.value ?? ''}
                     onChange={(e) => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
