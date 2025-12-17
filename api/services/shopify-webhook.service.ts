@@ -15,6 +15,93 @@ export class ShopifyWebhookService {
     this.n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || '';
   }
 
+  // Fetch full customer data from Shopify GraphQL API (webhooks often have incomplete data)
+  private async fetchShopifyCustomerData(
+    customerId: string,
+    shopDomain: string,
+    accessToken: string
+  ): Promise<any | null> {
+    try {
+      const query = `
+        query getCustomer($id: ID!) {
+          customer(id: $id) {
+            id
+            firstName
+            lastName
+            email
+            phone
+            defaultAddress {
+              firstName
+              lastName
+              address1
+              address2
+              city
+              province
+              provinceCode
+              country
+              countryCode
+              zip
+              phone
+              company
+            }
+          }
+        }
+      `;
+
+      const response = await axios.post(
+        `https://${shopDomain}/admin/api/2025-10/graphql.json`,
+        {
+          query,
+          variables: {
+            id: `gid://shopify/Customer/${customerId}`
+          }
+        },
+        {
+          headers: {
+            'X-Shopify-Access-Token': accessToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data?.errors) {
+        console.error(`GraphQL errors fetching customer ${customerId}:`, response.data.errors);
+        return null;
+      }
+
+      const customer = response.data?.data?.customer;
+      if (!customer) {
+        return null;
+      }
+
+      // Transform GraphQL response to match REST API format (for compatibility with existing code)
+      return {
+        id: customerId,
+        first_name: customer.firstName,
+        last_name: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+        default_address: customer.defaultAddress ? {
+          first_name: customer.defaultAddress.firstName,
+          last_name: customer.defaultAddress.lastName,
+          address1: customer.defaultAddress.address1,
+          address2: customer.defaultAddress.address2,
+          city: customer.defaultAddress.city,
+          province: customer.defaultAddress.province,
+          province_code: customer.defaultAddress.provinceCode,
+          country: customer.defaultAddress.country,
+          country_code: customer.defaultAddress.countryCode,
+          zip: customer.defaultAddress.zip,
+          phone: customer.defaultAddress.phone,
+          company: customer.defaultAddress.company
+        } : null
+      };
+    } catch (error: any) {
+      console.error(`Failed to fetch customer ${customerId} from Shopify:`, error.message);
+      return null;
+    }
+  }
+
   // Verificar firma HMAC del webhook de Shopify
   static verifyHmacSignature(body: string, hmacHeader: string, secret: string): boolean {
     try {
@@ -43,7 +130,8 @@ export class ShopifyWebhookService {
   async processOrderCreatedWebhook(
     shopifyOrder: ShopifyOrder,
     storeId: string,
-    integrationId: string
+    integrationId: string,
+    integration?: { shop_domain: string; access_token: string }
   ): Promise<{ success: boolean; order_id?: string; error?: string }> {
     try {
       // Registrar evento de webhook
@@ -70,10 +158,33 @@ export class ShopifyWebhookService {
       }
 
       // Buscar o crear cliente basándose en el número de teléfono
-      const customerId = await this.findOrCreateCustomer(shopifyOrder, storeId);
+      // If integration provided, enrich customer data from Shopify API (webhooks often lack customer details)
+      let enrichedOrder = shopifyOrder;
+      if (integration && shopifyOrder.customer?.id) {
+        const fullCustomer = await this.fetchShopifyCustomerData(
+          shopifyOrder.customer.id.toString(),
+          integration.shop_domain,
+          integration.access_token
+        );
+
+        if (fullCustomer) {
+          console.log(`✅ Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
+          // Merge full customer data into order
+          enrichedOrder = {
+            ...shopifyOrder,
+            customer: fullCustomer,
+            email: fullCustomer.email || shopifyOrder.email,
+            phone: fullCustomer.phone || shopifyOrder.phone,
+            shipping_address: shopifyOrder.shipping_address || fullCustomer.default_address,
+            billing_address: shopifyOrder.billing_address || fullCustomer.default_address
+          };
+        }
+      }
+
+      const customerId = await this.findOrCreateCustomer(enrichedOrder, storeId);
 
       // Mapear pedido de Shopify a formato local
-      const orderData = this.mapShopifyOrderToLocal(shopifyOrder, storeId, customerId);
+      const orderData = this.mapShopifyOrderToLocal(enrichedOrder, storeId, customerId);
 
       // Insertar pedido en la base de datos
       const { data: newOrder, error: insertError } = await this.supabaseAdmin
@@ -265,7 +376,8 @@ export class ShopifyWebhookService {
   async processOrderUpdatedWebhook(
     shopifyOrder: ShopifyOrder,
     storeId: string,
-    integrationId: string
+    integrationId: string,
+    integration?: { shop_domain: string; access_token: string }
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // Registrar evento de webhook
@@ -279,21 +391,52 @@ export class ShopifyWebhookService {
       });
 
       // Buscar o crear cliente basándose en el número de teléfono
-      const customerId = await this.findOrCreateCustomer(shopifyOrder, storeId);
+      // If integration provided, enrich customer data from Shopify API (webhooks often lack customer details)
+      let enrichedOrder = shopifyOrder;
+      if (integration && shopifyOrder.customer?.id) {
+        const fullCustomer = await this.fetchShopifyCustomerData(
+          shopifyOrder.customer.id.toString(),
+          integration.shop_domain,
+          integration.access_token
+        );
 
-      // Actualizar pedido existente
-      const orderData = this.mapShopifyOrderToLocal(shopifyOrder, storeId, customerId);
+        if (fullCustomer) {
+          console.log(`✅ Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
+          // Merge full customer data into order
+          enrichedOrder = {
+            ...shopifyOrder,
+            customer: fullCustomer,
+            email: fullCustomer.email || shopifyOrder.email,
+            phone: fullCustomer.phone || shopifyOrder.phone,
+            shipping_address: shopifyOrder.shipping_address || fullCustomer.default_address,
+            billing_address: shopifyOrder.billing_address || fullCustomer.default_address
+          };
+        }
+      }
 
-      const { data: updatedOrder, error: updateError } = await this.supabaseAdmin
+      const customerId = await this.findOrCreateCustomer(enrichedOrder, storeId);
+
+      // Actualizar o crear pedido (UPSERT) - orders/updated puede llegar antes que orders/create
+      const orderData = this.mapShopifyOrderToLocal(enrichedOrder, storeId, customerId);
+
+      // Agregar shopify_order_id para el UPSERT
+      const fullOrderData = {
+        ...orderData,
+        shopify_order_id: shopifyOrder.id.toString(),
+        store_id: storeId
+      };
+
+      const { data: updatedOrder, error: updateError} = await this.supabaseAdmin
         .from('orders')
-        .update(orderData)
-        .eq('shopify_order_id', shopifyOrder.id.toString())
-        .eq('store_id', storeId)
+        .upsert(fullOrderData, {
+          onConflict: 'shopify_order_id,store_id',
+          ignoreDuplicates: false
+        })
         .select('id')
         .single();
 
       if (updateError) {
-        throw new Error(`Error actualizando pedido: ${updateError.message}`);
+        throw new Error(`Error actualizando/creando pedido: ${updateError.message}`);
       }
 
       // Actualizar line items (reemplaza los existentes)

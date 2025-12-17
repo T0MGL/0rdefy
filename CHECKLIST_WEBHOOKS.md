@@ -1,11 +1,44 @@
 # ✅ Checklist Final - Webhooks Shopify
 
 **Fecha:** 17 de Diciembre, 2025
-**Estado:** Todos los fixes aplicados - **LISTO PARA TESTING**
+**Estado:** Todos los fixes aplicados + Enrichment de datos de cliente - **LISTO PARA TESTING**
 
 ---
 
 ## 📋 Cambios Aplicados
+
+### ✅ 4. Fix Datos de Cliente desde Webhooks
+**Archivos:** `api/services/shopify-webhook.service.ts`, `api/routes/shopify.ts`
+
+**Problema:**
+- Orders llegaban sin customer_first_name, customer_last_name, customer_email, customer_phone
+- shipping_address solo tenía país, sin dirección completa
+- Webhooks de Shopify no incluyen PII por defecto (GDPR compliance)
+
+**Solución:**
+```typescript
+// Nuevo método para fetch de datos completos del cliente usando GraphQL
+private async fetchShopifyCustomerData(customerId, shopDomain, accessToken) {
+  // GraphQL query a /admin/api/2025-10/graphql.json
+  // Query: customer(id: "gid://shopify/Customer/{id}") { firstName, lastName, email, phone, defaultAddress {...} }
+}
+
+// Enriquecimiento en processOrderCreatedWebhook y processOrderUpdatedWebhook
+const fullCustomer = await this.fetchShopifyCustomerData(...);
+const enrichedOrder = { ...shopifyOrder, customer: fullCustomer, ... };
+```
+
+**Resultado:**
+- ✅ Usa **Shopify GraphQL API 2025-10** (versión más reciente, NO REST)
+- ✅ Query GraphQL para obtener datos completos del customer
+- ✅ Pedidos ahora guardan: nombre, email, teléfono, dirección completa
+- ✅ Dashboard muestra todos los datos del cliente
+- ✅ Funciona para OAuth y Custom Apps
+- ✅ Manejo de errores robusto (no pierde pedidos si API falla)
+
+**Documentación:** Ver `SHOPIFY_WEBHOOK_CUSTOMER_DATA_FIX.md`
+
+---
 
 ### ✅ 1. Fix HMAC Verification
 **Archivo:** `api/routes/shopify-webhooks.ts` (líneas 82-93)
