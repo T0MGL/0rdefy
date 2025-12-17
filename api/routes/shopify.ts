@@ -574,7 +574,8 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       const result = await webhookService.processOrderCreatedWebhook(
         req.body,
         storeId!,
-        integrationId!
+        integrationId!,
+        { shop_domain: integration.shop_domain, access_token: integration.access_token }
       );
 
       // Record idempotency
@@ -680,7 +681,8 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
     const result = await webhookService.processOrderUpdatedWebhook(
       req.body,
       integration.store_id,
-      integration.id
+      integration.id,
+      { shop_domain: integration.shop_domain, access_token: integration.access_token }
     );
 
     res.json(result);
