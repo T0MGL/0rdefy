@@ -235,7 +235,7 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
             price,
             cost,
             packaging_cost,
-            additional_cost,
+            additional_costs,
             stock = 0,
             category,
             image_url,
@@ -272,7 +272,7 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
                 price: parseFloat(price),
                 cost: cost ? parseFloat(cost) : null,
                 packaging_cost: is_service ? 0 : (packaging_cost ? parseFloat(packaging_cost) : 0),
-                additional_cost: additional_cost ? parseFloat(additional_cost) : 0,
+                additional_costs: additional_costs ? parseFloat(additional_costs) : 0,
                 stock: parseInt(stock),
                 category,
                 image_url,
@@ -461,7 +461,7 @@ productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             price,
             cost,
             packaging_cost,
-            additional_cost,
+            additional_costs,
             stock,
             category,
             image_url,
@@ -480,7 +480,7 @@ productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (price !== undefined) updateData.price = parseFloat(price);
         if (cost !== undefined) updateData.cost = parseFloat(cost);
         if (packaging_cost !== undefined) updateData.packaging_cost = parseFloat(packaging_cost);
-        if (additional_cost !== undefined) updateData.additional_cost = parseFloat(additional_cost);
+        if (additional_costs !== undefined) updateData.additional_costs = parseFloat(additional_costs);
         if (stock !== undefined) updateData.stock = parseInt(stock);
         if (category !== undefined) updateData.category = category;
         if (image_url !== undefined) updateData.image_url = image_url;
