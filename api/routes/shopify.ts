@@ -455,16 +455,16 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     // Record metric: received
     await webhookManager.recordMetric(integrationId!, storeId!, 'received');
 
-    // Verificar HMAC - SIEMPRE usar .env como fuente de verdad
-    const webhookSecret = process.env.SHOPIFY_API_SECRET?.trim();
+    // Verificar HMAC - Usar api_secret_key de la integración (Custom App) o fallback a .env (OAuth)
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET?.trim();
 
     if (!webhookSecret) {
-      console.error('❌ SHOPIFY_API_SECRET not configured in .env (or is empty)');
+      console.error('❌ Webhook secret not configured for', shopDomain);
       await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
-      return res.status(500).json({ error: 'Webhook secret not configured in environment' });
+      return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log('🔐 Using SHOPIFY_API_SECRET from .env for HMAC verification');
+    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for ${shopDomain}`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -656,14 +656,14 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
     }
 
     // SIEMPRE usar .env para HMAC
-    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log('🔐 Using SHOPIFY_API_SECRET from .env for orders/updated');
+    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for orders/updated`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -725,14 +725,14 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
     }
 
     // SIEMPRE usar .env para HMAC
-    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log('🔐 Using SHOPIFY_API_SECRET from .env for products/update');
+    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for products/update`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -794,14 +794,14 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
     }
 
     // SIEMPRE usar .env para HMAC
-    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log('🔐 Using SHOPIFY_API_SECRET from .env for products/delete');
+    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for products/delete`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1598,14 +1598,14 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
     }
 
     // SIEMPRE usar .env para HMAC
-    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log('🔐 Using SHOPIFY_API_SECRET from .env for customers/data_request');
+    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for customers/data_request`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1668,14 +1668,14 @@ const customersRedactHandler = async (req: Request, res: Response) => {
     }
 
     // SIEMPRE usar .env para HMAC
-    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log('🔐 Using SHOPIFY_API_SECRET from .env for customers/redact');
+    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for customers/redact`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1738,7 +1738,7 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
     }
 
     // SIEMPRE usar .env para HMAC
-    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
     // For app/uninstalled, if credentials are missing, we still want to process the uninstall
     // This can happen if the app was already uninstalled and credentials were revoked
@@ -1747,7 +1747,7 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
       console.warn('⚠️ This may indicate the app was already uninstalled or credentials were revoked');
       // Skip HMAC verification and proceed to mark as uninstalled
     } else {
-      console.log('🔐 Using SHOPIFY_API_SECRET from .env for app/uninstalled');
+      console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for app/uninstalled`);
 
       // Verify HMAC signature if secret is available
       const isValid = ShopifyWebhookService.verifyHmacSignature(
@@ -1836,14 +1836,14 @@ const shopRedactHandler = async (req: Request, res: Response) => {
     }
 
     // SIEMPRE usar .env para HMAC
-    const webhookSecret = process.env.SHOPIFY_API_SECRET;
+    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
     if (!webhookSecret) {
       console.error('❌ SHOPIFY_API_SECRET not configured in .env');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log('🔐 Using SHOPIFY_API_SECRET from .env for shop/redact');
+    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for shop/redact`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
