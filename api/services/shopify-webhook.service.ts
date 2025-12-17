@@ -113,6 +113,40 @@ export class ShopifyWebhookService {
     }
   }
 
+  // Fetch complete order data from Shopify API when webhook data is incomplete
+  private async fetchCompleteOrderData(
+    orderId: string,
+    shopDomain: string,
+    accessToken: string
+  ): Promise<ShopifyOrder | null> {
+    try {
+      console.log(`📥 Fetching complete order ${orderId} from Shopify API (webhook data incomplete)`);
+
+      const response = await axios.get(
+        `https://${shopDomain}/admin/api/2024-10/orders/${orderId}.json`,
+        {
+          headers: {
+            'X-Shopify-Access-Token': accessToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const order = response.data?.order;
+      if (!order) {
+        console.error(`❌ Order ${orderId} not found in Shopify API response`);
+        return null;
+      }
+
+      console.log(`✅ Fetched complete order ${orderId} from Shopify API`);
+      return order;
+
+    } catch (error: any) {
+      console.error(`Failed to fetch order ${orderId} from Shopify:`, error.message);
+      return null;
+    }
+  }
+
   // Verificar firma HMAC del webhook de Shopify
   // Soporta AMBOS formatos: base64 (OAuth/Public Apps) y hex (Custom Apps)
   static verifyHmacSignature(body: string, hmacHeader: string, secret: string): boolean {
@@ -196,21 +230,37 @@ export class ShopifyWebhookService {
         return { success: true, order_id: existingOrder.id };
       }
 
-      // DEBUG: Log webhook payload to see what data Shopify is sending
-      console.log('🔍 [DEBUG] Webhook payload customer data:', JSON.stringify({
-        customer: shopifyOrder.customer,
-        email: shopifyOrder.email,
-        phone: shopifyOrder.phone,
-        billing_address: shopifyOrder.billing_address,
-        shipping_address: shopifyOrder.shipping_address
-      }, null, 2));
+      // Verificar si el webhook tiene datos completos del cliente
+      const hasCompleteData = (
+        shopifyOrder.email || shopifyOrder.contact_email || shopifyOrder.phone
+      ) && (
+        shopifyOrder.billing_address?.first_name || shopifyOrder.shipping_address?.first_name
+      );
 
-      // Buscar o crear cliente basándose en el número de teléfono
-      // If integration provided, enrich customer data from Shopify API (webhooks often lack customer details)
       let enrichedOrder = shopifyOrder;
-      if (integration && shopifyOrder.customer?.id) {
+
+      // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify
+      if (!hasCompleteData && integration) {
+        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify API...`);
+
+        const completeOrder = await this.fetchCompleteOrderData(
+          shopifyOrder.id.toString(),
+          integration.shop_domain,
+          integration.access_token
+        );
+
+        if (completeOrder) {
+          console.log(`✅ Using complete order data from Shopify API`);
+          enrichedOrder = completeOrder;
+        } else {
+          console.warn(`⚠️  Could not fetch complete order from API. Using webhook data.`);
+        }
+      }
+
+      // Enrich customer data from Shopify Customer API if available
+      if (integration && enrichedOrder.customer?.id) {
         const fullCustomer = await this.fetchShopifyCustomerData(
-          shopifyOrder.customer.id.toString(),
+          enrichedOrder.customer.id.toString(),
           integration.shop_domain,
           integration.access_token
         );
@@ -219,15 +269,13 @@ export class ShopifyWebhookService {
           console.log(`✅ Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
           // Merge full customer data into order
           enrichedOrder = {
-            ...shopifyOrder,
+            ...enrichedOrder,
             customer: fullCustomer,
-            email: fullCustomer.email || shopifyOrder.email,
-            phone: fullCustomer.phone || shopifyOrder.phone,
-            shipping_address: shopifyOrder.shipping_address || fullCustomer.default_address,
-            billing_address: shopifyOrder.billing_address || fullCustomer.default_address
+            email: fullCustomer.email || enrichedOrder.email,
+            phone: fullCustomer.phone || enrichedOrder.phone,
+            shipping_address: enrichedOrder.shipping_address || fullCustomer.default_address,
+            billing_address: enrichedOrder.billing_address || fullCustomer.default_address
           };
-        } else {
-          console.log(`ℹ️  Using customer data from webhook payload (Shopify API enrichment unavailable)`);
         }
       }
 
@@ -440,12 +488,37 @@ export class ShopifyWebhookService {
         payload: shopifyOrder
       });
 
-      // Buscar o crear cliente basándose en el número de teléfono
-      // If integration provided, enrich customer data from Shopify API (webhooks often lack customer details)
+      // Verificar si el webhook tiene datos completos del cliente
+      const hasCompleteData = (
+        shopifyOrder.email || shopifyOrder.contact_email || shopifyOrder.phone
+      ) && (
+        shopifyOrder.billing_address?.first_name || shopifyOrder.shipping_address?.first_name
+      );
+
       let enrichedOrder = shopifyOrder;
-      if (integration && shopifyOrder.customer?.id) {
+
+      // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify
+      if (!hasCompleteData && integration) {
+        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify API...`);
+
+        const completeOrder = await this.fetchCompleteOrderData(
+          shopifyOrder.id.toString(),
+          integration.shop_domain,
+          integration.access_token
+        );
+
+        if (completeOrder) {
+          console.log(`✅ Using complete order data from Shopify API`);
+          enrichedOrder = completeOrder;
+        } else {
+          console.warn(`⚠️  Could not fetch complete order from API. Using webhook data.`);
+        }
+      }
+
+      // Enrich customer data from Shopify Customer API if available
+      if (integration && enrichedOrder.customer?.id) {
         const fullCustomer = await this.fetchShopifyCustomerData(
-          shopifyOrder.customer.id.toString(),
+          enrichedOrder.customer.id.toString(),
           integration.shop_domain,
           integration.access_token
         );
@@ -454,12 +527,12 @@ export class ShopifyWebhookService {
           console.log(`✅ Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
           // Merge full customer data into order
           enrichedOrder = {
-            ...shopifyOrder,
+            ...enrichedOrder,
             customer: fullCustomer,
-            email: fullCustomer.email || shopifyOrder.email,
-            phone: fullCustomer.phone || shopifyOrder.phone,
-            shipping_address: shopifyOrder.shipping_address || fullCustomer.default_address,
-            billing_address: shopifyOrder.billing_address || fullCustomer.default_address
+            email: fullCustomer.email || enrichedOrder.email,
+            phone: fullCustomer.phone || enrichedOrder.phone,
+            shipping_address: enrichedOrder.shipping_address || fullCustomer.default_address,
+            billing_address: enrichedOrder.billing_address || fullCustomer.default_address
           };
         }
       }
@@ -641,17 +714,86 @@ export class ShopifyWebhookService {
   ): Promise<string | null> {
     try {
       // Extraer información del cliente del pedido
-      const phone = shopifyOrder.phone || shopifyOrder.customer?.phone || '';
-      const email = shopifyOrder.email || shopifyOrder.customer?.email || '';
-      const firstName = shopifyOrder.customer?.first_name ||
-                       shopifyOrder.billing_address?.first_name || '';
-      const lastName = shopifyOrder.customer?.last_name ||
-                      shopifyOrder.billing_address?.last_name || '';
+      // IMPORTANTE: Priorizar campos a nivel de ORDER sobre customer object
+      // porque Shopify redacta customer object cuando state="disabled" pero
+      // siempre incluye contact_email, phone, billing_address, shipping_address a nivel de pedido
+
+      // Buscar email/phone en note_attributes (checkouts personalizados)
+      let noteEmail = '';
+      let notePhone = '';
+      if (shopifyOrder.note_attributes && Array.isArray(shopifyOrder.note_attributes)) {
+        const emailAttr = shopifyOrder.note_attributes.find((attr: any) =>
+          attr.name?.toLowerCase().includes('email') ||
+          attr.name?.toLowerCase().includes('correo')
+        );
+        const phoneAttr = shopifyOrder.note_attributes.find((attr: any) =>
+          attr.name?.toLowerCase().includes('phone') ||
+          attr.name?.toLowerCase().includes('telefono') ||
+          attr.name?.toLowerCase().includes('teléfono') ||
+          attr.name?.toLowerCase().includes('celular')
+        );
+
+        if (emailAttr?.value) noteEmail = emailAttr.value.toString();
+        if (phoneAttr?.value) notePhone = phoneAttr.value.toString();
+      }
+
+      const phone = shopifyOrder.phone ||
+                    shopifyOrder.billing_address?.phone ||
+                    shopifyOrder.shipping_address?.phone ||
+                    notePhone ||
+                    shopifyOrder.customer?.phone || '';
+
+      const email = shopifyOrder.contact_email ||
+                    shopifyOrder.email ||
+                    noteEmail ||
+                    shopifyOrder.customer?.email || '';
+
+      // Extraer nombre del tag si no está en las direcciones
+      // Algunos checkouts de Shopify ponen el nombre en los tags
+      let tagName = '';
+      if (shopifyOrder.tags && typeof shopifyOrder.tags === 'string') {
+        const tags = shopifyOrder.tags.split(',').map(t => t.trim());
+        // Buscar tag que parezca un nombre (tiene espacio o más de 2 palabras)
+        const nameTag = tags.find(tag => tag.includes(' ') || tag.length > 3);
+        if (nameTag) {
+          tagName = nameTag;
+        }
+      }
+
+      const firstName = shopifyOrder.billing_address?.first_name ||
+                       shopifyOrder.shipping_address?.first_name ||
+                       shopifyOrder.customer?.first_name ||
+                       (tagName ? tagName.split(' ')[0] : '') || '';
+
+      const lastName = shopifyOrder.billing_address?.last_name ||
+                      shopifyOrder.shipping_address?.last_name ||
+                      shopifyOrder.customer?.last_name ||
+                      (tagName ? tagName.split(' ').slice(1).join(' ') : '') || '';
+
       const shopifyCustomerId = shopifyOrder.customer?.id?.toString() || null;
+
+      // Log para debugging
+      console.log(`🔍 [CUSTOMER DATA] Order ${shopifyOrder.id}:`, {
+        phone: phone || 'NONE',
+        email: email || 'NONE',
+        firstName: firstName || 'NONE',
+        lastName: lastName || 'NONE',
+        shopifyCustomerId: shopifyCustomerId || 'NONE',
+        sources: {
+          'order.phone': shopifyOrder.phone || 'null',
+          'order.contact_email': shopifyOrder.contact_email || 'null',
+          'order.email': shopifyOrder.email || 'null',
+          'billing_address': shopifyOrder.billing_address ? 'exists' : 'null',
+          'shipping_address': shopifyOrder.shipping_address ? 'exists' : 'null',
+          'note_attributes': shopifyOrder.note_attributes?.length || 0,
+          'tags': shopifyOrder.tags || 'null'
+        }
+      });
 
       // Si no hay teléfono ni email, no podemos crear/buscar el cliente
       if (!phone && !email) {
-        console.warn(`Pedido ${shopifyOrder.id} no tiene teléfono ni email, no se puede crear cliente`);
+        console.warn(`⚠️  Pedido ${shopifyOrder.id} no tiene teléfono ni email. Revisar configuración de checkout de Shopify.`);
+        console.warn(`   Sugerencia: Settings → Checkout → Require email/phone y shipping address`);
         return null;
       }
 
