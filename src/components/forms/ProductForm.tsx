@@ -416,14 +416,14 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleManualSubmit)} className="space-y-4">
-        {/* Warning Message */}
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+        {/* Info Message */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
           <div className="flex items-start gap-2">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <div>
               <p className="font-medium mb-1">Modo Manual</p>
               <p className="text-xs">
-                No tienes una integración activa con Shopify. Deberás ingresar manualmente toda la información del producto.
+                Crea un producto ingresando manualmente toda su información. Este producto se guardará en tu inventario local.
               </p>
             </div>
           </div>

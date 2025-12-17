@@ -198,7 +198,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             if (productIds.size > 0) {
                 const { data: productsData } = await supabaseAdmin
                     .from('products')
-                    .select('id, cost, packaging_cost, additional_cost')
+                    .select('id, cost, packaging_cost, additional_costs')
                     .in('id', Array.from(productIds))
                     .eq('store_id', req.storeId);
 
@@ -208,7 +208,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                             // Calculate total unit cost including packaging and extras
                             const baseCost = Number(product.cost) || 0;
                             const packaging = Number(product.packaging_cost) || 0;
-                            const additional = Number(product.additional_cost) || 0;
+                            const additional = Number(product.additional_costs) || 0;
                             const totalUnitCost = baseCost + packaging + additional;
 
                             productCostMap.set(product.id, totalUnitCost);
