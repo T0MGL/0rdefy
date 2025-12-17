@@ -157,40 +157,34 @@ export class ShopifyWebhookService {
         return false;
       }
 
-      const hmac = crypto
+      // Generate base64 hash (OAuth/Public Apps)
+      const hashBase64 = crypto
         .createHmac('sha256', secret)
-        .update(body, 'utf8');
+        .update(body, 'utf8')
+        .digest('base64');
 
-      // Try base64 first (OAuth/Public Apps)
-      const hashBase64 = hmac.digest('base64');
-
-      // Try hex (Custom Apps created from Shopify Admin)
-      const hmacHex = crypto
+      // Generate hex hash (Custom Apps created from Shopify Admin)
+      const hashHex = crypto
         .createHmac('sha256', secret)
         .update(body, 'utf8')
         .digest('hex');
 
-      // Check if HMAC header matches base64 format
-      try {
-        if (crypto.timingSafeEqual(Buffer.from(hashBase64), Buffer.from(hmacHeader))) {
-          console.log('✅ HMAC verified (base64 format - OAuth App)');
-          return true;
-        }
-      } catch (e) {
-        // Not base64 format, continue to hex check
+      // Try base64 format first (OAuth Apps)
+      if (hmacHeader === hashBase64) {
+        console.log('✅ HMAC verified (base64 format - OAuth App)');
+        return true;
       }
 
-      // Check if HMAC header matches hex format
-      try {
-        if (crypto.timingSafeEqual(Buffer.from(hmacHex), Buffer.from(hmacHeader))) {
-          console.log('✅ HMAC verified (hex format - Custom App)');
-          return true;
-        }
-      } catch (e) {
-        // Not hex format either
+      // Try hex format (Custom Apps)
+      if (hmacHeader === hashHex) {
+        console.log('✅ HMAC verified (hex format - Custom App)');
+        return true;
       }
 
       console.error('❌ HMAC verification failed - neither base64 nor hex format matched');
+      console.error(`   Expected base64: ${hashBase64.substring(0, 20)}...`);
+      console.error(`   Expected hex: ${hashHex.substring(0, 40)}...`);
+      console.error(`   Received HMAC: ${hmacHeader.substring(0, 40)}...`);
       return false;
 
     } catch (error) {
