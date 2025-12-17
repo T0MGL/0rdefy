@@ -16,6 +16,32 @@ import { ShopifyIntegration, ShopifyConfigRequest } from '../types/shopify';
 export const shopifyRouter = Router();
 
 // ================================================================
+// WEBHOOK SECRET HELPER - MULTI-TENANT SUPPORT
+// ================================================================
+/**
+ * Gets the correct webhook secret based on integration type
+ * - OAuth integrations: Use SHOPIFY_API_SECRET from env (Public App secret)
+ * - Custom App integrations: Use api_secret_key from database (store-specific)
+ *
+ * OAuth integrations are identified by having 'scope' field populated
+ * Custom App integrations have api_secret_key populated in DB
+ */
+function getWebhookSecret(integration: any): { secret: string | null; source: string } {
+  // Check if this is an OAuth integration by verifying if scope exists
+  const isOAuth = integration.scope && integration.scope.trim() !== '';
+
+  if (isOAuth) {
+    // OAuth integration: Use Public App secret from environment
+    const secret = process.env.SHOPIFY_API_SECRET?.trim() || null;
+    return { secret, source: 'env (OAuth Public App)' };
+  } else {
+    // Custom App integration: Use store-specific secret from database
+    const secret = integration.api_secret_key?.trim() || null;
+    return { secret, source: 'database (Custom App)' };
+  }
+}
+
+// ================================================================
 // WEBHOOK QUEUE SERVICE - CRITICAL FOR PRODUCTION
 // ================================================================
 // Initialize webhook queue service for async processing
@@ -455,8 +481,8 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     // Record metric: received
     await webhookManager.recordMetric(integrationId!, storeId!, 'received');
 
-    // Verificar HMAC - Usar api_secret_key de la integración (Custom App) o fallback a .env (OAuth)
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET?.trim();
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
       console.error('❌ Webhook secret not configured for', shopDomain);
@@ -464,7 +490,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for ${shopDomain}`);
+    console.log(`🔐 Using secret from: ${secretSource} for ${shopDomain}`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -656,15 +682,15 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    // SIEMPRE usar .env para HMAC
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
+      console.error('❌ Webhook secret not configured for orders/updated');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for orders/updated`);
+    console.log(`🔐 Using secret from: ${secretSource} for orders/updated`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -726,15 +752,15 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    // SIEMPRE usar .env para HMAC
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
+      console.error('❌ Webhook secret not configured for products/update');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for products/update`);
+    console.log(`🔐 Using secret from: ${secretSource} for products/update`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -795,15 +821,15 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    // SIEMPRE usar .env para HMAC
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
+      console.error('❌ Webhook secret not configured for products/delete');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for products/delete`);
+    console.log(`🔐 Using secret from: ${secretSource} for products/delete`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1589,7 +1615,7 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
     // Get integration by domain
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('api_secret_key, webhook_signature')
+      .select('api_secret_key, webhook_signature, scope')
       .eq('shop_domain', shopDomain)
       .eq('status', 'active')
       .single();
@@ -1599,15 +1625,15 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // SIEMPRE usar .env para HMAC
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
+      console.error('❌ Webhook secret not configured for customers/data_request');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for customers/data_request`);
+    console.log(`🔐 Using secret from: ${secretSource} for customers/data_request`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1659,7 +1685,7 @@ const customersRedactHandler = async (req: Request, res: Response) => {
     // Get integration by domain
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('api_secret_key, webhook_signature')
+      .select('api_secret_key, webhook_signature, scope')
       .eq('shop_domain', shopDomain)
       .eq('status', 'active')
       .single();
@@ -1669,15 +1695,15 @@ const customersRedactHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // SIEMPRE usar .env para HMAC
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
+      console.error('❌ Webhook secret not configured for customers/redact');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for customers/redact`);
+    console.log(`🔐 Using secret from: ${secretSource} for customers/redact`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1729,7 +1755,7 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
     // Get integration by domain
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('api_secret_key, webhook_signature, id')
+      .select('api_secret_key, webhook_signature, id, scope')
       .eq('shop_domain', shopDomain)
       .single();
 
@@ -1739,17 +1765,17 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
       return res.status(200).json({ success: true, message: 'Integration not found' });
     }
 
-    // SIEMPRE usar .env para HMAC
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     // For app/uninstalled, if credentials are missing, we still want to process the uninstall
     // This can happen if the app was already uninstalled and credentials were revoked
     if (!webhookSecret || webhookSecret.trim() === '') {
-      console.warn('⚠️ SHOPIFY_API_SECRET missing in .env for app/uninstalled, processing anyway:', shopDomain);
+      console.warn('⚠️ Webhook secret missing for app/uninstalled, processing anyway:', shopDomain);
       console.warn('⚠️ This may indicate the app was already uninstalled or credentials were revoked');
       // Skip HMAC verification and proceed to mark as uninstalled
     } else {
-      console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for app/uninstalled`);
+      console.log(`🔐 Using secret from: ${secretSource} for app/uninstalled`);
 
       // Verify HMAC signature if secret is available
       const isValid = ShopifyWebhookService.verifyHmacSignature(
@@ -1828,7 +1854,7 @@ const shopRedactHandler = async (req: Request, res: Response) => {
     // Get integration by domain
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('api_secret_key, webhook_signature, store_id')
+      .select('api_secret_key, webhook_signature, store_id, scope')
       .eq('shop_domain', shopDomain)
       .single(); // Don't filter by status - shop may already be inactive
 
@@ -1837,15 +1863,15 @@ const shopRedactHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized - integration not found' });
     }
 
-    // SIEMPRE usar .env para HMAC
-    const webhookSecret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+    // Get correct webhook secret based on integration type (OAuth vs Custom App)
+    const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ SHOPIFY_API_SECRET not configured in .env');
+      console.error('❌ Webhook secret not configured for shop/redact');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
-    console.log(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'} for shop/redact`);
+    console.log(`🔐 Using secret from: ${secretSource} for shop/redact`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
