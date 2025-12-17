@@ -423,7 +423,9 @@ app.use('/api/merchandise', merchandiseRouter); // Inbound shipments / supplier 
 app.use('/api/shopify', shopifyRouter);
 app.use('/api/shopify-oauth', shopifyOAuthRouter);
 app.use('/api/shopify-sync', shopifySyncRouter);
-app.use('/api/shopify/webhooks', shopifyWebhooksRouter);
+// Support both /webhook/ (singular) and /webhooks/ (plural) for backwards compatibility
+app.use('/api/shopify/webhook', shopifyWebhooksRouter); // Singular (legacy URLs from Shopify)
+app.use('/api/shopify/webhooks', shopifyWebhooksRouter); // Plural (new standard)
 app.use('/api/shopify/webhooks', shopifyMandatoryWebhooksRouter);
 app.use('/api/shopify/compliance', shopifyComplianceRouter);
 
