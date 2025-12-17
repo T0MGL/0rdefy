@@ -90,31 +90,35 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
   // Use rawBody if available, otherwise stringify the body
   const body = req.rawBody || JSON.stringify(req.body);
 
-  // Calculate HMAC-SHA256 hash
-  const hash = crypto
+  // Generate base64 hash (OAuth/Public Apps)
+  const hashBase64 = crypto
     .createHmac('sha256', secret)
     .update(body, 'utf8')
     .digest('base64');
 
-  // Timing-safe comparison to prevent timing attacks
-  const expectedBuffer = Buffer.from(hash, 'base64');
-  const receivedBuffer = Buffer.from(hmac, 'base64');
+  // Generate hex hash (Custom Apps created from Shopify Admin)
+  const hashHex = crypto
+    .createHmac('sha256', secret)
+    .update(body, 'utf8')
+    .digest('hex');
 
-  // Ensure buffers are same length before comparing
-  if (expectedBuffer.length !== receivedBuffer.length) {
-    console.error(`❌ [WEBHOOK] Invalid HMAC signature (length mismatch) for ${shopDomain}`);
-    console.error(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'}`);
-    return res.status(401).send('Invalid HMAC');
+  // Try base64 format first (OAuth Apps)
+  if (hmac === hashBase64) {
+    console.log(`✅ [WEBHOOK] HMAC validated (base64 - OAuth App) for ${shopDomain}`);
   }
-
-  // Use timing-safe comparison
-  if (!crypto.timingSafeEqual(expectedBuffer, receivedBuffer)) {
+  // Try hex format (Custom Apps)
+  else if (hmac === hashHex) {
+    console.log(`✅ [WEBHOOK] HMAC validated (hex - Custom App) for ${shopDomain}`);
+  }
+  // Neither format matched - invalid HMAC
+  else {
     console.error(`❌ [WEBHOOK] Invalid HMAC signature for ${shopDomain}`);
     console.error(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'}`);
+    console.error(`   Expected base64: ${hashBase64.substring(0, 20)}...`);
+    console.error(`   Expected hex: ${hashHex.substring(0, 40)}...`);
+    console.error(`   Received HMAC: ${hmac.substring(0, 40)}...`);
     return res.status(401).send('Invalid HMAC');
   }
-
-  console.log(`✅ [WEBHOOK] HMAC validated successfully for ${shopDomain}`);
 
   // ================================================================
   // REPLAY ATTACK PROTECTION
