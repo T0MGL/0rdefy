@@ -691,6 +691,9 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
     }
 
     console.log(`🔐 Using secret from: ${secretSource} for orders/updated`);
+    console.log(`🔍 [DEBUG HMAC] Secret length: ${webhookSecret.length}, HMAC header length: ${hmacHeader.length}`);
+    console.log(`🔍 [DEBUG HMAC] Raw body length: ${rawBody.length}, First 50 chars: ${rawBody.substring(0, 50)}`);
+    console.log(`🔍 [DEBUG HMAC] HMAC header: ${hmacHeader}`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -700,6 +703,8 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       console.error('❌ HMAC verification failed for orders/updated');
+      console.error(`   Secret used: ${webhookSecret.substring(0, 10)}...`);
+      console.error(`   HMAC received: ${hmacHeader.substring(0, 20)}...`);
       return res.status(401).json({ error: 'Invalid HMAC signature' });
     }
 
