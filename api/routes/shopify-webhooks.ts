@@ -50,17 +50,40 @@ function webhookTimeout(req: Request, res: Response, next: NextFunction) {
 // ================================================================
 // Shopify signs all webhook requests with HMAC-SHA256
 // We must validate this to ensure the request came from Shopify
+// For Custom Apps: Uses api_secret_key from database (NOT .env)
+// For OAuth Apps: Uses SHOPIFY_API_SECRET from .env
 // ================================================================
-function validateShopifyHMAC(req: any, res: Response, next: any) {
+async function validateShopifyHMAC(req: any, res: Response, next: any) {
   const hmac = req.headers['x-shopify-hmac-sha256'] as string;
+  const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
   if (!hmac) {
     console.error('❌ [WEBHOOK] Missing HMAC header');
     return res.status(401).send('Missing HMAC');
   }
 
-  if (!process.env.SHOPIFY_API_SECRET) {
-    console.error('❌ [WEBHOOK] SHOPIFY_API_SECRET not configured');
+  if (!shopDomain) {
+    console.error('❌ [WEBHOOK] Missing shop domain header');
+    return res.status(401).send('Missing shop domain');
+  }
+
+  // Get integration from database to retrieve correct API secret
+  const { data: integration, error: intError } = await supabaseAdmin
+    .from('shopify_integrations')
+    .select('api_secret_key')
+    .eq('shop_domain', shopDomain)
+    .single();
+
+  if (intError || !integration) {
+    console.error(`❌ [WEBHOOK] Integration not found for ${shopDomain}`);
+    return res.status(404).send('Integration not found');
+  }
+
+  // Use api_secret_key from database (Custom App) OR fallback to .env (OAuth App)
+  const secret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+
+  if (!secret) {
+    console.error('❌ [WEBHOOK] API secret not configured');
     return res.status(500).send('Server configuration error');
   }
 
@@ -69,7 +92,7 @@ function validateShopifyHMAC(req: any, res: Response, next: any) {
 
   // Calculate HMAC-SHA256 hash
   const hash = crypto
-    .createHmac('sha256', process.env.SHOPIFY_API_SECRET)
+    .createHmac('sha256', secret)
     .update(body, 'utf8')
     .digest('base64');
 
@@ -79,17 +102,19 @@ function validateShopifyHMAC(req: any, res: Response, next: any) {
 
   // Ensure buffers are same length before comparing
   if (expectedBuffer.length !== receivedBuffer.length) {
-    console.error('❌ [WEBHOOK] Invalid HMAC signature (length mismatch)');
+    console.error(`❌ [WEBHOOK] Invalid HMAC signature (length mismatch) for ${shopDomain}`);
+    console.error(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'}`);
     return res.status(401).send('Invalid HMAC');
   }
 
   // Use timing-safe comparison
   if (!crypto.timingSafeEqual(expectedBuffer, receivedBuffer)) {
-    console.error('❌ [WEBHOOK] Invalid HMAC signature');
+    console.error(`❌ [WEBHOOK] Invalid HMAC signature for ${shopDomain}`);
+    console.error(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'}`);
     return res.status(401).send('Invalid HMAC');
   }
 
-  console.log('✅ [WEBHOOK] HMAC validated successfully');
+  console.log(`✅ [WEBHOOK] HMAC validated successfully for ${shopDomain}`);
 
   // ================================================================
   // REPLAY ATTACK PROTECTION
