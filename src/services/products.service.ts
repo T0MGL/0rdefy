@@ -246,7 +246,7 @@ export const productsService = {
   createFromShopify: async (
     shopifyProductId: string,
     shopifyVariantId: string,
-    costs?: { cost?: number; packaging_cost?: number; additional_costs?: number }
+    costs?: { cost?: number; packaging_cost?: number; additional_costs?: number; is_service?: boolean }
   ): Promise<Product> => {
     try {
       const response = await fetch(`${API_BASE_URL}/products/from-shopify`, {
