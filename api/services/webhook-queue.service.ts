@@ -169,6 +169,7 @@ export class WebhookQueueService {
       console.log(`⏳ [WEBHOOK-QUEUE] Processing webhook ${webhook.id} (topic: ${webhook.topic})`);
 
       // Procesar según el topic
+      // IMPORTANTE: Usar supabaseAdmin para evitar errores de RLS
       const webhookService = new ShopifyWebhookService(this.supabase);
       const webhookManager = new ShopifyWebhookManager(this.supabase);
       let result: any;

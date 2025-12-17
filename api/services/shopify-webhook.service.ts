@@ -65,7 +65,18 @@ export class ShopifyWebhookService {
       );
 
       if (response.data?.errors) {
-        console.error(`GraphQL errors fetching customer ${customerId}:`, response.data.errors);
+        const errors = response.data.errors;
+        const hasAccessDenied = errors.some((err: any) =>
+          err.extensions?.code === 'ACCESS_DENIED' ||
+          err.message?.includes('not approved to access')
+        );
+
+        if (hasAccessDenied) {
+          console.warn(`⚠️  Customer API access denied for shop ${shopDomain}. Using webhook data only.`);
+          console.warn(`   This is expected for Basic/Trial Shopify plans or apps without customer:read scope.`);
+        } else {
+          console.error(`❌ GraphQL errors fetching customer ${customerId}:`, errors);
+        }
         return null;
       }
 
@@ -103,6 +114,7 @@ export class ShopifyWebhookService {
   }
 
   // Verificar firma HMAC del webhook de Shopify
+  // Soporta AMBOS formatos: base64 (OAuth/Public Apps) y hex (Custom Apps)
   static verifyHmacSignature(body: string, hmacHeader: string, secret: string): boolean {
     try {
       // Validate that secret exists and is not empty
@@ -111,15 +123,42 @@ export class ShopifyWebhookService {
         return false;
       }
 
-      const hash = crypto
+      const hmac = crypto
+        .createHmac('sha256', secret)
+        .update(body, 'utf8');
+
+      // Try base64 first (OAuth/Public Apps)
+      const hashBase64 = hmac.digest('base64');
+
+      // Try hex (Custom Apps created from Shopify Admin)
+      const hmacHex = crypto
         .createHmac('sha256', secret)
         .update(body, 'utf8')
-        .digest('base64');
+        .digest('hex');
 
-      return crypto.timingSafeEqual(
-        Buffer.from(hash),
-        Buffer.from(hmacHeader)
-      );
+      // Check if HMAC header matches base64 format
+      try {
+        if (crypto.timingSafeEqual(Buffer.from(hashBase64), Buffer.from(hmacHeader))) {
+          console.log('✅ HMAC verified (base64 format - OAuth App)');
+          return true;
+        }
+      } catch (e) {
+        // Not base64 format, continue to hex check
+      }
+
+      // Check if HMAC header matches hex format
+      try {
+        if (crypto.timingSafeEqual(Buffer.from(hmacHex), Buffer.from(hmacHeader))) {
+          console.log('✅ HMAC verified (hex format - Custom App)');
+          return true;
+        }
+      } catch (e) {
+        // Not hex format either
+      }
+
+      console.error('❌ HMAC verification failed - neither base64 nor hex format matched');
+      return false;
+
     } catch (error) {
       console.error('Error verificando HMAC:', error);
       return false;
@@ -157,6 +196,15 @@ export class ShopifyWebhookService {
         return { success: true, order_id: existingOrder.id };
       }
 
+      // DEBUG: Log webhook payload to see what data Shopify is sending
+      console.log('🔍 [DEBUG] Webhook payload customer data:', JSON.stringify({
+        customer: shopifyOrder.customer,
+        email: shopifyOrder.email,
+        phone: shopifyOrder.phone,
+        billing_address: shopifyOrder.billing_address,
+        shipping_address: shopifyOrder.shipping_address
+      }, null, 2));
+
       // Buscar o crear cliente basándose en el número de teléfono
       // If integration provided, enrich customer data from Shopify API (webhooks often lack customer details)
       let enrichedOrder = shopifyOrder;
@@ -178,6 +226,8 @@ export class ShopifyWebhookService {
             shipping_address: shopifyOrder.shipping_address || fullCustomer.default_address,
             billing_address: shopifyOrder.billing_address || fullCustomer.default_address
           };
+        } else {
+          console.log(`ℹ️  Using customer data from webhook payload (Shopify API enrichment unavailable)`);
         }
       }
 
