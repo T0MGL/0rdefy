@@ -79,12 +79,17 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     return res.status(404).send('Integration not found');
   }
 
-  // Use api_secret_key from database (Custom App) OR fallback to .env (OAuth App)
-  const secret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+  // CRITICAL: Custom Apps MUST use their own api_secret_key from DB
+  // Each Custom App has a unique secret - DO NOT fallback to .env
+  // OAuth Apps (future) will have api_secret_key = NULL and use .env
+  const secret = integration.api_secret_key;
 
   if (!secret) {
-    console.error('❌ [WEBHOOK] API secret not configured');
-    return res.status(500).send('Server configuration error');
+    // If api_secret_key is NULL, this might be an OAuth integration (not implemented yet)
+    console.error(`❌ [WEBHOOK] No API secret configured for ${shopDomain}`);
+    console.error(`💡 [WEBHOOK] Custom Apps must have api_secret_key in database`);
+    console.error(`💡 [WEBHOOK] Check: SELECT api_secret_key FROM shopify_integrations WHERE shop_domain = '${shopDomain}'`);
+    return res.status(500).send('API secret not configured');
   }
 
   // Use rawBody if available, otherwise stringify the body
