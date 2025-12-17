@@ -323,7 +323,29 @@ CREATE INDEX IF NOT EXISTS idx_orders_in_transit_at ON orders(in_transit_at) WHE
 CREATE INDEX IF NOT EXISTS idx_orders_delivered_at ON orders(delivered_at) WHERE delivered_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_cancelled_at ON orders(cancelled_at) WHERE cancelled_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_cod ON orders(payment_method, cod_amount) WHERE payment_method = 'cash' OR cod_amount > 0;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shopify_id ON orders(shopify_order_id) WHERE shopify_order_id IS NOT NULL;
+
+-- ================================================================
+-- CRITICAL: UNIQUE CONSTRAINT for Shopify UPSERTS
+-- ================================================================
+-- DO NOT use CREATE UNIQUE INDEX with WHERE clause - it cannot be used in ON CONFLICT
+-- Use ALTER TABLE ADD CONSTRAINT instead
+DO $$
+BEGIN
+    -- Drop old indexes/constraints if they exist
+    DROP INDEX IF EXISTS idx_orders_shopify_id;
+    DROP INDEX IF EXISTS orders_shopify_order_id_key;
+
+    -- Add constraint if it doesn't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'orders'::regclass
+        AND conname = 'idx_orders_shopify_store_unique'
+    ) THEN
+        ALTER TABLE orders
+        ADD CONSTRAINT idx_orders_shopify_store_unique
+        UNIQUE (shopify_order_id, store_id);
+    END IF;
+END $$;
 
 -- ================================================================
 -- PARTE 4: TABLAS DE HISTORIAL Y LOGS
