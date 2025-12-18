@@ -15,21 +15,23 @@ export class ShopifyWebhookService {
     this.n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || '';
   }
 
-  // Fetch full customer data from Shopify GraphQL API (webhooks often have incomplete data)
-  private async fetchShopifyCustomerData(
+  // Fetch full customer data using GraphQL Admin API 2025-10 (webhooks often have incomplete data)
+  private async fetchShopifyCustomerDataGraphQL(
     customerId: string,
     shopDomain: string,
     accessToken: string
   ): Promise<any | null> {
     try {
       const query = `
-        query getCustomer($id: ID!) {
+        query GetCustomer($id: ID!) {
           customer(id: $id) {
             id
+            legacyResourceId
             firstName
             lastName
             email
             phone
+            acceptsMarketing
             defaultAddress {
               firstName
               lastName
@@ -39,7 +41,7 @@ export class ShopifyWebhookService {
               province
               provinceCode
               country
-              countryCode
+              countryCodeV2
               zip
               phone
               company
@@ -47,6 +49,10 @@ export class ShopifyWebhookService {
           }
         }
       `;
+
+      // Timeout control (10 seconds)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       const response = await axios.post(
         `https://${shopDomain}/admin/api/2025-10/graphql.json`,
@@ -60,9 +66,13 @@ export class ShopifyWebhookService {
           headers: {
             'X-Shopify-Access-Token': accessToken,
             'Content-Type': 'application/json'
-          }
+          },
+          signal: controller.signal,
+          timeout: 10000
         }
       );
+
+      clearTimeout(timeoutId);
 
       if (response.data?.errors) {
         const errors = response.data.errors;
@@ -85,13 +95,14 @@ export class ShopifyWebhookService {
         return null;
       }
 
-      // Transform GraphQL response to match REST API format (for compatibility with existing code)
+      // Transform GraphQL response to expected format (for compatibility with existing code)
       return {
         id: customerId,
         first_name: customer.firstName,
         last_name: customer.lastName,
         email: customer.email,
         phone: customer.phone,
+        accepts_marketing: customer.acceptsMarketing,
         default_address: customer.defaultAddress ? {
           first_name: customer.defaultAddress.firstName,
           last_name: customer.defaultAddress.lastName,
@@ -101,48 +112,340 @@ export class ShopifyWebhookService {
           province: customer.defaultAddress.province,
           province_code: customer.defaultAddress.provinceCode,
           country: customer.defaultAddress.country,
-          country_code: customer.defaultAddress.countryCode,
+          country_code: customer.defaultAddress.countryCodeV2,
           zip: customer.defaultAddress.zip,
           phone: customer.defaultAddress.phone,
           company: customer.defaultAddress.company
         } : null
       };
     } catch (error: any) {
-      console.error(`Failed to fetch customer ${customerId} from Shopify:`, error.message);
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
+        console.error(`⏱️  Timeout fetching customer ${customerId} from Shopify GraphQL (10s limit)`);
+      } else {
+        console.error(`Failed to fetch customer ${customerId} from Shopify GraphQL:`, error.message);
+      }
       return null;
     }
   }
 
-  // Fetch complete order data from Shopify API when webhook data is incomplete
-  private async fetchCompleteOrderData(
+  // Fetch complete order data using GraphQL Admin API (works on ALL Shopify plans including Basic)
+  // GraphQL returns protected PII data even when webhooks redact it
+  private async fetchCompleteOrderDataGraphQL(
     orderId: string,
     shopDomain: string,
     accessToken: string
   ): Promise<ShopifyOrder | null> {
     try {
-      console.log(`📥 Fetching complete order ${orderId} from Shopify API (webhook data incomplete)`);
+      console.log(`📥 Fetching complete order ${orderId} from Shopify GraphQL API (webhook data incomplete)`);
 
-      const response = await axios.get(
-        `https://${shopDomain}/admin/api/2024-10/orders/${orderId}.json`,
+      const query = `
+        query GetOrder($id: ID!) {
+          order(id: $id) {
+            id
+            legacyResourceId
+            name
+            createdAt
+            updatedAt
+            processedAt
+            cancelledAt
+            cancelReason
+            tags
+            note
+            email
+            phone
+            confirmationNumber
+
+            customer {
+              id
+              legacyResourceId
+              firstName
+              lastName
+              email
+              phone
+              acceptsMarketing
+            }
+
+            billingAddress {
+              firstName
+              lastName
+              address1
+              address2
+              city
+              province
+              provinceCode
+              country
+              countryCodeV2
+              zip
+              phone
+              company
+            }
+
+            shippingAddress {
+              firstName
+              lastName
+              address1
+              address2
+              city
+              province
+              provinceCode
+              country
+              countryCodeV2
+              zip
+              phone
+              company
+            }
+
+            lineItems(first: 100) {
+              edges {
+                node {
+                  id
+                  title
+                  variantTitle
+                  quantity
+                  sku
+                  product {
+                    id
+                    legacyResourceId
+                  }
+                  variant {
+                    id
+                    legacyResourceId
+                  }
+                  originalUnitPriceSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                  discountedTotalSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                  taxLines {
+                    priceSet {
+                      shopMoney {
+                        amount
+                      }
+                    }
+                    rate
+                    title
+                  }
+                  customAttributes {
+                    key
+                    value
+                  }
+                }
+              }
+            }
+
+            totalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+
+            subtotalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+
+            totalTaxSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+
+            totalDiscountsSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+
+            totalShippingPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+
+            displayFinancialStatus
+            displayFulfillmentStatus
+
+            transactions(first: 10) {
+              edges {
+                node {
+                  gateway
+                  status
+                  kind
+                }
+              }
+            }
+
+            customAttributes {
+              key
+              value
+            }
+          }
+        }
+      `;
+
+      // Timeout control (10 seconds)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await axios.post(
+        `https://${shopDomain}/admin/api/2025-10/graphql.json`,
+        {
+          query,
+          variables: {
+            id: `gid://shopify/Order/${orderId}`
+          }
+        },
         {
           headers: {
             'X-Shopify-Access-Token': accessToken,
             'Content-Type': 'application/json'
-          }
+          },
+          signal: controller.signal,
+          timeout: 10000
         }
       );
 
-      const order = response.data?.order;
-      if (!order) {
-        console.error(`❌ Order ${orderId} not found in Shopify API response`);
+      clearTimeout(timeoutId);
+
+      if (response.data?.errors) {
+        console.error(`❌ GraphQL errors fetching order ${orderId}:`, response.data.errors);
         return null;
       }
 
-      console.log(`✅ Fetched complete order ${orderId} from Shopify API`);
-      return order;
+      const order = response.data?.data?.order;
+      if (!order) {
+        console.error(`❌ Order ${orderId} not found in GraphQL API response`);
+        return null;
+      }
+
+      // Transform GraphQL response to match REST API format (for compatibility)
+      const transformedOrder: ShopifyOrder = {
+        id: parseInt(order.legacyResourceId),
+        order_number: parseInt(order.name.replace('#', '')),
+        name: order.name,
+        email: order.email,
+        phone: order.phone,
+        created_at: order.createdAt,
+        updated_at: order.updatedAt,
+        processed_at: order.processedAt,
+        cancelled_at: order.cancelledAt,
+        cancel_reason: order.cancelReason,
+        tags: order.tags?.join(', ') || '',
+        note: order.note,
+
+        customer: order.customer ? {
+          id: parseInt(order.customer.legacyResourceId),
+          email: order.customer.email,
+          phone: order.customer.phone,
+          first_name: order.customer.firstName,
+          last_name: order.customer.lastName,
+          accepts_marketing: order.customer.acceptsMarketing
+        } : null,
+
+        billing_address: order.billingAddress ? {
+          first_name: order.billingAddress.firstName,
+          last_name: order.billingAddress.lastName,
+          address1: order.billingAddress.address1,
+          address2: order.billingAddress.address2,
+          city: order.billingAddress.city,
+          province: order.billingAddress.province,
+          province_code: order.billingAddress.provinceCode,
+          country: order.billingAddress.country,
+          country_code: order.billingAddress.countryCodeV2,
+          zip: order.billingAddress.zip,
+          phone: order.billingAddress.phone,
+          company: order.billingAddress.company
+        } : null,
+
+        shipping_address: order.shippingAddress ? {
+          first_name: order.shippingAddress.firstName,
+          last_name: order.shippingAddress.lastName,
+          address1: order.shippingAddress.address1,
+          address2: order.shippingAddress.address2,
+          city: order.shippingAddress.city,
+          province: order.shippingAddress.province,
+          province_code: order.shippingAddress.provinceCode,
+          country: order.shippingAddress.country,
+          country_code: order.shippingAddress.countryCodeV2,
+          zip: order.shippingAddress.zip,
+          phone: order.shippingAddress.phone,
+          company: order.shippingAddress.company,
+          neighborhood: order.shippingAddress.address2 // Map address2 to neighborhood
+        } : null,
+
+        line_items: order.lineItems.edges.map((edge: any) => {
+          const node = edge.node;
+          const unitPrice = parseFloat(node.originalUnitPriceSet.shopMoney.amount);
+          const totalPrice = parseFloat(node.discountedTotalSet.shopMoney.amount);
+          const quantity = node.quantity;
+          const discountAmount = (unitPrice * quantity) - totalPrice;
+
+          return {
+            id: parseInt(node.id.split('/').pop()),
+            product_id: node.product?.legacyResourceId ? parseInt(node.product.legacyResourceId) : null,
+            variant_id: node.variant?.legacyResourceId ? parseInt(node.variant.legacyResourceId) : null,
+            title: node.title,
+            name: node.title,
+            variant_title: node.variantTitle,
+            quantity: quantity,
+            sku: node.sku,
+            price: unitPrice.toFixed(2),
+            total_discount: discountAmount.toFixed(2),
+            tax_lines: node.taxLines.map((tax: any) => ({
+              price: tax.priceSet.shopMoney.amount,
+              rate: tax.rate,
+              title: tax.title
+            })),
+            properties: node.customAttributes || []
+          };
+        }),
+
+        total_price: order.totalPriceSet.shopMoney.amount,
+        subtotal_price: order.subtotalPriceSet.shopMoney.amount,
+        total_tax: order.totalTaxSet.shopMoney.amount,
+        total_discounts: order.totalDiscountsSet.shopMoney.amount,
+        total_shipping: order.totalShippingPriceSet.shopMoney.amount,
+        currency: order.totalPriceSet.shopMoney.currencyCode,
+
+        financial_status: order.displayFinancialStatus?.toLowerCase() || 'pending',
+        fulfillment_status: order.displayFulfillmentStatus?.toLowerCase() || null,
+
+        payment_gateway_names: order.transactions.edges
+          .map((edge: any) => edge.node.gateway)
+          .filter((gateway: string, index: number, self: string[]) => self.indexOf(gateway) === index),
+
+        note_attributes: order.customAttributes?.map((attr: any) => ({
+          name: attr.key,
+          value: attr.value
+        })) || [],
+
+        contact_email: order.email,
+        order_status_url: '', // Not available in GraphQL, leave empty
+        gateway: order.transactions.edges[0]?.node.gateway || 'unknown'
+      };
+
+      console.log(`✅ Fetched complete order ${orderId} from GraphQL API with protected PII data`);
+      return transformedOrder;
 
     } catch (error: any) {
-      console.error(`Failed to fetch order ${orderId} from Shopify:`, error.message);
+      if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
+        console.error(`⏱️  Timeout fetching order ${orderId} from Shopify GraphQL (10s limit)`);
+      } else {
+        console.error(`Failed to fetch order ${orderId} from Shopify GraphQL:`, error.message);
+      }
       return null;
     }
   }
@@ -169,6 +472,12 @@ export class ShopifyWebhookService {
         .update(body, 'utf8')
         .digest('hex');
 
+      console.log(`🔍 [HMAC DEBUG] Body type: ${typeof body}, length: ${body.length}`);
+      console.log(`🔍 [HMAC DEBUG] Secret prefix: ${secret.substring(0, 15)}...`);
+      console.log(`🔍 [HMAC DEBUG] Full Expected base64: ${hashBase64}`);
+      console.log(`🔍 [HMAC DEBUG] Full Received HMAC:   ${hmacHeader}`);
+      console.log(`🔍 [HMAC DEBUG] Strings match: ${hmacHeader === hashBase64}`);
+
       // Try base64 format first (OAuth Apps)
       if (hmacHeader === hashBase64) {
         console.log('✅ HMAC verified (base64 format - OAuth App)');
@@ -182,9 +491,9 @@ export class ShopifyWebhookService {
       }
 
       console.error('❌ HMAC verification failed - neither base64 nor hex format matched');
-      console.error(`   Expected base64: ${hashBase64.substring(0, 20)}...`);
-      console.error(`   Expected hex: ${hashHex.substring(0, 40)}...`);
-      console.error(`   Received HMAC: ${hmacHeader.substring(0, 40)}...`);
+      console.error(`   Expected base64: ${hashBase64}`);
+      console.error(`   Expected hex: ${hashHex.substring(0, 64)}`);
+      console.error(`   Received HMAC: ${hmacHeader}`);
       return false;
 
     } catch (error) {
@@ -233,27 +542,27 @@ export class ShopifyWebhookService {
 
       let enrichedOrder = shopifyOrder;
 
-      // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify
+      // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify usando GraphQL
       if (!hasCompleteData && integration) {
-        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify API...`);
+        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
 
-        const completeOrder = await this.fetchCompleteOrderData(
+        const completeOrder = await this.fetchCompleteOrderDataGraphQL(
           shopifyOrder.id.toString(),
           integration.shop_domain,
           integration.access_token
         );
 
         if (completeOrder) {
-          console.log(`✅ Using complete order data from Shopify API`);
+          console.log(`✅ Using complete order data from GraphQL API (includes protected PII on Basic plans)`);
           enrichedOrder = completeOrder;
         } else {
-          console.warn(`⚠️  Could not fetch complete order from API. Using webhook data.`);
+          console.warn(`⚠️  Could not fetch complete order from GraphQL API. Using webhook data.`);
         }
       }
 
       // Enrich customer data from Shopify Customer API if available
       if (integration && enrichedOrder.customer?.id) {
-        const fullCustomer = await this.fetchShopifyCustomerData(
+        const fullCustomer = await this.fetchShopifyCustomerDataGraphQL(
           enrichedOrder.customer.id.toString(),
           integration.shop_domain,
           integration.access_token
@@ -491,27 +800,27 @@ export class ShopifyWebhookService {
 
       let enrichedOrder = shopifyOrder;
 
-      // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify
+      // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify usando GraphQL
       if (!hasCompleteData && integration) {
-        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify API...`);
+        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
 
-        const completeOrder = await this.fetchCompleteOrderData(
+        const completeOrder = await this.fetchCompleteOrderDataGraphQL(
           shopifyOrder.id.toString(),
           integration.shop_domain,
           integration.access_token
         );
 
         if (completeOrder) {
-          console.log(`✅ Using complete order data from Shopify API`);
+          console.log(`✅ Using complete order data from GraphQL API (includes protected PII on Basic plans)`);
           enrichedOrder = completeOrder;
         } else {
-          console.warn(`⚠️  Could not fetch complete order from API. Using webhook data.`);
+          console.warn(`⚠️  Could not fetch complete order from GraphQL API. Using webhook data.`);
         }
       }
 
       // Enrich customer data from Shopify Customer API if available
       if (integration && enrichedOrder.customer?.id) {
-        const fullCustomer = await this.fetchShopifyCustomerData(
+        const fullCustomer = await this.fetchShopifyCustomerDataGraphQL(
           enrichedOrder.customer.id.toString(),
           integration.shop_domain,
           integration.access_token
