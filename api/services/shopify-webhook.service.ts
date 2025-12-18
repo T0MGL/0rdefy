@@ -276,13 +276,9 @@ export class ShopifyWebhookService {
             displayFulfillmentStatus
 
             transactions(first: 10) {
-              edges {
-                node {
-                  gateway
-                  status
-                  kind
-                }
-              }
+              gateway
+              status
+              kind
             }
 
             customAttributes {
@@ -420,8 +416,8 @@ export class ShopifyWebhookService {
         financial_status: order.displayFinancialStatus?.toLowerCase() || 'pending',
         fulfillment_status: order.displayFulfillmentStatus?.toLowerCase() || null,
 
-        payment_gateway_names: order.transactions.edges
-          .map((edge: any) => edge.node.gateway)
+        payment_gateway_names: order.transactions
+          .map((transaction: any) => transaction.gateway)
           .filter((gateway: string, index: number, self: string[]) => self.indexOf(gateway) === index),
 
         note_attributes: order.customAttributes?.map((attr: any) => ({
@@ -431,7 +427,7 @@ export class ShopifyWebhookService {
 
         contact_email: order.email,
         order_status_url: '', // Not available in GraphQL, leave empty
-        gateway: order.transactions.edges[0]?.node.gateway || 'unknown'
+        gateway: order.transactions[0]?.gateway || 'unknown'
       };
 
       console.log(`✅ Fetched complete order ${orderId} from GraphQL API with protected PII data`);
