@@ -121,6 +121,14 @@ CREATE TABLE IF NOT EXISTS customers (
     phone VARCHAR(20),
     first_name VARCHAR(255),
     last_name VARCHAR(255),
+    name VARCHAR(255),
+    address TEXT,
+    city VARCHAR(100),
+    state VARCHAR(100),
+    postal_code VARCHAR(20),
+    country VARCHAR(100),
+    notes TEXT,
+    tags TEXT,
     total_orders INT DEFAULT 0,
     total_spent DECIMAL(10,2) DEFAULT 0,
     last_order_at TIMESTAMP,
@@ -135,6 +143,9 @@ CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(store_id, phone);
 CREATE INDEX IF NOT EXISTS idx_customers_shopify ON customers(store_id, shopify_customer_id);
 CREATE INDEX IF NOT EXISTS idx_customers_shopify_id ON customers(shopify_customer_id) WHERE shopify_customer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_customers_store_phone ON customers(store_id, phone) WHERE phone IS NOT NULL AND phone <> '';
+CREATE INDEX IF NOT EXISTS idx_customers_city ON customers(store_id, city);
+CREATE INDEX IF NOT EXISTS idx_customers_country ON customers(store_id, country);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(store_id, name);
 CREATE INDEX IF NOT EXISTS idx_customers_store_email ON customers(store_id, email) WHERE email IS NOT NULL AND email <> '';
 
 CREATE TABLE IF NOT EXISTS carriers (
