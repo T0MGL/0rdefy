@@ -31,7 +31,6 @@ export class ShopifyWebhookService {
             lastName
             email
             phone
-            acceptsMarketing
             defaultAddress {
               firstName
               lastName
@@ -102,7 +101,6 @@ export class ShopifyWebhookService {
         last_name: customer.lastName,
         email: customer.email,
         phone: customer.phone,
-        accepts_marketing: customer.acceptsMarketing,
         default_address: customer.defaultAddress ? {
           first_name: customer.defaultAddress.firstName,
           last_name: customer.defaultAddress.lastName,
@@ -162,7 +160,6 @@ export class ShopifyWebhookService {
               lastName
               email
               phone
-              acceptsMarketing
             }
 
             billingAddress {
@@ -346,14 +343,14 @@ export class ShopifyWebhookService {
         tags: order.tags?.join(', ') || '',
         note: order.note,
 
-        customer: order.customer ? {
+        customer: (order.customer ? {
           id: parseInt(order.customer.legacyResourceId),
           email: order.customer.email,
           phone: order.customer.phone,
           first_name: order.customer.firstName,
           last_name: order.customer.lastName,
-          accepts_marketing: order.customer.acceptsMarketing
-        } : null,
+          accepts_marketing: false // Not available in GraphQL 2025-10, default to false
+        } : null) as any,
 
         billing_address: order.billingAddress ? {
           first_name: order.billingAddress.firstName,
