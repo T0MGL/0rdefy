@@ -7,6 +7,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ReadyToShipOrder } from '@/services/shipping.service';
+import { getOrderDisplayId } from '@/utils/orderDisplay';
 
 interface DeliveryManifestData {
   orders: ReadyToShipOrder[];
@@ -101,7 +102,7 @@ export class DeliveryManifestGenerator {
     yPos += 5;
 
     const tableData = data.orders.map((order, index) => {
-      const orderId = order.order_number || `OR#${order.id.substring(0, 8)}`;
+      const orderId = getOrderDisplayId(order);
       const codAmount = order.cod_amount > 0
         ? `Gs. ${order.cod_amount.toLocaleString()}`
         : 'Pagado';

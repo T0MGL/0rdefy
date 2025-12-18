@@ -285,7 +285,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   <p className="text-xs text-muted-foreground">{getRelativeTime(order.date)}</p>
                 </div>
               </div>
-              {currentStatus !== 'pending' && currentStatus !== 'pending_confirmation' && (
+              {currentStatus !== 'pending' && (
                 <div className="relative">
                   <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
                   <div className="text-sm">
@@ -298,7 +298,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   </div>
                 </div>
               )}
-              {(currentStatus === 'out_for_delivery' || currentStatus === 'in_transit' || currentStatus === 'delivered' || currentStatus === 'delivery_failed' || currentStatus === 'not_delivered') && (
+              {(currentStatus === 'shipped' || currentStatus === 'in_transit' || currentStatus === 'delivered') && (
                 <div className="relative">
                   <div className="absolute -left-[21px] w-3 h-3 rounded-full bg-primary" />
                   <div className="text-sm">

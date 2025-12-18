@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { getOrderDisplayId } from '@/utils/orderDisplay';
 import type { Order, Product, Ad, Customer } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 
@@ -524,7 +525,7 @@ export function GlobalSearch() {
                   key={order.id}
                   onSelect={() => handleSelect(
                     () => navigate('/orders', { state: { highlightId: order.id } }),
-                    { id: order.id, type: 'order', label: `Pedido ${order.id} - ${order.customer}` }
+                    { id: order.id, type: 'order', label: `Pedido ${getOrderDisplayId(order)} - ${order.customer}` }
                   )}
                   className="flex items-center justify-between group"
                 >
@@ -532,7 +533,7 @@ export function GlobalSearch() {
                     <ShoppingBag className="h-4 w-4 shrink-0 text-blue-500" />
                     <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                       <span className="text-sm font-medium truncate">
-                        {highlightText(order.id, debouncedQuery)} - {highlightText(order.customer || '', debouncedQuery)}
+                        {highlightText(getOrderDisplayId(order), debouncedQuery)} - {highlightText(order.customer || '', debouncedQuery)}
                       </span>
                       <span className="text-xs text-muted-foreground truncate">
                         {order.product} • {formatCurrency(order.total)}

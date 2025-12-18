@@ -76,7 +76,7 @@ export interface Order {
   product: string;
   quantity: number;
   total: number;
-  status: 'pending_confirmation' | 'confirmed' | 'prepared' | 'delivered_to_courier' | 'in_transit' | 'delivered' | 'not_delivered' | 'incident' | 'reconciled' | 'rejected' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident';
   payment_status?: 'pending' | 'collected' | 'failed';
   carrier: string;
   carrier_id?: string;
@@ -134,7 +134,7 @@ export interface Order {
     products?: {
       id: string;
       name: string;
-      image: string;
+      image_url: string;
     };
   }>;
 }
@@ -160,7 +160,7 @@ export interface Product {
   description?: string;
   sku?: string;
   category?: string;
-  image: string;
+  image: string; // Frontend uses 'image', backend uses 'image_url' (transformed in service)
   stock: number;
   price: number;
   cost: number;
