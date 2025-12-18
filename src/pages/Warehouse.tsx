@@ -1159,11 +1159,22 @@ function PackingView({
                     ? 'opacity-50 cursor-not-allowed bg-muted'
                     : isSelected
                       ? 'border-primary ring-2 ring-primary/20 bg-primary/10 cursor-pointer'
-                      : 'hover:shadow-md cursor-pointer'
+                      : 'hover:shadow-md hover:border-primary/50 cursor-pointer'
                     }`}
                   onClick={() => hasRemaining && !packingInProgress && onSelectItem(isSelected ? null : item.product_id)}
                 >
                   <div className="flex gap-3">
+                    {/* Checkbox Visual */}
+                    <div className="flex-shrink-0 mt-1">
+                      <Checkbox
+                        checked={isSelected}
+                        disabled={!hasRemaining || packingInProgress}
+                        className="h-5 w-5"
+                        onClick={(e) => e.stopPropagation()}
+                        onCheckedChange={() => hasRemaining && !packingInProgress && onSelectItem(isSelected ? null : item.product_id)}
+                      />
+                    </div>
+
                     {item.product_image ? (
                       <img
                         src={item.product_image}
@@ -1224,9 +1235,9 @@ function PackingView({
                 <Card
                   key={order.id}
                   className={`p-4 transition-all ${order.is_complete
-                    ? 'border-green-500 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
+                    ? 'border-green-600 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
                     : needsSelectedItem
-                      ? `border-green-500 dark:border-green-600 ring-2 ring-green-500/20 shadow-lg ${packingInProgress ? 'cursor-wait opacity-70' : 'cursor-pointer'} bg-green-50/50 dark:bg-green-950/10`
+                      ? `border-green-600 dark:border-green-600 ring-2 ring-green-600/20 shadow-lg ${packingInProgress ? 'cursor-wait opacity-70' : 'cursor-pointer'} bg-green-50/50 dark:bg-green-950/10`
                       : ''
                     }`}
                   onClick={() => {
@@ -1257,7 +1268,7 @@ function PackingView({
                     </div>
                     {order.is_complete ? (
                       <div className="flex items-center gap-2">
-                        <Badge className="bg-green-500">
+                        <Badge className="bg-green-600 hover:bg-green-600">
                           <Check className="h-3 w-3 mr-1" />
                           Listo
                         </Badge>
@@ -1302,13 +1313,22 @@ function PackingView({
                       return (
                         <div
                           key={item.product_id}
-                          className={`flex items-center gap-2 p-2 rounded ${isHighlighted
-                            ? 'bg-green-100 dark:bg-green-950/30 border border-green-500/30 dark:border-green-600/30'
+                          className={`flex items-center gap-3 p-2 rounded ${isHighlighted
+                            ? 'bg-green-100 dark:bg-green-950/30 border border-green-600/30 dark:border-green-600/30'
                             : itemComplete
-                              ? 'bg-muted'
+                              ? 'bg-green-50 dark:bg-green-950/20'
                               : ''
                             }`}
                         >
+                          {/* Checkbox para items completados */}
+                          <div className="flex-shrink-0">
+                            <Checkbox
+                              checked={itemComplete}
+                              disabled
+                              className="h-4 w-4"
+                            />
+                          </div>
+
                           {item.product_image ? (
                             <img
                               src={item.product_image}
@@ -1321,7 +1341,7 @@ function PackingView({
                             </div>
                           )}
                           <div className="flex-1">
-                            <p className="text-sm font-medium line-clamp-1">
+                            <p className={`text-sm font-medium line-clamp-1 ${itemComplete ? 'text-muted-foreground line-through' : ''}`}>
                               {item.product_name}
                             </p>
                             <div className="flex items-center gap-2">
@@ -1333,8 +1353,10 @@ function PackingView({
                               >
                                 {item.quantity_packed} / {item.quantity_needed}
                               </span>
-                              {itemComplete && (
-                                <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+                              {isHighlighted && (
+                                <Badge variant="outline" className="text-[10px] h-4 px-1 bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-600">
+                                  Click para empacar
+                                </Badge>
                               )}
                             </div>
                           </div>

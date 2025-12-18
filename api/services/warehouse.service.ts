@@ -195,8 +195,7 @@ export async function createSession(
       }
     });
 
-    // Validate all product IDs are UUIDs
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // Validate all product IDs are UUIDs (reuse uuidRegex from line 81)
     const invalidProductIds = Array.from(productQuantities.keys()).filter(id => !uuidRegex.test(id));
 
     if (invalidProductIds.length > 0) {
