@@ -72,6 +72,24 @@ export async function createSession(
   userId: string
 ): Promise<PickingSession> {
   try {
+    // Log received order IDs for debugging
+    console.log('📋 Creating picking session with order IDs:', orderIds);
+    console.log('   Store ID:', storeId);
+    console.log('   User ID:', userId);
+
+    // Validate that all order IDs are UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const invalidIds = orderIds.filter(id => !uuidRegex.test(id));
+
+    if (invalidIds.length > 0) {
+      console.error('❌ Invalid order IDs detected (not UUIDs):',  invalidIds);
+      throw new Error(
+        `Invalid order IDs: ${invalidIds.join(', ')}. ` +
+        `Expected UUIDs but received non-UUID values. ` +
+        `This might indicate that Shopify order IDs are being used instead of internal UUIDs.`
+      );
+    }
+
     // 1. Validate that all orders exist and are confirmed
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
@@ -772,6 +790,7 @@ export async function getConfirmedOrders(storeId: string) {
       .select(`
         id,
         shopify_order_number,
+        shopify_order_id,
         customer_first_name,
         customer_last_name,
         customer_phone,
@@ -786,17 +805,28 @@ export async function getConfirmedOrders(storeId: string) {
     if (error) throw error;
 
     // Calculate total_items from JSONB line_items and format customer name
-    const ordersWithCounts = (data || []).map((order: any) => ({
-      id: order.id,
-      order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
-      customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
-      customer_phone: order.customer_phone,
-      created_at: order.created_at,
-      carrier_name: order.carriers?.name || 'Sin transportadora',
-      total_items: Array.isArray(order.line_items)
-        ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
-        : 0
-    }));
+    const ordersWithCounts = (data || []).map((order: any) => {
+      // Validate that id is a UUID (not a Shopify ID)
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(order.id);
+
+      if (!isValidUUID) {
+        console.error(`❌ Invalid order ID format (expected UUID, got ${order.id}). This order has corrupted data.`);
+        console.error(`   Shopify Order ID: ${order.shopify_order_id}`);
+        console.error(`   Order Number: ${order.shopify_order_number}`);
+      }
+
+      return {
+        id: order.id,
+        order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
+        customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+        customer_phone: order.customer_phone,
+        created_at: order.created_at,
+        carrier_name: order.carriers?.name || 'Sin transportadora',
+        total_items: Array.isArray(order.line_items)
+          ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+          : 0
+      };
+    });
 
     return ordersWithCounts;
   } catch (error) {
