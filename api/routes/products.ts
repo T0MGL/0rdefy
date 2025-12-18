@@ -126,8 +126,8 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             cost: product.cost || 0,
             packaging_cost: product.packaging_cost || 0,
             additional_costs: product.additional_costs || 0,
-            profitability: product.cost && product.price
-                ? parseFloat((((product.price - product.cost) / product.price) * 100).toFixed(1))
+            profitability: product.price
+                ? parseFloat((((product.price - (product.cost || 0) - (product.packaging_cost || 0) - (product.additional_costs || 0)) / product.price) * 100).toFixed(1))
                 : 0,
             sales: salesByProduct[product.id] || 0,
             shopify_product_id: product.shopify_product_id || null,
@@ -204,8 +204,8 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
             cost: data.cost || 0,
             packaging_cost: data.packaging_cost || 0,
             additional_costs: data.additional_costs || 0,
-            profitability: data.cost && data.price
-                ? parseFloat((((data.price - data.cost) / data.price) * 100).toFixed(1))
+            profitability: data.price
+                ? parseFloat((((data.price - (data.cost || 0) - (data.packaging_cost || 0) - (data.additional_costs || 0)) / data.price) * 100).toFixed(1))
                 : 0,
             sales,
             shopify_product_id: data.shopify_product_id || null,

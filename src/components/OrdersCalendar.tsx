@@ -108,18 +108,33 @@ export function OrdersCalendar() {
             : 'Selecciona una fecha'}
         </h3>
         {selectedDateOrders.length > 0 ? (
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[600px] overflow-y-auto">
             {selectedDateOrders.map((order) => (
               <div
                 key={order.id}
                 className="p-3 border border-border rounded-lg hover:bg-muted/30 transition-colors"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-sm font-medium">{order.id}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-medium">
+                      {order.shopify_order_name ||
+                        (order.shopify_order_number ? `#${order.shopify_order_number}` : null) ||
+                        (order.shopify_order_id ? `SH#${order.shopify_order_id}` : null) ||
+                        `OR#${order.id.substring(0, 8)}`}
+                    </span>
+                    {order.shopify_order_id && (
+                      <Badge
+                        variant="outline"
+                        className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs px-1.5 py-0"
+                      >
+                        Shopify
+                      </Badge>
+                    )}
+                  </div>
                   <div className={`w-2 h-2 rounded-full ${statusColors[order.status]}`} />
                 </div>
                 <p className="text-sm font-medium">{order.customer}</p>
-                <p className="text-xs text-muted-foreground">{order.product}</p>
+                <p className="text-xs text-muted-foreground truncate">{order.product}</p>
                 <p className="text-sm font-semibold mt-2">
                   Gs. {(order.total ?? 0).toLocaleString()}
                 </p>

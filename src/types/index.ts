@@ -119,6 +119,24 @@ export interface Order {
   printed?: boolean;
   printed_at?: string;
   printed_by?: string;
+  // Order line items (for Shopify orders)
+  order_line_items?: Array<{
+    id: string;
+    product_id?: string;
+    product_name: string;
+    variant_title?: string;
+    sku?: string;
+    quantity: number;
+    unit_price: number;
+    total_price: number;
+    shopify_product_id?: string;
+    shopify_variant_id?: string;
+    products?: {
+      id: string;
+      name: string;
+      image: string;
+    };
+  }>;
 }
 
 export interface CreateOrderInput {
