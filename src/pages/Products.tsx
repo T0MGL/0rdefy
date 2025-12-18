@@ -32,6 +32,7 @@ export default function Products() {
   const [isLoading, setIsLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [confirmShopifyDeleteOpen, setConfirmShopifyDeleteOpen] = useState(false);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
@@ -147,6 +148,17 @@ export default function Products() {
     }
   };
 
+  const handleDeleteOptionClick = (deleteFromShopify: boolean) => {
+    if (deleteFromShopify) {
+      // Show second confirmation for Shopify deletion
+      setDeleteDialogOpen(false);
+      setConfirmShopifyDeleteOpen(true);
+    } else {
+      // Delete only from Ordefy
+      confirmDelete(false);
+    }
+  };
+
   const confirmDelete = async (deleteFromShopify: boolean = false) => {
     if (!productToDelete) return;
 
@@ -161,6 +173,7 @@ export default function Products() {
       setProducts(prev => prev.filter(p => p.id !== productToDelete.id));
 
       setDeleteDialogOpen(false);
+      setConfirmShopifyDeleteOpen(false);
       setProductToDelete(null);
 
       const deletionMessage = deleteFromShopify
@@ -475,7 +488,7 @@ export default function Products() {
 
       {/* Product Form Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className={formMode === 'shopify' ? 'max-w-2xl max-h-[90vh] overflow-y-auto' : 'max-w-md max-h-[90vh] overflow-y-auto'}>
           <DialogHeader>
             <DialogTitle>
               {selectedProduct ? 'Editar Producto' : formMode === 'shopify' ? 'Importar desde Shopify' : 'Nuevo Producto'}
@@ -494,47 +507,77 @@ export default function Products() {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>¿Eliminar producto?</DialogTitle>
+            <DialogTitle>Eliminar Producto</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {productToDelete?.shopify_product_id ? (
               <>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
                     Este producto está vinculado con Shopify. Elige cómo deseas eliminarlo:
                   </p>
-                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-                    <p className="text-sm text-amber-800 dark:text-amber-400">
-                      ⚠️ <strong>Importante:</strong> Esta acción no se puede deshacer.
-                    </p>
+                  <div className="bg-amber-500/10 dark:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/30 rounded-lg p-4">
+                    <div className="flex gap-3">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <svg className="h-5 w-5 text-amber-600 dark:text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-500">
+                          Importante
+                        </p>
+                        <p className="text-sm text-amber-700 dark:text-amber-600 mt-1">
+                          Esta acción no se puede deshacer
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2">
+                <div className="space-y-2">
                   <Button
                     variant="outline"
-                    onClick={() => confirmDelete(false)}
-                    className="w-full justify-start text-left"
+                    onClick={() => handleDeleteOptionClick(false)}
+                    className="w-full h-auto py-3 px-4 hover:bg-muted"
                   >
-                    <div className="flex flex-col items-start">
-                      <span className="font-semibold">Solo de Ordefy</span>
-                      <span className="text-xs text-muted-foreground">El producto permanecerá en Shopify</span>
+                    <div className="flex items-start gap-3 text-left w-full">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div className="h-4 w-4 rounded-full border-2 border-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground">Solo de Ordefy</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          El producto permanecerá en Shopify
+                        </div>
+                      </div>
                     </div>
                   </Button>
+
                   <Button
-                    variant="destructive"
-                    onClick={() => confirmDelete(true)}
-                    className="w-full justify-start text-left"
+                    variant="outline"
+                    onClick={() => handleDeleteOptionClick(true)}
+                    className="w-full h-auto py-3 px-4 border-destructive/30 hover:bg-destructive/10 dark:hover:bg-destructive/20"
                   >
-                    <div className="flex flex-col items-start">
-                      <span className="font-semibold">De Ordefy y Shopify</span>
-                      <span className="text-xs opacity-90">El producto será eliminado de ambas plataformas</span>
+                    <div className="flex items-start gap-3 text-left w-full">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div className="h-4 w-4 rounded-full border-2 border-destructive" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-destructive">De Ordefy y Shopify</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          El producto será eliminado de ambas plataformas
+                        </div>
+                      </div>
                     </div>
                   </Button>
+                </div>
+
+                <div className="flex gap-2 pt-2">
                   <Button
                     variant="ghost"
                     onClick={() => setDeleteDialogOpen(false)}
-                    className="w-full"
+                    className="flex-1"
                   >
                     Cancelar
                   </Button>
@@ -545,7 +588,7 @@ export default function Products() {
                 <p className="text-sm text-muted-foreground">
                   Esta acción no se puede deshacer. El producto será eliminado permanentemente de tu inventario.
                 </p>
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-2">
                   <Button
                     variant="outline"
                     onClick={() => setDeleteDialogOpen(false)}
@@ -563,6 +606,63 @@ export default function Products() {
                 </div>
               </>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Shopify Delete Confirmation Dialog */}
+      <Dialog open={confirmShopifyDeleteOpen} onOpenChange={setConfirmShopifyDeleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Eliminación de Shopify</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-destructive/10 dark:bg-destructive/20 border border-destructive/20 dark:border-destructive/30 rounded-lg p-4">
+              <div className="flex gap-3">
+                <div className="flex-shrink-0 mt-0.5">
+                  <svg className="h-5 w-5 text-destructive" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-destructive">
+                    Advertencia final
+                  </p>
+                  <p className="text-sm text-destructive/90 dark:text-destructive/80 mt-1">
+                    Estás a punto de eliminar este producto de Ordefy y Shopify. Esta acción es permanente y no se puede deshacer.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                Producto: <span className="text-muted-foreground">{productToDelete?.name}</span>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                ¿Estás seguro de que deseas continuar?
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setConfirmShopifyDeleteOpen(false);
+                  setDeleteDialogOpen(true);
+                }}
+                className="flex-1"
+              >
+                Volver
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => confirmDelete(true)}
+                className="flex-1"
+              >
+                Eliminar de Ambas
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

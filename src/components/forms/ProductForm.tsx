@@ -261,14 +261,14 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
           <div className="space-y-2">
             <label className="text-sm font-medium">Variante *</label>
             <Select value={selectedVariant} onValueChange={setSelectedVariant}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona una variante" />
+              <SelectTrigger className="text-foreground">
+                <SelectValue placeholder="Selecciona una variante" className="text-foreground" />
               </SelectTrigger>
               <SelectContent>
                 {selectedProductData.variants.map((variant) => (
                   <SelectItem key={variant.id} value={variant.id}>
                     <div className="flex flex-col">
-                      <span>{variant.title}</span>
+                      <span className="text-foreground">{variant.title}</span>
                       <span className="text-xs text-muted-foreground">
                         SKU: {variant.sku || 'N/A'} | Stock: {variant.inventory_quantity} | Gs. {variant.price.toLocaleString()}
                       </span>

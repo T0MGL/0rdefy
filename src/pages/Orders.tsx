@@ -34,7 +34,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2 } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
 
@@ -63,6 +69,82 @@ const statusLabels = {
   cancelled: 'Cancelado',
   incident: 'Incidencia',
 };
+
+// Component to display product thumbnails with tooltips
+const ProductThumbnails = memo(({ order }: { order: Order }) => {
+  // Check if we have line items with products
+  const lineItems = order.order_line_items || [];
+
+  if (lineItems.length === 0) {
+    // Fallback to old product field
+    return <span className="text-sm truncate max-w-[200px]">{order.product}</span>;
+  }
+
+  // Show first 3 products as thumbnails
+  const visibleItems = lineItems.slice(0, 3);
+  const remainingCount = lineItems.length - 3;
+
+  return (
+    <TooltipProvider>
+      <div className="flex items-center gap-1">
+        {visibleItems.map((item, index) => {
+          const productImage = item.products?.image;
+          const productName = item.product_name;
+          const quantity = item.quantity;
+
+          return (
+            <Tooltip key={item.id || index}>
+              <TooltipTrigger asChild>
+                <div className="relative group cursor-pointer">
+                  {productImage ? (
+                    <img
+                      src={productImage}
+                      alt={productName}
+                      className="w-8 h-8 rounded object-cover border border-border group-hover:ring-2 group-hover:ring-primary transition-all"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded bg-muted border border-border flex items-center justify-center group-hover:ring-2 group-hover:ring-primary transition-all">
+                      <Package size={16} className="text-muted-foreground" />
+                    </div>
+                  )}
+                  {quantity > 1 && (
+                    <div className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-semibold">
+                      {quantity}
+                    </div>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="font-medium">{productName}</p>
+                {item.variant_title && (
+                  <p className="text-xs text-muted-foreground">{item.variant_title}</p>
+                )}
+                <p className="text-xs">Cantidad: {quantity}</p>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+        {remainingCount > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="w-8 h-8 rounded bg-muted border border-border flex items-center justify-center text-xs font-medium cursor-pointer hover:ring-2 hover:ring-primary transition-all">
+                +{remainingCount}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="font-medium">{remainingCount} producto{remainingCount > 1 ? 's' : ''} más</p>
+              {lineItems.slice(3).map((item, idx) => (
+                <p key={idx} className="text-xs">
+                  • {item.product_name} ({item.quantity})
+                </p>
+              ))}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    </TooltipProvider>
+  );
+});
 
 export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -587,8 +669,8 @@ export default function Orders() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
+      {/* Header with Actions */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Pedidos</h2>
@@ -606,15 +688,11 @@ export default function Orders() {
             </Button>
           </div>
         </div>
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        {/* Global View Toggle - Left */}
-        <div className="mr-auto">
-          <GlobalViewToggle enabled={isGlobalView} onToggle={setIsGlobalView} />
-        </div>
 
-        {/* Actions - Right */}
+        {/* Actions - Right (aligned with title) */}
         <div className="flex items-center gap-2">
+          <GlobalViewToggle enabled={isGlobalView} onToggle={setIsGlobalView} />
+
           {selectedOrderIds.size > 0 && (
             <Button
               variant="default"
@@ -834,7 +912,9 @@ export default function Orders() {
                           <p className="text-xs text-muted-foreground">{order.phone}</p>
                         </div>
                       </td>
-                      <td className="py-4 px-6 text-sm">{order.product}</td>
+                      <td className="py-4 px-6">
+                        <ProductThumbnails order={order} />
+                      </td>
                       <td className="py-4 px-6 text-center">
                         <Select
                           value={order.status}
