@@ -149,28 +149,63 @@ export async function createSession(
 
     if (updateError) throw updateError;
 
-    // 6. Fetch orders with line_items to aggregate for picking list
-    const { data: ordersWithItems, error: itemsError } = await supabaseAdmin
-      .from('orders')
-      .select('id, line_items')
-      .in('id', orderIds);
+    // 6. Fetch line items from normalized table (order_line_items)
+    // This table has proper product_id mapping (Shopify ID -> Local UUID)
+    const { data: lineItems, error: itemsError } = await supabaseAdmin
+      .from('order_line_items')
+      .select('order_id, product_id, quantity, shopify_product_id, shopify_variant_id, product_name')
+      .in('order_id', orderIds);
 
     if (itemsError) throw itemsError;
 
-    // Aggregate quantities by product from JSONB line_items
+    // Check if any line items are missing product_id mapping
+    const unmappedItems = lineItems?.filter(item => !item.product_id) || [];
+    if (unmappedItems.length > 0) {
+      console.warn('⚠️  WARNING: Some line items do not have product_id mapped:');
+      unmappedItems.forEach(item => {
+        console.warn(`   - ${item.product_name} (Shopify: ${item.shopify_product_id})`);
+      });
+
+      // Create a user-friendly list of missing products
+      const missingProductsList = unmappedItems
+        .map(i => `• ${i.product_name} (Shopify Product ID: ${i.shopify_product_id})`)
+        .join('\n');
+
+      throw new Error(
+        `❌ No se puede crear la sesión de preparación\n\n` +
+        `Los siguientes ${unmappedItems.length} producto(s) NO existen en tu inventario de Ordefy:\n\n` +
+        `${missingProductsList}\n\n` +
+        `📋 Solución:\n` +
+        `1. Ve a la página de Productos\n` +
+        `2. Agrega manualmente estos productos a tu inventario\n` +
+        `   O bien:\n` +
+        `   Ve a Integraciones > Shopify y haz clic en "Sincronizar Productos"\n` +
+        `3. Una vez agregados, vuelve a intentar crear la sesión de preparación`
+      );
+    }
+
+    // Aggregate quantities by product from order_line_items
     const productQuantities = new Map<string, number>();
-    ordersWithItems?.forEach(order => {
-      if (Array.isArray(order.line_items)) {
-        order.line_items.forEach((item: any) => {
-          const productId = item.product_id;
-          const quantity = parseInt(item.quantity) || 0;
-          if (productId) {
-            const currentQty = productQuantities.get(productId) || 0;
-            productQuantities.set(productId, currentQty + quantity);
-          }
-        });
+    lineItems?.forEach(item => {
+      const productId = item.product_id;
+      const quantity = parseInt(item.quantity) || 0;
+      if (productId) {
+        const currentQty = productQuantities.get(productId) || 0;
+        productQuantities.set(productId, currentQty + quantity);
       }
     });
+
+    // Validate all product IDs are UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const invalidProductIds = Array.from(productQuantities.keys()).filter(id => !uuidRegex.test(id));
+
+    if (invalidProductIds.length > 0) {
+      console.error('❌ Invalid product IDs in line items (not UUIDs):', invalidProductIds);
+      throw new Error(
+        `Invalid product IDs detected: ${invalidProductIds.join(', ')}. ` +
+        `Product IDs must be UUIDs. Check the order_line_items table for data corruption.`
+      );
+    }
 
     // Insert aggregated picking list
     const pickingItems = Array.from(productQuantities.entries()).map(([productId, quantity]) => ({
@@ -179,6 +214,10 @@ export async function createSession(
       total_quantity_needed: quantity,
       quantity_picked: 0
     }));
+
+    if (pickingItems.length === 0) {
+      throw new Error('No valid products found in the selected orders');
+    }
 
     const { error: pickingItemsError } = await supabaseAdmin
       .from('picking_session_items')

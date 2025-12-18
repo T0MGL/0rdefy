@@ -414,10 +414,15 @@ export default function Warehouse() {
     setSelectedOrders(newSelected);
   }
 
-  // Calculate progress for picking
-  const pickingProgress = pickingList.length > 0
-    ? (pickingList.filter(item => item.quantity_picked >= item.total_quantity_needed).length / pickingList.length) * 100
-    : 0;
+  // Calculate progress for picking based on actual quantities
+  const pickingProgress = useMemo(() => {
+    if (pickingList.length === 0) return 0;
+
+    const totalNeeded = pickingList.reduce((sum, item) => sum + item.total_quantity_needed, 0);
+    const totalPicked = pickingList.reduce((sum, item) => sum + item.quantity_picked, 0);
+
+    return totalNeeded > 0 ? (totalPicked / totalNeeded) * 100 : 0;
+  }, [pickingList]);
 
   return (
     <>
@@ -847,6 +852,10 @@ function PickingView({
   ).length;
   const totalItems = pickingList.length;
 
+  // Calculate total quantities for progress display
+  const totalQuantityNeeded = pickingList.reduce((sum, item) => sum + item.total_quantity_needed, 0);
+  const totalQuantityPicked = pickingList.reduce((sum, item) => sum + item.quantity_picked, 0);
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -872,7 +881,7 @@ function PickingView({
           onClick={onFinish}
           disabled={!allPicked || loading}
           size="lg"
-          className={allPicked ? 'bg-green-500 hover:bg-green-600' : ''}
+          className={allPicked ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
         >
           <Check className="h-4 w-4 mr-2" />
           Finalizar Recolección
@@ -902,10 +911,10 @@ function PickingView({
       )}
 
       {/* Enhanced Progress Bar */}
-      <div className="mb-6 p-6 bg-primary/10 rounded-lg border-2 border-primary/20">
+      <div className={`mb-6 p-6 rounded-lg border-2 ${allPicked ? 'bg-green-50 dark:bg-green-950/20 border-green-500/30' : 'bg-primary/10 border-primary/20'}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-full ${allPicked ? 'bg-green-500' : 'bg-primary'}`}>
+            <div className={`p-2 rounded-full ${allPicked ? 'bg-green-600' : 'bg-primary'}`}>
               {allPicked ? (
                 <Check className="h-5 w-5 text-white" />
               ) : (
@@ -917,15 +926,18 @@ function PickingView({
                 Progreso de Picking
               </span>
               <p className="text-xs text-muted-foreground">
-                {pickedItems} de {totalItems} productos recolectados
+                {totalQuantityPicked} de {totalQuantityNeeded} unidades recolectadas • {pickedItems}/{totalItems} productos completos
               </p>
             </div>
           </div>
-          <span className="text-3xl font-bold text-primary">
+          <span className={`text-3xl font-bold ${allPicked ? 'text-green-600' : 'text-primary'}`}>
             {Math.round(progress)}%
           </span>
         </div>
-        <Progress value={progress} className="h-4" />
+        <Progress
+          value={progress}
+          className={`h-4 ${allPicked ? '[&>div]:bg-green-600' : ''}`}
+        />
         {allPicked && (
           <p className="text-sm text-green-600 dark:text-green-400 font-medium mt-3 flex items-center gap-2">
             <Check className="h-4 w-4" />

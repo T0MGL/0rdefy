@@ -20,9 +20,10 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useCarriers } from '@/hooks/useCarriers';
-import { Loader2, MapPin, CheckCircle2, Printer } from 'lucide-react';
+import { Loader2, CheckCircle2, Printer } from 'lucide-react';
 import type { Order } from '@/types';
 import { OrderShippingLabel } from '@/components/OrderShippingLabel';
+import { getOrderDisplayId } from '@/utils/orderDisplay';
 
 interface OrderConfirmationDialogProps {
   open: boolean;
@@ -51,8 +52,6 @@ export function OrderConfirmationDialog({
   const [upsellAdded, setUpsellAdded] = useState(false);
   const [courierId, setCourierId] = useState<string>('');
   const [address, setAddress] = useState('');
-  const [latitude, setLatitude] = useState<string>('');
-  const [longitude, setLongitude] = useState<string>('');
   const [mapsLink, setMapsLink] = useState('');
 
   // Reset state when dialog opens
@@ -63,12 +62,6 @@ export function OrderConfirmationDialog({
       // Pre-fill address if order has one
       if (order?.address) {
         setAddress(order.address);
-      }
-      if (order?.latitude) {
-        setLatitude(order.latitude.toString());
-      }
-      if (order?.longitude) {
-        setLongitude(order.longitude.toString());
       }
       // Pre-fill upsell if order has one
       if (order?.upsell_added !== undefined) {
@@ -158,12 +151,6 @@ export function OrderConfirmationDialog({
       if (address && address !== order.address) {
         payload.address = address;
       }
-      if (latitude) {
-        payload.latitude = parseFloat(latitude);
-      }
-      if (longitude) {
-        payload.longitude = parseFloat(longitude);
-      }
 
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}/confirm`, {
         method: 'POST',
@@ -207,90 +194,11 @@ export function OrderConfirmationDialog({
     }
   };
 
-  const extractCoordinatesFromMapsLink = (link: string) => {
-    if (!link) return;
-
-    try {
-      // Pattern 1: ?q=lat,lng or @lat,lng
-      const pattern1 = /[@?]q?=?(-?\d+\.?\d*),(-?\d+\.?\d*)/;
-      const match1 = link.match(pattern1);
-
-      if (match1) {
-        setLatitude(match1[1]);
-        setLongitude(match1[2]);
-        toast({
-          title: 'Coordenadas extraídas',
-          description: `Lat: ${match1[1]}, Lng: ${match1[2]}`,
-        });
-        return;
-      }
-
-      // Pattern 2: /place/@lat,lng,zoom
-      const pattern2 = /@(-?\d+\.?\d*),(-?\d+\.?\d*),\d+/;
-      const match2 = link.match(pattern2);
-
-      if (match2) {
-        setLatitude(match2[1]);
-        setLongitude(match2[2]);
-        toast({
-          title: 'Coordenadas extraídas',
-          description: `Lat: ${match2[1]}, Lng: ${match2[2]}`,
-        });
-        return;
-      }
-
-      toast({
-        title: 'No se encontraron coordenadas',
-        description: 'El formato del link no es reconocido. Intenta copiar el link desde Google Maps.',
-        variant: 'destructive',
-      });
-    } catch (error) {
-      console.error('Error extracting coordinates:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron extraer las coordenadas del link',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast({
-        title: 'Geolocalización no disponible',
-        description: 'Tu navegador no soporta geolocalización',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLatitude(position.coords.latitude.toString());
-        setLongitude(position.coords.longitude.toString());
-        toast({
-          title: 'Ubicación obtenida',
-          description: 'Se ha capturado tu ubicación actual',
-        });
-      },
-      (error) => {
-        console.error('Error getting location:', error);
-        toast({
-          title: 'Error',
-          description: 'No se pudo obtener la ubicación',
-          variant: 'destructive',
-        });
-      }
-    );
-  };
-
   const handleClose = () => {
     // Reset form
     setUpsellAdded(false);
     setCourierId('');
     setAddress('');
-    setLatitude('');
-    setLongitude('');
     setMapsLink('');
     setIsConfirmed(false);
     setConfirmedOrder(null);
@@ -372,7 +280,7 @@ export function OrderConfirmationDialog({
             {/* Order Info */}
             {order && (
               <div className="rounded-lg border p-3 bg-muted/50">
-                <p className="text-sm font-medium">Pedido #{order.id.slice(0, 8)}</p>
+                <p className="text-sm font-medium">Pedido {getOrderDisplayId(order)}</p>
                 <p className="text-sm text-muted-foreground">Cliente: {order.customer}</p>
                 <p className="text-sm text-muted-foreground">Total: Gs. {(order.total ?? 0).toLocaleString()}</p>
               </div>
@@ -437,65 +345,6 @@ export function OrderConfirmationDialog({
             />
           </div>
 
-          {/* Google Maps Link */}
-          <div className="space-y-2">
-            <Label htmlFor="mapsLink">
-              Link de Google Maps (opcional)
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                id="mapsLink"
-                value={mapsLink}
-                onChange={(e) => setMapsLink(e.target.value)}
-                placeholder="https://maps.google.com/?q=-25.263740,-57.575926"
-                className="flex-1"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => extractCoordinatesFromMapsLink(mapsLink)}
-                disabled={!mapsLink}
-              >
-                Extraer
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Pega el link de Google Maps y haz clic en "Extraer" para obtener las coordenadas
-            </p>
-          </div>
-
-          {/* Coordinates (Optional) */}
-          <div className="space-y-2">
-            <Label>Coordenadas (opcional)</Label>
-            <div className="flex gap-2">
-              <Input
-                value={latitude}
-                onChange={(e) => setLatitude(e.target.value)}
-                placeholder="Latitud"
-                type="number"
-                step="any"
-              />
-              <Input
-                value={longitude}
-                onChange={(e) => setLongitude(e.target.value)}
-                placeholder="Longitud"
-                type="number"
-                step="any"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={getCurrentLocation}
-                title="Usar mi ubicación actual"
-              >
-                <MapPin className="h-4 w-4" />
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              O ingresa las coordenadas manualmente / usa el botón de ubicación
-            </p>
-          </div>
 
             <DialogFooter>
               <Button
