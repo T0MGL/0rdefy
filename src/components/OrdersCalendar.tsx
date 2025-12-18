@@ -3,6 +3,7 @@ import { Badge } from './ui/badge';
 import { Calendar } from './ui/calendar';
 import { useState, useEffect } from 'react';
 import { ordersService } from '@/services/orders.service';
+import { getOrderDisplayId } from '@/utils/orderDisplay';
 import type { Order } from '@/types';
 
 const statusColors = {
@@ -117,10 +118,7 @@ export function OrdersCalendar() {
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm font-medium">
-                      {order.shopify_order_name ||
-                        (order.shopify_order_number ? `#${order.shopify_order_number}` : null) ||
-                        (order.shopify_order_id ? `SH#${order.shopify_order_id}` : null) ||
-                        `OR#${order.id.substring(0, 8)}`}
+                      {getOrderDisplayId(order)}
                     </span>
                     {order.shopify_order_id && (
                       <Badge

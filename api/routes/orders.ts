@@ -557,14 +557,19 @@ ordersRouter.use(verifyToken, extractStoreId);
 // Using req.storeId from middleware
 
 // Helper function to map database status to frontend status
-function mapStatus(dbStatus: string): 'pending' | 'confirmed' | 'in_transit' | 'delivered' | 'cancelled' {
-    const statusMap: Record<string, 'pending' | 'confirmed' | 'in_transit' | 'delivered' | 'cancelled'> = {
+function mapStatus(dbStatus: string): 'pending' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident' {
+    const statusMap: Record<string, 'pending' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident'> = {
         'pending': 'pending',
         'confirmed': 'confirmed',
+        'in_preparation': 'in_preparation',
+        'ready_to_ship': 'ready_to_ship',
         'shipped': 'in_transit',
+        'in_transit': 'in_transit',
         'delivered': 'delivered',
+        'returned': 'returned',
         'cancelled': 'cancelled',
-        'rejected': 'cancelled'
+        'rejected': 'cancelled',
+        'incident': 'incident'
     };
     return statusMap[dbStatus] || 'pending';
 }
@@ -679,6 +684,10 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
             return {
                 id: order.id,
+                shopify_order_id: order.shopify_order_id,
+                shopify_order_number: order.shopify_order_number,
+                shopify_order_name: order.shopify_order_name,
+                payment_gateway: order.payment_gateway,
                 customer: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
                 address: order.customer_address || '',
                 product: productDisplay,
@@ -687,6 +696,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 status: mapStatus(order.sleeves_status),
                 payment_status: order.payment_status,
                 carrier: order.carriers?.name || 'Sin transportadora',
+                carrier_id: order.courier_id,
                 date: order.created_at,
                 phone: order.customer_phone || '',
                 confirmedByWhatsApp: order.sleeves_status === 'confirmed' || order.sleeves_status === 'shipped' || order.sleeves_status === 'delivered',
@@ -697,7 +707,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 latitude: order.latitude,
                 longitude: order.longitude,
                 google_maps_link: order.google_maps_link,
-                line_items: lineItems  // Include all line items
+                line_items: lineItems,  // Include all line items
+                order_line_items: lineItems,  // Also include as order_line_items for compatibility
+                printed: order.printed,
+                printed_at: order.printed_at,
+                printed_by: order.printed_by
             };
         }) || [];
 

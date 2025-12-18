@@ -254,6 +254,8 @@ CREATE TABLE IF NOT EXISTS orders (
     customer_id UUID REFERENCES customers(id),
     shopify_order_id VARCHAR(255),
     shopify_order_number VARCHAR(100),
+    shopify_order_name VARCHAR(100),
+    payment_gateway VARCHAR(100),
     shopify_data JSONB,
     shopify_raw_json JSONB,
     last_synced_at TIMESTAMP,
