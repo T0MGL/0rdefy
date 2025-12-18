@@ -605,10 +605,10 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     total_price,
                     shopify_product_id,
                     shopify_variant_id,
-                    products (
+                    products:product_id (
                         id,
                         name,
-                        image
+                        image_url
                     )
                 ),
                 carriers!orders_courier_id_fkey (
@@ -751,10 +751,10 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
                     shopify_product_id,
                     shopify_variant_id,
                     properties,
-                    products (
+                    products:product_id (
                         id,
                         name,
-                        image
+                        image_url
                     )
                 ),
                 carriers!orders_courier_id_fkey (
