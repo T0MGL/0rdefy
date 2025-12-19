@@ -239,7 +239,7 @@ export default function Dashboard() {
             />
             <MetricCard
               title="ROI General"
-              value={`${dashboardOverview.roi}x`}
+              value={`${dashboardOverview.roi.toFixed(1)}%`}
               change={dashboardOverview.changes?.roi !== null ? Math.abs(dashboardOverview.changes?.roi || 0) : undefined}
               trend={dashboardOverview.changes?.roi !== null ? (dashboardOverview.changes?.roi >= 0 ? 'up' : 'down') : undefined}
               icon={<Target className="text-blue-600" size={20} />}
@@ -304,10 +304,10 @@ export default function Dashboard() {
               subtitle="Solo pedidos entregados"
             />
             <MetricCard
-              title="Marketing"
-              value={formatCurrency(dashboardOverview.marketing)}
-              change={dashboardOverview.changes?.marketing !== null ? Math.abs(dashboardOverview.changes?.marketing || 0) : undefined}
-              trend={dashboardOverview.changes?.marketing !== null ? (dashboardOverview.changes?.marketing >= 0 ? 'up' : 'down') : undefined}
+              title="Gasto Publicitario"
+              value={formatCurrency(dashboardOverview.gasto_publicitario)}
+              change={dashboardOverview.changes?.gasto_publicitario !== null ? Math.abs(dashboardOverview.changes?.gasto_publicitario || 0) : undefined}
+              trend={dashboardOverview.changes?.gasto_publicitario !== null ? (dashboardOverview.changes?.gasto_publicitario >= 0 ? 'up' : 'down') : undefined}
               icon={<Megaphone className="text-blue-600" size={20} />}
               subtitle="Inversión publicitaria"
             />
@@ -358,10 +358,10 @@ export default function Dashboard() {
             />
             <Line
               type="monotone"
-              dataKey="marketing"
+              dataKey="gasto_publicitario"
               stroke="hsl(217, 91%, 60%)"
               strokeWidth={2.5}
-              name="Marketing"
+              name="Gasto Publicitario"
               dot={false}
             />
             <Line

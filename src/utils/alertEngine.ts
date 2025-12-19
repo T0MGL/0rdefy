@@ -31,14 +31,14 @@ export function generateAlerts(data: AlertEngineData): Alert[] {
   }
 
   // ✅ CORREGIDO: Analizar ROI real (no proyectado) con threshold realista para LATAM COD
-  // ROI típico en e-commerce COD en LATAM: 1.2x - 1.5x es aceptable
+  // ROI típico en e-commerce COD en LATAM: 120% - 150% es aceptable (anteriormente 1.2x - 1.5x)
   const realRoi = overview.realRoi || overview.roi;
-  if (realRoi < 1.2 && overview.totalOrders > 20) {
+  if (realRoi < 120 && overview.totalOrders > 20) {
     alerts.push({
       id: 'low-roi',
       severity: 'warning',
       title: 'ROI por debajo del objetivo',
-      description: `El ROI real es ${realRoi.toFixed(2)}x. El objetivo mínimo es 1.2x para mantener rentabilidad.`,
+      description: `El ROI real es ${realRoi.toFixed(1)}%. El objetivo mínimo es 120% para mantener rentabilidad.`,
       actionUrl: '/ads',
       actionLabel: 'Revisar campañas',
       timestamp: new Date().toISOString(),

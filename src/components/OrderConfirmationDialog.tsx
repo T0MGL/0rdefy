@@ -52,7 +52,7 @@ export function OrderConfirmationDialog({
   const [upsellAdded, setUpsellAdded] = useState(false);
   const [courierId, setCourierId] = useState<string>('');
   const [address, setAddress] = useState('');
-  const [mapsLink, setMapsLink] = useState('');
+  const [googleMapsLink, setGoogleMapsLink] = useState('');
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -66,6 +66,10 @@ export function OrderConfirmationDialog({
       // Pre-fill upsell if order has one
       if (order?.upsell_added !== undefined) {
         setUpsellAdded(order.upsell_added);
+      }
+      // Pre-fill Google Maps link if order has one
+      if (order?.google_maps_link) {
+        setGoogleMapsLink(order.google_maps_link);
       }
 
       // Check if no carriers available
@@ -152,6 +156,10 @@ export function OrderConfirmationDialog({
         payload.address = address;
       }
 
+      if (googleMapsLink && googleMapsLink !== order.google_maps_link) {
+        payload.google_maps_link = googleMapsLink;
+      }
+
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}/confirm`, {
         method: 'POST',
         headers: {
@@ -199,7 +207,7 @@ export function OrderConfirmationDialog({
     setUpsellAdded(false);
     setCourierId('');
     setAddress('');
-    setMapsLink('');
+    setGoogleMapsLink('');
     setIsConfirmed(false);
     setConfirmedOrder(null);
     onOpenChange(false);
@@ -343,6 +351,23 @@ export function OrderConfirmationDialog({
               onChange={(e) => setAddress(e.target.value)}
               placeholder="Calle Principal 123"
             />
+          </div>
+
+          {/* Google Maps Link (Optional) */}
+          <div className="space-y-2">
+            <Label htmlFor="google-maps-link">
+              Link de Google Maps (opcional)
+            </Label>
+            <Input
+              id="google-maps-link"
+              type="url"
+              value={googleMapsLink}
+              onChange={(e) => setGoogleMapsLink(e.target.value)}
+              placeholder="https://maps.google.com/?q=..."
+            />
+            <p className="text-xs text-muted-foreground">
+              Este link estará disponible para el transportador para navegar directamente
+            </p>
           </div>
 
 
