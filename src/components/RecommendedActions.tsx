@@ -29,7 +29,7 @@ import { analyticsService } from '@/services/analytics.service';
 const typeConfig = {
   pricing: { icon: DollarSign, color: 'text-green-600', label: 'Precios' },
   inventory: { icon: Package, color: 'text-blue-600', label: 'Inventario' },
-  marketing: { icon: TrendingUp, color: 'text-purple-600', label: 'Marketing' },
+  gasto_publicitario: { icon: TrendingUp, color: 'text-purple-600', label: 'Gasto Publicitario' },
   carrier: { icon: Truck, color: 'text-orange-600', label: 'Logística' },
 };
 

@@ -105,14 +105,14 @@ export function RevenueIntelligence() {
   ];
 
   // Calculate net margin data
-  const marketing = overview.marketing;
+  const gasto_publicitario = overview.gasto_publicitario;
   const shipping = overview.deliveryCosts;
   const ops = 0; // TODO: Add operational costs when available
   const netProfit = overview.netProfit;
 
   const netMarginData = [
     { name: 'Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
-    { name: 'Marketing', value: Math.round(marketing), color: 'hsl(217, 91%, 60%)' },
+    { name: 'Gasto Publicitario', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
     { name: 'Shipping', value: Math.round(shipping), color: 'hsl(48, 96%, 53%)' },
     { name: 'Ops', value: Math.round(ops), color: 'hsl(271, 81%, 56%)' },
     { name: 'NETO', value: Math.round(netProfit), color: 'hsl(84, 81%, 63%)' },

@@ -91,7 +91,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             return date >= previous7DaysStart && date < last7DaysStart;
         });
 
-        // ===== GET MARKETING COSTS FROM CAMPAIGNS TABLE =====
+        // ===== GET GASTO PUBLICITARIO COSTS FROM CAMPAIGNS TABLE =====
         // Get all campaigns for this store (active campaigns only)
         const { data: campaignsData, error: campaignsError } = await supabaseAdmin
             .from('campaigns')
@@ -104,29 +104,29 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         const campaigns = campaignsData || [];
 
-        // Calculate marketing costs for current period
-        const currentMarketingCosts = campaigns
+        // Calculate gasto publicitario costs for current period
+        const currentGastoPublicitarioCosts = campaigns
             .filter(c => {
                 const campaignDate = new Date(c.created_at);
                 return campaignDate >= last7DaysStart && c.status === 'active';
             })
             .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
 
-        // Calculate marketing costs for previous period
-        const previousMarketingCosts = campaigns
+        // Calculate gasto publicitario costs for previous period
+        const previousGastoPublicitarioCosts = campaigns
             .filter(c => {
                 const campaignDate = new Date(c.created_at);
                 return campaignDate >= previous7DaysStart && campaignDate < last7DaysStart && c.status === 'active';
             })
             .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
 
-        // Calculate total marketing costs (all active campaigns)
-        const totalMarketingCosts = campaigns
+        // Calculate total gasto publicitario costs (all active campaigns)
+        const totalGastoPublicitarioCosts = campaigns
             .filter(c => c.status === 'active')
             .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
 
         // ===== HELPER FUNCTION: Calculate metrics for a set of orders =====
-        const calculateMetrics = async (ordersList: any[], marketingCosts: number, periodStart: Date, periodEnd: Date) => {
+        const calculateMetrics = async (ordersList: any[], gastoPublicitarioCosts: number, periodStart: Date, periodEnd: Date) => {
             const count = ordersList.length;
 
             // 1. REVENUE (from orders)
@@ -266,17 +266,17 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             productCosts += additionalExpenses;
             realProductCosts += additionalExpenses;
 
-            // 4. MARKETING (from campaigns table)
-            const mktg = marketingCosts;
+            // 4. GASTO PUBLICITARIO (from campaigns table)
+            const gastoPublicitario = gastoPublicitarioCosts;
 
             // 5. TOTAL OPERATIONAL COSTS
             // Para e-commerce COD, los costos totales incluyen:
             // - Costo de productos
             // - Costos de envío
-            // - Marketing
+            // - Gasto Publicitario
             // IMPORTANTE: Estos son los costos TOTALES operativos
-            const totalCosts = productCosts + deliveryCosts + mktg;
-            const realTotalCosts = realProductCosts + realDeliveryCosts + mktg;
+            const totalCosts = productCosts + deliveryCosts + gastoPublicitario;
+            const realTotalCosts = realProductCosts + realDeliveryCosts + gastoPublicitario;
 
             // 6. GROSS PROFIT & MARGIN
             // MARGEN BRUTO = Solo resta el costo de productos (COGS)
@@ -289,7 +289,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const realGrossMargin = realRevenue > 0 ? ((realGrossProfit / realRevenue) * 100) : 0;
 
             // 7. NET PROFIT & MARGIN
-            // MARGEN NETO = Resta TODOS los costos (productos + envío + marketing)
+            // MARGEN NETO = Resta TODOS los costos (productos + envío + gasto publicitario)
             // Esta métrica muestra la ganancia REAL después de todos los gastos
             // IMPORTANTE: El margen neto SIEMPRE debe ser menor que el margen bruto
             const netProfit = rev - totalCosts;
@@ -301,19 +301,20 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
             // 8. ROI (Return on Investment)
             // Para proyecciones: usa todos los pedidos
+            // Convertir a porcentaje multiplicando por 100
             const investment = totalCosts;
-            const roiValue = investment > 0 ? ((rev - investment) / investment) : 0;
+            const roiValue = investment > 0 ? (((rev - investment) / investment) * 100) : 0;
 
             // Para métricas reales: usa solo pedidos entregados
             const realInvestment = realTotalCosts;
-            const realRoiValue = realInvestment > 0 ? ((realRevenue - realInvestment) / realInvestment) : 0;
+            const realRoiValue = realInvestment > 0 ? (((realRevenue - realInvestment) / realInvestment) * 100) : 0;
 
             // 9. ROAS (Return on Ad Spend)
             // Para proyecciones: usa todos los pedidos
-            const roasValue = mktg > 0 ? (rev / mktg) : 0;
+            const roasValue = gastoPublicitario > 0 ? (rev / gastoPublicitario) : 0;
 
             // Para métricas reales: usa solo pedidos entregados
-            const realRoasValue = mktg > 0 ? (realRevenue / mktg) : 0;
+            const realRoasValue = gastoPublicitario > 0 ? (realRevenue / gastoPublicitario) : 0;
 
             // 10. DELIVERY RATE
             // ✅ CORREGIDO: Tasa de entrega para COD
@@ -337,7 +338,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 realProductCosts: realProductCosts,
                 deliveryCosts: deliveryCosts,
                 realDeliveryCosts: realDeliveryCosts,
-                marketing: mktg,
+                gasto_publicitario: gastoPublicitario,
                 // Costos totales (para mostrar en dashboard)
                 costs: totalCosts,
                 realCosts: realTotalCosts,
@@ -363,14 +364,14 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         };
 
         // Calculate metrics for both periods
-        const currentMetrics = await calculateMetrics(currentPeriodOrders, currentMarketingCosts, currentPeriodStart, currentPeriodEnd);
-        const previousMetrics = await calculateMetrics(previousPeriodOrders, previousMarketingCosts, previousPeriodStart, previousPeriodEnd);
+        const currentMetrics = await calculateMetrics(currentPeriodOrders, currentGastoPublicitarioCosts, currentPeriodStart, currentPeriodEnd);
+        const previousMetrics = await calculateMetrics(previousPeriodOrders, previousGastoPublicitarioCosts, previousPeriodStart, previousPeriodEnd);
 
         // Use current period metrics as the displayed values
         const revenue = currentMetrics.revenue;
         const taxCollected = currentMetrics.taxCollected;
         const totalCosts = currentMetrics.costs;
-        const marketing = currentMetrics.marketing;
+        const gasto_publicitario = currentMetrics.gasto_publicitario;
         const grossProfit = currentMetrics.grossProfit;
         const grossMargin = currentMetrics.grossMargin;
         const netProfit = currentMetrics.netProfit;
@@ -398,7 +399,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             costs: calculateChange(currentMetrics.costs, previousMetrics.costs),
             productCosts: calculateChange(currentMetrics.productCosts, previousMetrics.productCosts),
             deliveryCosts: calculateChange(currentMetrics.deliveryCosts, previousMetrics.deliveryCosts),
-            marketing: calculateChange(currentMetrics.marketing, previousMetrics.marketing),
+            gasto_publicitario: calculateChange(currentMetrics.gasto_publicitario, previousMetrics.gasto_publicitario),
             grossProfit: calculateChange(currentMetrics.grossProfit, previousMetrics.grossProfit),
             grossMargin: calculateChange(currentMetrics.grossMargin, previousMetrics.grossMargin),
             netProfit: calculateChange(currentMetrics.netProfit, previousMetrics.netProfit),
@@ -426,8 +427,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 // Costos separados para transparencia
                 productCosts: Math.round(currentMetrics.productCosts),
                 deliveryCosts: Math.round(currentMetrics.deliveryCosts),
-                costs: Math.round(totalCosts), // Costos totales (productos + envío + marketing)
-                marketing,
+                costs: Math.round(totalCosts), // Costos totales (productos + envío + gasto publicitario)
+                gasto_publicitario,
                 // Gross profit and margin (Revenue - Product Costs only)
                 grossProfit: Math.round(grossProfit),
                 grossMargin: parseFloat(grossMargin.toFixed(1)),
@@ -457,7 +458,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 averageOrderValue: Math.round(averageOrderValue),
                 taxCollected: Math.round(taxCollected), // IVA recolectado
                 taxRate: parseFloat(taxRate.toFixed(2)), // Tasa de IVA configurada
-                adSpend: marketing, // Alias for compatibility
+                adSpend: gasto_publicitario, // Alias for compatibility
                 adRevenue: revenue, // Placeholder
                 conversionRate: deliveryRate, // Placeholder
 
@@ -468,7 +469,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     costs: changes.costs,
                     productCosts: changes.productCosts,
                     deliveryCosts: changes.deliveryCosts,
-                    marketing: changes.marketing,
+                    gasto_publicitario: changes.gasto_publicitario,
                     grossProfit: changes.grossProfit,
                     grossMargin: changes.grossMargin,
                     netProfit: changes.netProfit,
@@ -528,7 +529,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         const orders = ordersData || [];
 
-        // Get marketing costs from campaigns table
+        // Get gasto publicitario costs from campaigns table
         const { data: campaignsData, error: campaignsError } = await supabaseAdmin
             .from('campaigns')
             .select('investment, created_at, status')
@@ -618,13 +619,13 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         }
 
         // Group orders by date
-        const dailyData: Record<string, { revenue: number; costs: number; marketing: number; profit: number }> = {};
+        const dailyData: Record<string, { revenue: number; costs: number; gasto_publicitario: number; profit: number }> = {};
 
         for (const order of orders) {
             const date = new Date(order.created_at).toISOString().split('T')[0];
 
             if (!dailyData[date]) {
-                dailyData[date] = { revenue: 0, costs: 0, marketing: 0, profit: 0 };
+                dailyData[date] = { revenue: 0, costs: 0, gasto_publicitario: 0, profit: 0 };
             }
 
             dailyData[date].revenue += order.total_price || 0;
@@ -642,15 +643,15 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         // Add additional values to revenue and costs for each day
         for (const date in dailyAdditionalValues) {
             if (!dailyData[date]) {
-                dailyData[date] = { revenue: 0, costs: 0, marketing: 0, profit: 0 };
+                dailyData[date] = { revenue: 0, costs: 0, gasto_publicitario: 0, profit: 0 };
             }
             dailyData[date].revenue += dailyAdditionalValues[date].income;
             dailyData[date].costs += dailyAdditionalValues[date].expense;
         }
 
-        // Add marketing costs from campaigns for each day
+        // Add gasto publicitario costs from campaigns for each day
         for (const date in dailyData) {
-            dailyData[date].marketing = Math.round(dailyCampaignCosts[date] || 0);
+            dailyData[date].gasto_publicitario = Math.round(dailyCampaignCosts[date] || 0);
         }
 
         // Calculate profit for each day
@@ -658,8 +659,8 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             date,
             revenue: Math.round(data.revenue),
             costs: Math.round(data.costs),
-            marketing: data.marketing,
-            profit: Math.round(data.revenue - data.costs - data.marketing),
+            gasto_publicitario: data.gasto_publicitario,
+            profit: Math.round(data.revenue - data.costs - data.gasto_publicitario),
         })).sort((a, b) => a.date.localeCompare(b.date));
 
         res.json({
@@ -1171,15 +1172,15 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
 
         const orders = activeOrders || [];
 
-        // Get marketing costs (for proration)
+        // Get gasto publicitario costs (for proration)
         const { data: campaignsData } = await supabaseAdmin
             .from('campaigns')
             .select('investment')
             .eq('store_id', req.storeId)
             .eq('status', 'active');
 
-        const totalMarketing = (campaignsData || []).reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
-        const marketingPerOrder = orders.length > 0 ? totalMarketing / orders.length : 0;
+        const totalGastoPublicitario = (campaignsData || []).reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
+        const gastoPublicitarioPerOrder = orders.length > 0 ? totalGastoPublicitario / orders.length : 0;
 
         // Collect all unique product IDs for batch query
         const productIds = new Set<string>();
@@ -1273,7 +1274,7 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
             }
 
             const shippingCost = Number(order.shipping_cost) || 0;
-            const totalCosts = productCosts + shippingCost + marketingPerOrder;
+            const totalCosts = productCosts + shippingCost + gastoPublicitarioPerOrder;
             const revenue = Number(order.total_price) || 0;
 
             // Calculate collection dates (conservative, moderate, optimistic)

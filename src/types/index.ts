@@ -3,9 +3,9 @@ export interface DashboardOverview {
   revenue: number;
   // Costos separados para transparencia
   productCosts?: number; // Costo de productos solamente
-  costs: number; // Costos totales (productos + envío + marketing)
+  costs: number; // Costos totales (productos + envío + gasto publicitario)
   deliveryCosts?: number; // Costos de envío
-  marketing: number;
+  gasto_publicitario: number;
   // Gross profit and margin (Revenue - Product Costs only)
   grossProfit: number; // Beneficio bruto (Ingresos - Costos de productos)
   grossMargin: number; // Margen bruto (%) (Beneficio bruto / Ingresos × 100)
@@ -40,7 +40,7 @@ export interface DashboardOverview {
     costs: number | null;
     deliveryCosts?: number | null;
     productCosts?: number | null;
-    marketing: number | null;
+    gasto_publicitario: number | null;
     grossProfit?: number | null;
     grossMargin?: number | null;
     netProfit: number | null;
@@ -192,7 +192,7 @@ export interface Ad {
 
 export interface AdditionalValue {
   id: string;
-  category: 'marketing' | 'sales' | 'employees' | 'operational';
+  category: 'gasto_publicitario' | 'sales' | 'employees' | 'operational';
   description: string;
   amount: number;
   date: string;
@@ -202,7 +202,7 @@ export interface AdditionalValue {
 export interface Integration {
   id: string;
   name: string;
-  category: 'general' | 'marketing' | 'store';
+  category: 'general' | 'gasto_publicitario' | 'store';
   icon: string;
   description: string;
   status: 'connected' | 'available' | 'coming_soon';
@@ -239,7 +239,7 @@ export interface ChartData {
   date: string;
   revenue: number;
   costs: number;
-  marketing: number;
+  gasto_publicitario: number;
   profit: number;
 }
 
@@ -278,7 +278,7 @@ export interface Alert {
 
 export interface Recommendation {
   id: string;
-  type: 'pricing' | 'inventory' | 'marketing' | 'carrier';
+  type: 'pricing' | 'inventory' | 'gasto_publicitario' | 'carrier';
   title: string;
   description: string;
   impact: string;

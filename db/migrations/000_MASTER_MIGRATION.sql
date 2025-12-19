@@ -317,6 +317,7 @@ CREATE TABLE IF NOT EXISTS orders (
     printed BOOLEAN DEFAULT FALSE,
     printed_at TIMESTAMP,
     printed_by VARCHAR(100),
+    google_maps_link TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );

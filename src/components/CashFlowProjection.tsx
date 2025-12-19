@@ -336,7 +336,7 @@ export function CashFlowProjection() {
               <li><strong>Conservador:</strong> Considera el peor escenario (máximo tiempo de entrega, menor probabilidad)</li>
               <li><strong>Moderado:</strong> Promedio de tiempos de entrega con probabilidad estándar</li>
               <li><strong>Optimista:</strong> Mejor escenario (mínimo tiempo de entrega, mayor probabilidad)</li>
-              <li>Los costos incluyen: productos, envío y marketing prorrateado</li>
+              <li>Los costos incluyen: productos, envío y gasto publicitario prorrateado</li>
               <li>La probabilidad se ajusta según el estado del pedido (delivered: 100%, shipped: 90%, etc.)</li>
             </ul>
           </div>

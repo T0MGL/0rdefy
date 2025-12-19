@@ -214,7 +214,7 @@ export const campaignsExportColumns: ExportColumn[] = [
     header: 'ROI',
     key: 'roi',
     width: 10,
-    format: (value) => `${Number(value || 0).toFixed(2)}x`
+    format: (value) => `${Number(value || 0).toFixed(1)}%`
   },
   {
     header: 'Conversiones',

@@ -9,7 +9,7 @@ const defaultOverview: DashboardOverview = {
   productCosts: 0,
   costs: 0,
   deliveryCosts: 0,
-  marketing: 0,
+  gasto_publicitario: 0,
   grossProfit: 0,
   grossMargin: 0,
   netProfit: 0,

@@ -1598,7 +1598,8 @@ ordersRouter.post('/:id/confirm', async (req: AuthRequest, res: Response) => {
             courier_id,
             address,
             latitude,
-            longitude
+            longitude,
+            google_maps_link
         } = req.body;
 
         console.log(`✅ [ORDERS] Confirming order ${id} with courier ${courier_id}`);
@@ -1639,6 +1640,7 @@ ordersRouter.post('/:id/confirm', async (req: AuthRequest, res: Response) => {
 
         // Update address/location if provided
         if (address) updateData.customer_address = address;
+        if (google_maps_link) updateData.google_maps_link = google_maps_link;
         if (latitude !== undefined) updateData.latitude = latitude;
         if (longitude !== undefined) updateData.longitude = longitude;
 

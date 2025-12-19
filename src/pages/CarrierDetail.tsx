@@ -22,7 +22,8 @@ import {
   CreditCard,
   Search,
   CheckCircle2,
-  MapPin
+  MapPin,
+  ExternalLink
 } from 'lucide-react';
 import { Order } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -342,6 +343,7 @@ export default function CarrierDetail() {
                     <th className="p-4 font-medium">Orden</th>
                     <th className="p-4 font-medium">Cliente / Dirección</th>
                     <th className="p-4 font-medium">Zona</th>
+                    <th className="p-4 font-medium">Ubicación</th>
                     <th className="p-4 font-medium text-right">Monto (Gs)</th>
                     <th className="p-4 font-medium text-center">Estado</th>
                   </tr>
@@ -349,7 +351,7 @@ export default function CarrierDetail() {
                 <tbody className="divide-y divide-border">
                   {reconciliationData.orders.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                      <td colSpan={8} className="p-8 text-center text-muted-foreground">
                         No se encontraron órdenes para este filtro.
                       </td>
                     </tr>
@@ -381,6 +383,22 @@ export default function CarrierDetail() {
                           <Badge variant="outline" className="font-normal text-xs">
                             {order.neighborhood || 'Sin Zona'}
                           </Badge>
+                        </td>
+                        <td className="p-4">
+                          {order.google_maps_link ? (
+                            <a
+                              href={order.google_maps_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-primary hover:underline text-sm"
+                            >
+                              <MapPin className="h-4 w-4" />
+                              Abrir Maps
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Sin ubicación</span>
+                          )}
                         </td>
                         <td className="p-4 text-right font-bold text-card-foreground">
                           {formatCurrency(order.cod_amount || 0)}

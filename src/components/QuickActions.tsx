@@ -45,7 +45,7 @@ export function QuickActions() {
           <Button
             key={action.label}
             variant="outline"
-            className="h-auto flex-col gap-3 p-4 hover:border-primary hover:bg-primary/5 transition-all"
+            className="h-auto flex-col gap-3 p-4 hover:border-primary hover:bg-primary/5 hover:text-foreground transition-all"
             onClick={action.onClick}
           >
             <action.icon size={28} className={action.color} />

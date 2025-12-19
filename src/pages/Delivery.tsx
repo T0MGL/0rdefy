@@ -526,7 +526,7 @@ export default function Delivery() {
 
             <div className="space-y-2">
               <Button
-                className="w-full bg-primary hover:bg-primary/90 text-black font-semibold"
+                className="w-full bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold"
                 size="lg"
                 onClick={async () => {
                   try {
@@ -759,18 +759,18 @@ export default function Delivery() {
 
         {/* COD (Cash on Delivery) Alert */}
         {orderData.cod_amount > 0 && (
-          <Card className="bg-accent border-border">
+          <Card className="bg-orange-500/10 dark:bg-orange-500/20 border-orange-500/50">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-primary/20 rounded-full">
-                  <svg className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="p-2 bg-orange-500/20 dark:bg-orange-500/30 rounded-full">
+                  <svg className="h-6 w-6 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="font-bold text-lg text-primary">Cobro en Efectivo</p>
+                  <p className="font-bold text-lg text-orange-600 dark:text-orange-400">Cobro en Efectivo</p>
                   <p className="text-sm text-muted-foreground">Debes cobrar al cliente:</p>
-                  <p className="text-2xl font-bold text-primary mt-1">
+                  <p className="text-2xl font-bold text-orange-700 dark:text-orange-300 mt-1">
                     ${orderData.cod_amount?.toLocaleString()} {orderData.payment_method === 'efectivo' ? 'en efectivo' : ''}
                   </p>
                 </div>
@@ -783,14 +783,14 @@ export default function Delivery() {
 
         {/* Google Maps Location Card - Prominent for Couriers */}
         {orderData.customer_address && (
-          <Card className="bg-accent border-border">
+          <Card className="bg-blue-500/10 dark:bg-blue-500/20 border-blue-500/50">
             <CardContent className="p-4">
               <div className="flex items-start gap-3 mb-3">
-                <div className="p-2 bg-primary rounded-full">
-                  <MapPin className="h-5 w-5 text-primary-foreground" />
+                <div className="p-2 bg-blue-600 dark:bg-blue-500 rounded-full">
+                  <MapPin className="h-5 w-5 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold mb-1">
+                  <h3 className="font-semibold mb-1 text-blue-700 dark:text-blue-300">
                     Ubicación de Entrega
                   </h3>
                   <p className="text-sm">
@@ -886,8 +886,8 @@ export default function Delivery() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Confirm Delivery Section */}
-              <div className="space-y-3 p-4 border rounded-lg bg-accent">
-              <Label className="text-base font-semibold">✅ Confirmar Entrega</Label>
+              <div className="space-y-3 p-4 border border-green-500/50 rounded-lg bg-green-500/10 dark:bg-green-500/20">
+              <Label className="text-base font-semibold text-green-700 dark:text-green-300">✅ Confirmar Entrega</Label>
               <div className="space-y-2">
                 <Label htmlFor="payment-method" className="text-sm font-medium">
                   Método de pago *
@@ -928,8 +928,8 @@ export default function Delivery() {
             </div>
 
             {/* Report Failure Section */}
-            <div className="space-y-3 p-4 border rounded-lg bg-accent">
-              <Label className="text-base font-semibold">❌ Reportar Falla</Label>
+            <div className="space-y-3 p-4 border border-red-500/50 rounded-lg bg-red-500/10 dark:bg-red-500/20">
+              <Label className="text-base font-semibold text-red-700 dark:text-red-300">❌ Reportar Falla</Label>
               <div className="space-y-2">
                 <Label htmlFor="reason" className="text-sm font-medium">
                   Motivo de falla *
