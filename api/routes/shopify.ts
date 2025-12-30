@@ -35,10 +35,11 @@ function getWebhookSecret(integration: any): { secret: string | null; source: st
     const secret = process.env.SHOPIFY_API_SECRET?.trim() || null;
     return { secret, source: 'env (OAuth Public App)' };
   } else {
-    // Custom App integration: Use API Secret Key from database
-    // For Custom Apps, the API Secret Key is used to verify webhook HMAC signatures
-    const secret = integration.api_secret_key?.trim() || null;
-    return { secret, source: 'database (Custom App)' };
+    // Custom App integration: Use webhook_signature (API Secret Key) from database
+    // For Custom Apps, webhook_signature contains the API Secret Key used to verify HMAC
+    // Note: api_secret_key contains the Admin API access token (different purpose)
+    const secret = integration.webhook_signature?.trim() || null;
+    return { secret, source: 'database (Custom App webhook_signature)' };
   }
 }
 
