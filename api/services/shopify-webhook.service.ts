@@ -562,10 +562,22 @@ export class ShopifyWebhookService {
         shopifyOrder.billing_address?.first_name || shopifyOrder.shipping_address?.first_name
       );
 
+      // DEBUG: Log what data we have in the webhook
+      console.log(`📋 [WEBHOOK DATA] Order ${shopifyOrder.id}:`);
+      console.log(`   - email: ${shopifyOrder.email ? '✅' : '❌'}`);
+      console.log(`   - phone: ${shopifyOrder.phone ? '✅' : '❌'}`);
+      console.log(`   - customer: ${shopifyOrder.customer ? '✅' : '❌'}`);
+      console.log(`   - billing_address: ${shopifyOrder.billing_address ? '✅' : '❌'}`);
+      console.log(`   - shipping_address: ${shopifyOrder.shipping_address ? '✅' : '❌'}`);
+      console.log(`   - hasCompleteData: ${hasCompleteData}`);
+
       let enrichedOrder = shopifyOrder;
 
       // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify usando GraphQL
-      if (!hasCompleteData && integration) {
+      // SKIP PARA CUSTOM APPS: GraphQL falla en planes Basic por restricciones de PII
+      const isCustomApp = integration && (integration.api_key || integration.api_secret_key);
+
+      if (!hasCompleteData && integration && !isCustomApp) {
         console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
 
         const completeOrder = await this.fetchCompleteOrderDataGraphQL(
@@ -580,6 +592,8 @@ export class ShopifyWebhookService {
         } else {
           console.warn(`⚠️  Could not fetch complete order from GraphQL API. Using webhook data.`);
         }
+      } else if (!hasCompleteData && isCustomApp) {
+        console.log(`ℹ️  [CUSTOM APP] Skipping GraphQL query (Basic plan detected). Using webhook data with addresses.`);
       }
 
       // Enrich customer data from Shopify Customer API if available
@@ -828,10 +842,22 @@ export class ShopifyWebhookService {
         shopifyOrder.billing_address?.first_name || shopifyOrder.shipping_address?.first_name
       );
 
+      // DEBUG: Log what data we have in the webhook
+      console.log(`📋 [WEBHOOK DATA] Order ${shopifyOrder.id}:`);
+      console.log(`   - email: ${shopifyOrder.email ? '✅' : '❌'}`);
+      console.log(`   - phone: ${shopifyOrder.phone ? '✅' : '❌'}`);
+      console.log(`   - customer: ${shopifyOrder.customer ? '✅' : '❌'}`);
+      console.log(`   - billing_address: ${shopifyOrder.billing_address ? '✅' : '❌'}`);
+      console.log(`   - shipping_address: ${shopifyOrder.shipping_address ? '✅' : '❌'}`);
+      console.log(`   - hasCompleteData: ${hasCompleteData}`);
+
       let enrichedOrder = shopifyOrder;
 
       // Si el webhook NO tiene datos completos, fetchear el pedido completo desde Shopify usando GraphQL
-      if (!hasCompleteData && integration) {
+      // SKIP PARA CUSTOM APPS: GraphQL falla en planes Basic por restricciones de PII
+      const isCustomApp = integration && (integration.api_key || integration.api_secret_key);
+
+      if (!hasCompleteData && integration && !isCustomApp) {
         console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
 
         const completeOrder = await this.fetchCompleteOrderDataGraphQL(
@@ -846,6 +872,8 @@ export class ShopifyWebhookService {
         } else {
           console.warn(`⚠️  Could not fetch complete order from GraphQL API. Using webhook data.`);
         }
+      } else if (!hasCompleteData && isCustomApp) {
+        console.log(`ℹ️  [CUSTOM APP] Skipping GraphQL query (Basic plan detected). Using webhook data with addresses.`);
       }
 
       // Enrich customer data from Shopify Customer API if available
