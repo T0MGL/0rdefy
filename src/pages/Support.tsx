@@ -47,7 +47,7 @@ const faqs = [
     category: 'Productos',
     question: '¿Cómo calculo la rentabilidad de mis productos?',
     answer:
-      'Usa la Calculadora de Rentabilidad en la sección Productos. Ingresa tu costo, precio de venta, costo de marketing por unidad y costo de envío. El sistema te mostrará: ganancia neta, margen de beneficio (%) y un precio sugerido para alcanzar tu margen objetivo.',
+      'Usa la Calculadora de Rentabilidad en la sección Productos. Ingresa tu costo, precio de venta, CPA (Costo por Adquisición) y costo de envío. El sistema te mostrará: ganancia neta, margen de beneficio (%) y un precio sugerido para alcanzar tu margen objetivo.',
   },
   {
     category: 'Anuncios',

@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Store, DollarSign, CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { z } from 'zod';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
+import { config } from '@/config';
 
 // Validation schemas
 const step1Schema = z.object({
@@ -54,7 +55,7 @@ export default function Onboarding() {
   const validateStep = () => {
     try {
       setErrors({});
-      
+
       if (currentStep === 1) {
         step1Schema.parse({
           userName: formData.userName,
@@ -72,7 +73,7 @@ export default function Onboarding() {
           adminFee: formData.adminFee,
         });
       }
-      
+
       return true;
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -130,7 +131,7 @@ export default function Onboarding() {
       }
 
       // Call API endpoint to complete onboarding
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth/onboarding`, {
+      const response = await fetch(`${config.api.baseUrl}/api/auth/onboarding`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -221,7 +222,7 @@ export default function Onboarding() {
           <p className="text-xl text-white mb-8 drop-shadow-sm">
             Para comenzar, necesitamos configurar tu tienda y preferencias básicas.
           </p>
-          
+
           <div className="space-y-4">
             <div className="flex items-start gap-3">
               <div className={`mt-1 rounded-full p-2 shadow-md ${currentStep >= 1 ? 'bg-white text-primary' : 'bg-white/20 text-white'}`}>
@@ -269,9 +270,8 @@ export default function Onboarding() {
                     scale: currentStep === step ? 1.1 : 1,
                     backgroundColor: currentStep >= step ? 'hsl(84 81% 63%)' : 'hsl(240 5% 96%)',
                   }}
-                  className={`w-12 h-12 rounded-full flex items-center justify-center font-semibold transition-colors ${
-                    currentStep >= step ? 'text-primary-foreground' : 'text-muted-foreground'
-                  }`}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center font-semibold transition-colors ${currentStep >= step ? 'text-primary-foreground' : 'text-muted-foreground'
+                    }`}
                 >
                   {currentStep > step ? (
                     <CheckCircle2 size={24} />
@@ -284,9 +284,8 @@ export default function Onboarding() {
                   )}
                 </motion.div>
                 {step < 3 && (
-                  <div className={`w-16 h-1 mx-2 rounded-full transition-colors ${
-                    currentStep > step ? 'bg-primary' : 'bg-muted'
-                  }`} />
+                  <div className={`w-16 h-1 mx-2 rounded-full transition-colors ${currentStep > step ? 'bg-primary' : 'bg-muted'
+                    }`} />
                 )}
               </div>
             ))}

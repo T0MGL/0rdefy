@@ -75,7 +75,7 @@ export function ProfitabilityCalculator() {
           </div>
 
           <div>
-            <Label htmlFor="marketing">Gasto Publicitario por Unidad</Label>
+            <Label htmlFor="marketing">CPA (Costo por Adquisición)</Label>
             <div className="relative mt-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                 Gs.

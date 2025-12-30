@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Store, RefreshCw, Package, Users, ShoppingCart, CheckCircle2, Bug } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { config } from '@/config';
 
 interface ShopifyIntegration {
   id: string;
@@ -45,7 +46,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/integration`, {
+      const response = await fetch(`${config.api.baseUrl}/api/shopify/integration`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
@@ -78,7 +79,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/manual-sync`, {
+      const response = await fetch(`${config.api.baseUrl}/api/shopify/manual-sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -117,7 +118,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/debug`, {
+      const response = await fetch(`${config.api.baseUrl}/api/shopify/debug`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
@@ -163,7 +164,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/disconnect?shop=${integration.shop_domain}`, {
+      const response = await fetch(`${config.api.baseUrl}/api/shopify/disconnect?shop=${integration.shop_domain}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -1,16 +1,8 @@
 import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
-
-// Defensive: Ensure we don't have double /api/api/
-// Remove all trailing slashes and /api segments using regex
-let cleanBaseURL = API_BASE_URL.trim();
-// Remove /api (case insensitive) and trailing slashes repeatedly at the end
-cleanBaseURL = cleanBaseURL.replace(/(\/api\/?)+$/i, '');
-cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
+import { config } from '@/config';
 
 const apiClient = axios.create({
-  baseURL: `${cleanBaseURL}/api`,
+  baseURL: `${config.api.baseUrl}/api`,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -105,17 +97,13 @@ apiClient.interceptors.response.use(
             console.error('⚠️ [API] Session expired. Please refresh the Shopify admin page.');
           }
         } else {
-          // IN STANDALONE MODE: Clear session and redirect to login
-          console.log('🏠 [API] Standalone mode - Clearing session and redirecting to login');
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('user');
-          localStorage.removeItem('current_store_id');
-          localStorage.removeItem('onboarding_completed');
+          // IN STANDALONE MODE: Dispatch event for AuthContext to handle
+          console.log('🏠 [API] Standalone mode - Dispatching session expired event');
 
-          // Redirect to login if not already there
-          if (window.location.pathname !== '/login') {
-            window.location.href = '/login';
-          }
+          // Dispatch custom event that AuthContext will listen to
+          // This allows React to clear state gracefully before redirecting
+          const event = new CustomEvent('auth:session-expired');
+          window.dispatchEvent(event);
         }
       }
 

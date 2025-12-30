@@ -88,6 +88,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
+  // Listen for session expiration events from api.client.ts
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.warn('⚠️ [AUTH] Session expired event received. Logging out...');
+      signOut();
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, []);
+
   // NO periodic check - token validation happens ONLY in API interceptor
   // This saves resources and is sufficient for 7-day tokens
 

@@ -19,6 +19,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { config } from '@/config';
 
 interface WebhookInfo {
   id: string;
@@ -56,7 +57,7 @@ export function ShopifyDiagnostics() {
     try {
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const apiUrl = config.api.baseUrl;
 
       // Load integration info
       const integrationRes = await fetch(`${apiUrl}/api/shopify/integration`, {
@@ -118,7 +119,7 @@ export function ShopifyDiagnostics() {
     try {
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const apiUrl = config.api.baseUrl;
 
       const response = await fetch(`${apiUrl}/api/shopify/webhooks/setup`, {
         method: 'POST',
@@ -156,7 +157,7 @@ export function ShopifyDiagnostics() {
     try {
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const apiUrl = config.api.baseUrl;
 
       const response = await fetch(`${apiUrl}/api/shopify/webhooks/verify`, {
         headers: {

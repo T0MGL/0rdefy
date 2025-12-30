@@ -39,9 +39,9 @@ export function InfoTooltip({
                 </TooltipTrigger>
                 <TooltipContent
                     side={side}
-                    className="max-w-xs bg-slate-900 border-slate-800 text-slate-100 dark:bg-slate-50 dark:border-slate-200 dark:text-slate-900 shadow-xl"
+                    className="max-w-xs bg-popover text-popover-foreground border-border shadow-md"
                 >
-                    <p className="text-xs leading-5 font-normal">{content}</p>
+                    <p className="text-xs font-normal">{content}</p>
                 </TooltipContent>
             </Tooltip>
         </TooltipProvider>

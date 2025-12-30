@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService, LogisticsMetrics, IncidentsMetrics } from '@/services/analytics.service';
 import { codMetricsService } from '@/services/cod-metrics.service';
-import { MetricDetailModal } from '@/components/MetricDetailModal';
+import { InfoTooltip } from '@/components/InfoTooltip';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ConfirmationMetrics } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -23,7 +23,6 @@ import {
   XCircle,
   DoorOpen,
   Banknote,
-  PackageX,
 } from 'lucide-react';
 import {
   PieChart,
@@ -36,13 +35,10 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Legend,
 } from 'recharts';
 import { InfoTooltip } from '@/components/InfoTooltip';
 
 export default function DashboardLogistics() {
-  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showDetailedMetrics, setShowDetailedMetrics] = useState(false);
 
@@ -144,11 +140,6 @@ export default function DashboardLogistics() {
     };
   }, [loadDashboardData]);
 
-  const handleMetricClick = useCallback((metric: string) => {
-    setSelectedMetric(metric);
-    setModalOpen(true);
-  }, []);
-
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -189,9 +180,7 @@ export default function DashboardLogistics() {
             title={
               <div className="flex items-center">
                 Tasa de Entrega
-                <InfoTooltip
-                  content="Porcentaje de pedidos entregados exitosamente sobre el total de pedidos despachados. Excluye cancelaciones previas al despacho."
-                />
+                <InfoTooltip content="Porcentaje de pedidos entregados exitosamente sobre el total despachado." />
               </div>
             }
             value={`${(dashboardOverview.deliveryRate || 0).toFixed(1)}%`}
@@ -199,25 +188,38 @@ export default function DashboardLogistics() {
             trend={dashboardOverview.changes?.deliveryRate !== null && dashboardOverview.changes?.deliveryRate !== undefined ? (dashboardOverview.changes.deliveryRate >= 0 ? 'up' : 'down') : undefined}
             icon={<Truck className="text-purple-600" size={24} />}
             variant="purple"
-            onClick={() => handleMetricClick('delivery')}
           />
           <MetricCard
-            title="Tasa de Confirmación"
+            title={
+              <div className="flex items-center">
+                Tasa de Confirmación
+                <InfoTooltip content="Porcentaje de pedidos confirmados sobre el total de pedidos recibidos." />
+              </div>
+            }
             value={`${(confirmationMetrics?.confirmationRate || 0).toFixed(1)}%`}
             change={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? Math.abs(confirmationMetrics.confirmationRateChange) : undefined}
             trend={confirmationMetrics?.confirmationRateChange !== null && confirmationMetrics?.confirmationRateChange !== undefined ? (confirmationMetrics.confirmationRateChange >= 0 ? 'up' : 'down') : undefined}
             icon={<CheckCircle2 className="text-green-600" size={24} />}
-            onClick={() => handleMetricClick('confirmation')}
           />
           <MetricCard
-            title="Pedidos Totales"
+            title={
+              <div className="flex items-center">
+                Pedidos Totales
+                <InfoTooltip content="Número total de pedidos procesados en el periodo seleccionado." />
+              </div>
+            }
             value={(dashboardOverview.totalOrders || 0).toString()}
             change={dashboardOverview.changes?.totalOrders !== null && dashboardOverview.changes?.totalOrders !== undefined ? Math.abs(dashboardOverview.changes.totalOrders) : undefined}
             trend={dashboardOverview.changes?.totalOrders !== null && dashboardOverview.changes?.totalOrders !== undefined ? (dashboardOverview.changes.totalOrders >= 0 ? 'up' : 'down') : undefined}
             icon={<PackageCheck className="text-blue-600" size={24} />}
           />
           <MetricCard
-            title="Tiempo Promedio"
+            title={
+              <div className="flex items-center">
+                Tiempo Promedio
+                <InfoTooltip content="Tiempo promedio transcurrido desde la confirmación hasta la entrega." />
+              </div>
+            }
             value={confirmationMetrics?.avgDeliveryTime ? `${confirmationMetrics.avgDeliveryTime.toFixed(1)} días` : '0.0 días'}
             icon={<Clock className="text-orange-600" size={24} />}
           />
@@ -230,26 +232,46 @@ export default function DashboardLogistics() {
           <h2 className="text-2xl font-bold mb-4 text-card-foreground">Métricas de Logística</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <MetricCard
-              title="Pedidos Despachados"
+              title={
+                <div className="flex items-center">
+                  Pedidos Despachados
+                  <InfoTooltip content="Cantidad total de pedidos que han salido del almacén." />
+                </div>
+              }
               value={logisticsMetrics.totalDispatched}
               subtitle={formatCurrency(logisticsMetrics.dispatchedValue)}
               icon={<PackageCheck className="text-blue-600" size={20} />}
               variant="secondary"
             />
             <MetricCard
-              title="Tasa de Pedidos Fallidos"
+              title={
+                <div className="flex items-center">
+                  Tasa de Pedidos Fallidos
+                  <InfoTooltip content="Porcentaje de pedidos que no pudieron ser entregados." />
+                </div>
+              }
               value={`${logisticsMetrics.failedRate}%`}
               subtitle={`${logisticsMetrics.totalFailed} pedidos · ${formatCurrency(logisticsMetrics.failedOrdersValue)} perdidos`}
               icon={<XCircle className="text-red-600" size={20} />}
             />
             <MetricCard
-              title="Tasa de Rechazo en Puerta"
+              title={
+                <div className="flex items-center">
+                  Tasa de Rechazo en Puerta
+                  <InfoTooltip content="Porcentaje de envíos rechazados por el cliente al momento de la entrega." />
+                </div>
+              }
               value={`${logisticsMetrics.doorRejectionRate}%`}
               subtitle={`${logisticsMetrics.doorRejections} rechazos de ${logisticsMetrics.deliveryAttempts} intentos`}
               icon={<DoorOpen className="text-orange-600" size={20} />}
             />
             <MetricCard
-              title="Cash Collection"
+              title={
+                <div className="flex items-center">
+                  Cash Collection
+                  <InfoTooltip content="Porcentaje de dinero recaudado sobre el total esperado (Contra Entrega)." />
+                </div>
+              }
               value={`${logisticsMetrics.cashCollectionRate}%`}
               subtitle={`Cobrado: ${formatCurrency(logisticsMetrics.collectedCash)} · Pendiente: ${formatCurrency(logisticsMetrics.pendingCashAmount)}`}
               icon={<Banknote className="text-green-600" size={20} />}
@@ -257,7 +279,12 @@ export default function DashboardLogistics() {
             />
             {incidentsMetrics && (
               <MetricCard
-                title="Incidencias"
+                title={
+                  <div className="flex items-center">
+                    Incidencias
+                    <InfoTooltip content="Número total de problemas reportados durante el proceso de envío." />
+                  </div>
+                }
                 value={incidentsMetrics.totalIncidents}
                 subtitle={`Activas: ${incidentsMetrics.activeIncidents} · Resueltas: ${incidentsMetrics.resolvedIncidents}`}
                 icon={<AlertCircle className="text-yellow-600" size={20} />}
@@ -426,13 +453,6 @@ export default function DashboardLogistics() {
           </ResponsiveContainer>
         </Card>
       </div>
-
-      {/* Metric Detail Modal */}
-      <MetricDetailModal
-        metric={selectedMetric}
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-      />
     </div>
   );
 }
