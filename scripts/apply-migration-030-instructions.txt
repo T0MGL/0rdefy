@@ -1,0 +1,36 @@
+=================================================================
+MIGRATION 030: Collaborator Invitation System
+=================================================================
+
+To apply this migration to Supabase:
+
+1. Go to Supabase Dashboard → SQL Editor
+2. Copy the entire contents of: db/migrations/030_collaborator_invitation_system.sql
+3. Paste into SQL Editor
+4. Click "Run" to execute
+
+Verification queries:
+---------------------
+-- Check tables
+SELECT * FROM collaborator_invitations LIMIT 1;
+SELECT subscription_plan, max_users FROM stores LIMIT 5;
+SELECT is_active FROM user_stores LIMIT 5;
+
+-- Test functions
+SELECT generate_invitation_token();
+SELECT can_add_user_to_store('<your-store-id>');
+SELECT * FROM get_store_user_stats('<your-store-id>');
+
+What this migration adds:
+-------------------------
+✅ collaborator_invitations table (tokens, expiry, tracking)
+✅ stores.subscription_plan & stores.max_users columns
+✅ user_stores.invited_by, invited_at, is_active columns
+✅ Functions: generate_invitation_token(), can_add_user_to_store(), get_store_user_stats()
+✅ RLS policies for invitations
+✅ Triggers for activity logging and owner protection
+✅ Data migration (set first user as owner, default plans)
+
+Migration file location:
+db/migrations/030_collaborator_invitation_system.sql
+=================================================================

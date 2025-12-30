@@ -40,6 +40,7 @@ import returnsRouter from './routes/returns';
 import securityRouter from './routes/security';
 import { incidentsRouter } from './routes/incidents';
 import { unifiedRouter } from './routes/unified';
+import { collaboratorsRouter } from './routes/collaborators';
 
 // Load environment variables
 dotenv.config();
@@ -451,6 +452,9 @@ app.use('/api/inventory', inventoryRouter);
 
 // Security routes (Session management & Activity log)
 app.use('/api/security', securityRouter);
+
+// Collaborators & Team Management routes
+app.use('/api/collaborators', collaboratorsRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {

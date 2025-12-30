@@ -201,9 +201,12 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-md">
+          <DialogHeader className="hidden">
+            <DialogTitle>Cargando</DialogTitle>
+          </DialogHeader>
           <div className="flex flex-col items-center justify-center py-8">
             <RefreshCw className="h-8 w-8 animate-spin text-primary mb-4" />
-            <p className="text-sm text-muted-foreground">Cargando configuración...</p>
+            <DialogDescription>Cargando configuración...</DialogDescription>
           </div>
         </DialogContent>
       </Dialog>

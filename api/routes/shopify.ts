@@ -1019,6 +1019,19 @@ shopifyRouter.get('/products', async (req: AuthRequest, res: Response) => {
       );
     }
 
+    // Obtener todos los productos locales que tienen shopify_product_id y shopify_variant_id
+    const { data: localProducts } = await supabaseAdmin
+      .from('products')
+      .select('shopify_product_id, shopify_variant_id')
+      .eq('store_id', storeId)
+      .not('shopify_product_id', 'is', null)
+      .not('shopify_variant_id', 'is', null);
+
+    // Crear un Set para búsqueda rápida de variantes importadas
+    const importedVariantIds = new Set(
+      (localProducts || []).map(p => p.shopify_variant_id?.toString())
+    );
+
     // Transformar productos para el frontend
     const transformedProducts = filteredProducts.map(product => ({
       id: product.id.toString(),
@@ -1030,7 +1043,8 @@ shopifyRouter.get('/products', async (req: AuthRequest, res: Response) => {
         sku: variant.sku || '',
         price: parseFloat(variant.price || '0'),
         inventory_quantity: variant.inventory_quantity || 0,
-        image_id: variant.image_id
+        image_id: variant.image_id,
+        is_imported: importedVariantIds.has(variant.id.toString())
       })) || []
     }));
 

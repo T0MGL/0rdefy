@@ -28,7 +28,8 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             category,
             min_price,
             max_price,
-            is_active
+            is_active,
+            source
         } = req.query;
 
         // Build query - only show active products by default
@@ -39,6 +40,13 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             .eq('is_active', true)
             .order('created_at', { ascending: false })
             .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+
+        // Filter by source (local = only database products, shopify = only Shopify synced products)
+        if (source === 'local') {
+            query = query.is('shopify_product_id', null).is('shopify_variant_id', null);
+        } else if (source === 'shopify') {
+            query = query.not('shopify_product_id', 'is', null);
+        }
 
         if (search) {
             const sanitized = sanitizeSearchInput(search as string);
@@ -67,6 +75,13 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
                 .eq('is_active', is_active === 'true')
                 .order('created_at', { ascending: false })
                 .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+
+            // Reapply source filter
+            if (source === 'local') {
+                query = query.is('shopify_product_id', null).is('shopify_variant_id', null);
+            } else if (source === 'shopify') {
+                query = query.not('shopify_product_id', 'is', null);
+            }
 
             // Reapply other filters (sanitized)
             if (search) {

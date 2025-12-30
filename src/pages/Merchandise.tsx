@@ -43,7 +43,7 @@ export default function Merchandise() {
     try {
       const [shipmentsData, productsData, suppliersData] = await Promise.all([
         merchandiseService.getAll(statusFilter === 'all' ? {} : { status: statusFilter }),
-        productsService.getAll(),
+        productsService.getAll('local'), // Only load local products (not from Shopify)
         suppliersService.getAll(),
       ]);
       setShipments(shipmentsData);

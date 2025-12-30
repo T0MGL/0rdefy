@@ -214,6 +214,15 @@ export default function Products() {
           title: 'Producto actualizado',
           description: 'Los cambios han sido guardados exitosamente.',
         });
+      } else if (data.id) {
+        // Product already created by ProductForm (e.g., from Shopify import)
+        // Just add it to local state
+        setProducts(prev => [data, ...prev]);
+
+        toast({
+          title: 'Producto importado',
+          description: 'El producto ha sido importado exitosamente desde Shopify.',
+        });
       } else {
         const newProduct = await productsService.create({
           ...data,

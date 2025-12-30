@@ -48,6 +48,7 @@ const CarrierCompare = lazy(() => import("./pages/CarrierCompare"));
 const CourierPerformance = lazy(() => import("./pages/CourierPerformance"));
 const Support = lazy(() => import("./pages/Support"));
 const Settings = lazy(() => import("./pages/Settings"));
+const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation"));
 const Settlements = lazy(() => import("./pages/Settlements"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const LoginDemo = lazy(() => import("./pages/LoginDemo"));
@@ -124,6 +125,7 @@ const App = () => {
                             <Route path="/login" element={<LoginDemo />} />
                             <Route path="/signup" element={<SignUp />} />
                             <Route path="/onboarding" element={<Onboarding />} />
+                            <Route path="/accept-invite/:token" element={<AcceptInvitation />} />
                             <Route path="/delivery/:token" element={<Delivery />} />
                             <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />
 

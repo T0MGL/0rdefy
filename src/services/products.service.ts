@@ -22,9 +22,15 @@ const getHeaders = () => {
 };
 
 export const productsService = {
-  getAll: async (): Promise<Product[]> => {
+  getAll: async (source?: 'local' | 'shopify'): Promise<Product[]> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/products`, {
+      const params = new URLSearchParams();
+      if (source) {
+        params.append('source', source);
+      }
+      const url = `${API_BASE_URL}/products${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const response = await fetch(url, {
         headers: getHeaders(),
       });
       if (!response.ok) {

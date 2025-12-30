@@ -1,0 +1,659 @@
+/**
+ * Collaborators API Routes
+ *
+ * Endpoints para gestionar invitaciones de colaboradores y miembros del equipo.
+ */
+
+import { Router, Response } from 'express';
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { supabaseAdmin } from '../db/connection';
+import { verifyToken, extractStoreId } from '../middleware/auth';
+import { extractUserRole, requireRole, PermissionRequest } from '../middleware/permissions';
+import { Role } from '../permissions';
+
+export const collaboratorsRouter = Router();
+
+// JWT Configuration
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is required');
+}
+const JWT_ALGORITHM = 'HS256';
+const JWT_ISSUER = 'ordefy-api';
+const JWT_AUDIENCE = 'ordefy-app';
+const TOKEN_EXPIRY = '7d';
+const SALT_ROUNDS = 10;
+
+// Apply authentication middleware to all routes (except public ones)
+collaboratorsRouter.use((req, res, next) => {
+  // Public routes that don't require authentication
+  const publicRoutes = ['/validate-token/', '/accept-invitation'];
+  const isPublicRoute = publicRoutes.some(route => req.path.includes(route));
+
+  if (isPublicRoute) {
+    return next();
+  }
+
+  // Apply auth middleware chain for protected routes
+  return verifyToken(req, res, () => {
+    extractStoreId(req, res, () => {
+      extractUserRole(req as PermissionRequest, res, next);
+    });
+  });
+});
+
+// ============================================================================
+// POST /api/collaborators/invite
+// Crear invitación de colaborador
+// ============================================================================
+
+collaboratorsRouter.post(
+  '/invite',
+  requireRole(Role.OWNER, Role.ADMIN),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId, userId } = req;
+      const { name, email, role } = req.body;
+
+      console.log('[Invite] Creating invitation:', { store: storeId, inviter: userId, email, role });
+
+      // Validations
+      if (!name || !email || !role) {
+        return res.status(400).json({
+          error: 'Name, email, and role are required',
+          missing: {
+            name: !name,
+            email: !email,
+            role: !role
+          }
+        });
+      }
+
+      // Email format validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          error: 'Invalid email format'
+        });
+      }
+
+      // Valid roles (cannot invite owners)
+      const validRoles = ['admin', 'logistics', 'confirmador', 'contador', 'inventario'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({
+          error: 'Invalid role',
+          validRoles
+        });
+      }
+
+      // Check user limit for subscription plan
+      const { data: canAdd, error: canAddError } = await supabaseAdmin
+        .rpc('can_add_user_to_store', { p_store_id: storeId });
+
+      if (canAddError) {
+        console.error('[Invite] Error checking user limit:', canAddError);
+        return res.status(500).json({ error: 'Failed to check user limit' });
+      }
+
+      if (!canAdd) {
+        const { data: stats } = await supabaseAdmin
+          .rpc('get_store_user_stats', { p_store_id: storeId })
+          .single();
+
+        console.warn('[Invite] User limit reached:', stats);
+        return res.status(403).json({
+          error: 'User limit reached for your subscription plan',
+          current: stats?.current_users,
+          max: stats?.max_users,
+          plan: stats?.plan
+        });
+      }
+
+      // Check if user already exists in this store
+      const { data: existingUser } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .single();
+
+      if (existingUser) {
+        const { data: existingMember } = await supabaseAdmin
+          .from('user_stores')
+          .select('id, is_active')
+          .eq('user_id', existingUser.id)
+          .eq('store_id', storeId)
+          .single();
+
+        if (existingMember) {
+          return res.status(400).json({
+            error: existingMember.is_active
+              ? 'User is already a member of this store'
+              : 'User was previously a member. Please reactivate instead.'
+          });
+        }
+      }
+
+      // Check for pending invitation with same email
+      const { data: pendingInvitation } = await supabaseAdmin
+        .from('collaborator_invitations')
+        .select('id, expires_at')
+        .eq('store_id', storeId)
+        .eq('invited_email', email)
+        .eq('used', false)
+        .gt('expires_at', new Date().toISOString())
+        .single();
+
+      if (pendingInvitation) {
+        return res.status(400).json({
+          error: 'An active invitation already exists for this email',
+          expiresAt: pendingInvitation.expires_at
+        });
+      }
+
+      // Generate secure token
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+
+      // Create invitation
+      const { data: invitation, error } = await supabaseAdmin
+        .from('collaborator_invitations')
+        .insert({
+          token,
+          store_id: storeId,
+          inviting_user_id: userId,
+          invited_name: name,
+          invited_email: email,
+          assigned_role: role,
+          expires_at: expiresAt.toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[Invite] Error creating invitation:', error);
+        return res.status(500).json({ error: 'Failed to create invitation' });
+      }
+
+      console.log('[Invite] Invitation created successfully:', invitation.id);
+
+      // Generate invitation URL
+      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+      const inviteUrl = `${baseUrl}/accept-invite/${token}`;
+
+      // TODO: Send email with invitation link
+      // await sendInvitationEmail({
+      //   toEmail: email,
+      //   toName: name,
+      //   role,
+      //   inviteUrl,
+      //   expiresAt: expiresAt.toISOString()
+      // });
+
+      res.status(201).json({
+        success: true,
+        invitation: {
+          id: invitation.id,
+          email: invitation.invited_email,
+          name: invitation.invited_name,
+          role: invitation.assigned_role,
+          inviteUrl,
+          expiresAt: invitation.expires_at
+        }
+      });
+    } catch (error) {
+      console.error('[Invite] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// GET /api/collaborators/invitations
+// Listar invitaciones (pending, expired, used)
+// ============================================================================
+
+collaboratorsRouter.get(
+  '/invitations',
+  requireRole(Role.OWNER, Role.ADMIN),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId } = req;
+
+      const { data: invitations, error } = await supabaseAdmin
+        .from('collaborator_invitations')
+        .select(`
+          *,
+          inviting_user:users!collaborator_invitations_inviting_user_id_fkey(name, email)
+        `)
+        .eq('store_id', storeId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('[Invitations] Error fetching:', error);
+        return res.status(500).json({ error: 'Failed to fetch invitations' });
+      }
+
+      const now = new Date();
+      res.json({
+        invitations: invitations.map(inv => ({
+          id: inv.id,
+          name: inv.invited_name,
+          email: inv.invited_email,
+          role: inv.assigned_role,
+          invitedBy: inv.inviting_user,
+          status: inv.used
+            ? 'used'
+            : new Date(inv.expires_at) < now
+              ? 'expired'
+              : 'pending',
+          expiresAt: inv.expires_at,
+          createdAt: inv.created_at,
+          usedAt: inv.used_at
+        }))
+      });
+    } catch (error) {
+      console.error('[Invitations] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// DELETE /api/collaborators/invitations/:id
+// Cancelar invitación
+// ============================================================================
+
+collaboratorsRouter.delete(
+  '/invitations/:id',
+  requireRole(Role.OWNER),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId } = req;
+      const { id } = req.params;
+
+      const { error } = await supabaseAdmin
+        .from('collaborator_invitations')
+        .delete()
+        .eq('id', id)
+        .eq('store_id', storeId)
+        .eq('used', false); // Only delete unused invitations
+
+      if (error) {
+        console.error('[Invitations] Error deleting:', error);
+        return res.status(500).json({ error: 'Failed to delete invitation' });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Invitations] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// GET /api/collaborators/validate-token/:token
+// Validar token de invitación (público - no requiere auth)
+// ============================================================================
+
+collaboratorsRouter.get(
+  '/validate-token/:token',
+  async (req, res) => {
+    try {
+      const { token } = req.params;
+
+      console.log('[ValidateToken] Validating token:', token.substring(0, 10) + '...');
+
+      const { data: invitation, error } = await supabaseAdmin
+        .from('collaborator_invitations')
+        .select(`
+          *,
+          store:stores(name, country, timezone)
+        `)
+        .eq('token', token)
+        .eq('used', false)
+        .gt('expires_at', new Date().toISOString())
+        .single();
+
+      if (error || !invitation) {
+        console.warn('[ValidateToken] Invalid or expired invitation');
+        return res.status(404).json({
+          valid: false,
+          error: 'Invalid or expired invitation'
+        });
+      }
+
+      console.log('[ValidateToken] Valid invitation found for:', invitation.invited_email);
+
+      res.json({
+        valid: true,
+        invitation: {
+          name: invitation.invited_name,
+          email: invitation.invited_email,
+          role: invitation.assigned_role,
+          storeName: invitation.store.name,
+          expiresAt: invitation.expires_at
+        }
+      });
+    } catch (error) {
+      console.error('[ValidateToken] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// POST /api/collaborators/accept-invitation
+// Aceptar invitación (crear usuario y vincular a tienda)
+// ============================================================================
+
+collaboratorsRouter.post(
+  '/accept-invitation',
+  async (req, res) => {
+    try {
+      const { token, password } = req.body;
+
+      console.log('[AcceptInvitation] Processing acceptance');
+
+      // Validations
+      if (!token || !password) {
+        return res.status(400).json({
+          error: 'Token and password are required'
+        });
+      }
+
+      if (password.length < 8) {
+        return res.status(400).json({
+          error: 'Password must be at least 8 characters'
+        });
+      }
+
+      // Validate token
+      const { data: invitation, error: invError } = await supabaseAdmin
+        .from('collaborator_invitations')
+        .select('*')
+        .eq('token', token)
+        .eq('used', false)
+        .gt('expires_at', new Date().toISOString())
+        .single();
+
+      if (invError || !invitation) {
+        console.warn('[AcceptInvitation] Invalid invitation');
+        return res.status(404).json({
+          error: 'Invalid or expired invitation'
+        });
+      }
+
+      console.log('[AcceptInvitation] Valid invitation for:', invitation.invited_email);
+
+      // Check if user already exists with this email
+      let userId: string;
+      const { data: existingUser } = await supabaseAdmin
+        .from('users')
+        .select('id, password_hash')
+        .eq('email', invitation.invited_email)
+        .single();
+
+      if (existingUser) {
+        // User exists - they're accepting an invitation to a new store
+        console.log('[AcceptInvitation] Existing user found:', existingUser.id);
+        userId = existingUser.id;
+
+        // Verify password matches (they should login with existing password)
+        const passwordMatch = await bcrypt.compare(password, existingUser.password_hash);
+        if (!passwordMatch) {
+          return res.status(401).json({
+            error: 'Invalid password. Use your existing account password.'
+          });
+        }
+      } else {
+        // New user - create account
+        console.log('[AcceptInvitation] Creating new user');
+        const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
+
+        const { data: newUser, error: userError } = await supabaseAdmin
+          .from('users')
+          .insert({
+            email: invitation.invited_email,
+            password_hash,
+            name: invitation.invited_name,
+            is_active: true
+          })
+          .select()
+          .single();
+
+        if (userError || !newUser) {
+          console.error('[AcceptInvitation] Error creating user:', userError);
+          return res.status(500).json({ error: 'Failed to create user' });
+        }
+
+        userId = newUser.id;
+        console.log('[AcceptInvitation] New user created:', userId);
+      }
+
+      // Create user_stores relationship
+      const { error: linkError } = await supabaseAdmin
+        .from('user_stores')
+        .insert({
+          user_id: userId,
+          store_id: invitation.store_id,
+          role: invitation.assigned_role,
+          invited_by: invitation.inviting_user_id,
+          invited_at: new Date().toISOString(),
+          is_active: true
+        });
+
+      if (linkError) {
+        console.error('[AcceptInvitation] Error linking user to store:', linkError);
+        return res.status(500).json({ error: 'Failed to link user to store' });
+      }
+
+      console.log('[AcceptInvitation] User linked to store');
+
+      // Mark invitation as used
+      await supabaseAdmin
+        .from('collaborator_invitations')
+        .update({
+          used: true,
+          used_at: new Date().toISOString(),
+          used_by_user_id: userId
+        })
+        .eq('id', invitation.id);
+
+      // Generate JWT token for auto-login
+      const authToken = jwt.sign(
+        { userId, email: invitation.invited_email },
+        JWT_SECRET,
+        {
+          algorithm: JWT_ALGORITHM as jwt.Algorithm,
+          expiresIn: TOKEN_EXPIRY,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE
+        }
+      );
+
+      console.log('[AcceptInvitation] Success! Auto-login token generated');
+
+      res.json({
+        success: true,
+        token: authToken,
+        storeId: invitation.store_id,
+        user: {
+          id: userId,
+          email: invitation.invited_email,
+          name: invitation.invited_name
+        }
+      });
+    } catch (error) {
+      console.error('[AcceptInvitation] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// GET /api/collaborators
+// Listar colaboradores de la tienda
+// ============================================================================
+
+collaboratorsRouter.get(
+  '/',
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId } = req;
+
+      const { data: members, error } = await supabaseAdmin
+        .from('user_stores')
+        .select(`
+          *,
+          user:users(id, name, email, phone),
+          invited_by_user:users!user_stores_invited_by_fkey(name)
+        `)
+        .eq('store_id', storeId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('[Collaborators] Error fetching:', error);
+        return res.status(500).json({ error: 'Failed to fetch collaborators' });
+      }
+
+      res.json({
+        members: members.map(m => ({
+          id: m.user.id,
+          name: m.user.name,
+          email: m.user.email,
+          phone: m.user.phone,
+          role: m.role,
+          invitedBy: m.invited_by_user?.name || null,
+          invitedAt: m.invited_at,
+          joinedAt: m.created_at
+        }))
+      });
+    } catch (error) {
+      console.error('[Collaborators] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// DELETE /api/collaborators/:userId
+// Remover colaborador (soft delete)
+// ============================================================================
+
+collaboratorsRouter.delete(
+  '/:userId',
+  requireRole(Role.OWNER),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId, userId: currentUserId } = req;
+      const { userId } = req.params;
+
+      // Cannot remove yourself
+      if (userId === currentUserId) {
+        return res.status(400).json({
+          error: 'Cannot remove yourself from the store'
+        });
+      }
+
+      // Soft delete (set is_active = false)
+      const { error } = await supabaseAdmin
+        .from('user_stores')
+        .update({ is_active: false })
+        .eq('user_id', userId)
+        .eq('store_id', storeId);
+
+      if (error) {
+        console.error('[Remove] Error removing collaborator:', error);
+        return res.status(500).json({ error: 'Failed to remove collaborator' });
+      }
+
+      console.log('[Remove] Collaborator removed:', userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Remove] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// PATCH /api/collaborators/:userId/role
+// Cambiar rol de colaborador
+// ============================================================================
+
+collaboratorsRouter.patch(
+  '/:userId/role',
+  requireRole(Role.OWNER),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId, userId: currentUserId } = req;
+      const { userId } = req.params;
+      const { role } = req.body;
+
+      const validRoles = ['admin', 'logistics', 'confirmador', 'contador', 'inventario'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({
+          error: 'Invalid role',
+          validRoles
+        });
+      }
+
+      // Cannot change your own role
+      if (userId === currentUserId) {
+        return res.status(400).json({
+          error: 'Cannot change your own role'
+        });
+      }
+
+      const { error } = await supabaseAdmin
+        .from('user_stores')
+        .update({ role })
+        .eq('user_id', userId)
+        .eq('store_id', storeId);
+
+      if (error) {
+        console.error('[ChangeRole] Error updating role:', error);
+        return res.status(500).json({ error: 'Failed to update role' });
+      }
+
+      console.log('[ChangeRole] Role updated:', { userId, role });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ChangeRole] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// GET /api/collaborators/stats
+// Estadísticas de usuarios vs límites
+// ============================================================================
+
+collaboratorsRouter.get(
+  '/stats',
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId } = req;
+
+      const { data: stats, error } = await supabaseAdmin
+        .rpc('get_store_user_stats', { p_store_id: storeId })
+        .single();
+
+      if (error) {
+        console.error('[Stats] Error fetching stats:', error);
+        return res.status(500).json({ error: 'Failed to fetch stats' });
+      }
+
+      res.json(stats);
+    } catch (error) {
+      console.error('[Stats] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);

@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
-import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe } from 'lucide-react';
+import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   getSessions,
@@ -27,6 +27,7 @@ import {
   type ActivityLog
 } from '@/services/security.service';
 import apiClient from '@/services/api.client';
+import { TeamManagement } from '@/components/TeamManagement';
 
 // Common timezones for Latin America
 const TIMEZONES = [
@@ -509,6 +510,10 @@ export default function Settings() {
             <Bell size={16} />
             Preferencias
           </TabsTrigger>
+          <TabsTrigger value="team" className="gap-2">
+            <Users className="w-4 h-4" />
+            Equipo
+          </TabsTrigger>
           <TabsTrigger value="security" className="gap-2">
             <Shield size={16} />
             Seguridad
@@ -833,6 +838,11 @@ export default function Settings() {
         </TabsContent>
 
         {/* Security Tab */}
+        {/* Team Tab */}
+        <TabsContent value="team" className="space-y-6">
+          <TeamManagement />
+        </TabsContent>
+
         <TabsContent value="security" className="space-y-6">
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-6">Seguridad</h2>

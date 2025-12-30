@@ -23,8 +23,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Product } from '@/types';
-import { Loader2, Package, Search, AlertCircle } from 'lucide-react';
+import { Loader2, Package, Search, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { productsService } from '@/services/products.service';
+import { Badge } from '@/components/ui/badge';
 
 // Schema para modo manual (sin Shopify)
 const manualProductSchema = z.object({
@@ -69,6 +70,7 @@ interface ShopifyProduct {
     sku: string;
     price: number;
     inventory_quantity: number;
+    is_imported?: boolean;
   }>;
 }
 
@@ -233,24 +235,33 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
                   {loading ? 'Cargando productos...' : 'No hay productos disponibles'}
                 </div>
               ) : (
-                shopifyProducts.map((product) => (
-                  <SelectItem key={product.id} value={product.id}>
-                    <div className="flex items-center gap-2">
-                      {product.image ? (
-                        <img
-                          src={product.image}
-                          alt={product.title}
-                          className="w-8 h-8 object-cover rounded"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 bg-muted rounded flex items-center justify-center">
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <span>{product.title}</span>
-                    </div>
-                  </SelectItem>
-                ))
+                shopifyProducts.map((product) => {
+                  const hasImportedVariants = product.variants.some(v => v.is_imported);
+                  return (
+                    <SelectItem key={product.id} value={product.id}>
+                      <div className="flex items-center gap-2 w-full">
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt={product.title}
+                            className="w-8 h-8 object-cover rounded"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 bg-muted rounded flex items-center justify-center">
+                            <Package className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
+                        <span className="flex-1">{product.title}</span>
+                        {hasImportedVariants && (
+                          <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30 text-xs gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Importado
+                          </Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  );
+                })
               )}
             </SelectContent>
           </Select>
@@ -261,17 +272,27 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
           <div className="space-y-2">
             <label className="text-sm font-medium">Variante *</label>
             <Select value={selectedVariant} onValueChange={setSelectedVariant}>
-              <SelectTrigger className="text-foreground">
-                <SelectValue placeholder="Selecciona una variante" className="text-foreground" />
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona una variante" />
               </SelectTrigger>
               <SelectContent>
                 {selectedProductData.variants.map((variant) => (
                   <SelectItem key={variant.id} value={variant.id}>
-                    <div className="flex flex-col">
-                      <span className="text-foreground">{variant.title}</span>
-                      <span className="text-xs text-muted-foreground">
-                        SKU: {variant.sku || 'N/A'} | Stock: {variant.inventory_quantity} | Gs. {variant.price.toLocaleString()}
-                      </span>
+                    <div className="flex items-start gap-2 w-full">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{variant.title}</span>
+                          {variant.is_imported && (
+                            <Badge variant="outline" className="bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30 text-xs gap-1 shrink-0">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Ya importado
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          SKU: {variant.sku || 'N/A'} | Stock: {variant.inventory_quantity} | Gs. {variant.price.toLocaleString()}
+                        </div>
+                      </div>
                     </div>
                   </SelectItem>
                 ))}
