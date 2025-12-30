@@ -366,7 +366,7 @@ export class ShopifyWebhookService {
         cancelled_at: order.cancelledAt,
         cancel_reason: order.cancelReason,
         tags: order.tags?.join(', ') || '',
-        note: order.note,
+        delivery_notes: order.note || '',
 
         customer: (order.customer ? {
           id: parseInt(order.customer.legacyResourceId),
@@ -1336,7 +1336,7 @@ export class ShopifyWebhookService {
       // Metadata
       order_status_url: shopifyOrder.order_status_url,
       tags: shopifyOrder.tags,
-      note: shopifyOrder.note,
+      delivery_notes: shopifyOrder.note || '',
       created_at: shopifyOrder.created_at,
       updated_at: shopifyOrder.updated_at || shopifyOrder.created_at,
       processed_at: shopifyOrder.processed_at || shopifyOrder.created_at,
