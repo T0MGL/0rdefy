@@ -331,10 +331,14 @@ CREATE TABLE IF NOT EXISTS orders (
     total_price DECIMAL(10,2),
     subtotal_price DECIMAL(10,2),
     total_tax DECIMAL(10,2),
+    total_discounts DECIMAL(10,2) DEFAULT 0.00,
     total_shipping DECIMAL(10,2),
     currency VARCHAR(3) DEFAULT 'USD',
     financial_status VARCHAR(50),
     fulfillment_status VARCHAR(50),
+    order_status_url TEXT,
+    tags TEXT,
+    processed_at TIMESTAMP,
     sleeves_status VARCHAR(50) DEFAULT 'pending',
     confirmed_at TIMESTAMP,
     in_transit_at TIMESTAMP,
@@ -403,6 +407,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_printed ON orders(store_id, printed);
 CREATE INDEX IF NOT EXISTS idx_orders_in_transit_at ON orders(in_transit_at) WHERE in_transit_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_delivered_at ON orders(delivered_at) WHERE delivered_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_cancelled_at ON orders(cancelled_at) WHERE cancelled_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_processed_at ON orders(processed_at) WHERE processed_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_total_discounts ON orders(total_discounts) WHERE total_discounts > 0;
+CREATE INDEX IF NOT EXISTS idx_orders_tags ON orders USING gin(to_tsvector('simple', COALESCE(tags, '')));
 CREATE INDEX IF NOT EXISTS idx_orders_cod ON orders(payment_method, cod_amount) WHERE payment_method = 'cash' OR cod_amount > 0;
 CREATE INDEX IF NOT EXISTS idx_orders_shipping_cost ON orders(shipping_cost) WHERE shipping_cost > 0;
 CREATE INDEX IF NOT EXISTS idx_orders_zone ON orders(delivery_zone) WHERE delivery_zone IS NOT NULL;
