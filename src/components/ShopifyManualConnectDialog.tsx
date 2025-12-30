@@ -89,8 +89,7 @@ export function ShopifyManualConnectDialog({ open, onOpenChange, onSuccess, onBa
           shop_domain: formData.shop_domain,
           access_token: formData.access_token,
           api_key: formData.api_key,
-          api_secret_key: formData.api_secret_key,
-          webhook_signature: formData.api_secret_key, // Same as api_secret_key
+          api_secret_key: formData.api_secret_key, // Used for both API access and HMAC verification
           import_products: false, // Manual import from dashboard
           import_customers: false, // Manual import from dashboard
           import_orders: false, // Never import historical orders

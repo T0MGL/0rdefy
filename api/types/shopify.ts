@@ -7,9 +7,8 @@ export interface ShopifyIntegration {
   store_id: string;
   shop_domain: string;
   api_key: string;
-  api_secret_key: string;
+  api_secret_key: string; // Used for HMAC verification of webhooks
   access_token: string;
-  webhook_signature: string | null;
   import_products: boolean;
   import_customers: boolean;
   import_orders: boolean;
@@ -31,9 +30,8 @@ export interface ShopifyIntegration {
 export interface ShopifyConfigRequest {
   shop_domain: string;
   api_key: string;
-  api_secret_key: string;
+  api_secret_key: string; // This is used for both API access and HMAC verification
   access_token: string;
-  webhook_signature: string;
   import_products: boolean;
   import_customers: boolean;
   import_orders: boolean;
