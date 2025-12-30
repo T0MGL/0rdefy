@@ -591,7 +591,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
         req.body,
         storeId!,
         integrationId!,
-        { shop_domain: integration.shop_domain, access_token: integration.access_token }
+        integration // Pass full integration to detect Custom App
       );
 
       // Record idempotency
@@ -703,7 +703,7 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       req.body,
       integration.store_id,
       integration.id,
-      { shop_domain: integration.shop_domain, access_token: integration.access_token }
+      integration // Pass full integration to detect Custom App
     );
 
     res.json(result);
