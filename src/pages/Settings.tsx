@@ -125,6 +125,14 @@ export default function Settings() {
   const [storeTimezone, setStoreTimezone] = useState(currentStore?.timezone || 'America/Asuncion');
   const [storeCurrency, setStoreCurrency] = useState(currentStore?.currency || 'PYG');
 
+  // Update timezone and currency when currentStore changes
+  useEffect(() => {
+    if (currentStore) {
+      setStoreTimezone(currentStore.timezone || 'America/Asuncion');
+      setStoreCurrency(currentStore.currency || 'PYG');
+    }
+  }, [currentStore]);
+
   useEffect(() => {
     const tab = searchParams.get('tab');
     if (tab) setActiveTab(tab);

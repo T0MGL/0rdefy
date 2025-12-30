@@ -19,9 +19,24 @@ import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { config } from '@/config';
 
 // Validation schemas
+// Country phone codes mapping
+const COUNTRY_CODES = {
+  'PY': { code: '+595', flag: '🇵🇾', name: 'Paraguay' },
+  'AR': { code: '+54', flag: '🇦🇷', name: 'Argentina' },
+  'CO': { code: '+57', flag: '🇨🇴', name: 'Colombia' },
+  'MX': { code: '+52', flag: '🇲🇽', name: 'México' },
+  'CL': { code: '+56', flag: '🇨🇱', name: 'Chile' },
+  'BR': { code: '+55', flag: '🇧🇷', name: 'Brasil' },
+  'UY': { code: '+598', flag: '🇺🇾', name: 'Uruguay' },
+  'BO': { code: '+591', flag: '🇧🇴', name: 'Bolivia' },
+  'PE': { code: '+51', flag: '🇵🇪', name: 'Perú' },
+  'EC': { code: '+593', flag: '🇪🇨', name: 'Ecuador' },
+} as const;
+
 const step1Schema = z.object({
   userName: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(100, 'Máximo 100 caracteres'),
-  userPhone: z.string().trim().min(8, 'El teléfono debe tener al menos 8 dígitos').max(20, 'Máximo 20 caracteres'),
+  userPhone: z.string().trim().min(6, 'El teléfono debe tener al menos 6 dígitos').max(15, 'Máximo 15 dígitos'),
+  phoneCountryCode: z.string().min(1, 'Selecciona un código de país'),
   storeName: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(100, 'Máximo 100 caracteres'),
   storeCountry: z.string().min(1, 'Selecciona un país'),
 });
@@ -44,6 +59,7 @@ export default function Onboarding() {
   const [formData, setFormData] = useState({
     userName: user?.name || '',
     userPhone: '',
+    phoneCountryCode: 'PY', // Default to Paraguay
     storeName: '',
     storeCountry: '',
     currency: '',
@@ -60,6 +76,7 @@ export default function Onboarding() {
         step1Schema.parse({
           userName: formData.userName,
           userPhone: formData.userPhone,
+          phoneCountryCode: formData.phoneCountryCode,
           storeName: formData.storeName,
           storeCountry: formData.storeCountry,
         });
@@ -130,6 +147,9 @@ export default function Onboarding() {
         return;
       }
 
+      // Combine country code with phone number
+      const fullPhoneNumber = `${COUNTRY_CODES[formData.phoneCountryCode as keyof typeof COUNTRY_CODES].code}${formData.userPhone}`;
+
       // Call API endpoint to complete onboarding
       const response = await fetch(`${config.api.baseUrl}/api/auth/onboarding`, {
         method: 'POST',
@@ -139,7 +159,7 @@ export default function Onboarding() {
         },
         body: JSON.stringify({
           userName: formData.userName,
-          userPhone: formData.userPhone,
+          userPhone: fullPhoneNumber,
           storeName: formData.storeName,
           storeCountry: formData.storeCountry,
           storeCurrency: formData.currency,
@@ -330,15 +350,40 @@ export default function Onboarding() {
                       <Label htmlFor="userPhone" className="text-base">
                         Tu Teléfono <span className="text-destructive">*</span>
                       </Label>
-                      <Input
-                        id="userPhone"
-                        value={formData.userPhone}
-                        onChange={(e) => setFormData({ ...formData, userPhone: e.target.value })}
-                        placeholder="+595 981 234567"
-                        className="mt-2 h-12"
-                      />
+                      <div className="flex gap-2 mt-2">
+                        <Select
+                          value={formData.phoneCountryCode}
+                          onValueChange={(value) => setFormData({ ...formData, phoneCountryCode: value })}
+                        >
+                          <SelectTrigger className="h-12 w-[140px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.entries(COUNTRY_CODES).map(([code, data]) => (
+                              <SelectItem key={code} value={code}>
+                                {data.flag} {data.code}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          id="userPhone"
+                          type="tel"
+                          value={formData.userPhone}
+                          onChange={(e) => {
+                            // Only allow numbers
+                            const value = e.target.value.replace(/\D/g, '');
+                            setFormData({ ...formData, userPhone: value });
+                          }}
+                          placeholder="981234567"
+                          className="h-12 flex-1"
+                        />
+                      </div>
                       {errors.userPhone && (
                         <p className="text-sm text-destructive mt-1">{errors.userPhone}</p>
+                      )}
+                      {errors.phoneCountryCode && (
+                        <p className="text-sm text-destructive mt-1">{errors.phoneCountryCode}</p>
                       )}
                     </div>
 
@@ -406,11 +451,14 @@ export default function Onboarding() {
                         <SelectValue placeholder="Selecciona una moneda" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="pyg">🇵🇾 PYG - Guaraní Paraguayo</SelectItem>
-                        <SelectItem value="usd">🇺🇸 USD - Dólar Estadounidense</SelectItem>
-                        <SelectItem value="ars">🇦🇷 ARS - Peso Argentino</SelectItem>
-                        <SelectItem value="cop">🇨🇴 COP - Peso Colombiano</SelectItem>
-                        <SelectItem value="mxn">🇲🇽 MXN - Peso Mexicano</SelectItem>
+                        <SelectItem value="PYG">🇵🇾 PYG - Guaraní Paraguayo</SelectItem>
+                        <SelectItem value="USD">🇺🇸 USD - Dólar Estadounidense</SelectItem>
+                        <SelectItem value="ARS">🇦🇷 ARS - Peso Argentino</SelectItem>
+                        <SelectItem value="COP">🇨🇴 COP - Peso Colombiano</SelectItem>
+                        <SelectItem value="MXN">🇲🇽 MXN - Peso Mexicano</SelectItem>
+                        <SelectItem value="BRL">🇧🇷 BRL - Real Brasileño</SelectItem>
+                        <SelectItem value="CLP">🇨🇱 CLP - Peso Chileno</SelectItem>
+                        <SelectItem value="UYU">🇺🇾 UYU - Peso Uruguayo</SelectItem>
                       </SelectContent>
                     </Select>
                     {errors.currency && (
