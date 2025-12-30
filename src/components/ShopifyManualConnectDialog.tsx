@@ -91,8 +91,8 @@ export function ShopifyManualConnectDialog({ open, onOpenChange, onSuccess, onBa
           api_key: formData.api_key,
           api_secret_key: formData.api_secret_key,
           webhook_signature: formData.api_secret_key, // Same as api_secret_key
-          import_products: true,
-          import_customers: true,
+          import_products: false, // Manual import from dashboard
+          import_customers: false, // Manual import from dashboard
           import_orders: false, // Never import historical orders
           import_historical_orders: false,
         }),
@@ -107,7 +107,7 @@ export function ShopifyManualConnectDialog({ open, onOpenChange, onSuccess, onBa
       // Success!
       toast({
         title: '✅ Shopify conectado exitosamente',
-        description: `Tu tienda ${formData.shop_domain} se ha conectado. ${data.webhooks?.registered?.length || 0} webhooks configurados. La importación de productos y clientes ha comenzado.`,
+        description: `Tu tienda ${formData.shop_domain} se ha conectado. ${data.webhooks?.registered?.length || 0} webhooks configurados. Ahora puedes importar productos y clientes desde el dashboard.`,
         duration: 8000,
       });
 
@@ -299,12 +299,12 @@ export function ShopifyManualConnectDialog({ open, onOpenChange, onSuccess, onBa
           <Alert>
             <CheckCircle2 className="h-4 w-4" />
             <AlertDescription className="text-sm">
-              <strong>¿Qué se importará?</strong>
+              <strong>¿Qué sucederá después de conectar?</strong>
               <ul className="list-disc list-inside mt-2 space-y-1">
-                <li>✅ Productos (con precios, stock e imágenes)</li>
-                <li>✅ Clientes (con información de contacto)</li>
-                <li>✅ Nuevos pedidos (automáticamente vía webhooks)</li>
-                <li>❌ Pedidos históricos (se omiten para mantener analíticas precisas)</li>
+                <li>✅ Webhooks configurados (pedidos nuevos se importarán automáticamente)</li>
+                <li>📦 Podrás importar productos manualmente desde el dashboard</li>
+                <li>👥 Podrás importar clientes manualmente desde el dashboard</li>
+                <li>❌ Pedidos históricos NO se importan (para mantener analíticas precisas)</li>
               </ul>
             </AlertDescription>
           </Alert>

@@ -15,6 +15,35 @@ export class ShopifyWebhookService {
     this.n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || '';
   }
 
+  // Extract customer data from order addresses (fallback when customer object is not accessible)
+  private extractCustomerFromOrderAddresses(order: any): any | null {
+    // If customer object doesn't exist or is restricted, use billing/shipping addresses
+    const billingAddress = order.billing_address || order.billingAddress;
+    const shippingAddress = order.shipping_address || order.shippingAddress;
+    const email = order.email;
+    const phone = order.phone || billingAddress?.phone || shippingAddress?.phone;
+
+    if (!billingAddress && !shippingAddress && !email) {
+      return null;
+    }
+
+    const firstName = billingAddress?.first_name || billingAddress?.firstName ||
+                      shippingAddress?.first_name || shippingAddress?.firstName || '';
+    const lastName = billingAddress?.last_name || billingAddress?.lastName ||
+                     shippingAddress?.last_name || shippingAddress?.lastName || '';
+
+    console.log(`ℹ️  [FALLBACK] Extracting customer info from order addresses (customer object not available)`);
+
+    return {
+      id: order.customer?.id || null,
+      first_name: firstName,
+      last_name: lastName,
+      email: email,
+      phone: phone,
+      default_address: billingAddress || shippingAddress
+    };
+  }
+
   // Fetch full customer data using GraphQL Admin API 2025-10 (webhooks often have incomplete data)
   private async fetchShopifyCustomerDataGraphQL(
     customerId: string,
@@ -575,6 +604,14 @@ export class ShopifyWebhookService {
         }
       }
 
+      // Fallback: If no customer data available, extract from order addresses (Basic plan workaround)
+      if (!enrichedOrder.customer || !enrichedOrder.customer.email) {
+        const customerFromAddresses = this.extractCustomerFromOrderAddresses(enrichedOrder);
+        if (customerFromAddresses) {
+          enrichedOrder.customer = customerFromAddresses;
+        }
+      }
+
       const customerId = await this.findOrCreateCustomer(enrichedOrder, storeId);
 
       // Mapear pedido de Shopify a formato local
@@ -830,6 +867,14 @@ export class ShopifyWebhookService {
             shipping_address: enrichedOrder.shipping_address || fullCustomer.default_address,
             billing_address: enrichedOrder.billing_address || fullCustomer.default_address
           };
+        }
+      }
+
+      // Fallback: If no customer data available, extract from order addresses (Basic plan workaround)
+      if (!enrichedOrder.customer || !enrichedOrder.customer.email) {
+        const customerFromAddresses = this.extractCustomerFromOrderAddresses(enrichedOrder);
+        if (customerFromAddresses) {
+          enrichedOrder.customer = customerFromAddresses;
         }
       }
 

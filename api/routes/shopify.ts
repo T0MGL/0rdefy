@@ -108,6 +108,7 @@ shopifyRouter.use((req: Request, res: Response, next) => {
 shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
   try {
     const storeId = req.storeId;
+    const userId = req.userId; // Get user_id from authenticated request
     const config: ShopifyConfigRequest = req.body;
 
     // Validar datos requeridos
@@ -169,7 +170,9 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
       const { data, error } = await supabaseAdmin
         .from('shopify_integrations')
         .update({
+          user_id: userId,
           shop_domain: config.shop_domain,
+          shop: config.shop_domain.replace('.myshopify.com', ''),
           api_key: config.api_key,
           api_secret_key: config.api_secret_key,
           access_token: config.access_token,
@@ -198,7 +201,9 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
         .from('shopify_integrations')
         .insert({
           store_id: storeId,
+          user_id: userId,
           shop_domain: config.shop_domain,
+          shop: config.shop_domain.replace('.myshopify.com', ''),
           api_key: config.api_key,
           api_secret_key: config.api_secret_key,
           access_token: config.access_token,
@@ -246,31 +251,16 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
       console.log('✅ Webhooks registrados exitosamente:', webhookResult.registered);
     }
 
-    // Iniciar importacion en background
-    // IMPORTANTE: Solo productos y clientes, NUNCA ordenes historicas
-    const importService = new ShopifyImportService(supabaseAdmin, integration);
-    const importTypes: Array<'products' | 'customers'> = [];
-
-    if (config.import_products) importTypes.push('products');
-    if (config.import_customers) importTypes.push('customers');
-    // NO importar ordenes historicas - las nuevas se cargan via webhook
-
-    const jobIds = await importService.startImport({
-      job_type: 'initial',
-      import_types: importTypes,
-      force_full_sync: true
-    });
-
+    // No iniciar importacion automatica - el usuario lo hara manualmente desde el dashboard
     res.json({
       success: true,
       integration_id: integrationId,
-      job_ids: jobIds,
       webhooks: {
         registered: webhookResult.registered,
         skipped: webhookResult.skipped,
         errors: webhookResult.errors
       },
-      message: `Integracion configurada exitosamente. ${webhookResult.registered.length} webhooks registrados. Importacion iniciada en segundo plano.`
+      message: `Integracion configurada exitosamente. ${webhookResult.registered.length} webhooks registrados. Puedes importar productos y clientes desde el dashboard.`
     });
 
   } catch (error: any) {

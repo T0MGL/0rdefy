@@ -102,13 +102,13 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     .update(body, 'utf8')
     .digest('hex');
 
-  // Try base64 format first (OAuth Apps)
+  // Shopify always sends HMAC in base64 format (both OAuth and Custom Apps)
   if (hmac === hashBase64) {
-    console.log(`✅ [WEBHOOK] HMAC validated (base64 - OAuth App) for ${shopDomain}`);
+    console.log(`✅ [WEBHOOK] HMAC validated (base64) for ${shopDomain}`);
   }
-  // Try hex format (Custom Apps)
+  // Fallback: try hex format (legacy support, rarely used)
   else if (hmac === hashHex) {
-    console.log(`✅ [WEBHOOK] HMAC validated (hex - Custom App) for ${shopDomain}`);
+    console.log(`✅ [WEBHOOK] HMAC validated (hex - legacy) for ${shopDomain}`);
   }
   // Neither format matched - invalid HMAC
   else {
