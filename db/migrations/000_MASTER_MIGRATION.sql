@@ -317,6 +317,8 @@ CREATE TABLE IF NOT EXISTS orders (
     shopify_order_number VARCHAR(100),
     shopify_order_name VARCHAR(100),
     payment_gateway VARCHAR(100),
+    order_number VARCHAR(100),
+    customer_name VARCHAR(255),
     shopify_data JSONB,
     shopify_raw_json JSONB,
     last_synced_at TIMESTAMP,
@@ -417,6 +419,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_carrier_settlement ON orders(carrier_settl
 CREATE INDEX IF NOT EXISTS idx_orders_active_incident ON orders(store_id, has_active_incident) WHERE has_active_incident = TRUE;
 CREATE INDEX IF NOT EXISTS idx_orders_incident_status ON orders(sleeves_status) WHERE sleeves_status = 'incident';
 CREATE INDEX IF NOT EXISTS idx_orders_courier_notes ON orders(courier_notes) WHERE courier_notes IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_order_status_url ON orders(order_status_url) WHERE order_status_url IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_shopify_order_name ON orders(shopify_order_name) WHERE shopify_order_name IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_payment_gateway ON orders(payment_gateway) WHERE payment_gateway IS NOT NULL;
 
 DO $$
 BEGIN
@@ -1266,6 +1271,36 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ================================================================
+-- PARTE 20.5: FUNCIÓN DE AUTO-GENERACIÓN DE ORDER NUMBER
+-- ================================================================
+
+CREATE OR REPLACE FUNCTION generate_order_number()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If order_number is not set, generate one
+  IF NEW.order_number IS NULL THEN
+    NEW.order_number := COALESCE(
+      NEW.shopify_order_number::TEXT, -- Cast INT to TEXT
+      'ORD-' || TO_CHAR(NOW(), 'YYYYMMDD') || '-' || SUBSTRING(NEW.id::text, 1, 6)
+    );
+  END IF;
+
+  -- If customer_name is not set, generate from customer info
+  IF NEW.customer_name IS NULL THEN
+    NEW.customer_name := COALESCE(
+      NULLIF(TRIM(NEW.customer_first_name || ' ' || NEW.customer_last_name), ''),
+      NEW.customer_email,
+      'Unknown Customer'
+    );
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION generate_order_number() IS 'Auto-generates order_number and customer_name for new orders (Migration 026)';
 
 -- ================================================================
 -- PARTE 21: FUNCIONES DE DELIVERY TOKEN Y COD
@@ -2400,6 +2435,12 @@ DROP TRIGGER IF EXISTS trigger_calculate_cod_amount ON orders;
 CREATE TRIGGER trigger_calculate_cod_amount
     BEFORE INSERT OR UPDATE OF payment_method ON orders
     FOR EACH ROW EXECUTE FUNCTION calculate_cod_amount();
+
+-- Auto-generate order_number and customer_name (Migration 026)
+DROP TRIGGER IF EXISTS trigger_generate_order_number ON orders;
+CREATE TRIGGER trigger_generate_order_number
+    BEFORE INSERT ON orders
+    FOR EACH ROW EXECUTE FUNCTION generate_order_number();
 
 -- ================================================================
 -- PARTE 36: TRIGGERS DE CUSTOMER STATS
