@@ -35,8 +35,9 @@ function getWebhookSecret(integration: any): { secret: string | null; source: st
     const secret = process.env.SHOPIFY_API_SECRET?.trim() || null;
     return { secret, source: 'env (OAuth Public App)' };
   } else {
-    // Custom App integration: Use webhook signature from database
-    const secret = integration.webhook_signature?.trim() || null;
+    // Custom App integration: Use API Secret Key from database
+    // For Custom Apps, the API Secret Key is used to verify webhook HMAC signatures
+    const secret = integration.api_secret_key?.trim() || null;
     return { secret, source: 'database (Custom App)' };
   }
 }
