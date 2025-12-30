@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -236,14 +237,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('✅ [AUTH] Signed out successfully');
   };
 
-  const switchStore = (storeId: string) => {
+
+  // Inject query client for manual invalidation
+  const queryClient = useQueryClient();
+
+  const switchStore = async (storeId: string) => {
     console.log('🔄 [AUTH] Switching store:', storeId);
 
     const store = stores.find(s => s.id === storeId);
     if (store) {
-      setCurrentStore(store);
+      // 1. Update localStorage
       localStorage.setItem('current_store_id', storeId);
+
+      // 2. Clear query cache to prevent data bleeding
+      // This ensures we don't show Order #123 from Store A in Store B
+      queryClient.cancelQueries();
+      queryClient.clear();
+
+      // 3. Update state (triggers re-render)
+      setCurrentStore(store);
+
+      // 4. Invalidate all queries to force refetch with new store ID
+      // Since API calls usually depend on currentStore or get it from localStorage/context
+      await queryClient.invalidateQueries();
+
       console.log('✅ [AUTH] Switched to store:', store.name);
+
+      // Navigate to dashboard to ensure fresh state (optional, but good UX)
+      // window.location.href = '/'; // Still reload? No, we want soft switch.
+      // But we might want to redirect to '/' if they are on a specific resource page
     }
   };
 

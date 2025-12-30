@@ -60,9 +60,9 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      cacheTime: 1000 * 60 * 10, // 10 minutes
-      refetchOnWindowFocus: false,
+      staleTime: 1000 * 30, // 30 seconds (was 5 minutes)
+      gcTime: 1000 * 60 * 5, // 5 minutes (was 10 minutes)
+      refetchOnWindowFocus: true, // Enable window focus refetching for realtime feel
       refetchOnReconnect: true,
       retry: 1,
     },
@@ -118,40 +118,40 @@ const App = () => {
                   <DateRangeProvider>
                     <ErrorBoundary>
                       <OnboardingGuard>
-                      <Suspense fallback={<CardSkeleton count={1} />}>
-                        <Routes>
-                    {/* Public routes */}
-                    <Route path="/login" element={<LoginDemo />} />
-                    <Route path="/signup" element={<SignUp />} />
-                    <Route path="/onboarding" element={<Onboarding />} />
-                    <Route path="/delivery/:token" element={<Delivery />} />
-                    <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />
+                        <Suspense fallback={<CardSkeleton count={1} />}>
+                          <Routes>
+                            {/* Public routes */}
+                            <Route path="/login" element={<LoginDemo />} />
+                            <Route path="/signup" element={<SignUp />} />
+                            <Route path="/onboarding" element={<Onboarding />} />
+                            <Route path="/delivery/:token" element={<Delivery />} />
+                            <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />
 
-                    {/* Protected routes with layout */}
-                    <Route path="/" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></ProtectedLayout>} />
-                    <Route path="/dashboard-logistics" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><DashboardLogistics /></ProtectedLayout>} />
-                    <Route path="/orders" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></ProtectedLayout>} />
-                    <Route path="/warehouse" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Warehouse /></ProtectedLayout>} />
-                    <Route path="/shipping" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Shipping /></ProtectedLayout>} />
-                    <Route path="/returns" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Returns /></ProtectedLayout>} />
-                    <Route path="/incidents" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Incidents /></ProtectedLayout>} />
-                    <Route path="/inventory" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><InventoryMovements /></ProtectedLayout>} />
-                    <Route path="/products" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Products /></ProtectedLayout>} />
-                    <Route path="/merchandise" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Merchandise /></ProtectedLayout>} />
-                    <Route path="/customers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Customers /></ProtectedLayout>} />
-                    <Route path="/ads" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Ads /></ProtectedLayout>} />
-                    <Route path="/additional-values" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><AdditionalValues /></ProtectedLayout>} />
-                    <Route path="/integrations" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Integrations /></ProtectedLayout>} />
-                    <Route path="/suppliers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Suppliers /></ProtectedLayout>} />
-                    <Route path="/carriers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Carriers /></ProtectedLayout>} />
-                    <Route path="/carriers/compare" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierCompare /></ProtectedLayout>} />
-                    <Route path="/carriers/:id" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierDetail /></ProtectedLayout>} />
-                    <Route path="/courier-performance" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CourierPerformance /></ProtectedLayout>} />
-                    <Route path="/settlements" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></ProtectedLayout>} />
-                    <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
-                    <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
-                        </Routes>
-                      </Suspense>
+                            {/* Protected routes with layout */}
+                            <Route path="/" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></ProtectedLayout>} />
+                            <Route path="/dashboard-logistics" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><DashboardLogistics /></ProtectedLayout>} />
+                            <Route path="/orders" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></ProtectedLayout>} />
+                            <Route path="/warehouse" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Warehouse /></ProtectedLayout>} />
+                            <Route path="/shipping" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Shipping /></ProtectedLayout>} />
+                            <Route path="/returns" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Returns /></ProtectedLayout>} />
+                            <Route path="/incidents" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Incidents /></ProtectedLayout>} />
+                            <Route path="/inventory" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><InventoryMovements /></ProtectedLayout>} />
+                            <Route path="/products" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Products /></ProtectedLayout>} />
+                            <Route path="/merchandise" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Merchandise /></ProtectedLayout>} />
+                            <Route path="/customers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Customers /></ProtectedLayout>} />
+                            <Route path="/ads" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Ads /></ProtectedLayout>} />
+                            <Route path="/additional-values" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><AdditionalValues /></ProtectedLayout>} />
+                            <Route path="/integrations" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Integrations /></ProtectedLayout>} />
+                            <Route path="/suppliers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Suppliers /></ProtectedLayout>} />
+                            <Route path="/carriers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Carriers /></ProtectedLayout>} />
+                            <Route path="/carriers/compare" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierCompare /></ProtectedLayout>} />
+                            <Route path="/carriers/:id" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierDetail /></ProtectedLayout>} />
+                            <Route path="/courier-performance" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CourierPerformance /></ProtectedLayout>} />
+                            <Route path="/settlements" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></ProtectedLayout>} />
+                            <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
+                            <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
+                          </Routes>
+                        </Suspense>
                       </OnboardingGuard>
                     </ErrorBoundary>
                   </DateRangeProvider>
