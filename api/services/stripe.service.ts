@@ -135,18 +135,19 @@ export async function getOrCreateCustomer(
   email: string,
   name?: string
 ): Promise<string> {
-  // Check if customer already exists
-  const { data: subscription } = await supabaseAdmin
+  // Check if subscription record exists
+  const { data: subscription, error: subError } = await supabaseAdmin
     .from('subscriptions')
     .select('stripe_customer_id')
     .eq('store_id', storeId)
     .single();
 
+  // If subscription exists and has customer ID, return it
   if (subscription?.stripe_customer_id) {
     return subscription.stripe_customer_id;
   }
 
-  // Create new customer
+  // Create new Stripe customer
   const customer = await getStripe().customers.create({
     email,
     name,
@@ -155,11 +156,21 @@ export async function getOrCreateCustomer(
     },
   });
 
-  // Update subscription with customer ID
-  await supabaseAdmin
-    .from('subscriptions')
-    .update({ stripe_customer_id: customer.id })
-    .eq('store_id', storeId);
+  // If subscription record doesn't exist, create it
+  if (subError?.code === 'PGRST116' || !subscription) {
+    await supabaseAdmin.from('subscriptions').insert({
+      store_id: storeId,
+      plan: 'free',
+      status: 'active',
+      stripe_customer_id: customer.id,
+    });
+  } else {
+    // Update existing subscription with customer ID
+    await supabaseAdmin
+      .from('subscriptions')
+      .update({ stripe_customer_id: customer.id })
+      .eq('store_id', storeId);
+  }
 
   return customer.id;
 }

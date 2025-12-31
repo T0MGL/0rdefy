@@ -56,6 +56,7 @@ const LoginDemo = lazy(() => import("./pages/LoginDemo"));
 const SignUp = lazy(() => import("./pages/SignUp"));
 const Delivery = lazy(() => import("./pages/Delivery"));
 const ShopifyOAuthCallback = lazy(() => import("./pages/ShopifyOAuthCallback"));
+const Referral = lazy(() => import("./pages/Referral"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Optimized QueryClient configuration
@@ -129,6 +130,7 @@ const App = () => {
                             <Route path="/accept-invite/:token" element={<AcceptInvitation />} />
                             <Route path="/delivery/:token" element={<Delivery />} />
                             <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />
+                            <Route path="/r/:code" element={<Referral />} />
 
                             {/* Protected routes with layout */}
                             <Route path="/" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></ProtectedLayout>} />
