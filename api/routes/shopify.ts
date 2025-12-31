@@ -50,11 +50,8 @@ function getWebhookSecret(integration: any): { secret: string | null; source: st
 // This ensures we respond to Shopify < 5 seconds even during high traffic
 const webhookQueue = new WebhookQueueService(supabaseAdmin);
 
-// TEMPORARILY DISABLED: Auto-processing disabled until migration 024 is applied
-// To enable: Apply db/migrations/024_webhook_queue_system.sql to production DB
-// Then uncomment the lines below
-/*
 // Start processing webhooks in background
+// Migration 024 already applied in MASTER_MIGRATION (table: shopify_webhook_retry_queue)
 webhookQueue.startProcessing();
 console.log('✅ [SHOPIFY] Webhook queue processor started');
 
@@ -63,8 +60,6 @@ process.on('SIGTERM', () => {
   console.log('🛑 [SHOPIFY] Shutting down webhook queue processor...');
   webhookQueue.stopProcessing();
 });
-*/
-console.log('⚠️ [SHOPIFY] Webhook queue processor disabled - waiting for migration 024');
 
 // Aplicar autenticacion a todas las rutas excepto webhooks CALLBACK
 // CRITICAL: Skip auth only for webhook callback endpoints, not management endpoints
@@ -1345,8 +1340,8 @@ shopifyRouter.get('/queue/stats', async (req: AuthRequest, res: Response) => {
     try {
       stats = await webhookQueue.getQueueStats();
     } catch (queueError: any) {
-      console.warn('⚠️ Webhook queue stats unavailable (table not available):', queueError.message);
-      stats = { pending: 0, processing: 0, completed: 0, failed: 0, total: 0, error: 'Queue not initialized - migration 024 pending' };
+      console.warn('⚠️ Webhook queue stats unavailable:', queueError.message);
+      stats = { pending: 0, processing: 0, completed: 0, failed: 0, total: 0, error: 'Queue stats temporarily unavailable' };
     }
 
     res.json({

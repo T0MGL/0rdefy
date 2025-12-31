@@ -500,12 +500,26 @@ export default function Orders() {
 
       // Aplicar búsqueda de texto
       if (debouncedSearch) {
-        const searchLower = debouncedSearch.toLowerCase();
+        const searchLower = debouncedSearch.toLowerCase().trim();
+        const searchClean = searchLower.replace('#', ''); // Allow searching "1001" to find "#1001"
+
         return (
-          order.id.toLowerCase().includes(searchLower) ||
+          // Search by Customer Name
           order.customer.toLowerCase().includes(searchLower) ||
+          // Search by Phone
           order.phone.includes(debouncedSearch) ||
-          order.product.toLowerCase().includes(searchLower)
+          // Search by Product Name
+          order.product.toLowerCase().includes(searchLower) ||
+          // Search by Internal ID (partial match)
+          order.id.toLowerCase().includes(searchLower) ||
+          // Search by Order Number (ignoring #)
+          (order as any).order_number?.toString().toLowerCase().includes(searchClean) ||
+          // Search by Shopify Order Name (e.g. "#1001")
+          order.shopify_order_name?.toLowerCase().includes(searchClean) ||
+          // Search by Shopify Order Number (e.g. "1001")
+          order.shopify_order_number?.toString().includes(searchClean) ||
+          // Search by Email (if available)
+          (order as any).customer_email?.toLowerCase().includes(searchLower)
         );
       }
 
@@ -737,7 +751,7 @@ export default function Orders() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
             <Input
-              placeholder="Buscar por cliente, producto o ID..."
+              placeholder="Buscar por cliente, email, producto, ID o # de orden..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-10"
@@ -882,18 +896,45 @@ export default function Orders() {
                             </Badge>
                           )}
                           {order.payment_gateway && (
-                            <Badge
-                              variant="outline"
-                              className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 text-xs px-1.5 py-0"
-                              title={`Gateway: ${order.payment_gateway}`}
-                            >
-                              {order.payment_gateway === 'shopify_payments' ? '💳' :
-                                order.payment_gateway === 'manual' ? '📝' :
-                                  order.payment_gateway === 'cash_on_delivery' ? '💵' :
-                                    order.payment_gateway === 'paypal' ? 'PP' :
-                                      order.payment_gateway === 'mercadopago' ? 'MP' :
-                                        '💰'}
-                            </Badge>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs px-1.5 py-0 cursor-help ${order.payment_gateway === 'cash_on_delivery'
+                                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800'
+                                    : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800'
+                                    }`}
+                                >
+                                  {order.payment_gateway === 'shopify_payments' ? '💳' :
+                                    order.payment_gateway === 'manual' ? '📝' :
+                                      order.payment_gateway === 'cash_on_delivery' ? '💵' :
+                                        order.payment_gateway === 'paypal' ? 'PP' :
+                                          order.payment_gateway === 'mercadopago' ? 'MP' :
+                                            '💰'}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <div className="space-y-1">
+                                  <p className="font-medium">
+                                    {order.payment_gateway === 'shopify_payments' ? 'Pago con Tarjeta (Shopify Payments)' :
+                                      order.payment_gateway === 'manual' ? 'Pago Manual' :
+                                        order.payment_gateway === 'cash_on_delivery' ? 'Pago Contra Entrega (COD)' :
+                                          order.payment_gateway === 'paypal' ? 'PayPal' :
+                                            order.payment_gateway === 'mercadopago' ? 'Mercado Pago' :
+                                              order.payment_gateway}
+                                  </p>
+                                  {order.financial_status && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Estado: {order.financial_status === 'paid' ? 'Pagado' :
+                                        order.financial_status === 'pending' ? 'Pendiente' :
+                                          order.financial_status === 'authorized' ? 'Autorizado' :
+                                            order.financial_status === 'refunded' ? 'Reembolsado' :
+                                              order.financial_status}
+                                    </p>
+                                  )}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                         </div>
                       </td>
