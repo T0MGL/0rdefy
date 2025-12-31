@@ -622,37 +622,56 @@ export async function getStoreUsage(storeId: string): Promise<{
   products: { used: number; limit: number; percentage: number };
   users: { used: number; limit: number; percentage: number };
 }> {
-  const { data } = await supabaseAdmin.rpc('get_store_usage', {
-    p_store_id: storeId,
-  });
+  try {
+    const { data, error } = await supabaseAdmin.rpc('get_store_usage', {
+      p_store_id: storeId,
+    });
 
-  if (!data || data.length === 0) {
+    if (error) {
+      console.error('[Stripe] Error getting store usage:', error.message);
+      // Return defaults if RPC doesn't exist yet
+      return {
+        orders: { used: 0, limit: 50, percentage: 0 },
+        products: { used: 0, limit: 100, percentage: 0 },
+        users: { used: 0, limit: 1, percentage: 0 },
+      };
+    }
+
+    if (!data || data.length === 0) {
+      return {
+        orders: { used: 0, limit: 50, percentage: 0 },
+        products: { used: 0, limit: 100, percentage: 0 },
+        users: { used: 0, limit: 1, percentage: 0 },
+      };
+    }
+
+    const usage = data[0];
+
+    return {
+      orders: {
+        used: usage.orders_this_month,
+        limit: usage.max_orders === -1 ? Infinity : usage.max_orders,
+        percentage: usage.orders_percentage,
+      },
+      products: {
+        used: usage.products_count,
+        limit: usage.max_products === -1 ? Infinity : usage.max_products,
+        percentage: usage.products_percentage,
+      },
+      users: {
+        used: usage.users_count,
+        limit: usage.max_users === -1 ? Infinity : usage.max_users,
+        percentage: usage.users_percentage,
+      },
+    };
+  } catch (error: any) {
+    console.error('[Stripe] Exception getting store usage:', error.message);
     return {
       orders: { used: 0, limit: 50, percentage: 0 },
       products: { used: 0, limit: 100, percentage: 0 },
       users: { used: 0, limit: 1, percentage: 0 },
     };
   }
-
-  const usage = data[0];
-
-  return {
-    orders: {
-      used: usage.orders_this_month,
-      limit: usage.max_orders === -1 ? Infinity : usage.max_orders,
-      percentage: usage.orders_percentage,
-    },
-    products: {
-      used: usage.products_count,
-      limit: usage.max_products === -1 ? Infinity : usage.max_products,
-      percentage: usage.products_percentage,
-    },
-    users: {
-      used: usage.users_count,
-      limit: usage.max_users === -1 ? Infinity : usage.max_users,
-      percentage: usage.users_percentage,
-    },
-  };
 }
 
 /**

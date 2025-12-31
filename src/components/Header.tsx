@@ -54,7 +54,7 @@ const breadcrumbMap: Record<string, string> = {
   '/integrations': 'Integraciones',
   '/suppliers': 'Proveedores',
   '/carriers': 'Transportadoras',
-  '/billing': 'Facturación',
+  '/billing': 'Suscripción',
   '/support': 'Soporte',
   '/settings': 'Configuración',
 };
@@ -379,9 +379,9 @@ export function Header() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer"
-                onClick={() => navigate(preserveShopifyParams('/settings?tab=billing'))}
+                onClick={() => navigate(preserveShopifyParams('/settings?tab=subscription'))}
               >
-                Facturación
+                Suscripción
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer"
