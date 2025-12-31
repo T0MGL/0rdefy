@@ -13,10 +13,30 @@
 import Stripe from 'stripe';
 import { supabaseAdmin } from '../db/connection';
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
-});
+// Check if Stripe is configured
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const isStripeConfigured = !!STRIPE_SECRET_KEY;
+
+// Initialize Stripe only if API key is provided
+let stripe: Stripe | null = null;
+if (isStripeConfigured) {
+  stripe = new Stripe(STRIPE_SECRET_KEY, {
+    apiVersion: '2024-12-18.acacia',
+  });
+  console.log('[Stripe] Initialized with API key');
+} else {
+  console.warn('[Stripe] STRIPE_SECRET_KEY not configured - billing features will be disabled');
+}
+
+/**
+ * Get the Stripe instance, throwing if not configured
+ */
+function getStripe(): Stripe {
+  if (!stripe) {
+    throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY environment variable.');
+  }
+  return stripe;
+}
 
 // Plan configuration
 export const PLANS = {
@@ -81,13 +101,25 @@ const stripePrices: Record<Exclude<PlanType, 'free'>, { monthly: string; annual:
 };
 
 /**
+ * Check if Stripe is available
+ */
+export function isStripeAvailable(): boolean {
+  return isStripeConfigured;
+}
+
+/**
  * Initialize Stripe (verify connection)
  */
 export async function initializeStripeProducts(): Promise<void> {
+  if (!isStripeConfigured) {
+    console.log('[Stripe] Skipping initialization - not configured');
+    return;
+  }
+
   console.log('[Stripe] Verifying Stripe connection...');
   try {
     // Just verify we can connect to Stripe
-    const products = await stripe.products.list({ limit: 1 });
+    const products = await getStripe().products.list({ limit: 1 });
     console.log('[Stripe] Connection verified. Products available.');
     console.log('[Stripe] Using hardcoded price IDs from dashboard.');
   } catch (error) {
@@ -115,7 +147,7 @@ export async function getOrCreateCustomer(
   }
 
   // Create new customer
-  const customer = await stripe.customers.create({
+  const customer = await getStripe().customers.create({
     email,
     name,
     metadata: {
@@ -239,7 +271,7 @@ export async function createCheckoutSession(params: {
 
     if (referral) {
       // Create a one-time 20% coupon
-      const coupon = await stripe.coupons.create({
+      const coupon = await getStripe().coupons.create({
         percent_off: 20,
         duration: 'once',
         name: `Referral ${referralCode}`,
@@ -279,7 +311,7 @@ export async function createCheckoutSession(params: {
     }
   }
 
-  const session = await stripe.checkout.sessions.create(sessionParams);
+  const session = await getStripe().checkout.sessions.create(sessionParams);
   return session;
 }
 
@@ -300,7 +332,7 @@ export async function createBillingPortalSession(
     throw new Error('No Stripe customer found for this store');
   }
 
-  const session = await stripe.billingPortal.sessions.create({
+  const session = await getStripe().billingPortal.sessions.create({
     customer: subscription.stripe_customer_id,
     return_url: returnUrl,
   });
@@ -315,7 +347,7 @@ export async function getStripeSubscription(
   subscriptionId: string
 ): Promise<Stripe.Subscription | null> {
   try {
-    return await stripe.subscriptions.retrieve(subscriptionId);
+    return await getStripe().subscriptions.retrieve(subscriptionId);
   } catch (error) {
     console.error('[Stripe] Error fetching subscription:', error);
     return null;
@@ -329,7 +361,7 @@ export async function cancelSubscription(
   subscriptionId: string,
   reason?: string
 ): Promise<Stripe.Subscription> {
-  const subscription = await stripe.subscriptions.update(subscriptionId, {
+  const subscription = await getStripe().subscriptions.update(subscriptionId, {
     cancel_at_period_end: true,
     metadata: {
       cancellation_reason: reason || '',
@@ -345,7 +377,7 @@ export async function cancelSubscription(
 export async function reactivateSubscription(
   subscriptionId: string
 ): Promise<Stripe.Subscription> {
-  const subscription = await stripe.subscriptions.update(subscriptionId, {
+  const subscription = await getStripe().subscriptions.update(subscriptionId, {
     cancel_at_period_end: false,
   });
 
@@ -365,9 +397,10 @@ export async function changeSubscriptionPlan(
     throw new Error(`Price not found for ${newPlan} ${billingCycle}`);
   }
 
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const stripeClient = getStripe();
+  const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
 
-  const updatedSubscription = await stripe.subscriptions.update(subscriptionId, {
+  const updatedSubscription = await stripeClient.subscriptions.update(subscriptionId, {
     items: [
       {
         id: subscription.items.data[0].id,
@@ -392,7 +425,7 @@ export async function applyReferralCredit(
   referralId: string
 ): Promise<void> {
   // Create a credit balance for the customer
-  await stripe.customers.createBalanceTransaction(customerId, {
+  await getStripe().customers.createBalanceTransaction(customerId, {
     amount: -creditAmountCents, // Negative amount = credit
     currency: 'usd',
     description: `Referral credit - ID: ${referralId}`,
@@ -429,10 +462,11 @@ export async function createStripeDiscount(params: {
     couponParams.duration_in_months = durationInMonths;
   }
 
-  const coupon = await stripe.coupons.create(couponParams);
+  const stripeClient = getStripe();
+  const coupon = await stripeClient.coupons.create(couponParams);
 
   // Create promotion code (the actual code customers enter)
-  const promotionCode = await stripe.promotionCodes.create({
+  const promotionCode = await stripeClient.promotionCodes.create({
     coupon: coupon.id,
     code: code.toUpperCase(),
   });
@@ -793,6 +827,7 @@ export async function processReferralConversion(
 }
 
 export default {
+  isStripeAvailable,
   initializeStripeProducts,
   getOrCreateCustomer,
   canStartTrial,
@@ -814,5 +849,5 @@ export default {
   getReferralStats,
   processReferralConversion,
   PLANS,
-  stripe,
+  getStripe,
 };

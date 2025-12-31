@@ -13,10 +13,8 @@ import stripeService, { PlanType, BillingCycle, PLANS } from '../services/stripe
 
 const router = express.Router();
 
-// Initialize Stripe with raw body for webhooks
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-12-18.acacia',
-});
+// Helper to get Stripe instance from service
+const getStripe = (): Stripe => stripeService.getStripe();
 
 // =============================================
 // PUBLIC ROUTES (No auth required)
@@ -41,7 +39,7 @@ router.post(
     let event: Stripe.Event;
 
     try {
-      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      event = getStripe().webhooks.constructEvent(req.body, sig, webhookSecret);
     } catch (err: any) {
       console.error('[Billing Webhook] Signature verification failed:', err.message);
       return res.status(400).json({ error: `Webhook Error: ${err.message}` });
@@ -459,7 +457,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   // Record trial if applicable
   if (session.subscription) {
-    const subscription = await stripe.subscriptions.retrieve(
+    const subscription = await getStripe().subscriptions.retrieve(
       session.subscription as string
     );
 
@@ -501,7 +499,7 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
 
   if (!storeId) {
     // Try to get from customer
-    const customer = await stripe.customers.retrieve(
+    const customer = await getStripe().customers.retrieve(
       subscription.customer as string
     );
     if ('metadata' in customer && customer.metadata?.store_id) {
@@ -546,7 +544,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   // Process referral conversion on first payment
   if (invoice.billing_reason === 'subscription_create') {
     const customerId = invoice.customer as string;
-    const customer = await stripe.customers.retrieve(customerId);
+    const customer = await getStripe().customers.retrieve(customerId);
 
     if ('metadata' in customer && customer.metadata?.store_id) {
       // Get user from store
@@ -619,7 +617,7 @@ async function updateSubscriptionInDB(
   plan?: PlanType
 ) {
   const priceId = subscription.items.data[0]?.price.id;
-  const price = await stripe.prices.retrieve(priceId);
+  const price = await getStripe().prices.retrieve(priceId);
 
   // Determine plan from price metadata if not provided
   const subscriptionPlan = plan || (price.metadata?.ordefy_plan as PlanType) || 'starter';
