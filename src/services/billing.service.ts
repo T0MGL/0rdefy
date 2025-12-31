@@ -82,7 +82,7 @@ export const billingService = {
     usage: Usage;
     allPlans: Plan[];
   }> {
-    const response = await apiClient.get('/api/billing/subscription');
+    const response = await apiClient.get('/billing/subscription');
     return response.data;
   },
 
@@ -90,7 +90,7 @@ export const billingService = {
    * Get all available plans
    */
   async getPlans(): Promise<Plan[]> {
-    const response = await apiClient.get('/api/billing/plans');
+    const response = await apiClient.get('/billing/plans');
     return response.data;
   },
 
@@ -98,7 +98,7 @@ export const billingService = {
    * Create a checkout session
    */
   async createCheckout(params: CheckoutParams): Promise<{ sessionId: string; url: string }> {
-    const response = await apiClient.post('/api/billing/checkout', params);
+    const response = await apiClient.post('/billing/checkout', params);
     return response.data;
   },
 
@@ -106,7 +106,7 @@ export const billingService = {
    * Create a billing portal session
    */
   async createPortal(): Promise<{ url: string }> {
-    const response = await apiClient.post('/api/billing/portal');
+    const response = await apiClient.post('/billing/portal');
     return response.data;
   },
 
@@ -114,7 +114,7 @@ export const billingService = {
    * Cancel subscription
    */
   async cancelSubscription(reason?: string): Promise<{ success: boolean }> {
-    const response = await apiClient.post('/api/billing/cancel', { reason });
+    const response = await apiClient.post('/billing/cancel', { reason });
     return response.data;
   },
 
@@ -122,7 +122,7 @@ export const billingService = {
    * Reactivate a canceled subscription
    */
   async reactivateSubscription(): Promise<{ success: boolean }> {
-    const response = await apiClient.post('/api/billing/reactivate');
+    const response = await apiClient.post('/billing/reactivate');
     return response.data;
   },
 
@@ -130,7 +130,7 @@ export const billingService = {
    * Change subscription plan
    */
   async changePlan(plan: string, billingCycle: 'monthly' | 'annual'): Promise<{ success: boolean }> {
-    const response = await apiClient.post('/api/billing/change-plan', { plan, billingCycle });
+    const response = await apiClient.post('/billing/change-plan', { plan, billingCycle });
     return response.data;
   },
 
@@ -138,7 +138,7 @@ export const billingService = {
    * Check feature access
    */
   async hasFeatureAccess(feature: string): Promise<boolean> {
-    const response = await apiClient.get(`/api/billing/feature/${feature}`);
+    const response = await apiClient.get(`/billing/feature/${feature}`);
     return response.data.hasAccess;
   },
 
@@ -146,7 +146,7 @@ export const billingService = {
    * Get referral stats
    */
   async getReferralStats(): Promise<ReferralStats> {
-    const response = await apiClient.get('/api/billing/referrals');
+    const response = await apiClient.get('/billing/referrals');
     return response.data;
   },
 
@@ -154,7 +154,7 @@ export const billingService = {
    * Generate referral code
    */
   async generateReferralCode(): Promise<{ code: string; link: string }> {
-    const response = await apiClient.post('/api/billing/referrals/generate');
+    const response = await apiClient.post('/billing/referrals/generate');
     return response.data;
   },
 
@@ -169,7 +169,7 @@ export const billingService = {
     discount?: { type: string; value: number; description: string };
     error?: string;
   }> {
-    const response = await apiClient.post('/api/billing/discount/validate', { code, plan });
+    const response = await apiClient.post('/billing/discount/validate', { code, plan });
     return response.data;
   },
 
@@ -182,7 +182,7 @@ export const billingService = {
     discount?: string;
     error?: string;
   }> {
-    const response = await apiClient.get(`/api/billing/referral/${code}/validate`);
+    const response = await apiClient.get(`/billing/referral/${code}/validate`);
     return response.data;
   },
 };
