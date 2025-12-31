@@ -28,6 +28,7 @@ import {
 } from '@/services/security.service';
 import apiClient from '@/services/api.client';
 import { TeamManagement } from '@/components/TeamManagement';
+import BillingPage from '@/pages/Billing';
 
 // Common timezones for Latin America
 const TIMEZONES = [
@@ -502,9 +503,9 @@ export default function Settings() {
             <User size={16} />
             Perfil
           </TabsTrigger>
-          <TabsTrigger value="billing" className="gap-2">
+          <TabsTrigger value="subscription" className="gap-2">
             <CreditCard size={16} />
-            Facturación
+            Suscripción
           </TabsTrigger>
           <TabsTrigger value="preferences" className="gap-2">
             <Bell size={16} />
@@ -684,30 +685,9 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Billing Tab */}
-        <TabsContent value="billing" className="space-y-6">
-          <Card className="p-6">
-            <div className="flex items-center justify-center min-h-[400px]">
-              <div className="text-center max-w-md">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                  <AlertCircle className="text-primary" size={32} />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">Facturación en Desarrollo</h3>
-                <p className="text-muted-foreground mb-6">
-                  Esta funcionalidad está siendo desarrollada actualmente. Pronto podrás gestionar tus métodos de pago, ver facturas y administrar tu suscripción desde aquí.
-                </p>
-                <div className="space-y-3 text-sm text-left bg-muted/50 p-4 rounded-lg">
-                  <p className="font-medium">Funciones próximamente disponibles:</p>
-                  <ul className="space-y-2 ml-4">
-                    <li>• Métodos de pago</li>
-                    <li>• Historial de facturas</li>
-                    <li>• Gestión de suscripción</li>
-                    <li>• Información fiscal</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </Card>
+        {/* Subscription Tab */}
+        <TabsContent value="subscription" className="space-y-6">
+          <BillingPage embedded />
         </TabsContent>
 
         {/* Preferences Tab */}

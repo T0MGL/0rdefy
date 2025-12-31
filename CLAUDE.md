@@ -15,19 +15,20 @@ E-commerce management dashboard with intelligent analytics, order processing, wa
 ### Project Structure
 ```
 src/
-├── components/          # UI components (shadcn/ui in /ui/)
-├── pages/              # Routes (Dashboard, Orders, Products, Warehouse, Merchandise, Settings, Integrations)
+├── components/          # UI components (shadcn/ui in /ui/, TeamManagement, ShopifyIntegrationModal, OrderShippingLabel)
+├── pages/              # Routes (Dashboard, Orders, Products, Warehouse, Merchandise, Returns, Settings, Integrations, AcceptInvitation)
 ├── contexts/           # AuthContext, ThemeContext
-├── services/           # API layer (orders, products, customers, ads, merchandise, warehouse)
-├── utils/              # Business logic (alertEngine, recommendationEngine, healthCalculator)
+├── services/           # API layer (orders, products, customers, ads, merchandise, warehouse, collaborators)
+├── utils/              # Business logic (alertEngine, recommendationEngine, healthCalculator, notificationEngine, timeUtils)
 ├── types/              # TypeScript definitions
-├── hooks/              # Custom hooks
+├── hooks/              # Custom hooks (useHighlight)
 └── lib/                # Utilities
 
 api/
-├── routes/             # API endpoints (auth, customers, campaigns, merchandise, warehouse, shopify)
-├── middleware/         # JWT verification, store ID extraction
-├── services/           # Business logic (shopify, warehouse)
+├── routes/             # API endpoints (auth, customers, campaigns, merchandise, warehouse, shopify, collaborators, returns)
+├── middleware/         # JWT verification, store ID extraction, permissions (extractUserRole, requireRole, requireModule, requirePermission)
+├── services/           # Business logic (shopify, warehouse, returns)
+├── permissions.ts      # Role-based permission definitions (6 roles, 15 modules, 4 permissions)
 └── db/                 # Supabase client
 
 db/
@@ -45,6 +46,7 @@ db/
 - JWT tokens in localStorage
 - Headers: `Authorization: Bearer {token}`, `X-Store-ID: {id}`
 - Middleware: `verifyToken`, `extractStoreId`
+- **NEW: WhatsApp Phone Verification** - One phone number per account (prevents multicuentas)
 
 **Services Layer:**
 ```typescript
@@ -130,6 +132,8 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - ✅ Implemented Shopify order line items normalization (migration 024)
 - ✅ Fixed order creation/deletion protection triggers (migration 023)
 - ✅ Added shipping label print tracking (migration 017)
+- ✅ Collaborator invitation system with role-based access (migration 030)
+- ✅ Shopify order fields expansion - total_discounts, tags, timestamps (migration 033)
 
 ### Merchandise (Inbound Shipments)
 **Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`
@@ -238,20 +242,176 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - `POST /api/orders/:id/mark-printed` - Mark single order as printed
 - `POST /api/orders/mark-printed-bulk` - Mark multiple orders as printed
 
+### Collaborator Invitation System (Team Management)
+**Files:** `src/components/TeamManagement.tsx`, `src/pages/AcceptInvitation.tsx`, `api/routes/collaborators.ts`, `api/permissions.ts`, `api/middleware/permissions.ts`, `db/migrations/030_collaborator_invitation_system.sql`
+**Documentation:** `COLLABORATORS_SYSTEM.md`
+
+**Features:**
+- Invite users via secure unique links (64-char tokens, 7-day expiration)
+- Role-based access control: owner, admin, logistics, confirmador, contador, inventario
+- Module-level permissions: 15 modules × 4 permissions (VIEW, CREATE, EDIT, DELETE)
+- Plan limits: Free (1 user), Starter (3 users), Growth/Enterprise (unlimited)
+- Soft delete for removed collaborators
+- Auto-login after invitation acceptance
+
+**Roles & Permissions:**
+- **owner**: Full access to all modules
+- **admin**: All except Team and Billing
+- **logistics**: Warehouse, Returns, Carriers, Orders (view only)
+- **confirmador**: Orders (no delete), Customers
+- **contador**: Analytics, Campaigns (view), Orders/Products (view)
+- **inventario**: Products, Merchandise, Suppliers
+
+**Workflow:**
+1. Owner creates invitation (name, email, role) → receives unique link
+2. Sends link to collaborator (manual via WhatsApp/Email)
+3. Collaborator opens link → validates token → creates password
+4. Auto-creates user account + store relationship → auto-login
+5. Collaborator sees only permitted modules
+
+**Tables:** collaborator_invitations, stores (subscription_plan, max_users), user_stores (invited_by, invited_at, is_active)
+**Functions:** can_add_user_to_store, get_store_user_stats
+**Middleware:** extractUserRole, requireRole, requireModule, requirePermission
+
+**API Endpoints:**
+- `POST /api/collaborators/invite` - Create invitation
+- `GET /api/collaborators/invitations` - List invitations
+- `DELETE /api/collaborators/invitations/:id` - Cancel invitation
+- `GET /api/collaborators/validate-token/:token` - Validate token (public)
+- `POST /api/collaborators/accept-invitation` - Accept invitation (public)
+- `GET /api/collaborators` - List team members
+- `DELETE /api/collaborators/:userId` - Remove collaborator
+- `PATCH /api/collaborators/:userId/role` - Change role
+- `GET /api/collaborators/stats` - User stats vs plan limits
+
+### Phone Verification System (WhatsApp)
+**Files:** `src/components/PhoneVerification.tsx`, `src/pages/AccountRecovery.tsx`, `api/routes/phone-verification.ts`, `api/services/whatsapp.service.ts`, `db/migrations/034_phone_verification_system.sql`
+**Documentation:** `WHATSAPP_VERIFICATION_SETUP.md`
+
+**Features:**
+- WhatsApp-based phone number verification using Meta Business API
+- Prevents multiple accounts with same phone number (anti-fraud)
+- 6-digit verification codes with 10-minute expiration
+- Account recovery flow for duplicate phone numbers
+- Rate limiting: 60 seconds between code requests, max 5 verification attempts
+- Demo mode (no WhatsApp needed for testing)
+- Production mode (real WhatsApp messages via Meta Cloud API)
+
+**Workflow:**
+1. User registers → creates account (phone_verified: false)
+2. System prompts for phone number
+3. If phone already registered → redirect to account recovery page
+4. If phone new → generate 6-digit code → send via WhatsApp
+5. User enters code (max 5 attempts)
+6. Code verified → phone_verified: true → full access granted
+7. Codes expire after 10 minutes, auto-cleanup after 24 hours
+
+**Configuration:**
+```bash
+# .env
+WHATSAPP_PHONE_NUMBER_ID=123456789012345
+WHATSAPP_ACCESS_TOKEN=your_meta_access_token
+WHATSAPP_VERIFICATION_ENABLED=false  # false = demo mode, true = production
+```
+
+**Setup Requirements:**
+1. Meta Business Account
+2. WhatsApp Business API access (requires verification)
+3. Verified business phone number
+4. Permanent access token (from System User)
+
+**API Endpoints:**
+- `POST /api/phone-verification/request` - Request verification code (rate limited)
+- `POST /api/phone-verification/verify` - Verify code
+- `GET /api/phone-verification/status` - Check verification status
+- `POST /api/phone-verification/resend` - Resend code
+
+**Tables:** phone_verification_codes
+**Functions:** generate_verification_code, can_request_verification_code, cleanup_expired_verification_codes
+
+**Costs:**
+- Free tier: 1,000 conversations/month
+- After free tier: $0.005-$0.09 per conversation (varies by country)
+- LATAM: ~$0.012-$0.015 per verification
+
+### Billing & Subscriptions System (Stripe)
+**Files:** `src/pages/Billing.tsx`, `src/services/billing.service.ts`, `api/routes/billing.ts`, `api/services/stripe.service.ts`, `db/migrations/036_billing_subscriptions_system.sql`
+
+**Plans:**
+| Plan | Price/mo | Annual (15% off) | Users | Orders/mo | Products | Trial |
+|------|----------|------------------|-------|-----------|----------|-------|
+| Free | $0 | - | 1 | 50 | 100 | No |
+| Starter | $29 | $24.65 | 3 | 500 | 500 | 14 days |
+| Growth | $79 | $67.15 | 10 | 2,000 | 2,000 | 14 days |
+| Professional | $199 | $169.15 | 25 | 10,000 | Unlimited | No |
+
+**Features by Plan:**
+- **Free:** Dashboard, orders, products, customers (manual only)
+- **Starter:** + Warehouse, Returns, Merchandise, Shipping Labels, Shopify import, Team (3 users)
+- **Growth:** + Shopify bidirectional sync, Smart Alerts, Campaign tracking, API read, Team (10 users)
+- **Professional:** + Multi-store (3), Custom roles, API full, Webhooks, Forecasting
+
+**Trial System:**
+- 14 days free trial on Starter and Growth plans
+- Card required to start trial (no charge)
+- One trial per plan per user (can't repeat)
+- Auto-charges at end of trial or cancels
+
+**Referral System:**
+- Each user gets unique referral code (6 chars)
+- Referrer earns $10 credit when referred user pays first month
+- Referred user gets 20% off first month
+- No limits on referral credits
+
+**Discount Codes:**
+- Types: percentage, fixed, trial_extension
+- Restrictions: valid dates, max uses, applicable plans
+- Stored in Stripe as coupons/promotion codes
+
+**Configuration:**
+```bash
+# .env
+STRIPE_SECRET_KEY=sk_live_xxx
+STRIPE_WEBHOOK_SECRET=whsec_xxx
+```
+
+**API Endpoints:**
+- `GET /api/billing/plans` - Get all plans (public)
+- `GET /api/billing/subscription` - Get current subscription + usage
+- `POST /api/billing/checkout` - Create Stripe checkout session
+- `POST /api/billing/portal` - Open Stripe billing portal
+- `POST /api/billing/cancel` - Cancel subscription at period end
+- `POST /api/billing/reactivate` - Reactivate canceled subscription
+- `GET /api/billing/referrals` - Get referral stats
+- `POST /api/billing/referrals/generate` - Generate referral code
+- `POST /api/billing/webhook` - Stripe webhook handler
+
+**Stripe Webhook Events:**
+- `checkout.session.completed` - Trial/subscription started
+- `customer.subscription.created/updated/deleted` - Subscription changes
+- `invoice.paid` - Payment successful (triggers referral credit)
+- `invoice.payment_failed` - Payment failed
+- `customer.subscription.trial_will_end` - 3 days before trial ends
+
+**Tables:** subscriptions, subscription_history, subscription_trials, plan_limits, referral_codes, referrals, referral_credits, discount_codes, discount_redemptions, usage_tracking, stripe_billing_events
+
 ## Database Schema
 
 **Master Migration:** `000_MASTER_MIGRATION.sql` (idempotent, all-in-one)
 
 **Tables:**
-- Base: stores, users, user_stores, store_config
+- Base: stores (subscription_plan, max_users), users, user_stores (invited_by, invited_at, is_active), store_config
 - Business: products, customers, carriers, suppliers, campaigns, additional_values
-- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned), order_line_items
+- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at), order_line_items
 - History: order_status_history, follow_up_log
 - Delivery: delivery_attempts, daily_settlements, settlement_orders
 - Inventory: inventory_movements (audit log for all stock changes)
 - Merchandise: inbound_shipments, inbound_shipment_items
 - Warehouse: picking_sessions, picking_session_orders, picking_session_items, packing_progress
 - Returns: return_sessions, return_session_orders, return_session_items
+- Team: collaborator_invitations
+- Verification: phone_verification_codes (WhatsApp verification codes)
+- Billing: subscriptions, subscription_history, subscription_trials, plan_limits, referral_codes, referrals, referral_credits, discount_codes, discount_redemptions, usage_tracking, stripe_billing_events
 - Shopify: shopify_integrations, shopify_oauth_states, shopify_import_jobs, shopify_webhook_events, shopify_sync_conflicts, shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
 
 **Key Functions:**
@@ -264,6 +424,16 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - prevent_order_deletion_after_stock_deducted (data integrity)
 - find_product_by_shopify_ids (product mapping for Shopify orders)
 - create_line_items_from_shopify (normalize Shopify line items)
+- can_add_user_to_store (validate user limits per plan)
+- get_store_user_stats (user statistics vs plan limits)
+- generate_verification_code (6-digit WhatsApp verification codes)
+- can_request_verification_code (rate limiting for SMS spam prevention)
+- cleanup_expired_verification_codes (daily cleanup of expired codes)
+- generate_referral_code (6-char unique referral codes)
+- get_available_credits (calculate available referral credits)
+- can_start_trial (validate trial eligibility)
+- get_store_usage (orders, products, users vs plan limits)
+- has_feature_access (check feature access by plan)
 
 **Triggers:**
 - Auto-update: customer stats, carrier stats, order status history, delivery tokens, COD calculation, warehouse timestamps
@@ -290,6 +460,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 ### Rate Limiting
 - General API: 500 req/15min per IP
 - Authentication: 5 req/15min (brute force protection)
+- Phone Verification: 5 req/15min (SMS spam prevention)
 - Webhooks: 60 req/min
 - Write operations: 200 req/15min
 
@@ -311,6 +482,8 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 **Production-Ready:**
 - ✅ Authentication (login, register, logout, password change, account deletion)
 - ✅ Multi-store support with role-based access
+- ✅ Team management with collaborator invitations and role-based permissions
+- ✅ Subscription plans with user limits (Free, Starter, Growth, Enterprise)
 - ✅ Real-time analytics with period comparisons
 - ✅ Order management with WhatsApp confirmation
 - ✅ Product inventory management with automatic stock tracking
@@ -326,13 +499,18 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - ✅ Dark mode theme system
 - ✅ Global search (Cmd+K)
 - ✅ Intelligent notification system with timezone awareness
+- ✅ **NEW: WhatsApp phone verification (prevents multicuentas)**
+
+- ✅ **NEW: Stripe Billing System** (subscriptions, trials, referrals, discount codes)
 
 **Coming Soon:**
 - 2FA authentication
-- Billing/Subscription system
+- Email service for automated invitation emails (SendGrid/AWS SES)
 - Dropi integration (dropshipping for LATAM)
 - Mercado Libre integration
 - Multi-channel inventory sync
+- Custom roles (Enterprise plan)
+- SSO integration (Google/Microsoft)
 
 ## Development Notes
 
@@ -349,6 +527,8 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 ## Technical Documentation
 
 **Core Systems:**
+- `COLLABORATORS_SYSTEM.md` - Team management with role-based access control and invitations
+- `WHATSAPP_VERIFICATION_SETUP.md` - **NEW:** WhatsApp phone verification setup guide
 - `SHOPIFY_ORDER_LINE_ITEMS.md` - Shopify order normalization and product mapping system
 - `SHOPIFY_PRODUCT_SYNC_GUIDE.md` - Bidirectional product synchronization with Shopify
 - `SHOPIFY_INVENTORY_SYNC.md` - Automatic inventory synchronization (Ordefy ↔ Shopify)
@@ -367,3 +547,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 022: Returns/refunds system
 - 023: Order creation/deletion protection fixes
 - 024: Shopify order line items normalization
+- 030: Collaborator invitation system with role-based access
+- 033: Shopify order fields expansion (total_discounts, tags, timestamps)
+- 034: **NEW:** WhatsApp phone verification system (prevents multicuentas)
+- 036: **NEW:** Billing & Subscriptions system (Stripe, referrals, discount codes)

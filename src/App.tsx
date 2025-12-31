@@ -48,6 +48,7 @@ const CarrierCompare = lazy(() => import("./pages/CarrierCompare"));
 const CourierPerformance = lazy(() => import("./pages/CourierPerformance"));
 const Support = lazy(() => import("./pages/Support"));
 const Settings = lazy(() => import("./pages/Settings"));
+const Billing = lazy(() => import("./pages/Billing"));
 const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation"));
 const Settlements = lazy(() => import("./pages/Settlements"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
@@ -152,6 +153,7 @@ const App = () => {
                             <Route path="/settlements" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></ProtectedLayout>} />
                             <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
                             <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
+                            <Route path="/billing" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Billing /></ProtectedLayout>} />
                           </Routes>
                         </Suspense>
                       </OnboardingGuard>

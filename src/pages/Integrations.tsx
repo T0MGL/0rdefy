@@ -6,10 +6,13 @@ import { ShopifyIntegrationModal } from '@/components/ShopifyIntegrationModal';
 import { ShopifyConnectionMethodDialog } from '@/components/ShopifyConnectionMethodDialog';
 import { ShopifyManualConnectDialog } from '@/components/ShopifyManualConnectDialog';
 import { ShopifyConnectDialog } from '@/components/ShopifyConnectDialog';
-import { Store, Package, Clock, CheckCircle2, Settings } from 'lucide-react';
+import { ExternalWebhookSetupDialog } from '@/components/ExternalWebhookSetupDialog';
+import { ExternalWebhookManagementModal } from '@/components/ExternalWebhookManagementModal';
+import { Store, Package, Clock, CheckCircle2, Settings, Webhook } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { shopifyService } from '@/services/shopify.service';
+import { externalWebhookService } from '@/services/external-webhook.service';
 
 interface Integration {
   id: string;
@@ -37,6 +40,14 @@ const integrations: Integration[] = [
     status: 'coming_soon',
     category: 'dropshipping',
   },
+  {
+    id: 'external-webhook',
+    name: 'Webhook Externo',
+    description: 'Recibe pedidos desde landing pages, tiendas personalizadas o cualquier sistema externo via API',
+    icon: Webhook,
+    status: 'available',
+    category: 'custom',
+  },
 ];
 
 export default function Integrations() {
@@ -45,28 +56,39 @@ export default function Integrations() {
   const [shopifyMethodDialogOpen, setShopifyMethodDialogOpen] = useState(false);
   const [shopifyOAuthDialogOpen, setShopifyOAuthDialogOpen] = useState(false);
   const [shopifyManualDialogOpen, setShopifyManualDialogOpen] = useState(false);
+  const [externalWebhookSetupOpen, setExternalWebhookSetupOpen] = useState(false);
+  const [externalWebhookManagementOpen, setExternalWebhookManagementOpen] = useState(false);
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([]);
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
 
-  // Check for existing Shopify integration on mount
+  // Check for existing integrations on mount
   useEffect(() => {
-    const checkExistingIntegration = async () => {
+    const checkExistingIntegrations = async () => {
       setIsLoadingIntegrations(true);
       try {
-        const response = await shopifyService.getIntegration();
-        if (response.success && response.integration) {
+        // Check Shopify
+        const shopifyResponse = await shopifyService.getIntegration();
+        if (shopifyResponse.success && shopifyResponse.integration) {
           setConnectedIntegrations(prev =>
             prev.includes('shopify') ? prev : [...prev, 'shopify']
           );
         }
+
+        // Check External Webhook
+        const webhookResponse = await externalWebhookService.getConfig();
+        if (webhookResponse.success && webhookResponse.config) {
+          setConnectedIntegrations(prev =>
+            prev.includes('external-webhook') ? prev : [...prev, 'external-webhook']
+          );
+        }
       } catch (error) {
-        console.error('Error checking existing integration:', error);
+        console.error('Error checking existing integrations:', error);
       } finally {
         setIsLoadingIntegrations(false);
       }
     };
 
-    checkExistingIntegration();
+    checkExistingIntegrations();
   }, []);
 
   const handleShopifySuccess = () => {
@@ -79,6 +101,16 @@ export default function Integrations() {
     setConnectedIntegrations(prev => prev.filter(id => id !== 'shopify'));
   };
 
+  const handleExternalWebhookSuccess = () => {
+    setConnectedIntegrations(prev =>
+      prev.includes('external-webhook') ? prev : [...prev, 'external-webhook']
+    );
+  };
+
+  const handleExternalWebhookDisconnect = () => {
+    setConnectedIntegrations(prev => prev.filter(id => id !== 'external-webhook'));
+  };
+
   const handleIntegrationClick = (integration: Integration) => {
     if (integration.id === 'shopify') {
       if (connectedIntegrations.includes('shopify')) {
@@ -87,6 +119,14 @@ export default function Integrations() {
       } else {
         // If not connected, show method selector
         setShopifyMethodDialogOpen(true);
+      }
+    } else if (integration.id === 'external-webhook') {
+      if (connectedIntegrations.includes('external-webhook')) {
+        // If already connected, show management modal
+        setExternalWebhookManagementOpen(true);
+      } else {
+        // If not connected, show setup dialog
+        setExternalWebhookSetupOpen(true);
       }
     } else if (integration.status === 'coming_soon') {
       toast({
@@ -288,6 +328,34 @@ export default function Integrations() {
         </div>
       </div>
 
+      {/* Custom Integrations Category */}
+      <div className="space-y-4">
+        <div className="border-l-4 border-purple-500 pl-4">
+          <h3 className="text-lg font-semibold">Integraciones Personalizadas</h3>
+          <p className="text-sm text-muted-foreground">
+            Conecta landing pages, tiendas personalizadas o cualquier sistema externo para recibir pedidos automáticamente
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {isLoadingIntegrations ? (
+            // Show skeleton loaders while checking integration status
+            integrations
+              .filter(int => int.category === 'custom')
+              .map((integration, index) => (
+                <IntegrationSkeleton key={integration.id} index={index} />
+              ))
+          ) : (
+            // Show actual integration cards once loaded
+            integrations
+              .filter(int => int.category === 'custom')
+              .map((integration, index) => (
+                <IntegrationCard key={integration.id} integration={integration} index={index} />
+              ))
+          )}
+        </div>
+      </div>
+
       {/* Shopify Integration Modal (for managing existing connection) */}
       <ShopifyIntegrationModal
         open={shopifyModalOpen}
@@ -317,6 +385,20 @@ export default function Integrations() {
         onOpenChange={setShopifyManualDialogOpen}
         onSuccess={handleShopifySuccess}
         onBack={handleBackToMethodSelector}
+      />
+
+      {/* External Webhook Setup Dialog */}
+      <ExternalWebhookSetupDialog
+        open={externalWebhookSetupOpen}
+        onOpenChange={setExternalWebhookSetupOpen}
+        onSuccess={handleExternalWebhookSuccess}
+      />
+
+      {/* External Webhook Management Modal */}
+      <ExternalWebhookManagementModal
+        open={externalWebhookManagementOpen}
+        onOpenChange={setExternalWebhookManagementOpen}
+        onDisconnect={handleExternalWebhookDisconnect}
       />
     </div>
   );

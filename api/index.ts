@@ -41,6 +41,9 @@ import securityRouter from './routes/security';
 import { incidentsRouter } from './routes/incidents';
 import { unifiedRouter } from './routes/unified';
 import { collaboratorsRouter } from './routes/collaborators';
+import { externalWebhooksRouter } from './routes/external-webhooks';
+// import phoneVerificationRouter from './routes/phone-verification'; // TODO: Enable when WhatsApp number is ready
+import billingRouter from './routes/billing';
 
 // Load environment variables
 dotenv.config();
@@ -305,7 +308,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Store-ID', 'X-Shopify-Session']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Store-ID', 'X-Shopify-Session', 'X-API-Key', 'X-Idempotency-Key']
 }));
 
 // ================================================================
@@ -384,10 +387,17 @@ app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/change-password', authLimiter);
 app.use('/api/auth/delete-account', authLimiter);
 
+// Apply auth limiter to phone verification endpoints (prevent SMS spam)
+app.use('/api/phone-verification/request', authLimiter);
+app.use('/api/phone-verification/resend', authLimiter);
+
 // Apply webhook limiter to webhook endpoints
 // Support both /webhook/ (singular) and /webhooks/ (plural)
 app.use('/api/shopify/webhook/', webhookLimiter);
 app.use('/api/shopify/webhooks/', webhookLimiter);
+
+// Apply webhook limiter to external webhook order reception
+app.use('/api/webhook/orders/', webhookLimiter);
 
 // Apply delivery token limiter to public delivery endpoints
 // SECURITY: Prevents brute force attacks on delivery tokens
@@ -455,6 +465,18 @@ app.use('/api/security', securityRouter);
 
 // Collaborators & Team Management routes
 app.use('/api/collaborators', collaboratorsRouter);
+
+// External Webhooks routes (Landing pages & external systems)
+app.use('/api/external-webhooks', externalWebhooksRouter);
+app.use('/api/webhook', externalWebhooksRouter); // Public endpoint for receiving orders
+
+// Phone verification routes (WhatsApp verification)
+// TODO: Enable when WhatsApp Business number is ready
+// app.use('/api/phone-verification', phoneVerificationRouter);
+
+// Billing routes (Stripe subscriptions)
+// Note: /api/billing/webhook uses raw body parser internally for Stripe signature
+app.use('/api/billing', billingRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {

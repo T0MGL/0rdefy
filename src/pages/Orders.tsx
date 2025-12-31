@@ -950,7 +950,20 @@ export default function Orders() {
                       <td className="py-4 px-6">
                         <div>
                           <p className="text-sm font-medium">{order.customer}</p>
-                          <p className="text-xs text-muted-foreground">{order.phone}</p>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(order.phone);
+                              toast({
+                                title: 'Teléfono copiado',
+                                description: order.phone,
+                              });
+                            }}
+                            className="text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
+                            title="Click para copiar"
+                          >
+                            {order.phone}
+                          </button>
                         </div>
                       </td>
                       <td className="py-4 px-6">

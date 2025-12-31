@@ -24,7 +24,6 @@ import {
   Store,
   Settings2,
   ClipboardList,
-  PackageX,
   RotateCcw,
   Send,
   AlertCircle,
