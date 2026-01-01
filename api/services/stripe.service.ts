@@ -750,9 +750,16 @@ export async function generateReferralCode(userId: string): Promise<string> {
     .eq('user_id', userId)
     .single();
 
+  // Handle case where table doesn't exist (42P01 = undefined_table)
+  if (lookupError && lookupError.code === '42P01') {
+    console.warn('[Stripe] referral_codes table does not exist - migration 036 may not be applied');
+    // Return a placeholder code - referrals won't work but won't crash
+    return 'PENDING';
+  }
+
   if (lookupError && lookupError.code !== 'PGRST116') {
     // PGRST116 = no rows found, which is expected for new users
-    console.error('[Stripe] Error looking up referral code:', lookupError.message);
+    console.error('[Stripe] Error looking up referral code:', lookupError.message, lookupError.code);
   }
 
   if (existingCode) {
@@ -760,42 +767,36 @@ export async function generateReferralCode(userId: string): Promise<string> {
     return existingCode.code;
   }
 
-  // Generate new code using RPC function
-  console.log('[Stripe] Generating new referral code...');
+  // Generate a simple 6-char code (fallback that always works)
+  const fallbackCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+  console.log('[Stripe] Generating new referral code:', fallbackCode);
+
+  // Try RPC first, fall back to direct insert
   const { data: newCode, error: rpcError } = await supabaseAdmin.rpc('generate_referral_code');
 
+  const codeToUse = rpcError ? fallbackCode : newCode;
   if (rpcError) {
-    console.error('[Stripe] Error generating referral code:', rpcError.message);
-    // Fallback: generate a simple 6-char code
-    const fallbackCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    console.log('[Stripe] Using fallback code:', fallbackCode);
-
-    const { error: insertError } = await supabaseAdmin.from('referral_codes').insert({
-      user_id: userId,
-      code: fallbackCode,
-    });
-
-    if (insertError) {
-      console.error('[Stripe] Error inserting fallback referral code:', insertError.message);
-      throw new Error(`Failed to create referral code: ${insertError.message}`);
-    }
-
-    return fallbackCode;
+    console.log('[Stripe] RPC generate_referral_code failed, using fallback:', rpcError.message);
   }
 
   // Insert new referral code
   const { error: insertError } = await supabaseAdmin.from('referral_codes').insert({
     user_id: userId,
-    code: newCode,
+    code: codeToUse,
   });
 
   if (insertError) {
+    // If table doesn't exist, return placeholder
+    if (insertError.code === '42P01') {
+      console.warn('[Stripe] referral_codes table does not exist');
+      return 'PENDING';
+    }
     console.error('[Stripe] Error inserting referral code:', insertError.message);
     throw new Error(`Failed to create referral code: ${insertError.message}`);
   }
 
-  console.log('[Stripe] Created new referral code:', newCode);
-  return newCode;
+  console.log('[Stripe] Created new referral code:', codeToUse);
+  return codeToUse;
 }
 
 /**
@@ -811,6 +812,16 @@ export async function getReferralStats(userId: string): Promise<{
 }> {
   console.log('[Stripe] getReferralStats for user:', userId);
 
+  // Default response for when referrals are not available
+  const defaultResponse = {
+    code: 'PENDING',
+    totalSignups: 0,
+    totalConversions: 0,
+    totalCreditsEarned: 0,
+    availableCredits: 0,
+    referrals: [],
+  };
+
   // Get referral code
   const { data: referralCode, error: codeError } = await supabaseAdmin
     .from('referral_codes')
@@ -818,8 +829,14 @@ export async function getReferralStats(userId: string): Promise<{
     .eq('user_id', userId)
     .single();
 
+  // Handle case where table doesn't exist
+  if (codeError && codeError.code === '42P01') {
+    console.warn('[Stripe] referral_codes table does not exist - migration 036 may not be applied');
+    return defaultResponse;
+  }
+
   if (codeError && codeError.code !== 'PGRST116') {
-    console.error('[Stripe] Error getting referral code:', codeError.message);
+    console.error('[Stripe] Error getting referral code:', codeError.message, codeError.code);
   }
 
   if (!referralCode) {
@@ -837,7 +854,7 @@ export async function getReferralStats(userId: string): Promise<{
 
   console.log('[Stripe] Found referral code:', referralCode.code);
 
-  // Get referrals
+  // Get referrals (may fail if table doesn't exist)
   const { data: referrals, error: refError } = await supabaseAdmin
     .from('referrals')
     .select(`
@@ -847,18 +864,18 @@ export async function getReferralStats(userId: string): Promise<{
     .eq('referral_code', referralCode.code)
     .order('created_at', { ascending: false });
 
-  if (refError) {
+  if (refError && refError.code !== '42P01') {
     console.error('[Stripe] Error getting referrals:', refError.message);
   }
 
-  // Get available credits
+  // Get available credits (may fail if function doesn't exist)
   const { data: availableCredits, error: creditsError } = await supabaseAdmin.rpc(
     'get_available_credits',
     { p_user_id: userId }
   );
 
   if (creditsError) {
-    console.error('[Stripe] Error getting available credits:', creditsError.message);
+    console.log('[Stripe] get_available_credits not available:', creditsError.message);
   }
 
   return {
