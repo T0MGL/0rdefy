@@ -741,26 +741,60 @@ export async function getAllPlanLimits(): Promise<any[]> {
  * Generate referral code for user
  */
 export async function generateReferralCode(userId: string): Promise<string> {
+  console.log('[Stripe] generateReferralCode for user:', userId);
+
   // Check if user already has a code
-  const { data: existingCode } = await supabaseAdmin
+  const { data: existingCode, error: lookupError } = await supabaseAdmin
     .from('referral_codes')
     .select('code')
     .eq('user_id', userId)
     .single();
 
+  if (lookupError && lookupError.code !== 'PGRST116') {
+    // PGRST116 = no rows found, which is expected for new users
+    console.error('[Stripe] Error looking up referral code:', lookupError.message);
+  }
+
   if (existingCode) {
+    console.log('[Stripe] Found existing referral code:', existingCode.code);
     return existingCode.code;
   }
 
-  // Generate new code
-  const { data: newCode } = await supabaseAdmin.rpc('generate_referral_code');
+  // Generate new code using RPC function
+  console.log('[Stripe] Generating new referral code...');
+  const { data: newCode, error: rpcError } = await supabaseAdmin.rpc('generate_referral_code');
+
+  if (rpcError) {
+    console.error('[Stripe] Error generating referral code:', rpcError.message);
+    // Fallback: generate a simple 6-char code
+    const fallbackCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    console.log('[Stripe] Using fallback code:', fallbackCode);
+
+    const { error: insertError } = await supabaseAdmin.from('referral_codes').insert({
+      user_id: userId,
+      code: fallbackCode,
+    });
+
+    if (insertError) {
+      console.error('[Stripe] Error inserting fallback referral code:', insertError.message);
+      throw new Error(`Failed to create referral code: ${insertError.message}`);
+    }
+
+    return fallbackCode;
+  }
 
   // Insert new referral code
-  await supabaseAdmin.from('referral_codes').insert({
+  const { error: insertError } = await supabaseAdmin.from('referral_codes').insert({
     user_id: userId,
     code: newCode,
   });
 
+  if (insertError) {
+    console.error('[Stripe] Error inserting referral code:', insertError.message);
+    throw new Error(`Failed to create referral code: ${insertError.message}`);
+  }
+
+  console.log('[Stripe] Created new referral code:', newCode);
   return newCode;
 }
 
@@ -775,14 +809,21 @@ export async function getReferralStats(userId: string): Promise<{
   availableCredits: number;
   referrals: any[];
 }> {
+  console.log('[Stripe] getReferralStats for user:', userId);
+
   // Get referral code
-  const { data: referralCode } = await supabaseAdmin
+  const { data: referralCode, error: codeError } = await supabaseAdmin
     .from('referral_codes')
     .select('*')
     .eq('user_id', userId)
     .single();
 
+  if (codeError && codeError.code !== 'PGRST116') {
+    console.error('[Stripe] Error getting referral code:', codeError.message);
+  }
+
   if (!referralCode) {
+    console.log('[Stripe] No referral code found, generating one...');
     const code = await generateReferralCode(userId);
     return {
       code,
@@ -794,8 +835,10 @@ export async function getReferralStats(userId: string): Promise<{
     };
   }
 
+  console.log('[Stripe] Found referral code:', referralCode.code);
+
   // Get referrals
-  const { data: referrals } = await supabaseAdmin
+  const { data: referrals, error: refError } = await supabaseAdmin
     .from('referrals')
     .select(`
       *,
@@ -804,11 +847,19 @@ export async function getReferralStats(userId: string): Promise<{
     .eq('referral_code', referralCode.code)
     .order('created_at', { ascending: false });
 
+  if (refError) {
+    console.error('[Stripe] Error getting referrals:', refError.message);
+  }
+
   // Get available credits
-  const { data: availableCredits } = await supabaseAdmin.rpc(
+  const { data: availableCredits, error: creditsError } = await supabaseAdmin.rpc(
     'get_available_credits',
     { p_user_id: userId }
   );
+
+  if (creditsError) {
+    console.error('[Stripe] Error getting available credits:', creditsError.message);
+  }
 
   return {
     code: referralCode.code,
