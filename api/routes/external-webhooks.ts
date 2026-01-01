@@ -47,7 +47,9 @@ externalWebhooksRouter.get('/config', async (req: any, res: Response) => {
     const config = await externalWebhookService.getConfig(storeId);
 
     if (!config) {
-      return res.status(404).json({
+      // Return 200 with success: false to avoid console errors in browser
+      return res.status(200).json({
+        success: false,
         error: 'not_configured',
         message: 'External webhook not configured for this store'
       });

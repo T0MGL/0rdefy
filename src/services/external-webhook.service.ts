@@ -110,15 +110,18 @@ export const getExternalWebhookConfig = async (): Promise<{
       }
     );
 
-    if (response.status === 404) {
-      return { success: false, error: 'not_configured' };
-    }
-
     if (!response.ok) {
       throw new Error('Failed to get webhook configuration');
     }
 
-    return response.json();
+    const data = await response.json();
+
+    // Backend now returns 200 with success: false when not configured
+    if (!data.success) {
+      return { success: false, error: data.error || 'not_configured' };
+    }
+
+    return data;
   } catch (error: any) {
     console.error('[EXTERNAL-WEBHOOK] Error getting config:', error);
     return { success: false, error: error.message };

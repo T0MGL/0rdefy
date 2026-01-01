@@ -478,6 +478,16 @@ app.use('/api/webhook', externalWebhooksRouter); // Public endpoint for receivin
 // Note: /api/billing/webhook uses raw body parser internally for Stripe signature
 app.use('/api/billing', billingRouter);
 
+// Health check endpoint
+app.get('/api/health', (req: Request, res: Response) => {
+    res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        deployedAt: process.env.RAILWAY_DEPLOYMENT_ID || 'local',
+        externalWebhooksRouterRegistered: true
+    });
+});
+
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
     res.json({
