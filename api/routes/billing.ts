@@ -244,8 +244,8 @@ router.get('/feature/:feature', async (req: Request, res: Response) => {
 router.post('/checkout', async (req: Request, res: Response) => {
   try {
     const storeId = (req as any).storeId;
-    const userId = (req as any).user.userId;
-    const userEmail = (req as any).user.email;
+    const userId = (req as any).user?.id || (req as any).userId;
+    const userEmail = (req as any).user?.email;
     const { plan, billingCycle, referralCode, discountCode } = req.body;
 
     console.log('[Billing] Checkout request:', { storeId, userId, userEmail, plan, billingCycle, referralCode, discountCode });
@@ -429,11 +429,15 @@ router.post('/change-plan', async (req: Request, res: Response) => {
  */
 router.get('/referrals', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = (req as any).user?.id || (req as any).userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
     const stats = await stripeService.getReferralStats(userId);
 
     res.json(stats);
   } catch (error: any) {
+    console.error('[Billing] Referrals error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -443,11 +447,15 @@ router.get('/referrals', async (req: Request, res: Response) => {
  */
 router.post('/referrals/generate', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = (req as any).user?.id || (req as any).userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
     const code = await stripeService.generateReferralCode(userId);
 
     res.json({ code, link: `${process.env.APP_URL}/r/${code}` });
   } catch (error: any) {
+    console.error('[Billing] Generate referral code error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
