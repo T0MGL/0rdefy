@@ -248,27 +248,42 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const userEmail = (req as any).user.email;
     const { plan, billingCycle, referralCode, discountCode } = req.body;
 
+    console.log('[Billing] Checkout request:', { storeId, userId, userEmail, plan, billingCycle, referralCode, discountCode });
+
     if (!plan || !billingCycle) {
       return res.status(400).json({ error: 'Plan and billing cycle are required' });
     }
 
+    if (!storeId) {
+      console.error('[Billing] Missing storeId');
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    if (!userId || !userEmail) {
+      console.error('[Billing] Missing user info:', { userId, userEmail });
+      return res.status(400).json({ error: 'User information is required' });
+    }
+
     const appUrl = process.env.APP_URL || 'https://app.ordefy.io';
 
+    console.log('[Billing] Creating checkout session...');
     const session = await stripeService.createCheckoutSession({
       storeId,
       userId,
       email: userEmail,
       plan: plan as PlanType,
       billingCycle: billingCycle as BillingCycle,
-      successUrl: `${appUrl}/settings/billing?success=true`,
-      cancelUrl: `${appUrl}/settings/billing?canceled=true`,
+      successUrl: `${appUrl}/settings?tab=subscription&success=true`,
+      cancelUrl: `${appUrl}/settings?tab=subscription&canceled=true`,
       referralCode,
       discountCode,
     });
 
+    console.log('[Billing] Checkout session created:', session.id);
     res.json({ sessionId: session.id, url: session.url });
   } catch (error: any) {
-    console.error('[Billing] Checkout error:', error);
+    console.error('[Billing] Checkout error:', error.message);
+    console.error('[Billing] Checkout error stack:', error.stack);
     res.status(500).json({ error: error.message });
   }
 });

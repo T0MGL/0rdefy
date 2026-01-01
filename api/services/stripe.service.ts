@@ -135,6 +135,8 @@ export async function getOrCreateCustomer(
   email: string,
   name?: string
 ): Promise<string> {
+  console.log('[Stripe] getOrCreateCustomer:', { storeId, email });
+
   // Check if subscription record exists
   const { data: subscription, error: subError } = await supabaseAdmin
     .from('subscriptions')
@@ -142,12 +144,16 @@ export async function getOrCreateCustomer(
     .eq('store_id', storeId)
     .single();
 
+  console.log('[Stripe] Subscription lookup result:', { subscription, error: subError?.message });
+
   // If subscription exists and has customer ID, return it
   if (subscription?.stripe_customer_id) {
+    console.log('[Stripe] Returning existing customer:', subscription.stripe_customer_id);
     return subscription.stripe_customer_id;
   }
 
   // Create new Stripe customer
+  console.log('[Stripe] Creating new Stripe customer...');
   const customer = await getStripe().customers.create({
     email,
     name,
@@ -155,21 +161,30 @@ export async function getOrCreateCustomer(
       store_id: storeId,
     },
   });
+  console.log('[Stripe] Created customer:', customer.id);
 
   // If subscription record doesn't exist, create it
   if (subError?.code === 'PGRST116' || !subscription) {
-    await supabaseAdmin.from('subscriptions').insert({
+    console.log('[Stripe] Creating new subscription record...');
+    const { error: insertError } = await supabaseAdmin.from('subscriptions').insert({
       store_id: storeId,
       plan: 'free',
       status: 'active',
       stripe_customer_id: customer.id,
     });
+    if (insertError) {
+      console.error('[Stripe] Error creating subscription:', insertError.message);
+    }
   } else {
     // Update existing subscription with customer ID
-    await supabaseAdmin
+    console.log('[Stripe] Updating existing subscription with customer ID...');
+    const { error: updateError } = await supabaseAdmin
       .from('subscriptions')
       .update({ stripe_customer_id: customer.id })
       .eq('store_id', storeId);
+    if (updateError) {
+      console.error('[Stripe] Error updating subscription:', updateError.message);
+    }
   }
 
   return customer.id;
@@ -222,17 +237,22 @@ export async function createCheckoutSession(params: {
     discountCode,
   } = params;
 
+  console.log('[Stripe] createCheckoutSession called:', { storeId, userId, email, plan, billingCycle });
+
   if (plan === 'free') {
     throw new Error('Cannot create checkout for free plan');
   }
 
   const priceId = stripePrices[plan]?.[billingCycle];
+  console.log('[Stripe] Price ID for', plan, billingCycle, ':', priceId);
   if (!priceId) {
     throw new Error(`Price not found for ${plan} ${billingCycle}`);
   }
 
   // Get or create customer
+  console.log('[Stripe] Getting or creating customer for store:', storeId);
   const customerId = await getOrCreateCustomer(storeId, email);
+  console.log('[Stripe] Customer ID:', customerId);
 
   // Check if user can start trial
   const canTrial = await canStartTrial(userId, plan);
@@ -263,7 +283,6 @@ export async function createCheckoutSession(params: {
         plan,
       },
     },
-    allow_promotion_codes: true, // Allow Stripe promotion codes
   };
 
   // Add trial if eligible
@@ -320,6 +339,12 @@ export async function createCheckoutSession(params: {
         sessionParams.discounts = [{ coupon: discount.stripe_coupon_id }];
       }
     }
+  }
+
+  // Only allow promotion codes if no discounts are applied
+  // (Stripe doesn't allow both at the same time)
+  if (!sessionParams.discounts) {
+    sessionParams.allow_promotion_codes = true;
   }
 
   const session = await getStripe().checkout.sessions.create(sessionParams);
