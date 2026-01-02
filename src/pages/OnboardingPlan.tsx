@@ -266,8 +266,8 @@ export default function OnboardingPlan() {
         </motion.div>
 
         {/* Plans Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {['free', 'starter', 'growth', 'professional'].map((planName, index) => {
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 max-w-5xl mx-auto">
+          {['starter', 'growth', 'professional'].map((planName, index) => {
             const plan = plans.find(p => p.plan === planName);
             const isPopular = planName === 'growth';
             const isSelected = selectedPlan === planName;
@@ -311,22 +311,16 @@ export default function OnboardingPlan() {
                   <CardContent className="flex-1">
                     {/* Price */}
                     <div className="mb-4">
-                      {planName === 'free' ? (
-                        <div className="text-3xl font-bold">Gratis</div>
-                      ) : (
-                        <>
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-3xl font-bold">
-                              ${billingCycle === 'monthly' ? formatPrice(price) : getMonthlyEquivalent(price)}
-                            </span>
-                            <span className="text-muted-foreground">/mes</span>
-                          </div>
-                          {billingCycle === 'annual' && (
-                            <p className="text-sm text-muted-foreground">
-                              ${formatPrice(price)} facturado anualmente
-                            </p>
-                          )}
-                        </>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-3xl font-bold">
+                          ${billingCycle === 'monthly' ? formatPrice(price) : getMonthlyEquivalent(price)}
+                        </span>
+                        <span className="text-muted-foreground">/mes</span>
+                      </div>
+                      {billingCycle === 'annual' && (
+                        <p className="text-sm text-muted-foreground">
+                          ${formatPrice(price)} facturado anualmente
+                        </p>
                       )}
                     </div>
 
@@ -352,7 +346,7 @@ export default function OnboardingPlan() {
                   <CardFooter>
                     <Button
                       className="w-full"
-                      variant={isPopular ? 'default' : planName === 'free' ? 'outline' : 'secondary'}
+                      variant={isPopular ? 'default' : 'secondary'}
                       onClick={() => handleSelectPlan(planName)}
                       disabled={isProcessing}
                     >
@@ -361,8 +355,6 @@ export default function OnboardingPlan() {
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           Procesando...
                         </>
-                      ) : planName === 'free' ? (
-                        'Comenzar gratis'
                       ) : plan?.has_trial ? (
                         <>
                           Probar {plan.trial_days} dias gratis
