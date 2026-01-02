@@ -175,12 +175,14 @@ export default function OnboardingPlan() {
     navigate('/', { replace: true });
   };
 
-  const formatPrice = (cents: number) => {
-    return (cents / 100).toFixed(0);
+  const formatPrice = (dollars: number) => {
+    // API already returns prices in dollars, not cents
+    return dollars.toFixed(0);
   };
 
-  const getMonthlyEquivalent = (annualCents: number) => {
-    return (annualCents / 12 / 100).toFixed(2);
+  const getMonthlyEquivalent = (annualDollars: number) => {
+    // API already returns prices in dollars, not cents
+    return (annualDollars / 12).toFixed(2);
   };
 
   if (isLoading) {
