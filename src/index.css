@@ -144,3 +144,26 @@ All colors MUST be HSL.
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
+
+/* ================================================================
+   PRINT STYLES - Global print configuration
+   ================================================================ */
+@media print {
+  /* Reset all margins and paddings for print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Hide common UI elements during print */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Ensure background colors print correctly */
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

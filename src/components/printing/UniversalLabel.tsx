@@ -350,32 +350,47 @@ export function UniversalLabel({ order, className = '' }: UniversalLabelProps) {
                     margin: 0;
                 }
 
+                * {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+
                 html, body {
-                    margin: 0;
-                    padding: 0;
-                    width: 4in;
-                    height: 6in;
-                    background: white;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    width: 4in !important;
+                    height: 6in !important;
+                    overflow: hidden !important;
+                    background: white !important;
                 }
 
                 .universal-label-container {
-                    position: relative; /* Changed from absolute to relative to fix batch stacking */
+                    position: absolute !important;
+                    top: 0 !important;
+                    left: 0 !important;
                     width: 4in !important;
                     height: 6in !important;
-                    page-break-after: always;
-                    break-after: page;
-                    page-break-inside: avoid;
-                    print-color-adjust: exact;
-                    -webkit-print-color-adjust: exact;
-                    overflow: hidden;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    page-break-after: always !important;
+                    break-after: page !important;
+                    page-break-inside: avoid !important;
+                    print-color-adjust: exact !important;
+                    -webkit-print-color-adjust: exact !important;
+                    overflow: hidden !important;
+                    transform: none !important;
+                    scale: 1 !important;
                 }
 
-                /* Hide everything else */
-                body * {
-                    visibility: hidden;
+                /* Hide everything else except labels */
+                body > *:not(.universal-label-container) {
+                    display: none !important;
                 }
-                .universal-label-container, .universal-label-container * {
-                    visibility: visible;
+
+                /* Ensure label content is visible */
+                .universal-label-container,
+                .universal-label-container * {
+                    visibility: visible !important;
                 }
             }
         `}</style>

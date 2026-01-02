@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Printer, Copy, Check } from 'lucide-react';
+import { Printer, Copy, Check, HelpCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { UniversalLabel } from '@/components/printing/UniversalLabel';
+import { PrintSetupGuide } from '@/components/PrintSetupGuide';
 
 interface OrderShippingLabelProps {
   orderId: string;
@@ -42,6 +43,7 @@ export function OrderShippingLabel({
 }: OrderShippingLabelProps) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Map props to UniversalLabel data structure
   const orderData = {
@@ -92,22 +94,36 @@ export function OrderShippingLabel({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <>
       {/* Actions - Only visible on screen, not in print */}
-      <div className="flex gap-2 justify-end print:hidden">
-        <Button variant="outline" onClick={handleCopyLink} className="gap-2">
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-          {copied ? 'Copiado' : 'Link'}
+      <div className="flex gap-2 justify-between mb-4 print:hidden">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowHelp(true)}
+          className="gap-2 text-muted-foreground hover:text-foreground"
+        >
+          <HelpCircle size={16} />
+          Ayuda de Impresión
         </Button>
-        <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
-          <Printer size={16} />
-          Imprimir (4x6)
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleCopyLink} className="gap-2">
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+            {copied ? 'Copiado' : 'Link'}
+          </Button>
+          <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
+            <Printer size={16} />
+            Imprimir (4x6)
+          </Button>
+        </div>
       </div>
 
+      {/* Print Setup Guide Dialog */}
+      <PrintSetupGuide open={showHelp} onOpenChange={setShowHelp} />
+
       {/* Preview Container - Scaled to fit screen but maintains ratio */}
-      <div className="bg-gray-100 p-4 rounded-md flex justify-center print:p-0 print:bg-white print:block">
-        <div className="overflow-hidden shadow-lg print:shadow-none">
+      <div className="bg-gray-100 p-4 rounded-md flex justify-center print:hidden">
+        <div className="overflow-hidden shadow-lg">
           {/*
                 Display at actual size: 384px x 576px (4in x 6in at 96 DPI)
                 This ensures what you see is what you print
@@ -115,6 +131,11 @@ export function OrderShippingLabel({
           <UniversalLabel order={orderData} />
         </div>
       </div>
-    </div>
+
+      {/* Print-only container - No wrappers, direct label */}
+      <div className="hidden print:block">
+        <UniversalLabel order={orderData} />
+      </div>
+    </>
   );
 }
