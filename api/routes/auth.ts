@@ -27,9 +27,9 @@ const SALT_ROUNDS = 10;
 
 authRouter.post('/register', async (req: Request, res: Response) => {
     try {
-        const { email, password, name, storeName, referralCode } = req.body;
+        const { email, password, name, referralCode } = req.body;
 
-        console.log('📝 [REGISTER] Request received:', { email, name, storeName, hasPassword: !!password, referralCode: referralCode || 'none' });
+        console.log('📝 [REGISTER] Request received:', { email, name, hasPassword: !!password, referralCode: referralCode || 'none' });
 
         if (!email || !password || !name) {
             console.warn('⚠️ [REGISTER] Missing required fields');
@@ -115,45 +115,6 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 
         console.log('✅ [REGISTER] User created successfully:', newUser.id);
 
-        // Create store for user
-        const storeNameToUse = storeName || `${name}'s Store`;
-        console.log('🏪 [REGISTER] Creating store:', storeNameToUse);
-
-        const { data: store, error: storeError } = await supabaseAdmin
-            .from('stores')
-            .insert({
-                name: storeNameToUse,
-                country: 'PY',
-                currency: 'USD',
-                tax_rate: 0,
-                admin_fee: 0,
-                subscription_plan: 'free'
-            })
-            .select()
-            .single();
-
-        if (storeError || !store) {
-            console.error('❌ [REGISTER] Error creating store:', storeError);
-            // Don't fail registration, just log
-        } else {
-            console.log('✅ [REGISTER] Store created:', store.id);
-
-            // Link user to store
-            const { error: linkError } = await supabaseAdmin
-                .from('user_stores')
-                .insert({
-                    user_id: newUser.id,
-                    store_id: store.id,
-                    role: 'owner'
-                });
-
-            if (linkError) {
-                console.error('❌ [REGISTER] Error linking user to store:', linkError);
-            } else {
-                console.log('✅ [REGISTER] User linked to store');
-            }
-        }
-
         // Track referral if valid code was provided
         if (referrerUserId) {
             console.log('🎁 [REGISTER] Creating referral record...');
@@ -186,15 +147,6 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 
         console.log('🎫 [REGISTER] JWT token generated');
 
-        // Build stores array for response
-        const stores = store ? [{
-            id: store.id,
-            name: store.name,
-            country: store.country,
-            currency: store.currency,
-            role: 'owner'
-        }] : [];
-
         res.status(201).json({
             success: true,
             token,
@@ -203,9 +155,9 @@ authRouter.post('/register', async (req: Request, res: Response) => {
                 email: newUser.email,
                 name: newUser.name,
                 phone: newUser.phone,
-                stores
+                stores: []
             },
-            onboardingCompleted: stores.length > 0,
+            onboardingCompleted: false,
             referralApplied: !!referrerUserId
         });
     } catch (error: any) {
@@ -468,6 +420,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
                 currency: storeCurrency,
                 tax_rate: taxRate || 0,
                 admin_fee: adminFee || 0,
+                subscription_plan: 'free'
             })
             .select()
             .single();
@@ -487,7 +440,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             .insert({
                 user_id: req.userId,
                 store_id: store.id,
-                role: 'admin'
+                role: 'owner'
             });
 
         if (linkError) {
@@ -514,7 +467,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
                     country: store.country,
                     currency: store.currency,
                     timezone: store.timezone,
-                    role: 'admin'
+                    role: 'owner'
                 }]
             },
             store: {

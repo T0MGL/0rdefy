@@ -353,7 +353,6 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
   const [carrierId, setCarrierId] = useState('');
   const [trackingCode, setTrackingCode] = useState('');
   const [eta, setEta] = useState('');
-  const [shippingCost, setShippingCost] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<CreateShipmentItemDTO[]>([{
     product_id: '',
@@ -481,7 +480,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
       carrier_id: carrierId || undefined,
       tracking_code: trackingCode || undefined,
       estimated_arrival_date: eta || undefined,
-      shipping_cost: parseFloat(shippingCost) || 0,
+      shipping_cost: 0, // No longer needed - cost is in unit_cost
       notes: notes || undefined,
       items: validItems,
     });
@@ -512,6 +511,15 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
             </div>
 
             <div className="space-y-2">
+              <Label>Fecha Estimada de Llegada</Label>
+              <Input
+                type="date"
+                value={eta}
+                onChange={(e) => setEta(e.target.value)}
+              />
+            </div>
+
+            <div className="col-span-2 space-y-2">
               <Label>Código de Seguimiento</Label>
               <div className="flex gap-2">
                 <Input
@@ -528,27 +536,6 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                   Generar
                 </Button>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Fecha Estimada de Llegada</Label>
-              <Input
-                type="date"
-                value={eta}
-                onChange={(e) => setEta(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Costo de Envío ({getCurrencySymbol()})</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0"
-                value={shippingCost}
-                onChange={(e) => setShippingCost(e.target.value)}
-              />
             </div>
           </div>
 
@@ -608,8 +595,8 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                       />
                     </div>
 
-                    <div className="w-32 space-y-2">
-                      <Label>Costo Unit. ({getCurrencySymbol()})</Label>
+                    <div className="w-40 space-y-2">
+                      <Label>Costo Total Unit. ({getCurrencySymbol()})</Label>
                       <Input
                         type="number"
                         step="0.01"
@@ -674,12 +661,12 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
                         </div>
 
                         <div className="space-y-2">
-                          <Label>Costo del Producto ({getCurrencySymbol()}) *</Label>
+                          <Label>Costo Total Unit. ({getCurrencySymbol()}) *</Label>
                           <Input
                             type="number"
                             step="0.01"
                             min="0"
-                            placeholder="0"
+                            placeholder="Incluye producto + envío"
                             value={newProductCost}
                             onChange={(e) => setNewProductCost(e.target.value)}
                           />

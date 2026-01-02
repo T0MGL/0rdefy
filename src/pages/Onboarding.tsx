@@ -37,11 +37,11 @@ const step1Schema = z.object({
   userName: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(100, 'Máximo 100 caracteres'),
   userPhone: z.string().trim().min(6, 'El teléfono debe tener al menos 6 dígitos').max(15, 'Máximo 15 dígitos'),
   phoneCountryCode: z.string().min(1, 'Selecciona un código de país'),
-  storeName: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(100, 'Máximo 100 caracteres'),
-  storeCountry: z.string().min(1, 'Selecciona un país'),
 });
 
 const step2Schema = z.object({
+  storeName: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(100, 'Máximo 100 caracteres'),
+  storeCountry: z.string().min(1, 'Selecciona un país'),
   currency: z.string().min(1, 'Selecciona una moneda'),
 });
 
@@ -77,11 +77,11 @@ export default function Onboarding() {
           userName: formData.userName,
           userPhone: formData.userPhone,
           phoneCountryCode: formData.phoneCountryCode,
-          storeName: formData.storeName,
-          storeCountry: formData.storeCountry,
         });
       } else if (currentStep === 2) {
         step2Schema.parse({
+          storeName: formData.storeName,
+          storeCountry: formData.storeCountry,
           currency: formData.currency,
         });
       } else if (currentStep === 3) {
@@ -187,7 +187,7 @@ export default function Onboarding() {
       // Small delay to ensure localStorage is written
       // Preserve Shopify query parameters (shop, host, embedded) for App Bridge
       setTimeout(() => {
-        const pathWithShopifyParams = preserveShopifyParams('/');
+        const pathWithShopifyParams = preserveShopifyParams('/onboarding/plan');
         navigate(pathWithShopifyParams, { replace: true });
       }, 500);
 
@@ -249,8 +249,8 @@ export default function Onboarding() {
                 <Store size={20} />
               </div>
               <div>
-                <h3 className="font-semibold text-lg text-white drop-shadow-md">Información de tu tienda</h3>
-                <p className="text-white drop-shadow-sm">Nombre y ubicación</p>
+                <h3 className="font-semibold text-lg text-white drop-shadow-md">Información Personal</h3>
+                <p className="text-white drop-shadow-sm">Tu nombre y teléfono</p>
               </div>
             </div>
 
@@ -259,8 +259,8 @@ export default function Onboarding() {
                 <DollarSign size={20} />
               </div>
               <div>
-                <h3 className="font-semibold text-lg text-white drop-shadow-md">Moneda</h3>
-                <p className="text-white drop-shadow-sm">Configura tu moneda preferida</p>
+                <h3 className="font-semibold text-lg text-white drop-shadow-md">Configuración de Tienda</h3>
+                <p className="text-white drop-shadow-sm">Nombre, país y moneda</p>
               </div>
             </div>
 
@@ -323,9 +323,9 @@ export default function Onboarding() {
               {currentStep === 1 && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-2xl font-bold mb-2">Información Personal y de tu Tienda</h2>
+                    <h2 className="text-2xl font-bold mb-2">Información Personal</h2>
                     <p className="text-muted-foreground">
-                      Completa tu perfil y configura tu tienda
+                      Completa tu perfil para continuar
                     </p>
                   </div>
 
@@ -386,8 +386,21 @@ export default function Onboarding() {
                         <p className="text-sm text-destructive mt-1">{errors.phoneCountryCode}</p>
                       )}
                     </div>
+                  </div>
+                </div>
+              )}
 
-                    <div className="pt-4 border-t">
+              {currentStep === 2 && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-bold mb-2">Configuración de tu Tienda</h2>
+                    <p className="text-muted-foreground">
+                      Configura los detalles de tu tienda
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
                       <Label htmlFor="storeName" className="text-base">
                         Nombre de la Tienda <span className="text-destructive">*</span>
                       </Label>
@@ -426,44 +439,33 @@ export default function Onboarding() {
                         <p className="text-sm text-destructive mt-1">{errors.storeCountry}</p>
                       )}
                     </div>
-                  </div>
-                </div>
-              )}
 
-              {currentStep === 2 && (
-                <div className="space-y-6">
-                  <div>
-                    <h2 className="text-2xl font-bold mb-2">Moneda</h2>
-                    <p className="text-muted-foreground">
-                      Elige la moneda en la que prefieres ver los datos.
-                    </p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="currency" className="text-base">
-                      Moneda <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.currency}
-                      onValueChange={(value) => setFormData({ ...formData, currency: value })}
-                    >
-                      <SelectTrigger className="mt-2 h-12">
-                        <SelectValue placeholder="Selecciona una moneda" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PYG">🇵🇾 PYG - Guaraní Paraguayo</SelectItem>
-                        <SelectItem value="USD">🇺🇸 USD - Dólar Estadounidense</SelectItem>
-                        <SelectItem value="ARS">🇦🇷 ARS - Peso Argentino</SelectItem>
-                        <SelectItem value="COP">🇨🇴 COP - Peso Colombiano</SelectItem>
-                        <SelectItem value="MXN">🇲🇽 MXN - Peso Mexicano</SelectItem>
-                        <SelectItem value="BRL">🇧🇷 BRL - Real Brasileño</SelectItem>
-                        <SelectItem value="CLP">🇨🇱 CLP - Peso Chileno</SelectItem>
-                        <SelectItem value="UYU">🇺🇾 UYU - Peso Uruguayo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.currency && (
-                      <p className="text-sm text-destructive mt-1">{errors.currency}</p>
-                    )}
+                    <div>
+                      <Label htmlFor="currency" className="text-base">
+                        Moneda <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={formData.currency}
+                        onValueChange={(value) => setFormData({ ...formData, currency: value })}
+                      >
+                        <SelectTrigger className="mt-2 h-12">
+                          <SelectValue placeholder="Selecciona una moneda" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PYG">🇵🇾 PYG - Guaraní Paraguayo</SelectItem>
+                          <SelectItem value="USD">🇺🇸 USD - Dólar Estadounidense</SelectItem>
+                          <SelectItem value="ARS">🇦🇷 ARS - Peso Argentino</SelectItem>
+                          <SelectItem value="COP">🇨🇴 COP - Peso Colombiano</SelectItem>
+                          <SelectItem value="MXN">🇲🇽 MXN - Peso Mexicano</SelectItem>
+                          <SelectItem value="BRL">🇧🇷 BRL - Real Brasileño</SelectItem>
+                          <SelectItem value="CLP">🇨🇱 CLP - Peso Chileno</SelectItem>
+                          <SelectItem value="UYU">🇺🇾 UYU - Peso Uruguayo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {errors.currency && (
+                        <p className="text-sm text-destructive mt-1">{errors.currency}</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
