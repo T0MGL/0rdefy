@@ -143,8 +143,8 @@ export function UniversalLabel({ order, className = '' }: UniversalLabelProps) {
             <style>{`
             /* Thermal Label 4x6 CSS Grid/Flex System */
             .universal-label-container {
-                width: 4in; /* Strictly 4 inches */
-                height: 6in; /* Strictly 6 inches */
+                width: 384px; /* 4 inches at 96 DPI */
+                height: 576px; /* 6 inches at 96 DPI */
                 background: white;
                 color: black;
                 box-sizing: border-box;
@@ -349,7 +349,7 @@ export function UniversalLabel({ order, className = '' }: UniversalLabelProps) {
                     size: 4in 6in;
                     margin: 0;
                 }
-                
+
                 html, body {
                     margin: 0;
                     padding: 0;
@@ -360,8 +360,8 @@ export function UniversalLabel({ order, className = '' }: UniversalLabelProps) {
 
                 .universal-label-container {
                     position: relative; /* Changed from absolute to relative to fix batch stacking */
-                    width: 4in;
-                    height: 6in;
+                    width: 4in !important;
+                    height: 6in !important;
                     page-break-after: always;
                     break-after: page;
                     page-break-inside: avoid;
@@ -369,7 +369,7 @@ export function UniversalLabel({ order, className = '' }: UniversalLabelProps) {
                     -webkit-print-color-adjust: exact;
                     overflow: hidden;
                 }
-                
+
                 /* Hide everything else */
                 body * {
                     visibility: hidden;

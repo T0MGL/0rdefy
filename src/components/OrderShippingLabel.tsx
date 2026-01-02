@@ -107,12 +107,12 @@ export function OrderShippingLabel({
 
       {/* Preview Container - Scaled to fit screen but maintains ratio */}
       <div className="bg-gray-100 p-4 rounded-md flex justify-center print:p-0 print:bg-white print:block">
-        <div className="overflow-hidden shadow-lg print:shadow-none" style={{ width: '400px', height: '600px' }}>
-          {/* 
-                We force the container to be 1:1 scale of standard 4inch width for preview 
-                (Assuming user screen is standard DPI, 4in approx 384px-400px)
+        <div className="overflow-hidden shadow-lg print:shadow-none">
+          {/*
+                Display at actual size: 384px x 576px (4in x 6in at 96 DPI)
+                This ensures what you see is what you print
              */}
-          <UniversalLabel order={orderData} className="w-full h-full" />
+          <UniversalLabel order={orderData} />
         </div>
       </div>
     </div>

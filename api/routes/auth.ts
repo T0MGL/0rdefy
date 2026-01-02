@@ -26,19 +26,10 @@ const TOKEN_EXPIRY = '7d';
 const SALT_ROUNDS = 10;
 
 authRouter.post('/register', async (req: Request, res: Response) => {
-    // Registration is currently disabled
-    console.warn('⚠️ [REGISTER] Registration attempt blocked - feature is disabled');
-    return res.status(403).json({
-        success: false,
-        error: 'Registration is currently disabled',
-        message: 'New user registration is not available at this time'
-    });
-
-    /* COMMENTED OUT - Uncomment to re-enable registration
     try {
-        const { email, password, name } = req.body;
+        const { email, password, name, storeName, referralCode } = req.body;
 
-        console.log('📝 [REGISTER] Request received:', { email, name, hasPassword: !!password });
+        console.log('📝 [REGISTER] Request received:', { email, name, storeName, hasPassword: !!password, referralCode: referralCode || 'none' });
 
         if (!email || !password || !name) {
             console.warn('⚠️ [REGISTER] Missing required fields');
@@ -73,8 +64,29 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             console.warn('⚠️ [REGISTER] Email already registered:', email);
             return res.status(400).json({
                 success: false,
-                error: 'Email already registered'
+                error: 'Este email ya está registrado'
             });
+        }
+
+        // Validate referral code if provided
+        let referrerUserId: string | null = null;
+        if (referralCode) {
+            console.log('🎁 [REGISTER] Validating referral code:', referralCode);
+            const { data: referralData, error: referralError } = await supabaseAdmin
+                .from('referral_codes')
+                .select('user_id, is_active')
+                .eq('code', referralCode.toUpperCase())
+                .single();
+
+            if (referralError || !referralData) {
+                console.warn('⚠️ [REGISTER] Invalid referral code:', referralCode);
+                // Don't block registration, just ignore invalid code
+            } else if (!referralData.is_active) {
+                console.warn('⚠️ [REGISTER] Referral code is inactive:', referralCode);
+            } else {
+                referrerUserId = referralData.user_id;
+                console.log('✅ [REGISTER] Valid referral code from user:', referrerUserId);
+            }
         }
 
         console.log('🔒 [REGISTER] Hashing password...');
@@ -103,6 +115,65 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 
         console.log('✅ [REGISTER] User created successfully:', newUser.id);
 
+        // Create store for user
+        const storeNameToUse = storeName || `${name}'s Store`;
+        console.log('🏪 [REGISTER] Creating store:', storeNameToUse);
+
+        const { data: store, error: storeError } = await supabaseAdmin
+            .from('stores')
+            .insert({
+                name: storeNameToUse,
+                country: 'PY',
+                currency: 'USD',
+                tax_rate: 0,
+                admin_fee: 0,
+                subscription_plan: 'free'
+            })
+            .select()
+            .single();
+
+        if (storeError || !store) {
+            console.error('❌ [REGISTER] Error creating store:', storeError);
+            // Don't fail registration, just log
+        } else {
+            console.log('✅ [REGISTER] Store created:', store.id);
+
+            // Link user to store
+            const { error: linkError } = await supabaseAdmin
+                .from('user_stores')
+                .insert({
+                    user_id: newUser.id,
+                    store_id: store.id,
+                    role: 'owner'
+                });
+
+            if (linkError) {
+                console.error('❌ [REGISTER] Error linking user to store:', linkError);
+            } else {
+                console.log('✅ [REGISTER] User linked to store');
+            }
+        }
+
+        // Track referral if valid code was provided
+        if (referrerUserId) {
+            console.log('🎁 [REGISTER] Creating referral record...');
+            const { error: referralInsertError } = await supabaseAdmin
+                .from('referrals')
+                .insert({
+                    referrer_user_id: referrerUserId,
+                    referred_user_id: newUser.id,
+                    referral_code: referralCode.toUpperCase(),
+                    signed_up_at: new Date().toISOString()
+                });
+
+            if (referralInsertError) {
+                console.error('⚠️ [REGISTER] Error creating referral record:', referralInsertError);
+                // Don't fail registration
+            } else {
+                console.log('✅ [REGISTER] Referral tracked successfully');
+            }
+        }
+
         const token = jwt.sign({
             userId: newUser.id,
             email: newUser.email
@@ -115,6 +186,15 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 
         console.log('🎫 [REGISTER] JWT token generated');
 
+        // Build stores array for response
+        const stores = store ? [{
+            id: store.id,
+            name: store.name,
+            country: store.country,
+            currency: store.currency,
+            role: 'owner'
+        }] : [];
+
         res.status(201).json({
             success: true,
             token,
@@ -123,9 +203,10 @@ authRouter.post('/register', async (req: Request, res: Response) => {
                 email: newUser.email,
                 name: newUser.name,
                 phone: newUser.phone,
-                stores: []
+                stores
             },
-            onboardingCompleted: false
+            onboardingCompleted: stores.length > 0,
+            referralApplied: !!referrerUserId
         });
     } catch (error: any) {
         console.error('💥 [REGISTER] Unexpected error:', error);
@@ -135,7 +216,6 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
         });
     }
-    */
 });
 
 // ================================================================

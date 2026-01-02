@@ -49,10 +49,9 @@ export default function Referral() {
   }, [code]);
 
   const handleSignUp = () => {
-    // Store referral code and redirect to ordefy.io
-    // The code is already stored in sessionStorage for when registration is enabled
+    // Store referral code and redirect to signup
     localStorage.setItem('pending_referral_code', code || '');
-    window.location.href = 'https://ordefy.io';
+    navigate(`/signup?ref=${code}`);
   };
 
   if (isValidating) {
@@ -149,12 +148,12 @@ export default function Referral() {
             className="w-full"
             onClick={handleSignUp}
           >
-            Más información
+            Comenzar ahora
             <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
 
           <p className="text-xs text-center text-muted-foreground">
-            Tu código de referido ha sido guardado. Contáctanos para obtener acceso.
+            El descuento se aplicará automáticamente a tu cuenta.
           </p>
         </CardContent>
       </Card>
