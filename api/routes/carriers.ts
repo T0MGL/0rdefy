@@ -7,6 +7,8 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import {
   calculateCourierDeliveryRate,
   getCourierPerformanceByStore,
@@ -16,7 +18,10 @@ import {
 
 export const carriersRouter = Router();
 
-carriersRouter.use(verifyToken, extractStoreId);
+carriersRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Apply module-level access check for all routes
+carriersRouter.use(requireModule(Module.CARRIERS));
 
 // Using req.storeId from middleware
 

@@ -5,6 +5,8 @@
 
 import { Router } from 'express';
 import { verifyToken, extractStoreId } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import * as warehouseService from '../services/warehouse.service';
 
 const router = Router();
@@ -12,6 +14,10 @@ const router = Router();
 // Apply authentication middleware to all routes
 router.use(verifyToken);
 router.use(extractStoreId);
+router.use(extractUserRole);
+
+// Apply module-level access check for all routes
+router.use(requireModule(Module.WAREHOUSE));
 
 /**
  * GET /api/warehouse/orders/confirmed

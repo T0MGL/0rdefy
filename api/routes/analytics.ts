@@ -8,10 +8,15 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule } from '../middleware/permissions';
+import { Module } from '../permissions';
 
 export const analyticsRouter = Router();
 
-analyticsRouter.use(verifyToken, extractStoreId);
+analyticsRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Apply module-level access check for all routes
+analyticsRouter.use(requireModule(Module.ANALYTICS));
 
 // Helper function to convert date string to end of day ISO string
 const toEndOfDay = (dateString: string): string => {

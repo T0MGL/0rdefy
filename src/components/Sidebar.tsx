@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
+import { useAuth, Module } from '@/contexts/AuthContext';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -40,6 +41,7 @@ interface MenuItem {
   path: string;
   label: string;
   icon: any;
+  module?: Module; // Required module for permission check
 }
 
 interface MenuSection {
@@ -53,54 +55,55 @@ const menuSections: MenuSection[] = [
     label: 'Dashboards',
     icon: LayoutDashboard,
     items: [
-      { path: '/', label: 'Dashboard General', icon: Activity },
-      { path: '/dashboard-logistics', label: 'Dashboard Logístico', icon: PackageCheck },
+      { path: '/', label: 'Dashboard General', icon: Activity, module: Module.DASHBOARD },
+      { path: '/dashboard-logistics', label: 'Dashboard Logístico', icon: PackageCheck, module: Module.WAREHOUSE },
     ],
   },
   {
     label: 'Ventas',
     icon: ShoppingBag,
     items: [
-      { path: '/orders', label: 'Pedidos', icon: ShoppingCart },
-      { path: '/returns', label: 'Devoluciones', icon: RotateCcw },
-      { path: '/incidents', label: 'Incidencias', icon: AlertCircle },
-      { path: '/customers', label: 'Clientes', icon: UserCircle },
-      { path: '/ads', label: 'Anuncios', icon: Megaphone },
+      { path: '/orders', label: 'Pedidos', icon: ShoppingCart, module: Module.ORDERS },
+      { path: '/returns', label: 'Devoluciones', icon: RotateCcw, module: Module.RETURNS },
+      { path: '/incidents', label: 'Incidencias', icon: AlertCircle, module: Module.ORDERS },
+      { path: '/customers', label: 'Clientes', icon: UserCircle, module: Module.CUSTOMERS },
+      { path: '/ads', label: 'Anuncios', icon: Megaphone, module: Module.CAMPAIGNS },
     ],
   },
   {
     label: 'Logística',
     icon: Truck,
     items: [
-      { path: '/warehouse', label: 'Almacén', icon: Warehouse },
-      { path: '/shipping', label: 'Despacho', icon: Send },
-      { path: '/merchandise', label: 'Mercadería', icon: PackageOpen },
-      { path: '/carriers', label: 'Transportadoras', icon: Truck },
-      { path: '/settlements', label: 'Conciliaciones', icon: DollarSign },
+      { path: '/warehouse', label: 'Almacén', icon: Warehouse, module: Module.WAREHOUSE },
+      { path: '/shipping', label: 'Despacho', icon: Send, module: Module.WAREHOUSE },
+      { path: '/merchandise', label: 'Mercadería', icon: PackageOpen, module: Module.MERCHANDISE },
+      { path: '/carriers', label: 'Transportadoras', icon: Truck, module: Module.CARRIERS },
+      { path: '/settlements', label: 'Conciliaciones', icon: DollarSign, module: Module.CARRIERS },
     ],
   },
   {
     label: 'Inventario',
     icon: Store,
     items: [
-      { path: '/products', label: 'Productos', icon: Package },
-      { path: '/inventory', label: 'Movimientos', icon: ClipboardList },
-      { path: '/suppliers', label: 'Proveedores', icon: Users },
+      { path: '/products', label: 'Productos', icon: Package, module: Module.PRODUCTS },
+      { path: '/inventory', label: 'Movimientos', icon: ClipboardList, module: Module.PRODUCTS },
+      { path: '/suppliers', label: 'Proveedores', icon: Users, module: Module.SUPPLIERS },
     ],
   },
   {
     label: 'Gestión',
     icon: Settings2,
     items: [
-      { path: '/additional-values', label: 'Valores Adicionales', icon: PlusCircle },
-      { path: '/integrations', label: 'Integraciones', icon: Link2 },
-      { path: '/support', label: 'Soporte', icon: HelpCircle },
+      { path: '/additional-values', label: 'Valores Adicionales', icon: PlusCircle, module: Module.ANALYTICS },
+      { path: '/integrations', label: 'Integraciones', icon: Link2, module: Module.INTEGRATIONS },
+      { path: '/support', label: 'Soporte', icon: HelpCircle }, // No module required - always visible
     ],
   },
 ];
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [expandedSections, setExpandedSections] = useState<string[]>(['Dashboards', 'Ventas', 'Logística']);
+  const { permissions } = useAuth();
 
   const toggleSection = (sectionLabel: string) => {
     setExpandedSections(prev =>
@@ -110,9 +113,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     );
   };
 
+  // Filter menu sections based on user permissions
+  const filteredMenuSections = useMemo(() => {
+    return menuSections
+      .map(section => ({
+        ...section,
+        items: section.items.filter(item => {
+          // If no module specified, item is always visible (e.g., Support)
+          if (!item.module) return true;
+          // Check if user can access the module
+          return permissions.canAccessModule(item.module);
+        })
+      }))
+      // Remove sections with no visible items
+      .filter(section => section.items.length > 0);
+  }, [permissions]);
+
   if (collapsed) {
     // Collapsed view - show flat list of all items with icons only
-    const allItems = menuSections.flatMap(section => section.items);
+    const allItems = filteredMenuSections.flatMap(section => section.items);
 
     return (
       <motion.aside
@@ -205,7 +224,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Navigation - Grouped sections */}
       <nav className="flex-1 p-3 space-y-2 overflow-y-auto">
-        {menuSections.map((section) => {
+        {filteredMenuSections.map((section) => {
           const SectionIcon = section.icon;
           const isExpanded = expandedSections.includes(section.label);
 

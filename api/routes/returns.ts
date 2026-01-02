@@ -8,6 +8,8 @@
 
 import express from 'express';
 import { verifyToken, extractStoreId } from '../middleware/auth.js';
+import { extractUserRole, requireModule, requirePermission } from '../middleware/permissions.js';
+import { Module, Permission } from '../permissions.js';
 import * as returnsService from '../services/returns.service.js';
 
 const router = express.Router();
@@ -15,6 +17,10 @@ const router = express.Router();
 // Apply authentication middleware
 router.use(verifyToken);
 router.use(extractStoreId);
+router.use(extractUserRole);
+
+// Apply module-level access check for all routes
+router.use(requireModule(Module.RETURNS));
 
 /**
  * GET /api/returns/eligible-orders

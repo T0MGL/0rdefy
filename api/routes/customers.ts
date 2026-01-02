@@ -9,11 +9,16 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import { sanitizeSearchInput } from '../utils/sanitize';
 
 export const customersRouter = Router();
 
-customersRouter.use(verifyToken, extractStoreId);
+customersRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Apply module-level access check for all routes
+customersRouter.use(requireModule(Module.CUSTOMERS));
 
 // Using req.storeId from middleware
 

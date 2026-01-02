@@ -7,10 +7,13 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 
 export const campaignsRouter = Router();
 
-campaignsRouter.use(verifyToken, extractStoreId);
+campaignsRouter.use(verifyToken, extractStoreId, extractUserRole);
+campaignsRouter.use(requireModule(Module.CAMPAIGNS));
 
 
 // ================================================================
@@ -108,7 +111,7 @@ campaignsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/campaigns - Create new campaign
 // ================================================================
-campaignsRouter.post('/', async (req: AuthRequest, res: Response) => {
+campaignsRouter.post('/', requirePermission(Module.CAMPAIGNS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const {
             platform,
@@ -176,7 +179,7 @@ campaignsRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/campaigns/:id - Update campaign
 // ================================================================
-campaignsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+campaignsRouter.put('/:id', requirePermission(Module.CAMPAIGNS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -240,7 +243,7 @@ campaignsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/campaigns/:id - Delete campaign
 // ================================================================
-campaignsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+campaignsRouter.delete('/:id', requirePermission(Module.CAMPAIGNS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -274,7 +277,7 @@ campaignsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PATCH /api/campaigns/:id/status - Update campaign status
 // ================================================================
-campaignsRouter.patch('/:id/status', async (req: AuthRequest, res: Response) => {
+campaignsRouter.patch('/:id/status', requirePermission(Module.CAMPAIGNS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { status } = req.body;

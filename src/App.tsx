@@ -7,10 +7,11 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { OnboardingGuard } from "@/components/OnboardingGuard";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
+import { PermissionRoute } from "@/components/PermissionRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ShopifyAppBridgeProvider } from "@/components/ShopifyAppBridgeProvider";
@@ -57,6 +58,7 @@ const SignUp = lazy(() => import("./pages/SignUp"));
 const Delivery = lazy(() => import("./pages/Delivery"));
 const ShopifyOAuthCallback = lazy(() => import("./pages/ShopifyOAuthCallback"));
 const Referral = lazy(() => import("./pages/Referral"));
+const OnboardingPlan = lazy(() => import("./pages/OnboardingPlan"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Optimized QueryClient configuration
@@ -91,7 +93,7 @@ const AppLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
   </div>
 );
 
-// Protected route wrapper
+// Protected route wrapper (basic auth only)
 const ProtectedLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
   children: React.ReactNode;
   sidebarCollapsed: boolean;
@@ -102,6 +104,20 @@ const ProtectedLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
       {children}
     </AppLayout>
   </PrivateRoute>
+);
+
+// Protected route wrapper with permission check
+const PermissionLayout = ({ children, module, sidebarCollapsed, onToggleSidebar }: {
+  children: React.ReactNode;
+  module: Module;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}) => (
+  <PermissionRoute module={module}>
+    <AppLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={onToggleSidebar}>
+      {children}
+    </AppLayout>
+  </PermissionRoute>
 );
 
 const App = () => {
@@ -131,31 +147,61 @@ const App = () => {
                             <Route path="/delivery/:token" element={<Delivery />} />
                             <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />
                             <Route path="/r/:code" element={<Referral />} />
+                            <Route path="/onboarding/plan" element={<PrivateRoute><OnboardingPlan /></PrivateRoute>} />
 
-                            {/* Protected routes with layout */}
-                            <Route path="/" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></ProtectedLayout>} />
-                            <Route path="/dashboard-logistics" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><DashboardLogistics /></ProtectedLayout>} />
-                            <Route path="/orders" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></ProtectedLayout>} />
-                            <Route path="/warehouse" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Warehouse /></ProtectedLayout>} />
-                            <Route path="/shipping" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Shipping /></ProtectedLayout>} />
-                            <Route path="/returns" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Returns /></ProtectedLayout>} />
-                            <Route path="/incidents" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Incidents /></ProtectedLayout>} />
-                            <Route path="/inventory" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><InventoryMovements /></ProtectedLayout>} />
-                            <Route path="/products" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Products /></ProtectedLayout>} />
-                            <Route path="/merchandise" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Merchandise /></ProtectedLayout>} />
-                            <Route path="/customers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Customers /></ProtectedLayout>} />
-                            <Route path="/ads" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Ads /></ProtectedLayout>} />
-                            <Route path="/additional-values" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><AdditionalValues /></ProtectedLayout>} />
-                            <Route path="/integrations" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Integrations /></ProtectedLayout>} />
-                            <Route path="/suppliers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Suppliers /></ProtectedLayout>} />
-                            <Route path="/carriers" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Carriers /></ProtectedLayout>} />
-                            <Route path="/carriers/compare" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierCompare /></ProtectedLayout>} />
-                            <Route path="/carriers/:id" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierDetail /></ProtectedLayout>} />
-                            <Route path="/courier-performance" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CourierPerformance /></ProtectedLayout>} />
-                            <Route path="/settlements" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></ProtectedLayout>} />
+                            {/* Protected routes with layout and permission checks */}
+                            {/* Dashboard - accessible to all authenticated users */}
+                            <Route path="/" element={<PermissionLayout module={Module.DASHBOARD} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></PermissionLayout>} />
+                            <Route path="/dashboard-logistics" element={<PermissionLayout module={Module.WAREHOUSE} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><DashboardLogistics /></PermissionLayout>} />
+
+                            {/* Orders module */}
+                            <Route path="/orders" element={<PermissionLayout module={Module.ORDERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></PermissionLayout>} />
+                            <Route path="/incidents" element={<PermissionLayout module={Module.ORDERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Incidents /></PermissionLayout>} />
+
+                            {/* Warehouse module */}
+                            <Route path="/warehouse" element={<PermissionLayout module={Module.WAREHOUSE} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Warehouse /></PermissionLayout>} />
+                            <Route path="/shipping" element={<PermissionLayout module={Module.WAREHOUSE} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Shipping /></PermissionLayout>} />
+
+                            {/* Returns module */}
+                            <Route path="/returns" element={<PermissionLayout module={Module.RETURNS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Returns /></PermissionLayout>} />
+
+                            {/* Products module */}
+                            <Route path="/products" element={<PermissionLayout module={Module.PRODUCTS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Products /></PermissionLayout>} />
+                            <Route path="/inventory" element={<PermissionLayout module={Module.PRODUCTS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><InventoryMovements /></PermissionLayout>} />
+
+                            {/* Merchandise module */}
+                            <Route path="/merchandise" element={<PermissionLayout module={Module.MERCHANDISE} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Merchandise /></PermissionLayout>} />
+
+                            {/* Customers module */}
+                            <Route path="/customers" element={<PermissionLayout module={Module.CUSTOMERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Customers /></PermissionLayout>} />
+
+                            {/* Campaigns module */}
+                            <Route path="/ads" element={<PermissionLayout module={Module.CAMPAIGNS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Ads /></PermissionLayout>} />
+
+                            {/* Analytics module */}
+                            <Route path="/additional-values" element={<PermissionLayout module={Module.ANALYTICS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><AdditionalValues /></PermissionLayout>} />
+
+                            {/* Integrations module */}
+                            <Route path="/integrations" element={<PermissionLayout module={Module.INTEGRATIONS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Integrations /></PermissionLayout>} />
+
+                            {/* Suppliers module */}
+                            <Route path="/suppliers" element={<PermissionLayout module={Module.SUPPLIERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Suppliers /></PermissionLayout>} />
+
+                            {/* Carriers module */}
+                            <Route path="/carriers" element={<PermissionLayout module={Module.CARRIERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Carriers /></PermissionLayout>} />
+                            <Route path="/carriers/compare" element={<PermissionLayout module={Module.CARRIERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierCompare /></PermissionLayout>} />
+                            <Route path="/carriers/:id" element={<PermissionLayout module={Module.CARRIERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CarrierDetail /></PermissionLayout>} />
+                            <Route path="/courier-performance" element={<PermissionLayout module={Module.CARRIERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><CourierPerformance /></PermissionLayout>} />
+                            <Route path="/settlements" element={<PermissionLayout module={Module.CARRIERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settlements /></PermissionLayout>} />
+
+                            {/* Support - no permission check, accessible to all authenticated users */}
                             <Route path="/support" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Support /></ProtectedLayout>} />
-                            <Route path="/settings" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></ProtectedLayout>} />
-                            <Route path="/billing" element={<ProtectedLayout sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Billing /></ProtectedLayout>} />
+
+                            {/* Settings module */}
+                            <Route path="/settings" element={<PermissionLayout module={Module.SETTINGS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Settings /></PermissionLayout>} />
+
+                            {/* Billing module - Owner only */}
+                            <Route path="/billing" element={<PermissionLayout module={Module.BILLING} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Billing /></PermissionLayout>} />
                           </Routes>
                         </Suspense>
                       </OnboardingGuard>

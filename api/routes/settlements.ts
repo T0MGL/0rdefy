@@ -1,12 +1,17 @@
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';
+import { Module } from '../permissions';
 
 export const settlementsRouter = Router();
 
 // All routes require authentication and store context
 settlementsRouter.use(verifyToken);
 settlementsRouter.use(extractStoreId);
+settlementsRouter.use(extractUserRole);
+// Settlements are related to carriers module
+settlementsRouter.use(requireModule(Module.CARRIERS));
 
 // ================================================================
 // GET /api/settlements - List all settlements

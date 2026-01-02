@@ -1,6 +1,156 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
+
+// ================================================================
+// Permission System Types and Constants
+// ================================================================
+export enum Role {
+  OWNER = 'owner',
+  ADMIN = 'admin',
+  LOGISTICS = 'logistics',
+  CONFIRMADOR = 'confirmador',
+  CONTADOR = 'contador',
+  INVENTARIO = 'inventario'
+}
+
+export enum Module {
+  DASHBOARD = 'dashboard',
+  ORDERS = 'orders',
+  PRODUCTS = 'products',
+  WAREHOUSE = 'warehouse',
+  RETURNS = 'returns',
+  MERCHANDISE = 'merchandise',
+  CUSTOMERS = 'customers',
+  SUPPLIERS = 'suppliers',
+  CARRIERS = 'carriers',
+  CAMPAIGNS = 'campaigns',
+  ANALYTICS = 'analytics',
+  SETTINGS = 'settings',
+  TEAM = 'team',
+  BILLING = 'billing',
+  INTEGRATIONS = 'integrations'
+}
+
+export enum Permission {
+  VIEW = 'view',
+  CREATE = 'create',
+  EDIT = 'edit',
+  DELETE = 'delete'
+}
+
+type ModulePermissions = {
+  [key in Module]: Permission[];
+};
+
+type RolePermissions = {
+  [key in Role]: ModulePermissions;
+};
+
+const ROLE_PERMISSIONS: RolePermissions = {
+  [Role.OWNER]: {
+    [Module.DASHBOARD]: [Permission.VIEW],
+    [Module.ORDERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.PRODUCTS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.WAREHOUSE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.RETURNS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.MERCHANDISE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CUSTOMERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.SUPPLIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CARRIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CAMPAIGNS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.ANALYTICS]: [Permission.VIEW],
+    [Module.SETTINGS]: [Permission.VIEW, Permission.EDIT],
+    [Module.TEAM]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.BILLING]: [Permission.VIEW, Permission.EDIT],
+    [Module.INTEGRATIONS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+  },
+  [Role.ADMIN]: {
+    [Module.DASHBOARD]: [Permission.VIEW],
+    [Module.ORDERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.PRODUCTS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.WAREHOUSE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.RETURNS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.MERCHANDISE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CUSTOMERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.SUPPLIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CARRIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CAMPAIGNS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.ANALYTICS]: [Permission.VIEW],
+    [Module.SETTINGS]: [Permission.VIEW, Permission.EDIT],
+    [Module.TEAM]: [],
+    [Module.BILLING]: [],
+    [Module.INTEGRATIONS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+  },
+  [Role.LOGISTICS]: {
+    [Module.DASHBOARD]: [Permission.VIEW],
+    [Module.ORDERS]: [Permission.VIEW],
+    [Module.PRODUCTS]: [],
+    [Module.WAREHOUSE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.RETURNS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.MERCHANDISE]: [],
+    [Module.CUSTOMERS]: [],
+    [Module.SUPPLIERS]: [],
+    [Module.CARRIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CAMPAIGNS]: [],
+    [Module.ANALYTICS]: [],
+    [Module.SETTINGS]: [],
+    [Module.TEAM]: [],
+    [Module.BILLING]: [],
+    [Module.INTEGRATIONS]: [],
+  },
+  [Role.CONFIRMADOR]: {
+    [Module.DASHBOARD]: [Permission.VIEW],
+    [Module.ORDERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT],
+    [Module.PRODUCTS]: [],
+    [Module.WAREHOUSE]: [],
+    [Module.RETURNS]: [],
+    [Module.MERCHANDISE]: [],
+    [Module.CUSTOMERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT],
+    [Module.SUPPLIERS]: [],
+    [Module.CARRIERS]: [Permission.VIEW],
+    [Module.CAMPAIGNS]: [],
+    [Module.ANALYTICS]: [],
+    [Module.SETTINGS]: [],
+    [Module.TEAM]: [],
+    [Module.BILLING]: [],
+    [Module.INTEGRATIONS]: [],
+  },
+  [Role.CONTADOR]: {
+    [Module.DASHBOARD]: [Permission.VIEW],
+    [Module.ORDERS]: [Permission.VIEW],
+    [Module.PRODUCTS]: [Permission.VIEW],
+    [Module.WAREHOUSE]: [],
+    [Module.RETURNS]: [],
+    [Module.MERCHANDISE]: [],
+    [Module.CUSTOMERS]: [Permission.VIEW],
+    [Module.SUPPLIERS]: [],
+    [Module.CARRIERS]: [],
+    [Module.CAMPAIGNS]: [Permission.VIEW],
+    [Module.ANALYTICS]: [Permission.VIEW],
+    [Module.SETTINGS]: [],
+    [Module.TEAM]: [],
+    [Module.BILLING]: [],
+    [Module.INTEGRATIONS]: [],
+  },
+  [Role.INVENTARIO]: {
+    [Module.DASHBOARD]: [Permission.VIEW],
+    [Module.ORDERS]: [],
+    [Module.PRODUCTS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.WAREHOUSE]: [],
+    [Module.RETURNS]: [],
+    [Module.MERCHANDISE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CUSTOMERS]: [],
+    [Module.SUPPLIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CARRIERS]: [],
+    [Module.CAMPAIGNS]: [],
+    [Module.ANALYTICS]: [],
+    [Module.SETTINGS]: [],
+    [Module.TEAM]: [],
+    [Module.BILLING]: [],
+    [Module.INTEGRATIONS]: [],
+  }
+};
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
@@ -31,13 +181,21 @@ interface User {
   stores: Store[];
 }
 
+// Permission helper interface
+interface PermissionHelpers {
+  hasPermission: (module: Module, permission: Permission) => boolean;
+  canAccessModule: (module: Module) => boolean;
+  getAccessibleModules: () => Module[];
+  currentRole: Role | null;
+}
+
 interface AuthContextType {
   user: User | null;
   currentStore: Store | null;
   stores: Store[];
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
-  signUp: (email: string, password: string, name: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, name: string, storeName?: string, referralCode?: string) => Promise<{ error?: string }>;
   signOut: () => void;
   switchStore: (storeId: string) => void;
   updateProfile: (data: { userName?: string; userPhone?: string; storeName?: string }) => Promise<{ error?: string }>;
@@ -45,6 +203,8 @@ interface AuthContextType {
   deleteAccount: (password: string) => Promise<{ success?: boolean; error?: string }>;
   createStore: (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => Promise<{ success?: boolean; error?: string; storeId?: string }>;
   deleteStore: (storeId: string) => Promise<{ success?: boolean; error?: string }>;
+  // Permission helpers
+  permissions: PermissionHelpers;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -158,14 +318,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, name: string) => {
-    console.log('📝 [AUTH] Signing up:', email);
+  const signUp = async (email: string, password: string, name: string, storeName?: string, referralCode?: string) => {
+    console.log('📝 [AUTH] Signing up:', email, referralCode ? `with referral: ${referralCode}` : '');
 
     try {
       const response = await axios.post(`${API_URL}/register`, {
         email,
         password,
         name,
+        storeName: storeName || `${name}'s Store`,
+        referralCode,
       });
 
       console.log('✅ [AUTH] Registration response:', response.data);
@@ -516,6 +678,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // ================================================================
+  // Permission System Helpers
+  // ================================================================
+  const currentRole = useMemo((): Role | null => {
+    if (!currentStore?.role) return null;
+    const role = currentStore.role.toLowerCase() as Role;
+    return Object.values(Role).includes(role) ? role : null;
+  }, [currentStore?.role]);
+
+  const permissions = useMemo((): PermissionHelpers => {
+    const hasPermission = (module: Module, permission: Permission): boolean => {
+      if (!currentRole) return false;
+      const modulePermissions = ROLE_PERMISSIONS[currentRole]?.[module] || [];
+      return modulePermissions.includes(permission);
+    };
+
+    const canAccessModule = (module: Module): boolean => {
+      if (!currentRole) return false;
+      const modulePermissions = ROLE_PERMISSIONS[currentRole]?.[module] || [];
+      return modulePermissions.length > 0;
+    };
+
+    const getAccessibleModules = (): Module[] => {
+      if (!currentRole) return [];
+      return Object.entries(ROLE_PERMISSIONS[currentRole])
+        .filter(([_, perms]) => perms.length > 0)
+        .map(([mod]) => mod as Module);
+    };
+
+    return {
+      hasPermission,
+      canAccessModule,
+      getAccessibleModules,
+      currentRole
+    };
+  }, [currentRole]);
+
   const value = {
     user,
     currentStore,
@@ -530,6 +729,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     deleteAccount,
     createStore,
     deleteStore,
+    permissions,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

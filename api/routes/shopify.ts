@@ -3,6 +3,8 @@
 
 import { Router, Request, Response } from 'express';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
 import { ShopifyClientService } from '../services/shopify-client.service';
 import { ShopifyImportService } from '../services/shopify-import.service';
@@ -98,6 +100,22 @@ shopifyRouter.use((req: Request, res: Response, next) => {
     return next();
   }
   return extractStoreId(req as AuthRequest, res, next);
+});
+
+// Extract user role for permission checking (skip for webhooks)
+shopifyRouter.use((req: Request, res: Response, next) => {
+  if (isWebhookCallback(req.path)) {
+    return next();
+  }
+  return extractUserRole(req as PermissionRequest, res, next);
+});
+
+// Require INTEGRATIONS module access (skip for webhooks)
+shopifyRouter.use((req: Request, res: Response, next) => {
+  if (isWebhookCallback(req.path)) {
+    return next();
+  }
+  return requireModule(Module.INTEGRATIONS)(req as PermissionRequest, res, next);
 });
 
 // POST /api/shopify/configure

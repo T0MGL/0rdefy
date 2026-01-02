@@ -7,10 +7,15 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 
 export const merchandiseRouter = Router();
 
-merchandiseRouter.use(verifyToken, extractStoreId);
+merchandiseRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Apply module-level access check for all routes
+merchandiseRouter.use(requireModule(Module.MERCHANDISE));
 
 // ================================================================
 // GET /api/merchandise - List all shipments

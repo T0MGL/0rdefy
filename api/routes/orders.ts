@@ -9,6 +9,8 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
 
@@ -552,7 +554,10 @@ ordersRouter.post('/:id/cancel', async (req: Request, res: Response) => {
 // AUTHENTICATED ENDPOINTS (Require auth token)
 // ================================================================
 
-ordersRouter.use(verifyToken, extractStoreId);
+ordersRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Apply module-level access check for all authenticated routes
+ordersRouter.use(requireModule(Module.ORDERS));
 
 // Using req.storeId from middleware
 
@@ -853,7 +858,7 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/orders - Create new order
 // ================================================================
-ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
+ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const {
             shopify_order_id,
@@ -950,7 +955,7 @@ ordersRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/orders/:id - Update order
 // ================================================================
-ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -1050,7 +1055,7 @@ ordersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PATCH /api/orders/:id/status - Update order status
 // ================================================================
-ordersRouter.patch('/:id/status', async (req: AuthRequest, res: Response) => {
+ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -1245,7 +1250,7 @@ ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/orders/:id - Delete order (soft delete in production)
 // ================================================================
-ordersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -1590,7 +1595,7 @@ ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Respon
 // ================================================================
 // POST /api/orders/:id/confirm - Confirm order (Confirmador action)
 // ================================================================
-ordersRouter.post('/:id/confirm', async (req: AuthRequest, res: Response) => {
+ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {

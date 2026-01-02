@@ -9,11 +9,15 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin, getStore, getStoreConfig } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 
 export const storesRouter = Router();
 
 // Apply verifyToken to all routes, but extractStoreId only where needed
 storesRouter.use(verifyToken);
+storesRouter.use(extractUserRole);
+storesRouter.use(requireModule(Module.SETTINGS));
 
 
 // ================================================================

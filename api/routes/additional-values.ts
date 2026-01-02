@@ -7,11 +7,15 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import { RecurringValuesService } from '../services/recurring-values.service';
 
 export const additionalValuesRouter = Router();
 
-additionalValuesRouter.use(verifyToken, extractStoreId);
+additionalValuesRouter.use(verifyToken, extractStoreId, extractUserRole);
+// Additional values are related to analytics/campaigns for ROI tracking
+additionalValuesRouter.use(requireModule(Module.ANALYTICS));
 
 
 // ================================================================

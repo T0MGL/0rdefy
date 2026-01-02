@@ -8,6 +8,8 @@
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { verifyToken, extractStoreId } from '../middleware/auth';
+import { extractUserRole, requireModule, requireRole, PermissionRequest } from '../middleware/permissions';
+import { Module, Role } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
 import stripeService, { PlanType, BillingCycle, PLANS } from '../services/stripe.service';
 
@@ -191,6 +193,8 @@ router.get('/plans', async (req: Request, res: Response) => {
 
 router.use(verifyToken);
 router.use(extractStoreId);
+router.use(extractUserRole);
+router.use(requireModule(Module.BILLING));
 
 /**
  * Get current subscription
@@ -240,8 +244,9 @@ router.get('/feature/:feature', async (req: Request, res: Response) => {
 
 /**
  * Create checkout session
+ * Only owners can initiate checkout
  */
-router.post('/checkout', async (req: Request, res: Response) => {
+router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = (req as any).storeId;
     const userId = (req as any).user?.id || (req as any).userId;
@@ -290,8 +295,9 @@ router.post('/checkout', async (req: Request, res: Response) => {
 
 /**
  * Create billing portal session
+ * Only owners can access billing portal
  */
-router.post('/portal', async (req: Request, res: Response) => {
+router.post('/portal', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = (req as any).storeId;
     const appUrl = process.env.APP_URL || 'https://app.ordefy.io';
@@ -310,8 +316,9 @@ router.post('/portal', async (req: Request, res: Response) => {
 
 /**
  * Cancel subscription
+ * Only owners can cancel subscription
  */
-router.post('/cancel', async (req: Request, res: Response) => {
+router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = (req as any).storeId;
     const { reason } = req.body;
@@ -347,8 +354,9 @@ router.post('/cancel', async (req: Request, res: Response) => {
 
 /**
  * Reactivate subscription
+ * Only owners can reactivate subscription
  */
-router.post('/reactivate', async (req: Request, res: Response) => {
+router.post('/reactivate', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = (req as any).storeId;
 
@@ -383,8 +391,9 @@ router.post('/reactivate', async (req: Request, res: Response) => {
 
 /**
  * Change plan
+ * Only owners can change subscription plan
  */
-router.post('/change-plan', async (req: Request, res: Response) => {
+router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = (req as any).storeId;
     const { plan, billingCycle } = req.body;

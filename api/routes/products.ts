@@ -9,12 +9,17 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import { ShopifyProductSyncService } from '../services/shopify-product-sync.service';
 import { sanitizeSearchInput } from '../utils/sanitize';
 
 export const productsRouter = Router();
 
-productsRouter.use(verifyToken, extractStoreId);
+productsRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Apply module-level access check for all routes
+productsRouter.use(requireModule(Module.PRODUCTS));
 
 // ================================================================
 // GET /api/products - List all products
@@ -241,7 +246,7 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // POST /api/products - Create new product (MANUAL)
 // ================================================================
 // For creating products from Shopify dropdown, use /from-shopify endpoint instead
-productsRouter.post('/', async (req: AuthRequest, res: Response) => {
+productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const {
             name,
@@ -358,7 +363,7 @@ productsRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/products/from-shopify - Create product from Shopify
 // ================================================================
-productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => {
+productsRouter.post('/from-shopify', requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const { shopify_product_id, shopify_variant_id, cost, packaging_cost, additional_costs, is_service } = req.body;
 
@@ -468,7 +473,7 @@ productsRouter.post('/from-shopify', async (req: AuthRequest, res: Response) => 
 // ================================================================
 // PUT /api/products/:id - Update product
 // ================================================================
-productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+productsRouter.put('/:id', requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -575,7 +580,7 @@ productsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PATCH /api/products/:id/stock - Update product stock
 // ================================================================
-productsRouter.patch('/:id/stock', async (req: AuthRequest, res: Response) => {
+productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { stock, operation = 'set' } = req.body;
@@ -724,7 +729,7 @@ productsRouter.patch('/:id/stock', async (req: AuthRequest, res: Response) => {
 //   - hard_delete: 'true' | 'false' (default: 'false' for soft delete)
 //   - delete_from_shopify: 'true' | 'false' (default: 'false', only applies if hard_delete=true)
 // ================================================================
-productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+productsRouter.delete('/:id', requirePermission(Module.PRODUCTS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { hard_delete = 'false', delete_from_shopify = 'false' } = req.query;
@@ -836,7 +841,7 @@ productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/products/:id/publish-to-shopify - Publish product to Shopify
 // ================================================================
-productsRouter.post('/:id/publish-to-shopify', async (req: AuthRequest, res: Response) => {
+productsRouter.post('/:id/publish-to-shopify', requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
