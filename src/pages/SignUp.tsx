@@ -15,7 +15,6 @@ const signupSchema = z.object({
   email: z.string().email('Ingresa un email válido'),
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
   confirmPassword: z.string(),
-  storeName: z.string().min(2, 'El nombre de la tienda debe tener al menos 2 caracteres'),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Las contraseñas no coinciden",
   path: ["confirmPassword"],
@@ -35,7 +34,6 @@ export default function SignUp() {
     email: '',
     password: '',
     confirmPassword: '',
-    storeName: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -67,7 +65,6 @@ export default function SignUp() {
         formData.email,
         formData.password,
         formData.name,
-        formData.storeName,
         referralCode || undefined
       );
 
@@ -85,14 +82,11 @@ export default function SignUp() {
 
       toast({
         title: "¡Cuenta creada!",
-        description: "Ahora elige el plan que mejor se adapte a tu negocio.",
+        description: "Completa la configuración de tu tienda para continuar.",
       });
 
-      // Redirect to plan selection (keep referral code for discount)
-      const planUrl = referralCode
-        ? `/onboarding/plan?ref=${referralCode}`
-        : '/onboarding/plan';
-      navigate(planUrl, { replace: true });
+      // Redirect to onboarding (keep referral code for later)
+      navigate('/onboarding', { replace: true });
 
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -264,28 +258,6 @@ export default function SignUp() {
               </div>
               {errors.email && (
                 <p className="text-sm text-destructive">{errors.email}</p>
-              )}
-            </div>
-
-            {/* Store Name Field */}
-            <div className="space-y-2">
-              <Label htmlFor="storeName" className="text-base font-medium">
-                Nombre de tu tienda
-              </Label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                <Input
-                  id="storeName"
-                  type="text"
-                  placeholder="Mi Tienda Online"
-                  value={formData.storeName}
-                  onChange={(e) => setFormData({ ...formData, storeName: e.target.value })}
-                  className="pl-10 h-12 text-base"
-                  disabled={isLoading}
-                />
-              </div>
-              {errors.storeName && (
-                <p className="text-sm text-destructive">{errors.storeName}</p>
               )}
             </div>
 

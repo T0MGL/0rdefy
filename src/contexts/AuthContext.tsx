@@ -195,7 +195,7 @@ interface AuthContextType {
   stores: Store[];
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
-  signUp: (email: string, password: string, name: string, storeName?: string, referralCode?: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, name: string, referralCode?: string) => Promise<{ error?: string }>;
   signOut: () => void;
   switchStore: (storeId: string) => void;
   updateProfile: (data: { userName?: string; userPhone?: string; storeName?: string }) => Promise<{ error?: string }>;
@@ -318,7 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, name: string, storeName?: string, referralCode?: string) => {
+  const signUp = async (email: string, password: string, name: string, referralCode?: string) => {
     console.log('📝 [AUTH] Signing up:', email, referralCode ? `with referral: ${referralCode}` : '');
 
     try {
@@ -326,7 +326,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email,
         password,
         name,
-        storeName: storeName || `${name}'s Store`,
         referralCode,
       });
 
