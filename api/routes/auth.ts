@@ -404,6 +404,24 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             });
         }
 
+        // Check if phone number is already registered to another user
+        console.log('📱 [ONBOARDING] Checking if phone is already registered...');
+        const { data: existingPhone, error: phoneCheckError } = await supabaseAdmin
+            .from('users')
+            .select('id, email')
+            .eq('phone', userPhone)
+            .neq('id', req.userId)
+            .single();
+
+        if (existingPhone) {
+            console.warn('⚠️ [ONBOARDING] Phone already registered to another user:', userPhone);
+            return res.status(409).json({
+                success: false,
+                error: 'Este número de teléfono ya está registrado con otra cuenta',
+                code: 'PHONE_ALREADY_EXISTS'
+            });
+        }
+
         console.log('📝 [ONBOARDING] Updating user profile...');
         const { data: updatedUser, error: userError } = await supabaseAdmin
             .from('users')
@@ -418,6 +436,16 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
 
         if (userError) {
             console.error('❌ [ONBOARDING] Error updating user:', userError);
+
+            // Handle duplicate phone constraint error
+            if (userError.code === '23505' && userError.message?.includes('phone')) {
+                return res.status(409).json({
+                    success: false,
+                    error: 'Este número de teléfono ya está registrado con otra cuenta',
+                    code: 'PHONE_ALREADY_EXISTS'
+                });
+            }
+
             return res.status(500).json({
                 success: false,
                 error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update user profile',

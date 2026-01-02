@@ -173,7 +173,9 @@ export default function Onboarding() {
       if (!response.ok) {
         console.error('❌ [ONBOARDING] Server error:', data);
         const errorMessage = data.error || data.details || 'Error al completar onboarding';
-        throw new Error(errorMessage);
+        const error = new Error(errorMessage) as Error & { code?: string };
+        error.code = data.code;
+        throw error;
       }
 
       console.log('✅ [ONBOARDING] Success:', data);
@@ -211,6 +213,20 @@ export default function Onboarding() {
           description: "No se pudo conectar con el servidor. Verifica tu conexión a internet.",
           variant: "destructive",
           duration: 5000,
+        });
+        return;
+      }
+
+      // Check if it's a duplicate phone error
+      if (error.code === 'PHONE_ALREADY_EXISTS') {
+        // Go back to step 1 and show error on phone field
+        setCurrentStep(1);
+        setErrors({ userPhone: 'Este número ya está registrado con otra cuenta' });
+        toast({
+          title: "Teléfono ya registrado",
+          description: "Este número de teléfono ya está asociado a otra cuenta. Por favor usa un número diferente.",
+          variant: "destructive",
+          duration: 7000,
         });
         return;
       }
