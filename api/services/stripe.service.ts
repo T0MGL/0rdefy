@@ -52,7 +52,7 @@ export const PLANS = {
     name: 'Starter',
     description: 'Para pequeños negocios en crecimiento',
     priceMonthly: 2900, // $29.00 in cents
-    priceAnnual: 29580, // $295.80 (15% off = $24.65/mo)
+    priceAnnual: 28800, // $288.00 ($24/mo)
     hasTrial: true,
     trialDays: 14,
   },
@@ -60,15 +60,15 @@ export const PLANS = {
     name: 'Growth',
     description: 'Para negocios en expansión',
     priceMonthly: 7900, // $79.00 in cents
-    priceAnnual: 80580, // $805.80 (15% off = $67.15/mo)
+    priceAnnual: 79200, // $792.00 ($66/mo)
     hasTrial: true,
     trialDays: 14,
   },
   professional: {
     name: 'Professional',
     description: 'Para operaciones avanzadas',
-    priceMonthly: 19900, // $199.00 in cents
-    priceAnnual: 202980, // $2029.80 (15% off = $169.15/mo)
+    priceMonthly: 16900, // $169.00 in cents
+    priceAnnual: 170400, // $1704.00 ($142/mo)
     hasTrial: false,
     trialDays: 0,
   },
@@ -88,15 +88,15 @@ const stripeProducts: Record<Exclude<PlanType, 'free'>, string> = {
 const stripePrices: Record<Exclude<PlanType, 'free'>, { monthly: string; annual: string }> = {
   starter: {
     monthly: 'price_1SkWhi8jew17tEHtwMsLHYBE',
-    annual: 'price_1SkWhj8jew17tEHtL44FObEw',
+    annual: 'price_1SlGbh8jew17tEHtNxuLQI7Y',
   },
   growth: {
     monthly: 'price_1SkWhk8jew17tEHt5dTb8ra5',
-    annual: 'price_1SkWhl8jew17tEHtpom2hRPz',
+    annual: 'price_1SlGbi8jew17tEHtrNgekJLu',
   },
   professional: {
-    monthly: 'price_1SkWhm8jew17tEHtyZ00TL43',
-    annual: 'price_1SkWhn8jew17tEHt9F8Ga0xD',
+    monthly: 'price_1SlGWI8jew17tEHtmMXcP9zG',
+    annual: 'price_1SlGbk8jew17tEHtKaxvPuBc',
   },
 };
 

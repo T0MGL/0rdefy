@@ -28,20 +28,20 @@ const plans: PlanConfig[] = [
   {
     id: 'starter',
     name: 'Ordefy Starter',
-    description: 'Perfect for small businesses starting their e-commerce journey',
+    description: 'Perfecto para pequeños negocios que inician su viaje en e-commerce',
     monthlyPrice: 2900, // $29
-    annualPrice: 29580, // $246.50/year ($24.65/month)
+    annualPrice: 28800, // $288/year ($24/month)
     features: [
-      '3 team members',
-      '500 orders/month',
-      '500 products',
-      'Warehouse management',
-      'Returns processing',
-      'Merchandise tracking',
-      'Shipping labels',
-      'Shopify import',
-      '30 days analytics history',
-      'PDF/Excel reports',
+      '3 miembros del equipo',
+      '500 pedidos/mes',
+      '500 productos',
+      'Gestión de almacén',
+      'Procesamiento de devoluciones',
+      'Seguimiento de mercadería',
+      'Etiquetas de envío',
+      'Importación de Shopify',
+      'Historial de 30 días de análisis',
+      'Reportes PDF/Excel',
     ],
     metadata: {
       plan_tier: 'starter',
@@ -55,19 +55,19 @@ const plans: PlanConfig[] = [
   {
     id: 'growth',
     name: 'Ordefy Growth',
-    description: 'For growing businesses with advanced needs',
+    description: 'Para negocios en crecimiento con necesidades avanzadas',
     monthlyPrice: 7900, // $79
-    annualPrice: 80580, // $671.50/year ($67.15/month)
+    annualPrice: 79200, // $792/year ($66/month)
     features: [
-      '10 team members',
-      '2,000 orders/month',
-      '2,000 products',
-      'Everything in Starter',
-      'Shopify bidirectional sync',
-      'Smart alerts',
-      'Campaign tracking',
-      'API read access',
-      '90 days analytics history',
+      '10 miembros del equipo',
+      '2,000 pedidos/mes',
+      '2,000 productos',
+      'Todo lo de Starter',
+      'Sincronización bidireccional con Shopify',
+      'Alertas inteligentes',
+      'Seguimiento de campañas',
+      'Acceso de lectura a API',
+      'Historial de 90 días de análisis',
     ],
     metadata: {
       plan_tier: 'growth',
@@ -81,20 +81,20 @@ const plans: PlanConfig[] = [
   {
     id: 'professional',
     name: 'Ordefy Professional',
-    description: 'For established businesses requiring full power',
-    monthlyPrice: 19900, // $199
-    annualPrice: 202980, // $1691.50/year ($169.15/month)
+    description: 'Para negocios establecidos que requieren máximo poder',
+    monthlyPrice: 16900, // $169
+    annualPrice: 170400, // $1704/year ($142/month)
     features: [
-      '25 team members',
-      '10,000 orders/month',
-      'Unlimited products',
-      'Everything in Growth',
-      '3 stores',
-      'Custom roles',
-      'Full API access',
-      'Custom webhooks',
-      '365 days analytics history',
-      'Demand forecasting',
+      '25 miembros del equipo',
+      '10,000 pedidos/mes',
+      'Productos ilimitados',
+      'Todo lo de Growth',
+      '3 tiendas',
+      'Roles personalizados',
+      'Acceso completo a API',
+      'Webhooks personalizados',
+      'Historial de 365 días de análisis',
+      'Pronóstico de demanda',
     ],
     metadata: {
       plan_tier: 'professional',

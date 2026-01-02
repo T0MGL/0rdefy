@@ -338,12 +338,12 @@ WHATSAPP_VERIFICATION_ENABLED=false  # false = demo mode, true = production
 **Files:** `src/pages/Billing.tsx`, `src/services/billing.service.ts`, `api/routes/billing.ts`, `api/services/stripe.service.ts`, `db/migrations/036_billing_subscriptions_system.sql`
 
 **Plans:**
-| Plan | Price/mo | Annual (15% off) | Users | Orders/mo | Products | Trial |
-|------|----------|------------------|-------|-----------|----------|-------|
+| Plan | Price/mo | Annual | Users | Orders/mo | Products | Trial |
+|------|----------|--------|-------|-----------|----------|-------|
 | Free | $0 | - | 1 | 50 | 100 | No |
-| Starter | $29 | $24.65 | 3 | 500 | 500 | 14 days |
-| Growth | $79 | $67.15 | 10 | 2,000 | 2,000 | 14 days |
-| Professional | $199 | $169.15 | 25 | 10,000 | Unlimited | No |
+| Starter | $29 | $24 | 3 | 500 | 500 | 14 days |
+| Growth | $79 | $66 | 10 | 2,000 | 2,000 | 14 days |
+| Professional | $169 | $142 | 25 | 10,000 | Unlimited | No |
 
 **Features by Plan:**
 - **Free:** Dashboard, orders, products, customers (manual only)

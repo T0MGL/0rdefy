@@ -113,9 +113,9 @@ export default function OnboardingPlan() {
         // Fallback plans if API fails
         setPlans([
           { plan: 'free', priceMonthly: 0, priceAnnual: 0, has_trial: false, trial_days: 0 } as Plan,
-          { plan: 'starter', priceMonthly: 2900, priceAnnual: 29580, has_trial: true, trial_days: 14 } as Plan,
-          { plan: 'growth', priceMonthly: 7900, priceAnnual: 80580, has_trial: true, trial_days: 14 } as Plan,
-          { plan: 'professional', priceMonthly: 19900, priceAnnual: 202980, has_trial: false, trial_days: 0 } as Plan,
+          { plan: 'starter', priceMonthly: 2900, priceAnnual: 28800, has_trial: true, trial_days: 14 } as Plan,
+          { plan: 'growth', priceMonthly: 7900, priceAnnual: 79200, has_trial: true, trial_days: 14 } as Plan,
+          { plan: 'professional', priceMonthly: 16900, priceAnnual: 170400, has_trial: false, trial_days: 0 } as Plan,
         ]);
       } finally {
         setIsLoading(false);

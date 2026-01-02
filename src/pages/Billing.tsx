@@ -305,9 +305,9 @@ export default function Billing({ embedded = false }: BillingProps) {
               const isGrowth = plan.plan === 'growth';
               const canUpgrade = getPlanOrder(plan.plan) > getPlanOrder(currentPlan);
               const canDowngrade = getPlanOrder(plan.plan) < getPlanOrder(currentPlan);
-              // Show monthly equivalent price (for annual: monthly price with 15% discount)
-              const monthlyPrice = plan.priceMonthly;
-              const annualMonthlyPrice = Math.round(plan.priceMonthly * 0.85 * 100) / 100; // 15% discount
+              // Use fixed prices from database (already rounded)
+              const monthlyPrice = plan.priceMonthly / 100; // Convert cents to dollars
+              const annualMonthlyPrice = (plan.priceAnnual / 12) / 100; // Monthly equivalent of annual price
               const displayPrice = isAnnual ? annualMonthlyPrice : monthlyPrice;
 
               return (
@@ -355,7 +355,7 @@ export default function Billing({ embedded = false }: BillingProps) {
                       <span className="text-muted-foreground">/mes</span>
                       {isAnnual && plan.plan !== 'free' && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          ${plan.priceAnnual.toFixed(0)} facturado anualmente
+                          ${(plan.priceAnnual / 100).toFixed(0)} facturado anualmente
                         </p>
                       )}
                     </div>

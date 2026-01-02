@@ -106,26 +106,26 @@ INSERT INTO plan_limits (
    false, false, false, false, false,
    7, false, 0, 0, false, 0),
 
-  -- STARTER: $29/month, $295.80/year (15% off = $24.65/month)
+  -- STARTER: $29/month, $288/year ($24/month)
   ('starter', 3, 500, 500, 1, 1,
    true, true, true, true, true,
    true, false, true, false, false,
    false, false, false, false, false,
-   30, true, 2900, 29580, true, 14),
+   30, true, 2900, 28800, true, 14),
 
-  -- GROWTH: $79/month, $805.80/year (15% off = $67.15/month)
+  -- GROWTH: $79/month, $792/year ($66/month)
   ('growth', 10, 2000, 2000, 1, 1,
    true, true, true, true, true,
    true, true, true, true, false,
    true, true, true, false, false,
-   365, true, 7900, 80580, true, 14),
+   365, true, 7900, 79200, true, 14),
 
-  -- PROFESSIONAL: $199/month, $2029.80/year (15% off = $169.15/month)
+  -- PROFESSIONAL: $169/month, $1,704/year ($142/month)
   ('professional', 25, 10000, -1, 3, -1,
    true, true, true, true, true,
    true, true, true, true, true,
    true, true, true, true, true,
-   -1, true, 19900, 202980, false, 0)
+   -1, true, 16900, 170400, false, 0)
 
 ON CONFLICT (plan) DO UPDATE SET
   max_users = EXCLUDED.max_users,
