@@ -171,7 +171,17 @@ export default function Onboarding() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Error al completar onboarding');
+        console.error('❌ [ONBOARDING] Server error:', data);
+        const errorMessage = data.error || data.details || 'Error al completar onboarding';
+        throw new Error(errorMessage);
+      }
+
+      console.log('✅ [ONBOARDING] Success:', data);
+
+      // Validate response data
+      if (!data.user || !data.store || !data.store.id) {
+        console.error('❌ [ONBOARDING] Invalid response data:', data);
+        throw new Error('Respuesta inválida del servidor');
       }
 
       // Update user and store info in localStorage
@@ -179,48 +189,55 @@ export default function Onboarding() {
       localStorage.setItem('current_store_id', data.store.id);
       localStorage.setItem('onboarding_completed', 'true');
 
+      console.log('✅ [ONBOARDING] LocalStorage updated');
+
       toast({
         title: "¡Configuración completada!",
         description: "Tu tienda ha sido configurada exitosamente.",
       });
 
-      // Small delay to ensure localStorage is written
-      // Preserve Shopify query parameters (shop, host, embedded) for App Bridge
-      setTimeout(() => {
-        const pathWithShopifyParams = preserveShopifyParams('/onboarding/plan');
-        navigate(pathWithShopifyParams, { replace: true });
-      }, 500);
+      // Navigate to plan selection
+      console.log('🔄 [ONBOARDING] Navigating to plan selection...');
+      const pathWithShopifyParams = preserveShopifyParams('/onboarding/plan');
+      navigate(pathWithShopifyParams, { replace: true });
 
     } catch (error: any) {
-      console.error('Error completing onboarding:', error);
+      console.error('💥 [ONBOARDING] Error:', error);
+
+      // Check if it's a network error
+      if (error.message === 'Failed to fetch' || !error.message) {
+        toast({
+          title: "Error de conexión",
+          description: "No se pudo conectar con el servidor. Verifica tu conexión a internet.",
+          variant: "destructive",
+          duration: 5000,
+        });
+        return;
+      }
 
       // Check if it's an auth error
-      if (error.message?.includes('JWT') || error.message?.includes('auth') || error.message?.includes('token')) {
+      if (error.message?.includes('JWT') || error.message?.includes('auth') || error.message?.includes('token') || error.message?.includes('Unauthorized')) {
         toast({
-          title: "Error de autenticación",
+          title: "Sesión expirada",
           description: "Tu sesión expiró. Por favor inicia sesión nuevamente.",
           variant: "destructive",
+          duration: 5000,
         });
-        // Preserve Shopify query parameters when navigating to login
         const pathWithShopifyParams = preserveShopifyParams('/login');
         navigate(pathWithShopifyParams);
-      } else {
-        toast({
-          title: "Error",
-          description: error.message || "No se pudo completar la configuración",
-          variant: "destructive",
-        });
+        return;
       }
+
+      // Generic error with specific message
+      toast({
+        title: "Error al completar configuración",
+        description: error.message || "Ocurrió un error inesperado. Por favor intenta de nuevo.",
+        variant: "destructive",
+        duration: 7000,
+      });
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleSkip = () => {
-    localStorage.setItem('onboarding_completed', 'true');
-    // Preserve Shopify query parameters (shop, host, embedded) for App Bridge
-    const pathWithShopifyParams = preserveShopifyParams('/');
-    navigate(pathWithShopifyParams);
   };
 
   return (
@@ -527,14 +544,18 @@ export default function Onboarding() {
 
           {/* Navigation Buttons */}
           <div className="flex items-center justify-between mt-12">
-            <Button
-              variant="ghost"
-              onClick={currentStep === 1 ? handleSkip : handleBack}
-              className="gap-2"
-            >
-              <ArrowLeft size={16} />
-              {currentStep === 1 ? 'Saltar' : 'Atrás'}
-            </Button>
+            {currentStep > 1 ? (
+              <Button
+                variant="ghost"
+                onClick={handleBack}
+                className="gap-2"
+              >
+                <ArrowLeft size={16} />
+                Atrás
+              </Button>
+            ) : (
+              <div></div>
+            )}
 
             <Button
               onClick={handleNext}

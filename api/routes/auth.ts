@@ -373,6 +373,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
         const { userName, userPhone, storeName, storeCountry, storeCurrency, taxRate, adminFee } = req.body;
 
         console.log('📝 [ONBOARDING] Request received:', {
+            userId: req.userId,
             userName,
             userPhone,
             storeName,
@@ -383,10 +384,23 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
         });
 
         if (!userName || !userPhone || !storeName || !storeCountry || !storeCurrency) {
-            console.warn('⚠️ [ONBOARDING] Missing required fields');
+            console.warn('⚠️ [ONBOARDING] Missing required fields:', {
+                userName: !!userName,
+                userPhone: !!userPhone,
+                storeName: !!storeName,
+                storeCountry: !!storeCountry,
+                storeCurrency: !!storeCurrency
+            });
             return res.status(400).json({
                 success: false,
-                error: 'All fields are required'
+                error: 'Todos los campos son requeridos',
+                details: {
+                    userName: !!userName,
+                    userPhone: !!userPhone,
+                    storeName: !!storeName,
+                    storeCountry: !!storeCountry,
+                    storeCurrency: !!storeCurrency
+                }
             });
         }
 
