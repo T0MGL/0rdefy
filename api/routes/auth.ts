@@ -433,8 +433,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
                 country: storeCountry,
                 currency: storeCurrency,
                 tax_rate: taxRate || 0,
-                admin_fee: adminFee || 0,
-                subscription_plan: 'free'
+                admin_fee: adminFee || 0
             })
             .select()
             .single();
@@ -464,6 +463,21 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
                 error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to link user to store',
                 details: process.env.NODE_ENV === 'production' ? undefined : linkError.message
             });
+        }
+
+        // Create default subscription for the store (free plan)
+        console.log('💳 [ONBOARDING] Creating default subscription...');
+        const { error: subscriptionError } = await supabaseAdmin
+            .from('subscriptions')
+            .insert({
+                store_id: store.id,
+                plan: 'free',
+                status: 'active'
+            });
+
+        if (subscriptionError) {
+            // Log but don't fail - subscription can be created later
+            console.warn('⚠️ [ONBOARDING] Could not create subscription:', subscriptionError.message);
         }
 
         console.log('✅ [ONBOARDING] Onboarding completed successfully');
