@@ -308,20 +308,8 @@ export default function Delivery() {
   // Loading state
   if (state.type === 'loading') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
-        {/* Logo Ordefy */}
-        <div className="flex items-center justify-center mb-8">
-          <img
-            src="/NO BACKGROUND.png"
-            alt="Ordefy Logo"
-            className="h-20 w-auto object-contain"
-          />
-        </div>
-
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Cargando información del pedido...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -331,16 +319,7 @@ export default function Delivery() {
     if (state.alreadyRated) {
       // Already rated - show thank you message
       return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
-          {/* Logo Ordefy */}
-          <div className="flex items-center justify-center mb-8">
-            <img
-              src="/NO BACKGROUND.png"
-              alt="Ordefy Logo"
-              className="h-20 w-auto object-contain"
-            />
-          </div>
-
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
           <Card className="max-w-md w-full text-center bg-card border-border">
             <CardHeader>
               <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
@@ -377,16 +356,7 @@ export default function Delivery() {
 
     // Not rated yet - show rating form
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
-        {/* Logo Ordefy */}
-        <div className="flex items-center justify-center mb-8">
-          <img
-            src="/NO BACKGROUND.png"
-            alt="Ordefy Logo"
-            className="h-20 w-auto object-contain"
-          />
-        </div>
-
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <Card className="max-w-md w-full bg-card border-border">
           <CardHeader className="text-center">
             <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
@@ -468,16 +438,7 @@ export default function Delivery() {
   // Rated thanks state
   if (state.type === 'rated_thanks') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
-        {/* Logo Ordefy */}
-        <div className="flex items-center justify-center mb-8">
-          <img
-            src="/NO BACKGROUND.png"
-            alt="Ordefy Logo"
-            className="h-20 w-auto object-contain"
-          />
-        </div>
-
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <Card className="max-w-md w-full text-center bg-card border-border">
           <CardHeader>
             <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
@@ -494,16 +455,7 @@ export default function Delivery() {
   // Failed state - Show retry options
   if (state.type === 'failed') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
-        {/* Logo Ordefy */}
-        <div className="flex items-center justify-center mb-8">
-          <img
-            src="/NO BACKGROUND.png"
-            alt="Ordefy Logo"
-            className="h-20 w-auto object-contain"
-          />
-        </div>
-
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <Card className="max-w-md w-full bg-card border-border">
           <CardHeader className="text-center">
             <XCircle className="h-20 w-20 text-red-500 mx-auto mb-4" />
@@ -633,16 +585,7 @@ export default function Delivery() {
   // Not found state
   if (state.type === 'not_found') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background dark:bg-background p-4">
-        {/* Logo Ordefy */}
-        <div className="flex items-center justify-center mb-8">
-          <img
-            src="/NO BACKGROUND.png"
-            alt="Ordefy Logo"
-            className="h-20 w-auto object-contain"
-          />
-        </div>
-
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <Card className="max-w-md w-full text-center bg-card border-border">
           <CardHeader>
             <AlertCircle className="h-20 w-20 text-orange-500 mx-auto mb-4" />
@@ -658,12 +601,12 @@ export default function Delivery() {
   const orderData = state.data;
 
   return (
-    <div className="min-h-screen bg-background dark:bg-background p-4 pb-20">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4 pb-20">
       <div className="max-w-2xl mx-auto space-y-4">
         {/* Logo Ordefy */}
         <div className="flex items-center justify-center py-4">
           <img
-            src="/NO BACKGROUND.png"
+            src="/favicon.png"
             alt="Ordefy Logo"
             className="h-16 w-auto object-contain"
           />
@@ -742,13 +685,13 @@ export default function Delivery() {
                       </p>
                     </div>
                     <p className="font-medium">
-                      ${((item.price || 0) * (item.quantity || 1)).toLocaleString()}
+                      ₲{((item.price || 0) * (item.quantity || 1)).toLocaleString()}
                     </p>
                   </div>
                 ))}
                 <div className="flex justify-between items-center pt-3 font-bold text-lg">
                   <span>Total</span>
-                  <span>${orderData.total_price?.toLocaleString()}</span>
+                  <span>₲{orderData.total_price?.toLocaleString()}</span>
                 </div>
               </div>
             ) : (
@@ -771,7 +714,7 @@ export default function Delivery() {
                   <p className="font-bold text-lg text-orange-600 dark:text-orange-400">Cobro en Efectivo</p>
                   <p className="text-sm text-muted-foreground">Debes cobrar al cliente:</p>
                   <p className="text-2xl font-bold text-orange-700 dark:text-orange-300 mt-1">
-                    ${orderData.cod_amount?.toLocaleString()} {orderData.payment_method === 'efectivo' ? 'en efectivo' : ''}
+                    ₲{orderData.cod_amount?.toLocaleString()} {orderData.payment_method === 'efectivo' ? 'en efectivo' : ''}
                   </p>
                 </div>
               </div>
@@ -782,7 +725,7 @@ export default function Delivery() {
         }
 
         {/* Google Maps Location Card - Prominent for Couriers */}
-        {orderData.customer_address && (
+        {orderData.customer_address && (orderData.google_maps_link || orderData.latitude || orderData.longitude) && (
           <Card className="bg-blue-500/10 dark:bg-blue-500/20 border-blue-500/50">
             <CardContent className="p-4">
               <div className="flex items-start gap-3 mb-3">
@@ -813,7 +756,7 @@ export default function Delivery() {
                 <Button
                   className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold h-12"
                   onClick={() => {
-                    const { google_maps_link, latitude, longitude, customer_address, neighborhood } = orderData;
+                    const { google_maps_link, latitude, longitude } = orderData;
 
                     // Prioridad: usar google_maps_link si está disponible, si no usar lat/long para navegación
                     if (latitude && longitude) {
@@ -821,13 +764,6 @@ export default function Delivery() {
                       window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`;
                     } else if (google_maps_link) {
                       window.open(google_maps_link, '_blank');
-                    } else if (customer_address) {
-                      // Construir búsqueda de Google Maps con la dirección
-                      const parts = [];
-                      if (customer_address) parts.push(customer_address);
-                      if (neighborhood) parts.push(neighborhood);
-                      const address = parts.join(', ');
-                      window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
                     }
                   }}
                 >
@@ -899,10 +835,8 @@ export default function Delivery() {
                   <SelectContent>
                     <SelectItem value="efectivo">Efectivo</SelectItem>
                     <SelectItem value="tarjeta">Tarjeta</SelectItem>
+                    <SelectItem value="qr">QR</SelectItem>
                     <SelectItem value="transferencia">Transferencia</SelectItem>
-                    <SelectItem value="yape">Yape</SelectItem>
-                    <SelectItem value="plin">Plin</SelectItem>
-                    <SelectItem value="otro">Otro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
