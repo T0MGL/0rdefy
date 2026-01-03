@@ -462,20 +462,20 @@ export default function Billing({ embedded = false }: BillingProps) {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-3xl font-bold">
-                  {usage?.orders.used.toLocaleString() || 0}
+                  {(usage?.orders?.used ?? 0).toLocaleString()}
                   <span className="text-lg font-normal text-muted-foreground">
                     {' '}
                     /{' '}
-                    {usage?.orders.limit === Infinity
+                    {usage?.orders?.limit == null || usage?.orders?.limit === Infinity
                       ? '∞'
-                      : usage?.orders.limit.toLocaleString()}
+                      : usage?.orders?.limit?.toLocaleString()}
                   </span>
                 </div>
                 <Progress
-                  value={Math.min(usage?.orders.percentage || 0, 100)}
-                  className={getProgressColor(usage?.orders.percentage || 0)}
+                  value={Math.min(usage?.orders?.percentage || 0, 100)}
+                  className={getProgressColor(usage?.orders?.percentage || 0)}
                 />
-                {(usage?.orders.percentage || 0) >= 80 && (
+                {(usage?.orders?.percentage || 0) >= 80 && (
                   <p className="text-sm text-orange-600">
                     <AlertCircle className="h-4 w-4 inline mr-1" />
                     Estas cerca del limite
@@ -494,18 +494,18 @@ export default function Billing({ embedded = false }: BillingProps) {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-3xl font-bold">
-                  {usage?.products.used.toLocaleString() || 0}
+                  {(usage?.products?.used ?? 0).toLocaleString()}
                   <span className="text-lg font-normal text-muted-foreground">
                     {' '}
                     /{' '}
-                    {usage?.products.limit === Infinity
+                    {usage?.products?.limit == null || usage?.products?.limit === Infinity
                       ? '∞'
-                      : usage?.products.limit.toLocaleString()}
+                      : usage?.products?.limit?.toLocaleString()}
                   </span>
                 </div>
                 <Progress
-                  value={Math.min(usage?.products.percentage || 0, 100)}
-                  className={getProgressColor(usage?.products.percentage || 0)}
+                  value={Math.min(usage?.products?.percentage || 0, 100)}
+                  className={getProgressColor(usage?.products?.percentage || 0)}
                 />
               </CardContent>
             </Card>
@@ -520,25 +520,25 @@ export default function Billing({ embedded = false }: BillingProps) {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-3xl font-bold">
-                  {usage?.users.used || 0}
+                  {usage?.users?.used ?? 0}
                   <span className="text-lg font-normal text-muted-foreground">
                     {' '}
                     /{' '}
-                    {usage?.users.limit === Infinity
+                    {usage?.users?.limit == null || usage?.users?.limit === Infinity
                       ? '∞'
-                      : usage?.users.limit}
+                      : usage.users.limit}
                   </span>
                 </div>
                 <Progress
-                  value={Math.min(usage?.users.percentage || 0, 100)}
-                  className={getProgressColor(usage?.users.percentage || 0)}
+                  value={Math.min(usage?.users?.percentage || 0, 100)}
+                  className={getProgressColor(usage?.users?.percentage || 0)}
                 />
               </CardContent>
             </Card>
           </div>
 
           {/* Upgrade CTA */}
-          {currentPlan !== 'professional' && (usage?.orders.percentage || 0) >= 70 && (
+          {currentPlan !== 'professional' && (usage?.orders?.percentage || 0) >= 70 && (
             <Alert>
               <TrendingUp className="h-4 w-4" />
               <AlertTitle>Necesitas mas capacidad?</AlertTitle>
