@@ -7,6 +7,7 @@ import { QuickActions } from '@/components/QuickActions';
 import { DailySummary } from '@/components/DailySummary';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { InfoTooltip } from '@/components/InfoTooltip';
+import { UsageLimitsIndicator } from '@/components/UsageLimitsIndicator';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -154,6 +155,9 @@ export default function Dashboard() {
 
       {/* Quick Actions */}
       <QuickActions />
+
+      {/* Usage Limits Indicator - Shows when near/at limit */}
+      <UsageLimitsIndicator />
 
       {/* Priority Metrics - Always Visible */}
       <div>

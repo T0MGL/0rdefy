@@ -27,10 +27,13 @@ import {
   RotateCcw,
   Send,
   AlertCircle,
+  Lock,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
-import { useAuth, Module } from '@/contexts/AuthContext';
+import { useAuth, Module, Role } from '@/contexts/AuthContext';
+import { useSubscription, PATH_TO_FEATURE, PlanFeature, FEATURE_MIN_PLAN } from '@/contexts/SubscriptionContext';
+import { useUpgradeModal } from '@/components/UpgradeModal';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -104,6 +107,8 @@ const menuSections: MenuSection[] = [
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [expandedSections, setExpandedSections] = useState<string[]>(['Dashboards', 'Ventas', 'Logística']);
   const { permissions } = useAuth();
+  const { hasFeatureByPath, shouldShowLockedFeatures, loading: subscriptionLoading } = useSubscription();
+  const { openModal, UpgradeModalComponent } = useUpgradeModal();
 
   const toggleSection = (sectionLabel: string) => {
     setExpandedSections(prev =>
@@ -113,21 +118,44 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     );
   };
 
-  // Filter menu sections based on user permissions
+  // Check if a menu item is locked by plan
+  const isItemLocked = (path: string): boolean => {
+    if (subscriptionLoading) return false;
+    return !hasFeatureByPath(path);
+  };
+
+  // Get the feature for a path (for the upgrade modal)
+  const getFeatureForPath = (path: string): PlanFeature | undefined => {
+    return PATH_TO_FEATURE[path];
+  };
+
+  // Filter menu sections based on user permissions AND plan features
   const filteredMenuSections = useMemo(() => {
+    const isOwner = permissions.currentRole === Role.OWNER;
+
     return menuSections
       .map(section => ({
         ...section,
         items: section.items.filter(item => {
           // If no module specified, item is always visible (e.g., Support)
           if (!item.module) return true;
-          // Check if user can access the module
-          return permissions.canAccessModule(item.module);
+
+          // Check RBAC permission first
+          const hasRbacAccess = permissions.canAccessModule(item.module);
+
+          // For non-owners (collaborators): only show items they have RBAC access to
+          if (!isOwner) {
+            return hasRbacAccess;
+          }
+
+          // For owners: show all items they have RBAC access to
+          // Locked items will be shown with lock icon (handled in render)
+          return hasRbacAccess;
         })
       }))
       // Remove sections with no visible items
       .filter(section => section.items.length > 0);
-  }, [permissions]);
+  }, [permissions, shouldShowLockedFeatures]);
 
   if (collapsed) {
     // Collapsed view - show flat list of all items with icons only
@@ -154,6 +182,29 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {allItems.map((item) => {
             const Icon = item.icon;
+            const locked = isItemLocked(item.path);
+
+            // If locked, show as button that opens upgrade modal
+            if (locked) {
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => openModal(getFeatureForPath(item.path), item.label)}
+                  className={cn(
+                    'w-full flex items-center justify-center px-2 py-2.5 rounded-lg transition-all duration-200',
+                    'hover:bg-sidebar-accent/50 cursor-pointer',
+                    'text-sidebar-foreground/40 opacity-50'
+                  )}
+                  title={`${item.label} (Requiere upgrade)`}
+                >
+                  <div className="relative">
+                    <Icon size={18} className="flex-shrink-0" />
+                    <Lock size={10} className="absolute -top-1 -right-1 text-sidebar-foreground/60" />
+                  </div>
+                </button>
+              );
+            }
+
             return (
               <NavLink
                 key={item.path}
@@ -175,6 +226,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             );
           })}
         </nav>
+
+        {/* Upgrade Modal */}
+        <UpgradeModalComponent />
 
         {/* Expand button at bottom */}
         <div className="p-3 border-t border-sidebar-border">
@@ -262,6 +316,30 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   >
                     {section.items.map((item) => {
                       const Icon = item.icon;
+                      const locked = isItemLocked(item.path);
+
+                      // If locked, show as button that opens upgrade modal
+                      if (locked) {
+                        return (
+                          <button
+                            key={item.path}
+                            onClick={() => openModal(getFeatureForPath(item.path), item.label)}
+                            className={cn(
+                              'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200',
+                              'hover:bg-sidebar-accent/50 cursor-pointer',
+                              'text-sidebar-foreground/40 opacity-50'
+                            )}
+                          >
+                            <div className="relative">
+                              <Icon size={16} className="flex-shrink-0" />
+                              <Lock size={8} className="absolute -top-0.5 -right-0.5 text-sidebar-foreground/60" />
+                            </div>
+                            <span className="text-sm flex-1 text-left">{item.label}</span>
+                            <Lock size={12} className="text-sidebar-foreground/40" />
+                          </button>
+                        );
+                      }
+
                       return (
                         <NavLink
                           key={item.path}
@@ -289,6 +367,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           );
         })}
       </nav>
+
+      {/* Upgrade Modal */}
+      <UpgradeModalComponent />
     </motion.aside>
   );
 }

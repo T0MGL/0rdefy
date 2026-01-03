@@ -76,6 +76,7 @@ export interface CheckoutParams {
 export const billingService = {
   /**
    * Get current subscription and usage
+   * Uses /billing/subscription for owners (full data)
    */
   async getSubscription(): Promise<{
     subscription: Subscription;
@@ -83,6 +84,20 @@ export const billingService = {
     allPlans: Plan[];
   }> {
     const response = await apiClient.get('/billing/subscription');
+    return response.data;
+  },
+
+  /**
+   * Get store plan and usage (for feature gating)
+   * Accessible to ALL authenticated users (not just billing module)
+   * Used by SubscriptionContext
+   */
+  async getStorePlan(): Promise<{
+    subscription: Subscription;
+    usage: Usage;
+    allPlans: Plan[];
+  }> {
+    const response = await apiClient.get('/billing/store-plan');
     return response.data;
   },
 

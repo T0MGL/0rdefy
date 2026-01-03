@@ -109,8 +109,35 @@ apiClient.interceptors.response.use(
 
       // Handle 403 Forbidden
       if (status === 403) {
-        console.error('❌ [API] 403 Forbidden - Access denied');
-        // Could show toast notification here
+        const errorCode = error.response?.data?.error;
+
+        // Check if it's a plan limit error
+        if (errorCode === 'ORDER_LIMIT_REACHED' || errorCode === 'PRODUCT_LIMIT_REACHED') {
+          console.warn('⚠️ [API] Plan limit reached:', errorCode);
+
+          // Dispatch custom event for UI to handle
+          const event = new CustomEvent('plan:limit-reached', {
+            detail: {
+              type: errorCode === 'ORDER_LIMIT_REACHED' ? 'orders' : 'products',
+              message: error.response?.data?.message,
+              usage: error.response?.data?.usage,
+            },
+          });
+          window.dispatchEvent(event);
+        } else if (errorCode === 'FEATURE_NOT_AVAILABLE') {
+          console.warn('⚠️ [API] Feature not available:', error.response?.data?.feature);
+
+          // Dispatch custom event for UI to handle
+          const event = new CustomEvent('plan:feature-blocked', {
+            detail: {
+              feature: error.response?.data?.feature,
+              message: error.response?.data?.message,
+            },
+          });
+          window.dispatchEvent(event);
+        } else {
+          console.error('❌ [API] 403 Forbidden - Access denied');
+        }
       }
 
       // Handle 500 Server Error

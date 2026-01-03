@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { checkProductLimit, PlanLimitRequest } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { ShopifyProductSyncService } from '../services/shopify-product-sync.service';
 import { sanitizeSearchInput } from '../utils/sanitize';
@@ -246,7 +247,7 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // POST /api/products - Create new product (MANUAL)
 // ================================================================
 // For creating products from Shopify dropdown, use /from-shopify endpoint instead
-productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), checkProductLimit, async (req: PermissionRequest & PlanLimitRequest, res: Response) => {
     try {
         const {
             name,
@@ -363,7 +364,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
 // ================================================================
 // POST /api/products/from-shopify - Create product from Shopify
 // ================================================================
-productsRouter.post('/from-shopify', requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+productsRouter.post('/from-shopify', requirePermission(Module.PRODUCTS, Permission.CREATE), checkProductLimit, async (req: PermissionRequest & PlanLimitRequest, res: Response) => {
     try {
         const { shopify_product_id, shopify_variant_id, cost, packaging_cost, additional_costs, is_service } = req.body;
 

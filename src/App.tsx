@@ -10,11 +10,13 @@ import { OnboardingGuard } from "@/components/OnboardingGuard";
 import { AuthProvider, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
+import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { PermissionRoute } from "@/components/PermissionRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ShopifyAppBridgeProvider } from "@/components/ShopifyAppBridgeProvider";
+import { PlanLimitHandler } from "@/components/PlanLimitHandler";
 
 // TypeScript declaration for Shopify App Bridge
 declare global {
@@ -134,9 +136,11 @@ const App = () => {
               <Sonner />
               <BrowserRouter>
                 <AuthProvider>
-                  <DateRangeProvider>
-                    <ErrorBoundary>
-                      <OnboardingGuard>
+                  <SubscriptionProvider>
+                    <PlanLimitHandler />
+                    <DateRangeProvider>
+                      <ErrorBoundary>
+                        <OnboardingGuard>
                         <Suspense fallback={<CardSkeleton count={1} />}>
                           <Routes>
                             {/* Public routes */}
@@ -205,8 +209,9 @@ const App = () => {
                           </Routes>
                         </Suspense>
                       </OnboardingGuard>
-                    </ErrorBoundary>
-                  </DateRangeProvider>
+                      </ErrorBoundary>
+                    </DateRangeProvider>
+                  </SubscriptionProvider>
                 </AuthProvider>
               </BrowserRouter>
             </ShopifyAppBridgeProvider>

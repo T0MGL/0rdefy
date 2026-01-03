@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { checkOrderLimit, PlanLimitRequest } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
@@ -858,7 +859,7 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/orders - Create new order
 // ================================================================
-ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), checkOrderLimit, async (req: PermissionRequest & PlanLimitRequest, res: Response) => {
     try {
         const {
             shopify_order_id,

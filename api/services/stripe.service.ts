@@ -100,6 +100,29 @@ const stripePrices: Record<Exclude<PlanType, 'free'>, { monthly: string; annual:
   },
 };
 
+// SECURITY: Reverse mapping from priceId to plan
+// This is the SOURCE OF TRUTH for determining what plan a user paid for
+// NEVER trust metadata - always use this mapping
+const priceIdToPlan: Record<string, PlanType> = {
+  // Starter
+  'price_1SkWhi8jew17tEHtwMsLHYBE': 'starter',
+  'price_1SlGbh8jew17tEHtNxuLQI7Y': 'starter',
+  // Growth
+  'price_1SkWhk8jew17tEHt5dTb8ra5': 'growth',
+  'price_1SlGbi8jew17tEHtrNgekJLu': 'growth',
+  // Professional
+  'price_1SlGWI8jew17tEHtmMXcP9zG': 'professional',
+  'price_1SlGbk8jew17tEHtKaxvPuBc': 'professional',
+};
+
+/**
+ * SECURITY: Get plan from Stripe price ID
+ * This is the ONLY trusted source for determining what plan a user paid for
+ */
+export function getPlanFromPriceId(priceId: string): PlanType | null {
+  return priceIdToPlan[priceId] || null;
+}
+
 /**
  * Check if Stripe is available
  */
@@ -971,6 +994,7 @@ export default {
   generateReferralCode,
   getReferralStats,
   processReferralConversion,
+  getPlanFromPriceId,
   PLANS,
   getStripe,
 };

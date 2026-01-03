@@ -11,7 +11,7 @@ import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireModule, requireRole, PermissionRequest } from '../middleware/permissions';
 import { Module, Role } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
-import stripeService, { PlanType, BillingCycle, PLANS } from '../services/stripe.service';
+import stripeService, { PlanType, BillingCycle, PLANS, getPlanFromPriceId } from '../services/stripe.service';
 
 const router = express.Router();
 
@@ -188,7 +188,75 @@ router.get('/plans', async (req: Request, res: Response) => {
 });
 
 // =============================================
-// PROTECTED ROUTES (Auth required)
+// SEMI-PROTECTED ROUTES (Auth required, no billing permission)
+// These endpoints are accessible to ALL authenticated users
+// =============================================
+
+/**
+ * Get current store plan and usage (for feature gating)
+ * Accessible to ALL authenticated users (not just billing module)
+ * Used by SubscriptionContext to check feature access
+ */
+router.get(
+  '/store-plan',
+  verifyToken,
+  extractStoreId,
+  async (req: Request, res: Response) => {
+    try {
+      const storeId = (req as any).storeId;
+
+      if (!storeId) {
+        return res.status(400).json({ error: 'Store ID is required' });
+      }
+
+      const subscription = await stripeService.getStorePlan(storeId);
+      const usage = await stripeService.getStoreUsage(storeId);
+      const planLimits = await stripeService.getAllPlanLimits();
+
+      const currentPlanLimits = planLimits.find((p) => p.plan === subscription.plan);
+
+      res.json({
+        subscription: {
+          plan: subscription.plan,
+          status: subscription.status,
+          billingCycle: subscription.billingCycle,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          trialEndsAt: subscription.trialEndsAt,
+          planDetails: currentPlanLimits,
+        },
+        usage,
+        allPlans: planLimits.map((plan) => ({
+          ...plan,
+          priceMonthly: plan.price_monthly_cents / 100,
+          priceAnnual: plan.price_annual_cents / 100,
+        })),
+      });
+    } catch (error: any) {
+      console.error('[Billing] Store plan error:', error.message);
+      // Return free plan as fallback on error
+      res.json({
+        subscription: {
+          plan: 'free',
+          status: 'active',
+          billingCycle: null,
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+          trialEndsAt: null,
+        },
+        usage: {
+          orders: { used: 0, limit: 50, percentage: 0 },
+          products: { used: 0, limit: 100, percentage: 0 },
+          users: { used: 1, limit: 1, percentage: 100 },
+        },
+        allPlans: [],
+      });
+    }
+  }
+);
+
+// =============================================
+// PROTECTED ROUTES (Auth + Billing permission required)
 // =============================================
 
 router.use(verifyToken);
@@ -646,15 +714,28 @@ async function handleTrialWillEnd(subscription: Stripe.Subscription) {
 async function updateSubscriptionInDB(
   subscription: Stripe.Subscription,
   storeId: string,
-  plan?: PlanType
+  _plan?: PlanType // Ignored for security - we derive plan from priceId
 ) {
   const priceId = subscription.items.data[0]?.price.id;
-  const price = await getStripe().prices.retrieve(priceId);
 
-  // Determine plan from price metadata if not provided
-  const subscriptionPlan = plan || (price.metadata?.ordefy_plan as PlanType) || 'starter';
-  const billingCycle =
-    price.recurring?.interval === 'year' ? 'annual' : 'monthly';
+  if (!priceId) {
+    console.error('[Billing Webhook] SECURITY: No price ID in subscription');
+    throw new Error('No price ID found in subscription');
+  }
+
+  // SECURITY: Get plan from priceId mapping - NEVER trust metadata
+  const subscriptionPlan = getPlanFromPriceId(priceId);
+
+  if (!subscriptionPlan) {
+    console.error('[Billing Webhook] SECURITY: Unknown priceId:', priceId);
+    // If we don't recognize the priceId, this could be a manipulation attempt
+    // Default to free for safety - user can contact support
+    console.warn('[Billing Webhook] SECURITY: Defaulting to free plan for unrecognized priceId');
+  }
+
+  // Get billing cycle from Stripe API (trusted source)
+  const price = await getStripe().prices.retrieve(priceId);
+  const billingCycle = price.recurring?.interval === 'year' ? 'annual' : 'monthly';
 
   // Map Stripe status to our status
   let status = subscription.status;
@@ -662,11 +743,14 @@ async function updateSubscriptionInDB(
     status = 'active'; // Still active but will cancel
   }
 
+  // SECURITY: Use verified plan or default to 'free' if priceId is not recognized
+  const verifiedPlan = subscriptionPlan || 'free';
+
   await supabaseAdmin
     .from('subscriptions')
     .upsert({
       store_id: storeId,
-      plan: subscriptionPlan,
+      plan: verifiedPlan,
       billing_cycle: billingCycle,
       status: status,
       stripe_customer_id: subscription.customer as string,
