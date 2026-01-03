@@ -305,9 +305,9 @@ export default function Billing({ embedded = false }: BillingProps) {
               const isGrowth = plan.plan === 'growth';
               const canUpgrade = getPlanOrder(plan.plan) > getPlanOrder(currentPlan);
               const canDowngrade = getPlanOrder(plan.plan) < getPlanOrder(currentPlan);
-              // Use fixed prices from database (already rounded)
-              const monthlyPrice = plan.priceMonthly / 100; // Convert cents to dollars
-              const annualMonthlyPrice = (plan.priceAnnual / 12) / 100; // Monthly equivalent of annual price
+              // API already returns prices in dollars (converted from cents in api/routes/billing.ts)
+              const monthlyPrice = plan.priceMonthly;
+              const annualMonthlyPrice = plan.priceAnnual / 12; // Monthly equivalent of annual price
               const displayPrice = isAnnual ? annualMonthlyPrice : monthlyPrice;
 
               return (

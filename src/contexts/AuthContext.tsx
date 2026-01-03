@@ -283,11 +283,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user', JSON.stringify(userData));
 
-        // Save onboarding completion status if user already completed onboarding
+        // Save onboarding completion status based on server response
         if (response.data.onboardingCompleted) {
           localStorage.setItem('onboarding_completed', 'true');
           console.log('✅ [AUTH] User has already completed onboarding');
         } else {
+          // Clear onboarding_completed if server says it's not done
+          // This handles cases where old localStorage data might be stale
+          localStorage.removeItem('onboarding_completed');
           console.log('⚠️ [AUTH] User needs to complete onboarding');
         }
 
