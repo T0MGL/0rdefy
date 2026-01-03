@@ -4,6 +4,8 @@ import { Printer, Copy, Check, HelpCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { UniversalLabel } from '@/components/printing/UniversalLabel';
 import { PrintSetupGuide } from '@/components/PrintSetupGuide';
+import { printShippingLabel } from '@/components/printing/printLabel';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface OrderShippingLabelProps {
   orderId: string;
@@ -42,8 +44,10 @@ export function OrderShippingLabel({
   onPrinted,
 }: OrderShippingLabelProps) {
   const { toast } = useToast();
+  const { currentStore } = useAuth();
   const [copied, setCopied] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   // Map props to UniversalLabel data structure
   const orderData = {
@@ -67,11 +71,41 @@ export function OrderShippingLabel({
 
   const deliveryUrl = `${window.location.origin}/delivery/${deliveryToken}`;
 
-  const handlePrint = () => {
-    window.print();
-    // Call the onPrinted callback after printing
-    if (onPrinted) {
-      onPrinted();
+  const handlePrint = async () => {
+    setIsPrinting(true);
+
+    try {
+      // Use the dedicated print window technique
+      const printed = await printShippingLabel({
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: orderId.slice(0, 8).toUpperCase(),
+        customerName,
+        customerPhone,
+        customerAddress,
+        neighborhood,
+        addressReference,
+        carrierName: courierName,
+        codAmount,
+        paymentMethod,
+        deliveryToken,
+        items: products.map(p => ({
+          name: p.name,
+          quantity: p.quantity
+        }))
+      });
+
+      if (printed && onPrinted) {
+        onPrinted();
+      }
+    } catch (error) {
+      console.error('Print error:', error);
+      toast({
+        title: 'Error de impresión',
+        description: 'No se pudo abrir la ventana de impresión. Verifica que las ventanas emergentes estén habilitadas.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPrinting(false);
     }
   };
 
@@ -111,9 +145,13 @@ export function OrderShippingLabel({
             {copied ? <Check size={16} /> : <Copy size={16} />}
             {copied ? 'Copiado' : 'Link'}
           </Button>
-          <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
+          <Button
+            onClick={handlePrint}
+            disabled={isPrinting}
+            className="gap-2 bg-black text-white hover:bg-gray-800"
+          >
             <Printer size={16} />
-            Imprimir (4x6)
+            {isPrinting ? 'Abriendo...' : 'Imprimir (4x6)'}
           </Button>
         </div>
       </div>

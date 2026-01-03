@@ -180,7 +180,7 @@ collaboratorsRouter.post(
       console.log('[Invite] Invitation created successfully:', invitation.id);
 
       // Generate invitation URL
-      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+      const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
       const inviteUrl = `${baseUrl}/accept-invite/${token}`;
 
       // TODO: Send email with invitation link
