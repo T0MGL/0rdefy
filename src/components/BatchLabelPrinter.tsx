@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer, X } from 'lucide-react';
 import { UniversalLabel } from '@/components/printing/UniversalLabel';
+import { printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 interface OrderForBatchPrint {
   id: string;
@@ -11,6 +14,7 @@ interface OrderForBatchPrint {
   customer_address?: string;
   address_reference?: string;
   neighborhood?: string;
+  city?: string;
   delivery_notes?: string;
   carrier_name?: string;
   cod_amount?: number;
@@ -29,10 +33,54 @@ interface BatchLabelPrinterProps {
 }
 
 export function BatchLabelPrinter({ orders, onClose, onPrinted }: BatchLabelPrinterProps) {
+  const { currentStore } = useAuth();
+  const { toast } = useToast();
+  const [isPrinting, setIsPrinting] = useState(false);
 
-  const handlePrint = () => {
-    window.print();
-    onPrinted();
+  const handlePrint = async () => {
+    setIsPrinting(true);
+
+    try {
+      // Convert orders to label data format
+      const labelsData = orders.map(order => ({
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: order.order_number,
+        customerName: order.customer_name,
+        customerPhone: order.customer_phone,
+        customerAddress: order.customer_address,
+        neighborhood: order.neighborhood,
+        city: order.city,
+        addressReference: order.address_reference,
+        carrierName: order.carrier_name,
+        codAmount: order.cod_amount,
+        paymentMethod: order.payment_method,
+        deliveryToken: order.delivery_link_token,
+        items: order.items.map(item => ({
+          name: item.product_name,
+          quantity: item.quantity_needed
+        }))
+      }));
+
+      // Generate batch PDF and open in new tab
+      const success = await printBatchLabelsPDF(labelsData);
+
+      if (success) {
+        toast({
+          title: 'PDF generado',
+          description: `PDF con ${orders.length} etiquetas abierto en nueva pestaña. Presiona Cmd+P o Ctrl+P para imprimir.`,
+        });
+        onPrinted();
+      }
+    } catch (error) {
+      console.error('Batch print error:', error);
+      toast({
+        title: 'Error de impresión',
+        description: 'No se pudo generar el PDF en lote.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   return (
@@ -44,13 +92,13 @@ export function BatchLabelPrinter({ orders, onClose, onPrinted }: BatchLabelPrin
           <p className="text-sm text-muted-foreground">{orders.length} etiquetas listas</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={onClose} className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isPrinting} className="gap-2">
             <X size={16} />
             Cancelar
           </Button>
-          <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
+          <Button onClick={handlePrint} disabled={isPrinting} className="gap-2 bg-black text-white hover:bg-gray-800">
             <Printer size={16} />
-            Imprimir Todo
+            {isPrinting ? 'Generando PDF...' : `Imprimir Todo (${orders.length})`}
           </Button>
         </div>
       </div>

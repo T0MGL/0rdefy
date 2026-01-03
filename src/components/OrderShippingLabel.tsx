@@ -4,7 +4,7 @@ import { Printer, Copy, Check, HelpCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { UniversalLabel } from '@/components/printing/UniversalLabel';
 import { PrintSetupGuide } from '@/components/PrintSetupGuide';
-import { printShippingLabel } from '@/components/printing/printLabel';
+import { printLabelPDF } from '@/components/printing/printLabelPDF';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface OrderShippingLabelProps {
@@ -75,14 +75,15 @@ export function OrderShippingLabel({
     setIsPrinting(true);
 
     try {
-      // Use the dedicated print window technique
-      const printed = await printShippingLabel({
+      // Generate PDF and open in new tab for printing
+      const success = await printLabelPDF({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: orderId.slice(0, 8).toUpperCase(),
         customerName,
         customerPhone,
         customerAddress,
         neighborhood,
+        city: undefined, // Add if you have city data
         addressReference,
         carrierName: courierName,
         codAmount,
@@ -94,14 +95,18 @@ export function OrderShippingLabel({
         }))
       });
 
-      if (printed && onPrinted) {
+      if (success && onPrinted) {
         onPrinted();
+        toast({
+          title: 'PDF generado',
+          description: 'El PDF se abrió en una nueva pestaña. Presiona Cmd+P o Ctrl+P para imprimir.',
+        });
       }
     } catch (error) {
       console.error('Print error:', error);
       toast({
         title: 'Error de impresión',
-        description: 'No se pudo abrir la ventana de impresión. Verifica que las ventanas emergentes estén habilitadas.',
+        description: 'No se pudo generar el PDF. Verifica que las ventanas emergentes estén habilitadas.',
         variant: 'destructive',
       });
     } finally {
