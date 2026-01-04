@@ -265,8 +265,9 @@ function LabelContent({
   isPaidByShopify: boolean;
   isPrint?: boolean;
 }) {
-  // Centering strategy: Use flexbox centering for print, no padding for preview
-  const paddingSides = isPrint ? '0.15in' : '0';  // Side margins
+  // Simple centering: just add equal padding top/bottom for print
+  const verticalPadding = isPrint ? '0.3in' : '0';
+  const sidePadding = isPrint ? '0.1in' : '0';
 
   return (
     <div
@@ -279,19 +280,18 @@ function LabelContent({
         fontFamily: 'system-ui, -apple-system, sans-serif',
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: isPrint ? 'center' : 'flex-start',  // Center vertically when printing
-        alignItems: 'center',  // Center horizontally
-        paddingLeft: paddingSides,
-        paddingRight: paddingSides,
+        paddingTop: verticalPadding,
+        paddingBottom: verticalPadding,
+        paddingLeft: sidePadding,
+        paddingRight: sidePadding,
         boxSizing: 'border-box',
         overflow: 'hidden',
       }}
     >
-      {/* Inner container with border */}
+      {/* Inner container with border - takes remaining space */}
       <div style={{
         width: '100%',
-        height: isPrint ? 'auto' : '100%',  // Auto height for print, full height for preview
-        maxHeight: isPrint ? '5.7in' : 'none',  // Max height to prevent overflow
+        flex: 1,  // Takes all available space
         border: '3px solid black',
         boxSizing: 'border-box',
         display: 'flex',
