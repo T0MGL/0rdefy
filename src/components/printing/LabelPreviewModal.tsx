@@ -299,17 +299,17 @@ function LabelContent({
         overflow: 'hidden',
       }}
       >
-      {/* HEADER - 10% */}
+      {/* HEADER - 8% más compacto */}
       <div style={{
-        height: '10%',
+        height: '8%',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '4px 8px',
+        padding: '3px 8px',
         borderBottom: '3px solid black',
       }}>
         <div style={{
-          fontSize: '13px',
+          fontSize: '12px',
           fontWeight: 800,
           textTransform: 'uppercase',
           overflow: 'hidden',
@@ -320,7 +320,7 @@ function LabelContent({
           {data.storeName}
         </div>
         <div style={{
-          fontSize: '20px',
+          fontSize: '18px',
           fontWeight: 900,
           letterSpacing: '-1px',
         }}>
@@ -328,21 +328,21 @@ function LabelContent({
         </div>
       </div>
 
-      {/* ADDRESS - 35% */}
+      {/* ADDRESS - 32% más compacto */}
       <div style={{
-        height: '35%',
-        padding: '6px 8px',
+        height: '32%',
+        padding: '5px 8px',
         display: 'flex',
         flexDirection: 'column',
         borderBottom: '3px solid black',
       }}>
-        <div style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>
+        <div style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '1px' }}>
           ENTREGAR A:
         </div>
         <div style={{
-          fontSize: '18px',
+          fontSize: '17px',
           fontWeight: 900,
-          lineHeight: 1.1,
+          lineHeight: 1.05,
           textTransform: 'uppercase',
           overflow: 'hidden',
           display: '-webkit-box',
@@ -352,37 +352,37 @@ function LabelContent({
           {data.customerName}
         </div>
         <div style={{
-          fontSize: '13px',
+          fontSize: '12px',
           fontWeight: 600,
-          lineHeight: 1.2,
-          marginTop: '4px',
+          lineHeight: 1.15,
+          marginTop: '3px',
           flex: 1,
         }}>
           {data.customerAddress}
           {data.neighborhood && `, ${data.neighborhood}`}
         </div>
         {data.addressReference && (
-          <div style={{ fontSize: '11px', fontStyle: 'italic', marginTop: '2px' }}>
+          <div style={{ fontSize: '10px', fontStyle: 'italic', marginTop: '1px' }}>
             REF: {data.addressReference}
           </div>
         )}
         <div style={{
           display: 'inline-block',
-          padding: '2px 6px',
+          padding: '2px 5px',
           border: '2px solid black',
           fontFamily: 'monospace',
-          fontSize: '13px',
+          fontSize: '12px',
           fontWeight: 700,
-          marginTop: '4px',
+          marginTop: '3px',
           width: 'fit-content',
         }}>
           TEL: {data.customerPhone}
         </div>
       </div>
 
-      {/* QR + PAYMENT - 30% */}
+      {/* QR + PAYMENT - 33% */}
       <div style={{
-        height: '30%',
+        height: '33%',
         display: 'flex',
         borderBottom: '3px solid black',
       }}>
@@ -455,16 +455,16 @@ function LabelContent({
         </div>
       </div>
 
-      {/* ITEMS - 25% */}
+      {/* ITEMS - 27% más espacio */}
       <div style={{
-        height: '25%',
-        padding: '4px 6px',
+        height: '27%',
+        padding: '3px 6px',
         overflow: 'hidden',
       }}>
         <table style={{
           width: '100%',
           borderCollapse: 'collapse',
-          fontSize: '10px',
+          fontSize: '9px',
         }}>
           <thead>
             <tr>
@@ -472,7 +472,7 @@ function LabelContent({
                 width: '15%',
                 textAlign: 'center',
                 borderBottom: '2px solid black',
-                padding: '2px',
+                padding: '1px',
                 fontWeight: 800,
               }}>
                 QTY
@@ -481,7 +481,7 @@ function LabelContent({
                 width: '85%',
                 textAlign: 'left',
                 borderBottom: '2px solid black',
-                padding: '2px',
+                padding: '1px',
                 fontWeight: 800,
               }}>
                 PRODUCTO
@@ -493,14 +493,14 @@ function LabelContent({
               <tr key={i}>
                 <td style={{
                   textAlign: 'center',
-                  padding: '2px',
+                  padding: '1px',
                   fontWeight: 700,
                   borderBottom: '1px solid #ddd',
                 }}>
                   {item.quantity}
                 </td>
                 <td style={{
-                  padding: '2px',
+                  padding: '1px 2px',
                   borderBottom: '1px solid #ddd',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -513,8 +513,8 @@ function LabelContent({
             ))}
             {data.items.length > 4 && (
               <tr>
-                <td style={{ textAlign: 'center', padding: '2px', fontWeight: 700 }}>+</td>
-                <td style={{ padding: '2px', fontStyle: 'italic' }}>
+                <td style={{ textAlign: 'center', padding: '1px', fontWeight: 700 }}>+</td>
+                <td style={{ padding: '1px 2px', fontStyle: 'italic' }}>
                   ...y {data.items.length - 4} más
                 </td>
               </tr>
