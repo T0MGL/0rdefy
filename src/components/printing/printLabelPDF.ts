@@ -19,6 +19,7 @@ interface LabelData {
   carrierName?: string;
   codAmount?: number;
   paymentMethod?: string;
+  financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided'; // From Shopify
   deliveryToken: string;
   items: Array<{
     name: string;
@@ -50,9 +51,14 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
     errorCorrectionLevel: 'M'
   });
 
-  // Determine if COD
-  const isCOD = (data.paymentMethod === 'cash' || data.paymentMethod === 'efectivo') &&
+  // Determine payment status
+  // Priority: Shopify financial_status > local payment_method
+  const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
+  const isCODLocal = (data.paymentMethod === 'cash' || data.paymentMethod === 'efectivo') &&
     data.codAmount && data.codAmount > 0;
+
+  // If Shopify says paid, it's paid. Otherwise check local COD logic
+  const isCOD = !isPaidByShopify && isCODLocal;
 
   // Set default font
   pdf.setFont('helvetica', 'normal');
@@ -184,10 +190,12 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
     pdf.setFont('helvetica', 'bold');
     pdf.text('PAGADO', actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.3, { align: 'center' });
 
-    // STANDARD text
+    // Payment status text from Shopify
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('STANDARD', actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
+    const statusText = data.financialStatus === 'authorized' ? 'AUTORIZADO' :
+                       data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD';
+    pdf.text(statusText, actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
   }
 
   // Carrier info
@@ -265,8 +273,11 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
       errorCorrectionLevel: 'M'
     });
 
-    const isCOD = (labels[i].paymentMethod === 'cash' || labels[i].paymentMethod === 'efectivo') &&
+    // Determine payment status for this label
+    const isPaidByShopify = labels[i].financialStatus === 'paid' || labels[i].financialStatus === 'authorized';
+    const isCODLocal = (labels[i].paymentMethod === 'cash' || labels[i].paymentMethod === 'efectivo') &&
       labels[i].codAmount && labels[i].codAmount > 0;
+    const isCOD = !isPaidByShopify && isCODLocal;
 
     // Draw the label
     drawLabelOnPage(pdf, labels[i], qrDataUrl, isCOD);
@@ -385,9 +396,12 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
     pdf.setFont('helvetica', 'bold');
     pdf.text('PAGADO', actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.3, { align: 'center' });
 
+    // Payment status text from Shopify
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('STANDARD', actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
+    const statusText = data.financialStatus === 'authorized' ? 'AUTORIZADO' :
+                       data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD';
+    pdf.text(statusText, actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
   }
 
   pdf.setFontSize(12);
@@ -431,85 +445,40 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
 }
 
 /**
- * Triggers the browser print dialog for a PDF blob using a hidden iframe
- * Uses an HTML wrapper with specific CSS to force 4x6 dimensions
+ * Opens the PDF in a new window/tab for printing
+ * This is the most reliable method because:
+ * 1. The PDF viewer handles the 4x6 page size correctly
+ * 2. User can verify the label before printing
+ * 3. Works consistently across all browsers
  */
 export async function triggerDirectPrint(blob: Blob): Promise<void> {
   const url = URL.createObjectURL(blob);
 
-  return new Promise((resolve) => {
-    // Create hidden iframe
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
+  // Open PDF in new window - let the native PDF viewer handle printing
+  const printWindow = window.open(url, '_blank');
 
-    // Use srcdoc to inject the CSS provided by the user and embed the PDF
-    iframe.srcdoc = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <style>
-            @media print {
-              @page {
-                size: 4in 6in;
-                margin: 0;
-              }
-              html, body {
-                width: 4in !important;
-                height: 6in !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                overflow: hidden !important;
-              }
-              embed {
-                width: 4in !important;
-                height: 6in !important;
-              }
-            }
-            body { margin: 0; padding: 0; }
-            embed { width: 100vw; height: 100vh; border: none; }
-          </style>
-        </head>
-        <body>
-          <embed src="${url}" type="application/pdf">
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.focus();
-                window.print();
-                // Signal to parent that print was triggered
-                window.parent.postMessage('PRINT_TRIGGERED', '*');
-              }, 500);
-            };
-          </script>
-        </body>
-      </html>
-    `;
+  if (!printWindow) {
+    // If popup was blocked, fall back to download
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'etiqueta-envio.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
 
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data === 'PRINT_TRIGGERED') {
-        window.removeEventListener('message', handleMessage);
-        resolve();
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    document.body.appendChild(iframe);
-
-    // Cleanup and safety resolve after 10 seconds
+  // Clean up URL after window loads
+  printWindow.onload = () => {
+    // Give PDF time to render, then trigger print
     setTimeout(() => {
-      window.removeEventListener('message', handleMessage);
-      if (document.body.contains(iframe)) {
-        document.body.removeChild(iframe);
-      }
-      URL.revokeObjectURL(url);
-      resolve();
-    }, 10000);
-  });
+      printWindow.print();
+    }, 1000);
+  };
+
+  // Cleanup URL after 30 seconds
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 30000);
 }
 
 /**
