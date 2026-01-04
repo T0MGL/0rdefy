@@ -83,10 +83,80 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   };
 
   const handlePrint = () => {
-    window.print();
-    if (onPrinted) {
-      onPrinted();
-    }
+    // Create hidden iframe for isolated printing
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.top = '-10000px';
+    iframe.style.left = '-10000px';
+    iframe.style.width = '4in';
+    iframe.style.height = '6in';
+
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (!iframeDoc) return;
+
+    // Get the label content HTML
+    const labelContainer = document.getElementById('thermal-label-print-container');
+    if (!labelContainer) return;
+
+    // Write complete HTML to iframe
+    iframeDoc.open();
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Etiqueta de Envío</title>
+          <style>
+            @page {
+              size: 4in 6in;
+              margin: 0;
+            }
+
+            *, *::before, *::after {
+              box-sizing: border-box !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              color-adjust: exact !important;
+            }
+
+            html, body {
+              width: 4in !important;
+              height: 6in !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: hidden !important;
+              background: white !important;
+            }
+
+            body {
+              font-family: system-ui, -apple-system, sans-serif;
+            }
+          </style>
+        </head>
+        <body>
+          ${labelContainer.innerHTML}
+        </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    // Wait for content to load, then print
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+
+        // Clean up after print dialog closes
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+          if (onPrinted) {
+            onPrinted();
+          }
+        }, 100);
+      }, 250);
+    };
   };
 
   if (!data) return null;
@@ -133,105 +203,14 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
         </DialogContent>
       </Dialog>
 
-      {/* Print-only: Full size label (outside Dialog to avoid portal issues) */}
+      {/* Hidden container for iframe printing (never visible, only used to clone HTML) */}
       <div
         id="thermal-label-print-container"
-        className="hidden"
+        style={{ display: 'none' }}
         ref={labelRef}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          zIndex: 9999,
-        }}
       >
         <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} isPrint={true} />
       </div>
-
-      {/* Print styles */}
-      <style>{`
-        @media print {
-          /* Force 4x6 page size with zero margins */
-          @page {
-            size: 4in 6in;
-            margin: 0;
-          }
-
-          /* Ensure all elements use border-box sizing */
-          *, *::before, *::after {
-            box-sizing: border-box !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            color-adjust: exact !important;
-          }
-
-          /* Reset document dimensions */
-          html {
-            width: 4in !important;
-            height: 6in !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-          }
-
-          body {
-            width: 4in !important;
-            height: 6in !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-            background: white !important;
-            visibility: hidden !important;
-          }
-
-          /* Hide all body children by default */
-          body * {
-            visibility: hidden !important;
-          }
-
-          /* Show only the thermal label container */
-          #thermal-label-print-container {
-            display: block !important;
-            visibility: visible !important;
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 4in !important;
-            height: 6in !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            z-index: 9999 !important;
-            box-sizing: border-box !important;
-          }
-
-          /* Make all children visible */
-          #thermal-label-print-container * {
-            visibility: visible !important;
-            box-sizing: border-box !important;
-          }
-
-          /* Ensure thermal label fills page perfectly */
-          #thermal-label-print-container .thermal-label {
-            width: 4in !important;
-            height: 6in !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-sizing: border-box !important;
-            page-break-after: avoid !important;
-            page-break-before: avoid !important;
-            page-break-inside: avoid !important;
-            overflow: hidden !important;
-          }
-
-          /* Force black backgrounds to print (COD box) */
-          #thermal-label-print-container [style*="background: black"],
-          #thermal-label-print-container [style*="background:black"] {
-            background: black !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-        }
-      `}</style>
     </>
   );
 }
