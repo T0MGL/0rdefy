@@ -145,40 +145,46 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
           zIndex: 9999,
         }}
       >
-        <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
+        <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} isPrint={true} />
       </div>
 
       {/* Print styles */}
       <style>{`
         @media print {
-          /* Force 4x6 page size */
+          /* Force 4x6 page size with zero margins */
           @page {
             size: 4in 6in;
             margin: 0;
           }
 
-          /* Ensure print color accuracy (Safari/Chrome) */
-          * {
+          /* Ensure all elements use border-box sizing */
+          *, *::before, *::after {
+            box-sizing: border-box !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
           }
 
           /* Reset document dimensions */
-          html, body {
+          html {
+            width: 4in !important;
+            height: 6in !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+          }
+
+          body {
             width: 4in !important;
             height: 6in !important;
             margin: 0 !important;
             padding: 0 !important;
             overflow: hidden !important;
             background: white !important;
-          }
-
-          /* Hide everything by default */
-          body {
             visibility: hidden !important;
           }
 
+          /* Hide all body children by default */
           body * {
             visibility: hidden !important;
           }
@@ -187,7 +193,7 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
           #thermal-label-print-container {
             display: block !important;
             visibility: visible !important;
-            position: fixed !important;
+            position: absolute !important;
             top: 0 !important;
             left: 0 !important;
             width: 4in !important;
@@ -195,24 +201,29 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
             margin: 0 !important;
             padding: 0 !important;
             z-index: 9999 !important;
+            box-sizing: border-box !important;
           }
 
+          /* Make all children visible */
           #thermal-label-print-container * {
             visibility: visible !important;
+            box-sizing: border-box !important;
           }
 
-          /* Ensure thermal label content fills page */
+          /* Ensure thermal label fills page perfectly */
           #thermal-label-print-container .thermal-label {
             width: 4in !important;
             height: 6in !important;
             margin: 0 !important;
             padding: 0 !important;
+            box-sizing: border-box !important;
             page-break-after: avoid !important;
             page-break-before: avoid !important;
             page-break-inside: avoid !important;
+            overflow: hidden !important;
           }
 
-          /* Force black backgrounds to print (for COD box) */
+          /* Force black backgrounds to print (COD box) */
           #thermal-label-print-container [style*="background: black"],
           #thermal-label-print-container [style*="background:black"] {
             background: black !important;
@@ -230,13 +241,18 @@ function LabelContent({
   data,
   qrCodeUrl,
   showCOD,
-  isPaidByShopify
+  isPaidByShopify,
+  isPrint = false
 }: {
   data: LabelData;
   qrCodeUrl: string;
   showCOD: boolean;
   isPaidByShopify: boolean;
+  isPrint?: boolean;
 }) {
+  // Add safe area padding for thermal printers (0.15in prevents edge cutting)
+  const safeAreaPadding = isPrint ? '0.15in' : '0';
+
   return (
     <div
       className="thermal-label"
@@ -248,11 +264,22 @@ function LabelContent({
         fontFamily: 'system-ui, -apple-system, sans-serif',
         display: 'flex',
         flexDirection: 'column',
-        border: '3px solid black',
+        padding: safeAreaPadding,
         boxSizing: 'border-box',
         overflow: 'hidden',
       }}
     >
+      {/* Inner container with border */}
+      <div style={{
+        width: '100%',
+        height: '100%',
+        border: '3px solid black',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+      >
       {/* HEADER - 10% */}
       <div style={{
         height: '10%',
@@ -475,6 +502,7 @@ function LabelContent({
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );
