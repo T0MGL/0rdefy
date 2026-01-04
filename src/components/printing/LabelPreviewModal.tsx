@@ -203,21 +203,18 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
 
           {/* Actions */}
           <div className="flex gap-2 justify-end px-4 pb-3">
-            <Button variant="outline" onClick={handleCopyLink} className="gap-2">
+            <Button variant="outline" onClick={handleCopyLink} className="gap-2" type="button">
               {copied ? <Check size={16} /> : <Copy size={16} />}
               {copied ? 'Copiado' : 'Copiar Link'}
             </Button>
-            <Button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handlePrint();
-              }}
-              className="gap-2 bg-black text-white hover:bg-gray-800"
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-black text-white hover:bg-gray-800 h-10 px-4 py-2"
             >
               <Printer size={16} />
               Imprimir 4x6
-            </Button>
+            </button>
           </div>
 
           {/* Preview container - Clean white background */}
