@@ -164,7 +164,7 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
+        <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden outline-none focus:outline-none">
           <DialogHeader className="p-4 pb-2">
             <DialogTitle className="flex items-center justify-between">
               <span>Etiqueta de Envío</span>
@@ -191,9 +191,9 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
             </Button>
           </div>
 
-          {/* Preview container */}
-          <div className="bg-gray-100 dark:bg-gray-900 p-4 flex justify-center">
-            <div className="shadow-lg bg-white">
+          {/* Preview container - Clean white background */}
+          <div className="bg-white dark:bg-gray-950 p-6 flex justify-center">
+            <div className="bg-white" style={{ outline: 'none', border: 'none' }}>
               {/* Preview scaled down to fit modal */}
               <div style={{ transform: 'scale(0.85)', transformOrigin: 'top center' }}>
                 <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
@@ -229,8 +229,10 @@ function LabelContent({
   isPaidByShopify: boolean;
   isPrint?: boolean;
 }) {
-  // Add safe area padding for thermal printers (0.15in prevents edge cutting)
-  const safeAreaPadding = isPrint ? '0.15in' : '0';
+  // Vertical padding adjustment: push content down to prevent top edge cutting
+  const paddingTop = isPrint ? '0.25in' : '0';
+  const paddingBottom = isPrint ? '0.1in' : '0';
+  const paddingSides = isPrint ? '0.15in' : '0';
 
   return (
     <div
@@ -243,7 +245,10 @@ function LabelContent({
         fontFamily: 'system-ui, -apple-system, sans-serif',
         display: 'flex',
         flexDirection: 'column',
-        padding: safeAreaPadding,
+        paddingTop,
+        paddingBottom,
+        paddingLeft: paddingSides,
+        paddingRight: paddingSides,
         boxSizing: 'border-box',
         overflow: 'hidden',
       }}
@@ -269,7 +274,7 @@ function LabelContent({
         borderBottom: '3px solid black',
       }}>
         <div style={{
-          fontSize: '10px',
+          fontSize: '13px',
           fontWeight: 800,
           textTransform: 'uppercase',
           overflow: 'hidden',
@@ -280,11 +285,11 @@ function LabelContent({
           {data.storeName}
         </div>
         <div style={{
-          fontSize: '16px',
+          fontSize: '20px',
           fontWeight: 900,
           letterSpacing: '-1px',
         }}>
-          #{data.orderNumber}
+          {data.orderNumber}
         </div>
       </div>
 
@@ -385,12 +390,12 @@ function LabelContent({
               width: '100%',
               background: 'black',
               color: 'white',
-              padding: '10px 6px',
+              padding: '12px 8px',
             }}>
-              <div style={{ fontSize: '14px', fontWeight: 900, textTransform: 'uppercase' }}>
+              <div style={{ fontSize: '16px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>
                 COBRAR
               </div>
-              <div style={{ fontSize: '16px', fontWeight: 700 }}>
+              <div style={{ fontSize: '22px', fontWeight: 900, letterSpacing: '0.5px' }}>
                 Gs. {data.codAmount?.toLocaleString()}
               </div>
             </div>
