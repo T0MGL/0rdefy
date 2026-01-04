@@ -265,8 +265,8 @@ function LabelContent({
   isPaidByShopify: boolean;
   isPrint?: boolean;
 }) {
-  // Asymmetric padding: more space on top to center, minimal on bottom
-  const paddingTop = isPrint ? '0.35in' : '0';     // Push down from top
+  // Asymmetric padding: more space on top to push content down
+  const paddingTop = isPrint ? '0.55in' : '0';     // Push down more from top
   const paddingBottom = isPrint ? '0.05in' : '0';  // Minimal bottom space
   const sidePadding = isPrint ? '0.08in' : '0';
 
