@@ -269,7 +269,7 @@ function LabelContent({
         borderBottom: '3px solid black',
       }}>
         <div style={{
-          fontSize: '12px',
+          fontSize: '10px',
           fontWeight: 800,
           textTransform: 'uppercase',
           overflow: 'hidden',
@@ -280,7 +280,7 @@ function LabelContent({
           {data.storeName}
         </div>
         <div style={{
-          fontSize: '20px',
+          fontSize: '16px',
           fontWeight: 900,
           letterSpacing: '-1px',
         }}>
