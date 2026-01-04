@@ -198,7 +198,7 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
           onPrinted();
         }
       }, 1000);
-    }, 500);
+    }, 100);
   };
 
   if (!data) return null;
@@ -217,14 +217,14 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
               {copied ? <Check size={16} /> : <Copy size={16} />}
               {copied ? 'Copiado' : 'Copiar Link'}
             </Button>
-            <button
+            <Button
               type="button"
               onClick={handlePrint}
-              className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-black text-white hover:bg-gray-800 h-10 px-4 py-2"
+              className="gap-2"
             >
               <Printer size={16} />
               Imprimir 4x6
-            </button>
+            </Button>
           </div>
 
           {/* Preview container - Clean white background */}
@@ -265,10 +265,10 @@ function LabelContent({
   isPaidByShopify: boolean;
   isPrint?: boolean;
 }) {
-  // Vertical padding adjustment: push content down to prevent top edge cutting
-  const paddingTop = isPrint ? '0.4in' : '0';  // Increased to push content down more
-  const paddingBottom = isPrint ? '0.05in' : '0';  // Reduced bottom padding
-  const paddingSides = isPrint ? '0.1in' : '0';  // Reduced side padding
+  // Vertical padding adjustment: center content vertically on 4x6 label
+  const paddingTop = isPrint ? '0.5in' : '0';  // Center content by pushing down
+  const paddingBottom = isPrint ? '0.5in' : '0';  // Equal padding for vertical centering
+  const paddingSides = isPrint ? '0.08in' : '0';  // Minimal side margins
 
   return (
     <div
