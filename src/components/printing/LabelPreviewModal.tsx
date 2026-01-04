@@ -265,8 +265,8 @@ function LabelContent({
   isPaidByShopify: boolean;
   isPrint?: boolean;
 }) {
-  // Fixed positioning: Use absolute positioning to center the label vertically
-  const marginTop = isPrint ? '0.6in' : '0';      // Push down from top
+  // Minimal top margin to maximize content space
+  const marginTop = isPrint ? '0.25in' : '0';     // Small top margin
   const sidePadding = isPrint ? '0.08in' : '0';
 
   return (
@@ -288,10 +288,10 @@ function LabelContent({
         overflow: 'visible',  // Allow content to show
       }}
     >
-      {/* Inner container with border - FIXED HEIGHT */}
+      {/* Inner container with border - MAXIMIZED HEIGHT */}
       <div style={{
         width: '100%',
-        height: '5.2in',  // Fixed height to fit all content
+        height: '5.55in',  // Taller to fill more space (6in - 0.25in top - 0.2in bottom)
         border: '3px solid black',
         boxSizing: 'border-box',
         display: 'flex',
