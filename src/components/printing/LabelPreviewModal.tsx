@@ -265,9 +265,8 @@ function LabelContent({
   isPaidByShopify: boolean;
   isPrint?: boolean;
 }) {
-  // Asymmetric padding: more space on top to push content down
-  const paddingTop = isPrint ? '0.55in' : '0';     // Push down more from top
-  const paddingBottom = isPrint ? '0.05in' : '0';  // Minimal bottom space
+  // Fixed positioning: Use absolute positioning to center the label vertically
+  const marginTop = isPrint ? '0.6in' : '0';      // Push down from top
   const sidePadding = isPrint ? '0.08in' : '0';
 
   return (
@@ -281,18 +280,18 @@ function LabelContent({
         fontFamily: 'system-ui, -apple-system, sans-serif',
         display: 'flex',
         flexDirection: 'column',
-        paddingTop,
-        paddingBottom,
+        alignItems: 'center',
         paddingLeft: sidePadding,
         paddingRight: sidePadding,
+        paddingTop: marginTop,
         boxSizing: 'border-box',
-        overflow: 'hidden',
+        overflow: 'visible',  // Allow content to show
       }}
     >
-      {/* Inner container with border - uses remaining space (6in - 0.35in - 0.05in = 5.6in) */}
+      {/* Inner container with border - FIXED HEIGHT */}
       <div style={{
         width: '100%',
-        flex: 1,  // Takes remaining space after padding
+        height: '5.2in',  // Fixed height to fit all content
         border: '3px solid black',
         boxSizing: 'border-box',
         display: 'flex',
