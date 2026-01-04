@@ -49,6 +49,7 @@ export function OrderConfirmationDialog({
   // Confirmation state
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState<any>(null);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   // Form state
   const [upsellAdded, setUpsellAdded] = useState(false);
@@ -135,9 +136,6 @@ export function OrderConfirmationDialog({
     try {
       setLoading(true);
 
-      // Close dialog immediately to give feedback
-      handleClose();
-
       // Show loading toast immediately
       const loadingToast = toast({
         title: 'Confirmando pedido...',
@@ -210,6 +208,7 @@ export function OrderConfirmationDialog({
     if (!confirmedOrder) return;
 
     try {
+      setIsPrinting(true);
       const labelData = {
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: confirmedOrder.shopify_order_name || confirmedOrder.id.substring(0, 8),
@@ -240,6 +239,8 @@ export function OrderConfirmationDialog({
         description: 'No se pudo generar la etiqueta.',
         variant: 'destructive',
       });
+    } finally {
+      setIsPrinting(false);
     }
   };
 
@@ -251,6 +252,7 @@ export function OrderConfirmationDialog({
     setGoogleMapsLink('');
     setIsConfirmed(false);
     setConfirmedOrder(null);
+    setIsPrinting(false);
     onOpenChange(false);
   };
 
@@ -305,10 +307,20 @@ export function OrderConfirmationDialog({
                 <Button
                   size="lg"
                   onClick={handlePrint}
+                  disabled={isPrinting}
                   className="gap-2 px-8 h-14 text-lg bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all"
                 >
-                  <Printer size={24} />
-                  Imprimir Etiqueta (4x6)
+                  {isPrinting ? (
+                    <>
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      Preparando...
+                    </>
+                  ) : (
+                    <>
+                      <Printer size={24} />
+                      Imprimir Etiqueta (4x6)
+                    </>
+                  )}
                 </Button>
                 <p className="text-sm text-muted-foreground">
                   Se abrirá el diálogo de impresión directamente

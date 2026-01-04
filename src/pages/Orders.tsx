@@ -174,7 +174,13 @@ export default function Orders() {
   const [orderToEdit, setOrderToEdit] = useState<Order | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [orderToConfirm, setOrderToConfirm] = useState<Order | null>(null);
+  // Selection state
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Printing feedack
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
   const debouncedSearch = useDebounce(search, 300);
@@ -578,6 +584,7 @@ export default function Orders() {
 
   const handlePrintLabel = useCallback(async (order: Order) => {
     try {
+      setPrintingOrderId(order.id);
       const success = await printLabelPDF({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
@@ -599,6 +606,7 @@ export default function Orders() {
       });
 
       if (success) {
+        // We call handleOrderPrinted but don't strictly await it for the print UI to stay smooth
         handleOrderPrinted(order.id);
       }
     } catch (error) {
@@ -608,6 +616,8 @@ export default function Orders() {
         description: 'No se pudo generar el PDF para imprimir.',
         variant: 'destructive',
       });
+    } finally {
+      setPrintingOrderId(null);
     }
   }, [currentStore, getCarrierName, handleOrderPrinted, toast]);
 
@@ -623,6 +633,7 @@ export default function Orders() {
     }
 
     try {
+      setIsPrinting(true);
       const labelsData = printableOrders.map(order => ({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
@@ -674,6 +685,8 @@ export default function Orders() {
         description: 'No se pudo generar el PDF en lote.',
         variant: 'destructive',
       });
+    } finally {
+      setIsPrinting(false);
     }
   }, [orders, selectedOrderIds, currentStore, getCarrierName, toast]);
 
@@ -755,10 +768,20 @@ export default function Orders() {
             <Button
               variant="default"
               onClick={handleBulkPrint}
-              className="gap-2 bg-blue-600 hover:bg-blue-700"
+              disabled={isPrinting}
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
             >
-              <Printer size={18} />
-              Imprimir {selectedOrderIds.size} etiqueta{selectedOrderIds.size > 1 ? 's' : ''}
+              {isPrinting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Imprimiendo etiquetas...
+                </>
+              ) : (
+                <>
+                  <Printer size={18} />
+                  Imprimir Seleccionados ({selectedOrderIds.size})
+                </>
+              )}
             </Button>
           )}
 
@@ -1080,10 +1103,15 @@ export default function Orders() {
                               variant="ghost"
                               size="icon"
                               onClick={() => handlePrintLabel(order)}
+                              disabled={printingOrderId === order.id}
                               title="Imprimir etiqueta de entrega"
                               className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
                             >
-                              <Printer size={16} />
+                              {printingOrderId === order.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Printer size={16} />
+                              )}
                             </Button>
                           )}
                           <Button

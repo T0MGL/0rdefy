@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers } from 'lucide-react';
+import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -18,7 +18,7 @@ import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
-import { BatchLabelPrinter } from '@/components/BatchLabelPrinter';
+
 import { printLabelPDF, printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
 import type {
   PickingSession,
@@ -63,6 +63,8 @@ export default function Warehouse() {
 
   // Print/Batch state
   const [selectedOrdersForPrint, setSelectedOrdersForPrint] = useState<Set<string>>(new Set());
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -324,6 +326,7 @@ export default function Warehouse() {
 
   const handlePrintLabel = useCallback(async (order: OrderForPacking) => {
     try {
+      setPrintingOrderId(order.id);
       const success = await printLabelPDF({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.order_number,
@@ -352,6 +355,8 @@ export default function Warehouse() {
         description: 'No se pudo generar el PDF para imprimir.',
         variant: 'destructive',
       });
+    } finally {
+      setPrintingOrderId(null);
     }
   }, [currentStore, handleOrderPrinted, toast]);
 
@@ -395,6 +400,7 @@ export default function Warehouse() {
     if (!packingData) return;
 
     try {
+      setIsPrinting(true);
       const ordersToPrint = packingData.orders.filter(o =>
         selectedOrdersForPrint.has(o.id) && o.delivery_link_token
       );
@@ -429,6 +435,8 @@ export default function Warehouse() {
         description: 'No se pudo generar el PDF en lote.',
         variant: 'destructive',
       });
+    } finally {
+      setIsPrinting(false);
     }
   }, [selectedOrdersForPrint, packingData, currentStore, handleBatchPrinted, toast]);
 
@@ -520,6 +528,8 @@ export default function Warehouse() {
           packingData={packingData}
           selectedItem={selectedItem}
           loading={loading}
+          isPrinting={isPrinting}
+          printingOrderId={printingOrderId}
           packingInProgress={packingInProgress}
           onBack={handleBackToDashboard}
           onSelectItem={setSelectedItem}
@@ -1047,6 +1057,8 @@ interface PackingViewProps {
   packingData: PackingListResponse;
   selectedItem: string | null;
   loading: boolean;
+  isPrinting: boolean;
+  printingOrderId: string | null;
   packingInProgress: boolean;
   onBack: () => void;
   onSelectItem: (productId: string | null) => void;
@@ -1063,6 +1075,8 @@ function PackingView({
   packingData,
   selectedItem,
   loading,
+  isPrinting,
+  printingOrderId,
   packingInProgress,
   onBack,
   onSelectItem,
@@ -1111,11 +1125,20 @@ function PackingView({
               <Button
                 variant="outline"
                 onClick={onBatchPrint}
-                disabled={selectedOrdersForPrint.size === 0}
+                disabled={selectedOrdersForPrint.size === 0 || isPrinting}
                 className="gap-2"
               >
-                <Layers className="h-4 w-4" />
-                Imprimir en Lote ({selectedOrdersForPrint.size})
+                {isPrinting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Preparando...
+                  </>
+                ) : (
+                  <>
+                    <Layers className="h-4 w-4" />
+                    Imprimir en Lote ({selectedOrdersForPrint.size})
+                  </>
+                )}
               </Button>
             )}
             {allOrdersComplete && allItemsRemaining && (
@@ -1277,9 +1300,14 @@ function PackingView({
                               e.stopPropagation();
                               onPrintLabel(order);
                             }}
+                            disabled={printingOrderId === order.id}
                             className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
                           >
-                            <Printer className="h-4 w-4 mr-1" />
+                            {printingOrderId === order.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                            ) : (
+                              <Printer className="h-4 w-4 mr-1" />
+                            )}
                             Imprimir Etiqueta
                           </Button>
                         ) : (

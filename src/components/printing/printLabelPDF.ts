@@ -434,69 +434,82 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
  * Triggers the browser print dialog for a PDF blob using a hidden iframe
  * Uses an HTML wrapper with specific CSS to force 4x6 dimensions
  */
-export function triggerDirectPrint(blob: Blob): void {
+export async function triggerDirectPrint(blob: Blob): Promise<void> {
   const url = URL.createObjectURL(blob);
 
-  // Create hidden iframe
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = 'none';
+  return new Promise((resolve) => {
+    // Create hidden iframe
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
 
-  // Use srcdoc to inject the CSS provided by the user and embed the PDF
-  iframe.srcdoc = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <style>
-          @media print {
-            @page {
-              size: 4in 6in;
-              margin: 0;
+    // Use srcdoc to inject the CSS provided by the user and embed the PDF
+    iframe.srcdoc = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            @media print {
+              @page {
+                size: 4in 6in;
+                margin: 0;
+              }
+              html, body {
+                width: 4in !important;
+                height: 6in !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+              }
+              embed {
+                width: 4in !important;
+                height: 6in !important;
+              }
             }
-            html, body {
-              width: 4in !important;
-              height: 6in !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              overflow: hidden !important;
-            }
-            embed {
-              width: 4in !important;
-              height: 6in !important;
-            }
-          }
-          body { margin: 0; padding: 0; }
-          embed { width: 100vw; height: 100vh; border: none; }
-        </style>
-      </head>
-      <body>
-        <embed src="${url}" type="application/pdf">
-        <script>
-          // Wait for load and trigger print
-          window.onload = function() {
-            setTimeout(function() {
-              window.focus();
-              window.print();
-            }, 500);
-          };
-        </script>
-      </body>
-    </html>
-  `;
+            body { margin: 0; padding: 0; }
+            embed { width: 100vw; height: 100vh; border: none; }
+          </style>
+        </head>
+        <body>
+          <embed src="${url}" type="application/pdf">
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.focus();
+                window.print();
+                // Signal to parent that print was triggered
+                window.parent.postMessage('PRINT_TRIGGERED', '*');
+              }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `;
 
-  document.body.appendChild(iframe);
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data === 'PRINT_TRIGGERED') {
+        window.removeEventListener('message', handleMessage);
+        resolve();
+      }
+    };
 
-  // Cleanup after a while
-  setTimeout(() => {
-    if (document.body.contains(iframe)) {
-      document.body.removeChild(iframe);
-    }
-    URL.revokeObjectURL(url);
-  }, 10000); // 10 seconds should be enough for any print dialog
+    window.addEventListener('message', handleMessage);
+    document.body.appendChild(iframe);
+
+    // Cleanup and safety resolve after 10 seconds
+    setTimeout(() => {
+      window.removeEventListener('message', handleMessage);
+      if (document.body.contains(iframe)) {
+        document.body.removeChild(iframe);
+      }
+      URL.revokeObjectURL(url);
+      resolve();
+    }, 10000);
+  });
 }
 
 /**
@@ -506,7 +519,7 @@ export function triggerDirectPrint(blob: Blob): void {
 export async function printLabelPDF(data: LabelData): Promise<boolean> {
   try {
     const pdfBlob = await generateLabelPDF(data);
-    triggerDirectPrint(pdfBlob);
+    await triggerDirectPrint(pdfBlob);
     return true;
   } catch (error) {
     console.error('Error generating label PDF:', error);
@@ -521,7 +534,7 @@ export async function printLabelPDF(data: LabelData): Promise<boolean> {
 export async function printBatchLabelsPDF(labels: LabelData[]): Promise<boolean> {
   try {
     const pdfBlob = await generateBatchLabelsPDF(labels);
-    triggerDirectPrint(pdfBlob);
+    await triggerDirectPrint(pdfBlob);
     return true;
   } catch (error) {
     console.error('Error generating batch labels PDF:', error);
