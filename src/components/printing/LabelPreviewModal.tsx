@@ -266,9 +266,9 @@ function LabelContent({
   isPrint?: boolean;
 }) {
   // Vertical padding adjustment: push content down to prevent top edge cutting
-  const paddingTop = isPrint ? '0.25in' : '0';
-  const paddingBottom = isPrint ? '0.1in' : '0';
-  const paddingSides = isPrint ? '0.15in' : '0';
+  const paddingTop = isPrint ? '0.4in' : '0';  // Increased to push content down more
+  const paddingBottom = isPrint ? '0.05in' : '0';  // Reduced bottom padding
+  const paddingSides = isPrint ? '0.1in' : '0';  // Reduced side padding
 
   return (
     <div
