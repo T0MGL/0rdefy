@@ -549,6 +549,33 @@ export default function Orders() {
   }, []);
 
   // Print handlers
+  const handleOrderPrinted = useCallback(async (orderId: string) => {
+    try {
+      // Mark order as printed
+      const updatedOrder = await ordersService.markAsPrinted(orderId);
+      if (updatedOrder) {
+        setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      }
+
+      // Update status to in_transit
+      const transitOrder = await ordersService.updateStatus(orderId, 'in_transit');
+      if (transitOrder) {
+        setOrders(prev => prev.map(o => o.id === orderId ? transitOrder : o));
+        toast({
+          title: 'Pedido en tránsito',
+          description: 'El pedido ha sido marcado como en tránsito',
+        });
+      }
+    } catch (error) {
+      console.error('Error updating order after print:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo actualizar el estado del pedido',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
+
   const handlePrintLabel = useCallback(async (order: Order) => {
     try {
       const success = await printLabelPDF({
@@ -583,33 +610,6 @@ export default function Orders() {
       });
     }
   }, [currentStore, getCarrierName, handleOrderPrinted, toast]);
-
-  const handleOrderPrinted = useCallback(async (orderId: string) => {
-    try {
-      // Mark order as printed
-      const updatedOrder = await ordersService.markAsPrinted(orderId);
-      if (updatedOrder) {
-        setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
-      }
-
-      // Update status to in_transit
-      const transitOrder = await ordersService.updateStatus(orderId, 'in_transit');
-      if (transitOrder) {
-        setOrders(prev => prev.map(o => o.id === orderId ? transitOrder : o));
-        toast({
-          title: 'Pedido en tránsito',
-          description: 'El pedido ha sido marcado como en tránsito',
-        });
-      }
-    } catch (error) {
-      console.error('Error updating order after print:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo actualizar el estado del pedido',
-        variant: 'destructive',
-      });
-    }
-  }, [toast]);
 
   const handleBulkPrint = useCallback(async () => {
     const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token);
