@@ -615,7 +615,7 @@ export default function Orders() {
       addressReference: (order as any).address_reference,
       carrierName: getCarrierName(order.carrier),
       codAmount: (order as any).cod_amount,
-      paymentMethod: (order as any).payment_gateway === 'cash_on_delivery' ? 'cash' : 'paid',
+      paymentMethod: (order as any).payment_gateway || 'cash', // Pass actual payment gateway
       financialStatus: (order as any).financial_status,
       deliveryToken: order.delivery_link_token || '',
       items: [
@@ -660,7 +660,7 @@ export default function Orders() {
         addressReference: (order as any).address_reference,
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
-        paymentMethod: (order as any).payment_gateway === 'cash_on_delivery' ? 'cash' : 'paid',
+        paymentMethod: (order as any).payment_gateway || 'cash', // Pass actual payment gateway
         financialStatus: (order as any).financial_status, // Shopify payment status
         deliveryToken: order.delivery_link_token || '',
         items: [

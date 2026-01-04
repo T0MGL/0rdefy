@@ -46,10 +46,30 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   const deliveryUrl = data ? `${window.location.origin}/delivery/${data.deliveryToken}` : '';
 
   // Determine payment status
+  // Show COD if: has COD amount AND (financial status is NOT paid/authorized OR paymentMethod indicates cash)
   const isPaidByShopify = data?.financialStatus === 'paid' || data?.financialStatus === 'authorized';
-  const isCODLocal = (data?.paymentMethod === 'cash' || data?.paymentMethod === 'efectivo') &&
-                     data?.codAmount && data.codAmount > 0;
-  const showCOD = !isPaidByShopify && isCODLocal;
+  const hasCODAmount = data?.codAmount && data.codAmount > 0;
+  const isCashPayment = data?.paymentMethod === 'cash' ||
+                        data?.paymentMethod === 'efectivo' ||
+                        data?.paymentMethod === 'cash_on_delivery';
+
+  // Show COD if there's an amount to collect and it's not already paid by Shopify
+  const showCOD = hasCODAmount && (!isPaidByShopify || isCashPayment);
+
+  // DEBUG: Log payment data
+  useEffect(() => {
+    if (data) {
+      console.log('🎫 [LABEL] Label data received:', {
+        financialStatus: data.financialStatus,
+        paymentMethod: data.paymentMethod,
+        codAmount: data.codAmount,
+        isPaidByShopify,
+        hasCODAmount,
+        isCashPayment,
+        showCOD,
+      });
+    }
+  }, [data, isPaidByShopify, hasCODAmount, isCashPayment, showCOD]);
 
   useEffect(() => {
     if (data?.deliveryToken) {
@@ -83,6 +103,8 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   };
 
   const handlePrint = () => {
+    console.log('🖨️ [LABEL] Print button clicked');
+
     // Create hidden iframe for isolated printing
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -94,11 +116,19 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
     document.body.appendChild(iframe);
 
     const iframeDoc = iframe.contentWindow?.document;
-    if (!iframeDoc) return;
+    if (!iframeDoc) {
+      console.error('🖨️ [LABEL] No iframe document available');
+      return;
+    }
 
     // Get the label content HTML
     const labelContainer = document.getElementById('thermal-label-print-container');
-    if (!labelContainer) return;
+    if (!labelContainer) {
+      console.error('🖨️ [LABEL] Label container not found');
+      return;
+    }
+
+    console.log('🖨️ [LABEL] Label container HTML length:', labelContainer.innerHTML.length);
 
     // Write complete HTML to iframe
     iframeDoc.open();
@@ -145,11 +175,13 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
     // Wait for content to load, then print
     iframe.onload = () => {
       setTimeout(() => {
+        console.log('🖨️ [LABEL] Opening print dialog...');
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
 
         // Clean up after print dialog closes
         setTimeout(() => {
+          console.log('🖨️ [LABEL] Cleaning up iframe');
           document.body.removeChild(iframe);
           if (onPrinted) {
             onPrinted();
