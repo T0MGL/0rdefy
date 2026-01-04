@@ -251,7 +251,10 @@ export class DeliveryManifestGenerator {
     );
 
     // ==================== SAVE PDF ====================
-    const filename = `orden-entrega-${data.carrierName.replace(/\s+/g, '-')}-${data.dispatchDate.toISOString().split('T')[0]}.pdf`;
+    const sanitizedStoreName = data.storeName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+    const sanitizedCarrierName = data.carrierName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+    const dateStr = data.dispatchDate.toISOString().split('T')[0];
+    const filename = `orden-entrega-${sanitizedStoreName}-${sanitizedCarrierName}-${dateStr}.pdf`;
     doc.save(filename);
   }
 

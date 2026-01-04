@@ -18,6 +18,10 @@ export interface ReadyToShipOrder {
   total_items: number;
   cod_amount: number;
   created_at: string;
+  // Shopify order identifiers
+  shopify_order_name?: string;
+  shopify_order_number?: string;
+  shopify_order_id?: string;
 }
 
 export interface Shipment {

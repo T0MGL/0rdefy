@@ -29,6 +29,10 @@ export interface ReadyToShipOrder {
   total_items: number;
   cod_amount: number;
   created_at: string;
+  // Shopify order identifiers
+  shopify_order_name?: string;
+  shopify_order_number?: string;
+  shopify_order_id?: string;
 }
 
 export interface ShipmentResult {
@@ -48,7 +52,9 @@ export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShip
       .from('orders')
       .select(`
         id,
+        shopify_order_name,
         shopify_order_number,
+        shopify_order_id,
         customer_first_name,
         customer_last_name,
         customer_phone,
@@ -81,7 +87,11 @@ export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShip
         ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
         : 0,
       cod_amount: order.cod_amount || 0,
-      created_at: order.created_at
+      created_at: order.created_at,
+      // Shopify order identifiers for display
+      shopify_order_name: order.shopify_order_name || null,
+      shopify_order_number: order.shopify_order_number || null,
+      shopify_order_id: order.shopify_order_id || null
     }));
   } catch (error) {
     console.error('Error getting ready to ship orders:', error);

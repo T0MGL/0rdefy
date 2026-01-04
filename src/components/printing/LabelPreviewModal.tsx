@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Printer, Copy, Check, X } from 'lucide-react';
+import { Printer, Copy, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import QRCode from 'qrcode';
 
@@ -196,38 +196,35 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden outline-none focus:outline-none">
-          <DialogHeader className="p-4 pb-2">
-            <DialogTitle className="flex items-center justify-between">
-              <span>Etiqueta de Envío</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenChange(false)}
-                className="h-8 w-8"
-              >
-                <X size={16} />
-              </Button>
-            </DialogTitle>
+        <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
+          <DialogHeader className="p-4 pb-3">
+            <DialogTitle>Etiqueta de Envío</DialogTitle>
           </DialogHeader>
 
           {/* Actions */}
-          <div className="flex gap-2 justify-end px-4 pb-2">
+          <div className="flex gap-2 justify-end px-4 pb-3">
             <Button variant="outline" onClick={handleCopyLink} className="gap-2">
               {copied ? <Check size={16} /> : <Copy size={16} />}
               {copied ? 'Copiado' : 'Copiar Link'}
             </Button>
-            <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
+            <Button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handlePrint();
+              }}
+              className="gap-2 bg-black text-white hover:bg-gray-800"
+            >
               <Printer size={16} />
               Imprimir 4x6
             </Button>
           </div>
 
           {/* Preview container - Clean white background */}
-          <div className="bg-white dark:bg-gray-950 p-6 flex justify-center">
+          <div className="bg-white dark:bg-gray-950 p-4 flex justify-center">
             <div className="bg-white" style={{ outline: 'none', border: 'none' }}>
               {/* Preview scaled down to fit modal */}
-              <div style={{ transform: 'scale(0.85)', transformOrigin: 'top center' }}>
+              <div style={{ transform: 'scale(0.75)', transformOrigin: 'top center' }}>
                 <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
               </div>
             </div>
