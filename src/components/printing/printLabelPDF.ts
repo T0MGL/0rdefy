@@ -1,7 +1,7 @@
 /**
  * PDF-based label printing system
  * Generates exact 4x6 inch PDFs for thermal label printers
- * Opens PDF in new tab for seamless one-click printing
+ * Triggers browser print dialog directly using hidden iframe
  */
 
 import { jsPDF } from 'jspdf';
@@ -52,7 +52,7 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
 
   // Determine if COD
   const isCOD = (data.paymentMethod === 'cash' || data.paymentMethod === 'efectivo') &&
-                data.codAmount && data.codAmount > 0;
+    data.codAmount && data.codAmount > 0;
 
   // Set default font
   pdf.setFont('helvetica', 'normal');
@@ -102,7 +102,7 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
     data.customerAddress || '',
     data.neighborhood ? `, ${data.neighborhood}` : ''
   ].join('');
-  
+
   if (addressText) {
     const addressLines = pdf.splitTextToSize(addressText, 3.7);
     pdf.text(addressLines, 0.12, addressY + 0.95);
@@ -112,7 +112,7 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   let detailsY = addressY + 1.4;
   pdf.setFontSize(12);
   pdf.setFont('helvetica', 'normal');
-  
+
   if (data.city || data.addressReference) {
     let cityRefText = '';
     if (data.city) cityRefText += data.city;
@@ -218,16 +218,16 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
 
   displayItems.forEach((item, index) => {
     pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
-    
+
     // Truncate long item names
     const itemLines = pdf.splitTextToSize(item.name, 3.2);
     pdf.text(itemLines[0], 0.6, rowY);
-    
+
     // Light separator line
     pdf.setDrawColor(200, 200, 200);
     pdf.setLineWidth(0.01);
     pdf.line(0.12, rowY + 0.05, 3.88, rowY + 0.05);
-    
+
     rowY += 0.25;
   });
 
@@ -256,9 +256,6 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
       pdf.addPage([4, 6], 'portrait');
     }
 
-    // Generate each label using the same logic
-    const labelBlob = await generateLabelPDF(labels[i]);
-    
     // For batch, we need to draw on current page
     // This is a simplified version - we'll regenerate the content directly
     const deliveryUrl = `${window.location.origin}/delivery/${labels[i].deliveryToken}`;
@@ -269,9 +266,9 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
     });
 
     const isCOD = (labels[i].paymentMethod === 'cash' || labels[i].paymentMethod === 'efectivo') &&
-                  labels[i].codAmount && labels[i].codAmount > 0;
+      labels[i].codAmount && labels[i].codAmount > 0;
 
-    // Draw the label (same code as above but without creating new PDF)
+    // Draw the label
     drawLabelOnPage(pdf, labels[i], qrDataUrl, isCOD);
   }
 
@@ -320,7 +317,7 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
     data.customerAddress || '',
     data.neighborhood ? `, ${data.neighborhood}` : ''
   ].join('');
-  
+
   if (addressText) {
     const addressLines = pdf.splitTextToSize(addressText, 3.7);
     pdf.text(addressLines, 0.12, addressY + 0.95);
@@ -328,7 +325,7 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
 
   let detailsY = addressY + 1.4;
   pdf.setFontSize(12);
-  
+
   if (data.city || data.addressReference) {
     let cityRefText = '';
     if (data.city) cityRefText += data.city;
@@ -416,14 +413,14 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
 
   displayItems.forEach((item) => {
     pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
-    
+
     const itemLines = pdf.splitTextToSize(item.name, 3.2);
     pdf.text(itemLines[0], 0.6, rowY);
-    
+
     pdf.setDrawColor(200, 200, 200);
     pdf.setLineWidth(0.01);
     pdf.line(0.12, rowY + 0.05, 3.88, rowY + 0.05);
-    
+
     rowY += 0.25;
   });
 
@@ -434,37 +431,82 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
 }
 
 /**
- * Opens PDF blob in a new tab for printing
+ * Triggers the browser print dialog for a PDF blob using a hidden iframe
+ * Uses an HTML wrapper with specific CSS to force 4x6 dimensions
  */
-export function openPDFInNewTab(blob: Blob, filename: string = 'etiqueta.pdf'): void {
+export function triggerDirectPrint(blob: Blob): void {
   const url = URL.createObjectURL(blob);
-  const newWindow = window.open(url, '_blank');
-  
-  if (!newWindow) {
-    console.error('Failed to open PDF window. Check popup blocker settings.');
-    // Fallback: download the file
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
+
+  // Create hidden iframe
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = 'none';
+
+  // Use srcdoc to inject the CSS provided by the user and embed the PDF
+  iframe.srcdoc = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          @media print {
+            @page {
+              size: 4in 6in;
+              margin: 0;
+            }
+            html, body {
+              width: 4in !important;
+              height: 6in !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: hidden !important;
+            }
+            embed {
+              width: 4in !important;
+              height: 6in !important;
+            }
+          }
+          body { margin: 0; padding: 0; }
+          embed { width: 100vw; height: 100vh; border: none; }
+        </style>
+      </head>
+      <body>
+        <embed src="${url}" type="application/pdf">
+        <script>
+          // Wait for load and trigger print
+          window.onload = function() {
+            setTimeout(function() {
+              window.focus();
+              window.print();
+            }, 500);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  document.body.appendChild(iframe);
+
+  // Cleanup after a while
+  setTimeout(() => {
+    if (document.body.contains(iframe)) {
+      document.body.removeChild(iframe);
+    }
     URL.revokeObjectURL(url);
-  } else {
-    // Clean up the URL after the window has loaded
-    newWindow.onload = () => {
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    };
-  }
+  }, 10000); // 10 seconds should be enough for any print dialog
 }
 
 /**
  * Main function to print a single label
- * Generates PDF and opens in new tab for one-click printing
+ * Generates PDF and triggers direct print dialog
  */
 export async function printLabelPDF(data: LabelData): Promise<boolean> {
   try {
     const pdfBlob = await generateLabelPDF(data);
-    const filename = `etiqueta-${data.orderNumber}.pdf`;
-    openPDFInNewTab(pdfBlob, filename);
+    triggerDirectPrint(pdfBlob);
     return true;
   } catch (error) {
     console.error('Error generating label PDF:', error);
@@ -474,13 +516,12 @@ export async function printLabelPDF(data: LabelData): Promise<boolean> {
 
 /**
  * Main function to print multiple labels in batch
- * Generates multi-page PDF and opens in new tab
+ * Generates multi-page PDF and triggers direct print dialog
  */
 export async function printBatchLabelsPDF(labels: LabelData[]): Promise<boolean> {
   try {
     const pdfBlob = await generateBatchLabelsPDF(labels);
-    const filename = `etiquetas-lote-${labels.length}.pdf`;
-    openPDFInNewTab(pdfBlob, filename);
+    triggerDirectPrint(pdfBlob);
     return true;
   } catch (error) {
     console.error('Error generating batch labels PDF:', error);

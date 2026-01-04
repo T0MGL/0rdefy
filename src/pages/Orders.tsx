@@ -19,6 +19,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useHighlight } from '@/hooks/useHighlight';
 import { Order } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -42,7 +43,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
-import { OrderShippingLabel } from '@/components/OrderShippingLabel';
+import { printLabelPDF, printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
 
 const statusColors = {
   pending: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800',
@@ -147,6 +148,9 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
 });
 
 export default function Orders() {
+  const { toast } = useToast();
+  const { currentStore } = useAuth();
+  const { getDateRange } = useDateRange();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -170,16 +174,9 @@ export default function Orders() {
   const [orderToEdit, setOrderToEdit] = useState<Order | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [orderToConfirm, setOrderToConfirm] = useState<Order | null>(null);
-  const [printLabelDialogOpen, setPrintLabelDialogOpen] = useState(false);
-  const [orderToPrint, setOrderToPrint] = useState<Order | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
-  const [isPrintingBulk, setIsPrintingBulk] = useState(false);
-  const [bulkPrintOrders, setBulkPrintOrders] = useState<Order[]>([]);
-  const [bulkPrintIndex, setBulkPrintIndex] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { toast } = useToast();
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
-  const { getDateRange } = useDateRange();
   const debouncedSearch = useDebounce(search, 300);
   const { isHighlighted } = useHighlight();
   const previousCountRef = useRef(0);
@@ -553,9 +550,39 @@ export default function Orders() {
 
   // Print handlers
   const handlePrintLabel = useCallback(async (order: Order) => {
-    setOrderToPrint(order);
-    setPrintLabelDialogOpen(true);
-  }, []);
+    try {
+      const success = await printLabelPDF({
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: order.shopify_order_name || order.id.substring(0, 8),
+        customerName: order.customer,
+        customerPhone: order.phone,
+        customerAddress: order.address || (order as any).customer_address,
+        neighborhood: (order as any).neighborhood,
+        addressReference: (order as any).address_reference,
+        carrierName: getCarrierName(order.carrier),
+        codAmount: (order as any).cod_amount,
+        paymentMethod: (order as any).payment_gateway === 'cash_on_delivery' ? 'cash' : 'paid',
+        deliveryToken: order.delivery_link_token || '',
+        items: [
+          {
+            name: order.product,
+            quantity: order.quantity,
+          },
+        ],
+      });
+
+      if (success) {
+        handleOrderPrinted(order.id);
+      }
+    } catch (error) {
+      console.error('Print error:', error);
+      toast({
+        title: 'Error de impresión',
+        description: 'No se pudo generar el PDF para imprimir.',
+        variant: 'destructive',
+      });
+    }
+  }, [currentStore, getCarrierName, handleOrderPrinted, toast]);
 
   const handleOrderPrinted = useCallback(async (orderId: string) => {
     try {
@@ -585,53 +612,70 @@ export default function Orders() {
   }, [toast]);
 
   const handleBulkPrint = useCallback(async () => {
-    const selectedOrders = orders.filter(o => selectedOrderIds.has(o.id));
-    if (selectedOrders.length === 0) {
+    const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token);
+    if (printableOrders.length === 0) {
       toast({
         title: 'Sin selección',
-        description: 'Selecciona al menos un pedido para imprimir',
+        description: 'Selecciona al menos un pedido con token de entrega para imprimir',
         variant: 'destructive',
       });
       return;
     }
 
-    setBulkPrintOrders(selectedOrders);
-    setBulkPrintIndex(0);
-    setIsPrintingBulk(true);
-  }, [orders, selectedOrderIds, toast]);
+    try {
+      const labelsData = printableOrders.map(order => ({
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: order.shopify_order_name || order.id.substring(0, 8),
+        customerName: order.customer,
+        customerPhone: order.phone,
+        customerAddress: order.address || (order as any).customer_address,
+        neighborhood: (order as any).neighborhood,
+        addressReference: (order as any).address_reference,
+        carrierName: getCarrierName(order.carrier),
+        codAmount: (order as any).cod_amount,
+        paymentMethod: (order as any).payment_gateway === 'cash_on_delivery' ? 'cash' : 'paid',
+        deliveryToken: order.delivery_link_token || '',
+        items: [
+          {
+            name: order.product,
+            quantity: order.quantity,
+          },
+        ],
+      }));
 
-  const handleNextBulkPrint = useCallback(async () => {
-    // Update current order status to in_transit before moving to next
-    const currentOrder = bulkPrintOrders[bulkPrintIndex];
-    if (currentOrder) {
-      try {
-        await ordersService.markAsPrinted(currentOrder.id);
-        await ordersService.updateStatus(currentOrder.id, 'in_transit');
-        setOrders(prev => prev.map(o =>
-          o.id === currentOrder.id
-            ? { ...o, status: 'in_transit' }
-            : o
-        ));
-      } catch (error) {
-        console.error('Error updating order:', error);
+      const success = await printBatchLabelsPDF(labelsData);
+
+      if (success) {
+        // Mark all selected orders as printed and update status
+        for (const order of printableOrders) {
+          try {
+            await ordersService.markAsPrinted(order.id);
+            await ordersService.updateStatus(order.id, 'in_transit');
+          } catch (e) {
+            console.error(`Failed to update order ${order.id}:`, e);
+          }
+        }
+
+        // Refresh local orders state
+        const updatedOrders = await ordersService.getAll();
+        setOrders(updatedOrders);
+
+        toast({
+          title: 'Impresión completada',
+          description: `${printableOrders.length} pedidos marcados como en tránsito`,
+        });
+
+        setSelectedOrderIds(new Set());
       }
-    }
-
-    if (bulkPrintIndex < bulkPrintOrders.length - 1) {
-      setBulkPrintIndex(prev => prev + 1);
-    } else {
-      // Finished bulk printing
+    } catch (error) {
+      console.error('Bulk print error:', error);
       toast({
-        title: 'Impresión completada',
-        description: `${bulkPrintOrders.length} pedidos marcados como en tránsito`,
+        title: 'Error',
+        description: 'No se pudo generar el PDF en lote.',
+        variant: 'destructive',
       });
-
-      setIsPrintingBulk(false);
-      setBulkPrintOrders([]);
-      setBulkPrintIndex(0);
-      setSelectedOrderIds(new Set());
     }
-  }, [bulkPrintIndex, bulkPrintOrders, toast]);
+  }, [orders, selectedOrderIds, currentStore, getCarrierName, toast]);
 
   if (isLoading) {
     return (
@@ -1035,10 +1079,7 @@ export default function Orders() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => {
-                                setOrderToPrint(order);
-                                setPrintLabelDialogOpen(true);
-                              }}
+                              onClick={() => handlePrintLabel(order)}
                               title="Imprimir etiqueta de entrega"
                               className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
                             >
@@ -1197,37 +1238,6 @@ export default function Orders() {
         }}
       />
 
-      {/* Print Label Dialog */}
-      <Dialog open={printLabelDialogOpen} onOpenChange={setPrintLabelDialogOpen}>
-        <DialogContent className="max-w-[950px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Etiqueta de Entrega</DialogTitle>
-          </DialogHeader>
-          {orderToPrint && orderToPrint.delivery_link_token && (
-            <OrderShippingLabel
-              orderId={orderToPrint.id}
-              deliveryToken={orderToPrint.delivery_link_token}
-              customerName={orderToPrint.customer}
-              customerPhone={orderToPrint.phone}
-              customerAddress={orderToPrint.address || orderToPrint.customer_address}
-              addressReference={orderToPrint.address_reference}
-              neighborhood={orderToPrint.neighborhood}
-              deliveryNotes={orderToPrint.delivery_notes}
-              courierName={getCarrierName(orderToPrint.carrier)}
-              codAmount={orderToPrint.cod_amount}
-              products={[
-                {
-                  name: orderToPrint.product,
-                  quantity: orderToPrint.quantity,
-                },
-              ]}
-              onPrinted={() => handleOrderPrinted(orderToPrint.id)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
@@ -1237,64 +1247,6 @@ export default function Orders() {
         variant="destructive"
         confirmText="Eliminar"
       />
-
-      {/* Bulk Print Dialog */}
-      <Dialog open={isPrintingBulk} onOpenChange={setIsPrintingBulk}>
-        <DialogContent className="max-w-[950px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Impresión Masiva - Etiqueta {bulkPrintIndex + 1} de {bulkPrintOrders.length}
-            </DialogTitle>
-          </DialogHeader>
-          {bulkPrintOrders[bulkPrintIndex] && bulkPrintOrders[bulkPrintIndex].delivery_link_token && (
-            <>
-              <OrderShippingLabel
-                orderId={bulkPrintOrders[bulkPrintIndex].id}
-                deliveryToken={bulkPrintOrders[bulkPrintIndex].delivery_link_token}
-                customerName={bulkPrintOrders[bulkPrintIndex].customer}
-                customerPhone={bulkPrintOrders[bulkPrintIndex].phone}
-                customerAddress={bulkPrintOrders[bulkPrintIndex].address || bulkPrintOrders[bulkPrintIndex].customer_address}
-                addressReference={bulkPrintOrders[bulkPrintIndex].address_reference}
-                neighborhood={bulkPrintOrders[bulkPrintIndex].neighborhood}
-                deliveryNotes={bulkPrintOrders[bulkPrintIndex].delivery_notes}
-                courierName={getCarrierName(bulkPrintOrders[bulkPrintIndex].carrier)}
-                codAmount={bulkPrintOrders[bulkPrintIndex].cod_amount}
-                products={[
-                  {
-                    name: bulkPrintOrders[bulkPrintIndex].product,
-                    quantity: bulkPrintOrders[bulkPrintIndex].quantity,
-                  },
-                ]}
-              />
-              <div className="flex items-center justify-between pt-4 border-t">
-                <div className="text-sm text-muted-foreground">
-                  {bulkPrintIndex < bulkPrintOrders.length - 1 ? (
-                    <p>Imprime esta etiqueta y haz clic en "Siguiente" para continuar</p>
-                  ) : (
-                    <p>Esta es la última etiqueta. Haz clic en "Finalizar" para terminar</p>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setIsPrintingBulk(false);
-                      setBulkPrintOrders([]);
-                      setBulkPrintIndex(0);
-                      setSelectedOrderIds(new Set());
-                    }}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleNextBulkPrint}>
-                    {bulkPrintIndex < bulkPrintOrders.length - 1 ? 'Siguiente' : 'Finalizar'}
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div >
+    </div>
   );
 }

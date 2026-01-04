@@ -149,6 +149,20 @@ All colors MUST be HSL.
    PRINT STYLES - Global print configuration
    ================================================================ */
 @media print {
+  /* Specific config for 4x6 thermal labels */
+  @page {
+    size: 4in 6in;
+    margin: 0;
+  }
+
+  html, body {
+    width: 4in !important;
+    height: 6in !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
   /* Reset all margins and paddings for print */
   * {
     -webkit-print-color-adjust: exact !important;

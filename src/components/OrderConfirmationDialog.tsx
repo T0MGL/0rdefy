@@ -21,9 +21,10 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useCarriers } from '@/hooks/useCarriers';
 import { Loader2, CheckCircle2, Printer } from 'lucide-react';
-import type { Order } from '@/types';
-import { OrderShippingLabel } from '@/components/OrderShippingLabel';
+import { useAuth } from '@/contexts/AuthContext';
+import { printLabelPDF } from '@/components/printing/printLabelPDF';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
+import type { Order } from '@/types';
 
 interface OrderConfirmationDialogProps {
   open: boolean;
@@ -39,6 +40,7 @@ export function OrderConfirmationDialog({
   onConfirmed,
 }: OrderConfirmationDialogProps) {
   const { toast } = useToast();
+  const { currentStore } = useAuth();
   const [loading, setLoading] = useState(false);
 
   // Use centralized carriers hook with caching (active carriers only)
@@ -176,6 +178,8 @@ export function OrderConfirmationDialog({
       }
 
       const result = await response.json();
+      setConfirmedOrder(result.data || result);
+      setIsConfirmed(true);
 
       // Dismiss loading toast
       loadingToast.dismiss();
@@ -199,6 +203,43 @@ export function OrderConfirmationDialog({
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePrint = async () => {
+    if (!confirmedOrder) return;
+
+    try {
+      const labelData = {
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: confirmedOrder.shopify_order_name || confirmedOrder.id.substring(0, 8),
+        customerName: `${confirmedOrder.customer_first_name || ''} ${confirmedOrder.customer_last_name || ''}`.trim() || order?.customer || 'Cliente',
+        customerPhone: confirmedOrder.customer_phone || order?.phone || '',
+        customerAddress: confirmedOrder.customer_address || confirmedOrder.address || order?.address || order?.customer_address,
+        neighborhood: confirmedOrder.neighborhood || order?.neighborhood,
+        addressReference: confirmedOrder.address_reference || order?.address_reference,
+        carrierName: getCarrierById(courierId)?.name,
+        codAmount: confirmedOrder.cod_amount || order?.cod_amount,
+        paymentMethod: confirmedOrder.payment_gateway === 'cash_on_delivery' ? 'cash' : 'paid',
+        deliveryToken: confirmedOrder.delivery_link_token || '',
+        items: confirmedOrder.line_items && confirmedOrder.line_items.length > 0
+          ? confirmedOrder.line_items.map((item: any) => ({
+            name: item.product_name || item.title,
+            quantity: item.quantity,
+          }))
+          : order
+            ? [{ name: order.product, quantity: order.quantity }]
+            : [],
+      };
+
+      await printLabelPDF(labelData);
+    } catch (error) {
+      console.error('Error printing from dialog:', error);
+      toast({
+        title: 'Error de impresión',
+        description: 'No se pudo generar la etiqueta.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -259,137 +300,135 @@ export function OrderConfirmationDialog({
                 />
               </div>
 
-              <OrderShippingLabel
-                orderId={confirmedOrder.id}
-                deliveryToken={confirmedOrder.delivery_link_token}
-                customerName={`${confirmedOrder.customer_first_name || ''} ${confirmedOrder.customer_last_name || ''}`.trim() || order?.customer || 'Cliente'}
-                customerPhone={confirmedOrder.customer_phone || order?.phone || ''}
-                customerAddress={confirmedOrder.customer_address || confirmedOrder.address || order?.address || order?.customer_address}
-                addressReference={confirmedOrder.address_reference || order?.address_reference}
-                neighborhood={confirmedOrder.neighborhood || order?.neighborhood}
-                deliveryNotes={confirmedOrder.delivery_notes || order?.delivery_notes}
-                courierName={getCarrierById(courierId)?.name}
-                codAmount={confirmedOrder.cod_amount || order?.cod_amount}
-                products={
-                  confirmedOrder.line_items && confirmedOrder.line_items.length > 0
-                    ? confirmedOrder.line_items.map((item: any) => ({
-                        name: item.product_name || item.title,
-                        quantity: item.quantity,
-                      }))
-                    : order
-                    ? [{ name: order.product, quantity: order.quantity }]
-                    : []
-                }
-              />
+              <div className="flex flex-col items-center justify-center py-8 gap-6 border rounded-xl bg-muted/30">
+                <Printer className="h-16 w-16 text-blue-500 opacity-20" />
+                <Button
+                  size="lg"
+                  onClick={handlePrint}
+                  className="gap-2 px-8 h-14 text-lg bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all"
+                >
+                  <Printer size={24} />
+                  Imprimir Etiqueta (4x6)
+                </Button>
+                <p className="text-sm text-muted-foreground">
+                  Se abrirá el diálogo de impresión directamente
+                </p>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <Button variant="outline" onClick={handleClose}>
+                  Cerrar
+                </Button>
+              </div>
             </>
           ) : (
             // Form state - Original confirmation form
             <>
-            {/* Order Info */}
-            {order && (
-              <div className="rounded-lg border p-3 bg-muted/50">
-                <p className="text-sm font-medium">Pedido {getOrderDisplayId(order)}</p>
-                <p className="text-sm text-muted-foreground">Cliente: {order.customer}</p>
-                <p className="text-sm text-muted-foreground">Total: Gs. {(order.total ?? 0).toLocaleString()}</p>
+              {/* Order Info */}
+              {order && (
+                <div className="rounded-lg border p-3 bg-muted/50">
+                  <p className="text-sm font-medium">Pedido {getOrderDisplayId(order)}</p>
+                  <p className="text-sm text-muted-foreground">Cliente: {order.customer}</p>
+                  <p className="text-sm text-muted-foreground">Total: Gs. {(order.total ?? 0).toLocaleString()}</p>
+                </div>
+              )}
+
+              {/* Upsell Toggle */}
+              <div className="flex items-center justify-between space-x-2">
+                <Label htmlFor="upsell" className="flex flex-col space-y-1">
+                  <span>¿Agregar upsell?</span>
+                  <span className="font-normal text-xs text-muted-foreground">
+                    Marca si se añadió un producto adicional
+                  </span>
+                </Label>
+                <Switch
+                  id="upsell"
+                  checked={upsellAdded}
+                  onCheckedChange={setUpsellAdded}
+                />
               </div>
-            )}
 
-          {/* Upsell Toggle */}
-          <div className="flex items-center justify-between space-x-2">
-            <Label htmlFor="upsell" className="flex flex-col space-y-1">
-              <span>¿Agregar upsell?</span>
-              <span className="font-normal text-xs text-muted-foreground">
-                Marca si se añadió un producto adicional
-              </span>
-            </Label>
-            <Switch
-              id="upsell"
-              checked={upsellAdded}
-              onCheckedChange={setUpsellAdded}
-            />
-          </div>
-
-          {/* Courier Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="courier">
-              Repartidor <span className="text-red-500">*</span>
-            </Label>
-            {loadingCarriers ? (
-              <div className="flex items-center justify-center p-4">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="ml-2 text-sm text-muted-foreground">Cargando repartidores...</span>
-              </div>
-            ) : (
-              <Select value={courierId} onValueChange={setCourierId}>
-                <SelectTrigger id="courier">
-                  <SelectValue placeholder="Selecciona un repartidor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {carriers.map((carrier) => (
-                    <SelectItem key={carrier.id} value={carrier.id}>
-                      {carrier.name} {carrier.phone && `- ${carrier.phone}`}
-                    </SelectItem>
-                  ))}
-                  {carriers.length === 0 && (
-                    <div className="p-2 text-sm text-muted-foreground text-center">
-                      No hay repartidores activos
-                    </div>
-                  )}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          {/* Address (Optional) */}
-          <div className="space-y-2">
-            <Label htmlFor="address">
-              Actualizar dirección (opcional)
-            </Label>
-            <Input
-              id="address"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Calle Principal 123"
-            />
-          </div>
-
-          {/* Google Maps Link (Optional) */}
-          <div className="space-y-2">
-            <Label htmlFor="google-maps-link">
-              Link de Google Maps (opcional)
-            </Label>
-            <Input
-              id="google-maps-link"
-              type="url"
-              value={googleMapsLink}
-              onChange={(e) => setGoogleMapsLink(e.target.value)}
-              placeholder="https://maps.google.com/?q=..."
-            />
-            <p className="text-xs text-muted-foreground">
-              Este link estará disponible para el transportador para navegar directamente
-            </p>
-          </div>
-
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={handleClose}
-                disabled={loading}
-              >
-                Cancelar
-              </Button>
-              <Button onClick={handleConfirm} disabled={loading || !courierId}>
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Confirmando...
-                  </>
+              {/* Courier Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="courier">
+                  Repartidor <span className="text-red-500">*</span>
+                </Label>
+                {loadingCarriers ? (
+                  <div className="flex items-center justify-center p-4">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="ml-2 text-sm text-muted-foreground">Cargando repartidores...</span>
+                  </div>
                 ) : (
-                  'Confirmar Pedido'
+                  <Select value={courierId} onValueChange={setCourierId}>
+                    <SelectTrigger id="courier">
+                      <SelectValue placeholder="Selecciona un repartidor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {carriers.map((carrier) => (
+                        <SelectItem key={carrier.id} value={carrier.id}>
+                          {carrier.name} {carrier.phone && `- ${carrier.phone}`}
+                        </SelectItem>
+                      ))}
+                      {carriers.length === 0 && (
+                        <div className="p-2 text-sm text-muted-foreground text-center">
+                          No hay repartidores activos
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
                 )}
-              </Button>
-            </DialogFooter>
+              </div>
+
+              {/* Address (Optional) */}
+              <div className="space-y-2">
+                <Label htmlFor="address">
+                  Actualizar dirección (opcional)
+                </Label>
+                <Input
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Calle Principal 123"
+                />
+              </div>
+
+              {/* Google Maps Link (Optional) */}
+              <div className="space-y-2">
+                <Label htmlFor="google-maps-link">
+                  Link de Google Maps (opcional)
+                </Label>
+                <Input
+                  id="google-maps-link"
+                  type="url"
+                  value={googleMapsLink}
+                  onChange={(e) => setGoogleMapsLink(e.target.value)}
+                  placeholder="https://maps.google.com/?q=..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Este link estará disponible para el transportador para navegar directamente
+                </p>
+              </div>
+
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={handleClose}
+                  disabled={loading}
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={handleConfirm} disabled={loading || !courierId}>
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Confirmando...
+                    </>
+                  ) : (
+                    'Confirmar Pedido'
+                  )}
+                </Button>
+              </DialogFooter>
             </>
           )}
         </div>

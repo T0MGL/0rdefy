@@ -15,10 +15,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
-import { OrderShippingLabel } from '@/components/OrderShippingLabel';
 import { BatchLabelPrinter } from '@/components/BatchLabelPrinter';
+import { printLabelPDF, printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
 import type {
   PickingSession,
   PickingSessionItem,
@@ -33,6 +34,7 @@ type View = 'dashboard' | 'picking' | 'packing';
 
 export default function Warehouse() {
   const { toast } = useToast();
+  const { currentStore } = useAuth();
   const { getDateRange } = useDateRange();
   const [view, setView] = useState<View>('dashboard');
   const [currentSession, setCurrentSession] = useState<PickingSession | null>(null);
@@ -59,12 +61,7 @@ export default function Warehouse() {
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [packingInProgress, setPackingInProgress] = useState(false);
 
-  // Print state
-  const [printLabelDialogOpen, setPrintLabelDialogOpen] = useState(false);
-  const [orderToPrint, setOrderToPrint] = useState<OrderForPacking | null>(null);
-
-  // Batch print state
-  const [batchPrintDialogOpen, setBatchPrintDialogOpen] = useState(false);
+  // Print/Batch state
   const [selectedOrdersForPrint, setSelectedOrdersForPrint] = useState<Set<string>>(new Set());
 
   // Calculate date ranges from global context
@@ -303,15 +300,10 @@ export default function Warehouse() {
     setSelectedItem(null);
   }
 
-  const handlePrintLabel = useCallback((order: OrderForPacking) => {
-    setOrderToPrint(order);
-    setPrintLabelDialogOpen(true);
-  }, []);
-
   const handleOrderPrinted = useCallback(async (orderId: string) => {
     try {
       // Mark order as printed
-      const updatedOrder = await ordersService.markAsPrinted(orderId);
+      await ordersService.markAsPrinted(orderId);
 
       // Reload packing list to update UI with printed status
       await loadPackingList();
@@ -330,17 +322,38 @@ export default function Warehouse() {
     }
   }, [toast, loadPackingList]);
 
-  const handleBatchPrint = useCallback(() => {
-    if (selectedOrdersForPrint.size === 0) {
+  const handlePrintLabel = useCallback(async (order: OrderForPacking) => {
+    try {
+      const success = await printLabelPDF({
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: order.order_number,
+        customerName: order.customer_name,
+        customerPhone: order.customer_phone,
+        customerAddress: order.customer_address,
+        neighborhood: order.neighborhood,
+        addressReference: order.address_reference,
+        carrierName: order.carrier_name,
+        codAmount: order.cod_amount,
+        paymentMethod: order.payment_method,
+        deliveryToken: order.delivery_link_token || '',
+        items: order.items.map(item => ({
+          name: item.product_name,
+          quantity: item.quantity_needed
+        }))
+      });
+
+      if (success) {
+        handleOrderPrinted(order.id);
+      }
+    } catch (error) {
+      console.error('Print error:', error);
       toast({
-        title: 'Error',
-        description: 'Por favor selecciona al menos un pedido para imprimir',
+        title: 'Error de impresión',
+        description: 'No se pudo generar el PDF para imprimir.',
         variant: 'destructive',
       });
-      return;
     }
-    setBatchPrintDialogOpen(true);
-  }, [selectedOrdersForPrint, toast]);
+  }, [currentStore, handleOrderPrinted, toast]);
 
   const handleBatchPrinted = useCallback(async () => {
     try {
@@ -359,8 +372,6 @@ export default function Warehouse() {
         title: 'Etiquetas impresas',
         description: `${selectedOrdersForPrint.size} etiquetas han sido impresas correctamente`,
       });
-
-      setBatchPrintDialogOpen(false);
     } catch (error) {
       console.error('Error updating orders after batch print:', error);
       toast({
@@ -370,6 +381,56 @@ export default function Warehouse() {
       });
     }
   }, [selectedOrdersForPrint, toast, loadPackingList]);
+
+  const handleBatchPrint = useCallback(async () => {
+    if (selectedOrdersForPrint.size === 0) {
+      toast({
+        title: 'Error',
+        description: 'Por favor selecciona al menos un pedido para imprimir',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!packingData) return;
+
+    try {
+      const ordersToPrint = packingData.orders.filter(o =>
+        selectedOrdersForPrint.has(o.id) && o.delivery_link_token
+      );
+
+      const labelsData = ordersToPrint.map(order => ({
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: order.order_number,
+        customerName: order.customer_name,
+        customerPhone: order.customer_phone,
+        customerAddress: order.customer_address,
+        neighborhood: order.neighborhood,
+        addressReference: order.address_reference,
+        carrierName: order.carrier_name,
+        codAmount: order.cod_amount,
+        paymentMethod: order.payment_method,
+        deliveryToken: order.delivery_link_token || '',
+        items: order.items.map(item => ({
+          name: item.product_name,
+          quantity: item.quantity_needed
+        }))
+      }));
+
+      const success = await printBatchLabelsPDF(labelsData);
+
+      if (success) {
+        handleBatchPrinted();
+      }
+    } catch (error) {
+      console.error('Batch print error:', error);
+      toast({
+        title: 'Error de impresión',
+        description: 'No se pudo generar el PDF en lote.',
+        variant: 'destructive',
+      });
+    }
+  }, [selectedOrdersForPrint, packingData, currentStore, handleBatchPrinted, toast]);
 
   function toggleOrderForPrint(orderId: string) {
     const newSelected = new Set(selectedOrdersForPrint);
@@ -471,75 +532,6 @@ export default function Warehouse() {
         />
       )}
 
-      {/* Print Label Dialog */}
-      <Dialog open={printLabelDialogOpen} onOpenChange={setPrintLabelDialogOpen}>
-        <DialogContent className="max-w-[950px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Etiqueta de Entrega</DialogTitle>
-            <DialogDescription>
-              Vista previa de la etiqueta de entrega para impresión
-            </DialogDescription>
-          </DialogHeader>
-          {orderToPrint && orderToPrint.delivery_link_token && (
-            <OrderShippingLabel
-              orderId={orderToPrint.id}
-              deliveryToken={orderToPrint.delivery_link_token}
-              customerName={orderToPrint.customer_name}
-              customerPhone={orderToPrint.customer_phone}
-              customerAddress={orderToPrint.customer_address}
-              addressReference={orderToPrint.address_reference}
-              neighborhood={orderToPrint.neighborhood}
-              deliveryNotes={orderToPrint.delivery_notes}
-              courierName={orderToPrint.carrier_name}
-              codAmount={orderToPrint.cod_amount}
-              paymentMethod={orderToPrint.payment_method}
-              products={orderToPrint.items.map(item => ({
-                name: item.product_name,
-                quantity: item.quantity_needed,
-              }))}
-              onPrinted={() => handleOrderPrinted(orderToPrint.id)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Batch Print Dialog */}
-      <Dialog open={batchPrintDialogOpen} onOpenChange={setBatchPrintDialogOpen}>
-        <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Impresión en Lote</DialogTitle>
-            <DialogDescription>
-              Vista previa de todas las etiquetas seleccionadas
-            </DialogDescription>
-          </DialogHeader>
-          {packingData && (
-            <BatchLabelPrinter
-              orders={packingData.orders
-                .filter(order => selectedOrdersForPrint.has(order.id) && order.delivery_link_token)
-                .map(order => ({
-                  id: order.id,
-                  order_number: order.order_number,
-                  customer_name: order.customer_name,
-                  customer_phone: order.customer_phone,
-                  customer_address: order.customer_address,
-                  address_reference: order.address_reference,
-                  neighborhood: order.neighborhood,
-                  delivery_notes: order.delivery_notes,
-                  carrier_name: order.carrier_name,
-                  cod_amount: order.cod_amount,
-                  payment_method: order.payment_method,
-                  delivery_link_token: order.delivery_link_token,
-                  items: order.items.map(item => ({
-                    product_name: item.product_name,
-                    quantity_needed: item.quantity_needed,
-                  })),
-                }))}
-              onClose={() => setBatchPrintDialogOpen(false)}
-              onPrinted={handleBatchPrinted}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
