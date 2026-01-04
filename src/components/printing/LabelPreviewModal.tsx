@@ -92,58 +92,79 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   if (!data) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden print:hidden">
-        <DialogHeader className="p-4 pb-2 print:hidden">
-          <DialogTitle className="flex items-center justify-between">
-            <span>Etiqueta de Envío</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onOpenChange(false)}
-              className="h-8 w-8"
-            >
-              <X size={16} />
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
+          <DialogHeader className="p-4 pb-2">
+            <DialogTitle className="flex items-center justify-between">
+              <span>Etiqueta de Envío</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onOpenChange(false)}
+                className="h-8 w-8"
+              >
+                <X size={16} />
+              </Button>
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Actions */}
+          <div className="flex gap-2 justify-end px-4 pb-2">
+            <Button variant="outline" onClick={handleCopyLink} className="gap-2">
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+              {copied ? 'Copiado' : 'Copiar Link'}
             </Button>
-          </DialogTitle>
-        </DialogHeader>
+            <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
+              <Printer size={16} />
+              Imprimir 4x6
+            </Button>
+          </div>
 
-        {/* Actions */}
-        <div className="flex gap-2 justify-end px-4 pb-2 print:hidden">
-          <Button variant="outline" onClick={handleCopyLink} className="gap-2">
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-            {copied ? 'Copiado' : 'Copiar Link'}
-          </Button>
-          <Button onClick={handlePrint} className="gap-2 bg-black text-white hover:bg-gray-800">
-            <Printer size={16} />
-            Imprimir 4x6
-          </Button>
-        </div>
-
-        {/* Preview container */}
-        <div className="bg-gray-100 dark:bg-gray-900 p-4 flex justify-center print:hidden">
-          <div className="shadow-lg bg-white">
-            {/* Preview scaled down to fit modal */}
-            <div style={{ transform: 'scale(0.85)', transformOrigin: 'top center' }}>
-              <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
+          {/* Preview container */}
+          <div className="bg-gray-100 dark:bg-gray-900 p-4 flex justify-center">
+            <div className="shadow-lg bg-white">
+              {/* Preview scaled down to fit modal */}
+              <div style={{ transform: 'scale(0.85)', transformOrigin: 'top center' }}>
+                <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
+              </div>
             </div>
           </div>
-        </div>
-      </DialogContent>
+        </DialogContent>
+      </Dialog>
 
-      {/* Print-only: Full size label */}
-      <div className="hidden print:block print:fixed print:inset-0 print:z-[9999]" ref={labelRef}>
+      {/* Print-only: Full size label (outside Dialog to avoid portal issues) */}
+      <div
+        id="thermal-label-print-container"
+        className="hidden"
+        ref={labelRef}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          zIndex: 9999,
+        }}
+      >
         <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
       </div>
 
       {/* Print styles */}
       <style>{`
         @media print {
+          /* Force 4x6 page size */
           @page {
             size: 4in 6in;
             margin: 0;
           }
 
+          /* Ensure print color accuracy (Safari/Chrome) */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+
+          /* Reset document dimensions */
           html, body {
             width: 4in !important;
             height: 6in !important;
@@ -153,29 +174,54 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
             background: white !important;
           }
 
-          /* Hide everything */
-          body > * {
-            display: none !important;
+          /* Hide everything by default */
+          body {
             visibility: hidden !important;
           }
 
-          /* Show only our print container */
-          .print\\:block {
+          body * {
+            visibility: hidden !important;
+          }
+
+          /* Show only the thermal label container */
+          #thermal-label-print-container {
             display: block !important;
+            visibility: visible !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 4in !important;
+            height: 6in !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            z-index: 9999 !important;
+          }
+
+          #thermal-label-print-container * {
             visibility: visible !important;
           }
 
-          .print\\:hidden {
-            display: none !important;
+          /* Ensure thermal label content fills page */
+          #thermal-label-print-container .thermal-label {
+            width: 4in !important;
+            height: 6in !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            page-break-after: avoid !important;
+            page-break-before: avoid !important;
+            page-break-inside: avoid !important;
           }
 
-          /* Radix dialog portal */
-          [data-radix-portal] {
-            display: none !important;
+          /* Force black backgrounds to print (for COD box) */
+          #thermal-label-print-container [style*="background: black"],
+          #thermal-label-print-container [style*="background:black"] {
+            background: black !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
       `}</style>
-    </Dialog>
+    </>
   );
 }
 
