@@ -62,7 +62,7 @@ export interface ApiResponse {
  * Get all active sessions for the current user
  */
 export async function getSessions(): Promise<UserSession[]> {
-  const response = await api.get<GetSessionsResponse>('/api/security/sessions');
+  const response = await api.get<GetSessionsResponse>('/security/sessions');
   return response.data.data;
 }
 
@@ -70,14 +70,14 @@ export async function getSessions(): Promise<UserSession[]> {
  * Terminate a specific session by ID
  */
 export async function terminateSession(sessionId: string): Promise<void> {
-  await api.delete<ApiResponse>(`/api/security/sessions/${sessionId}`);
+  await api.delete<ApiResponse>(`/security/sessions/${sessionId}`);
 }
 
 /**
  * Terminate all sessions except the current one
  */
 export async function terminateAllOtherSessions(): Promise<void> {
-  await api.delete<ApiResponse>('/api/security/sessions');
+  await api.delete<ApiResponse>('/security/sessions');
 }
 
 // ============================================
@@ -88,7 +88,7 @@ export async function terminateAllOtherSessions(): Promise<void> {
  * Get activity log for the current user
  */
 export async function getActivity(limit = 50, offset = 0): Promise<GetActivityResponse> {
-  const response = await api.get<GetActivityResponse>('/api/security/activity', {
+  const response = await api.get<GetActivityResponse>('/security/activity', {
     params: { limit, offset }
   });
   return response.data;
@@ -98,7 +98,7 @@ export async function getActivity(limit = 50, offset = 0): Promise<GetActivityRe
  * Get recent critical activities (last 10)
  */
 export async function getRecentActivity(): Promise<ActivityLog[]> {
-  const response = await api.get<{ success: boolean; data: ActivityLog[] }>('/api/security/activity/recent');
+  const response = await api.get<{ success: boolean; data: ActivityLog[] }>('/security/activity/recent');
   return response.data.data;
 }
 
