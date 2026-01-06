@@ -291,7 +291,7 @@ function LabelContent({
       {/* Inner container with border - MAXIMIZED HEIGHT */}
       <div style={{
         width: '100%',
-        height: '5.5in',  // 6in - 0.4in top - 0.1in bottom = 5.5in
+        height: '5.55in',  // Slightly taller to fill bottom space
         border: '3px solid black',
         boxSizing: 'border-box',
         display: 'flex',
