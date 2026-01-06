@@ -227,11 +227,11 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
             </Button>
           </div>
 
-          {/* Preview container - Clean white background */}
-          <div className="bg-white dark:bg-gray-950 p-4 flex justify-center">
-            <div className="bg-white" style={{ outline: 'none', border: 'none' }}>
-              {/* Preview scaled down to fit modal */}
-              <div style={{ transform: 'scale(0.75)', transformOrigin: 'top center' }}>
+          {/* Preview container - Compact */}
+          <div className="bg-gray-100 dark:bg-gray-900 p-2 flex justify-center overflow-hidden" style={{ maxHeight: '70vh' }}>
+            <div className="bg-white shadow-lg" style={{ outline: 'none', border: 'none' }}>
+              {/* Preview scaled to fit modal nicely */}
+              <div style={{ transform: 'scale(0.65)', transformOrigin: 'top center', marginBottom: '-35%' }}>
                 <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
               </div>
             </div>
