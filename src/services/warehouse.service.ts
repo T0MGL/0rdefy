@@ -52,6 +52,7 @@ export interface OrderForPacking {
   carrier_name?: string;
   cod_amount?: number;
   payment_method?: string;
+  financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
   printed?: boolean;
   printed_at?: string;
   items: Array<{

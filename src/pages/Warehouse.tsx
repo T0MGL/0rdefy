@@ -338,6 +338,7 @@ export default function Warehouse() {
         carrierName: order.carrier_name,
         codAmount: order.cod_amount,
         paymentMethod: order.payment_method,
+        financialStatus: order.financial_status,
         deliveryToken: order.delivery_link_token || '',
         items: order.items.map(item => ({
           name: item.product_name,
@@ -416,6 +417,7 @@ export default function Warehouse() {
         carrierName: order.carrier_name,
         codAmount: order.cod_amount,
         paymentMethod: order.payment_method,
+        financialStatus: order.financial_status,
         deliveryToken: order.delivery_link_token || '',
         items: order.items.map(item => ({
           name: item.product_name,
