@@ -501,9 +501,17 @@ collaboratorsRouter.post(
 
 collaboratorsRouter.get(
   '/',
+  requireRole(Role.OWNER, Role.ADMIN),
   async (req: PermissionRequest, res: Response) => {
     try {
       const { storeId } = req;
+
+      if (!storeId) {
+        console.error('[Collaborators] Missing storeId in request');
+        return res.status(400).json({ error: 'Store ID is required' });
+      }
+
+      console.log('[Collaborators] Fetching team members for store:', storeId);
 
       const { data: members, error } = await supabaseAdmin
         .from('user_stores')
@@ -517,9 +525,19 @@ collaboratorsRouter.get(
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('[Collaborators] Error fetching:', error);
-        return res.status(500).json({ error: 'Failed to fetch collaborators' });
+        console.error('[Collaborators] Database error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+        return res.status(500).json({
+          error: 'Failed to fetch collaborators',
+          details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
       }
+
+      console.log('[Collaborators] Found', members.length, 'members');
 
       res.json({
         members: members.map(m => ({
