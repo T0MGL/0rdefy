@@ -149,6 +149,7 @@ export class ShopifyImportService {
     let hasMore = true;
     let pageInfo: string | undefined;
     let processedCount = 0;
+    const importedProducts: Array<{ id: string; stock: number; name: string; cost: number }> = [];
 
     // Get total count estimate
     let totalEstimate = 0;
@@ -191,7 +192,10 @@ export class ShopifyImportService {
         // Process batch of products
         for (const shopifyProduct of products) {
           try {
-            await this.upsertProduct(shopifyProduct);
+            const productData = await this.upsertProduct(shopifyProduct);
+            if (productData) {
+              importedProducts.push(productData);
+            }
             processedCount++;
 
             await this.updateJobProgress(job.id, {
@@ -236,6 +240,17 @@ export class ShopifyImportService {
         } else {
           throw error;
         }
+      }
+    }
+
+    // Create automatic inbound shipment if products were imported
+    if (importedProducts.length > 0) {
+      try {
+        console.log(`📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
+        await this.createAutomaticInboundShipment(importedProducts);
+      } catch (error: any) {
+        console.error('❌ [SHOPIFY-IMPORT] Failed to create automatic inbound shipment:', error);
+        // Don't fail the import job if shipment creation fails
       }
     }
   }
@@ -392,9 +407,11 @@ export class ShopifyImportService {
   }
 
   // Upsert product to database
-  private async upsertProduct(shopifyProduct: ShopifyProduct): Promise<void> {
+  private async upsertProduct(shopifyProduct: ShopifyProduct): Promise<{ id: string; stock: number; name: string; cost: number } | null> {
     const variant = shopifyProduct.variants[0];
-    if (!variant) return;
+    if (!variant) return null;
+
+    const stock = variant.inventory_quantity || 0;
 
     const productData = {
       store_id: this.integration.store_id,
@@ -404,8 +421,8 @@ export class ShopifyImportService {
       description: shopifyProduct.body_html || '',
       sku: variant.sku || '',
       price: parseFloat(variant.price),
-      cost: 0,
-      stock: variant.inventory_quantity || 0,
+      cost: 0, // Default cost, user can update later
+      stock: stock,
       status: shopifyProduct.status === 'active' ? 'active' : 'inactive',
       category: shopifyProduct.product_type || '',
       image_url: shopifyProduct.image?.src || '',
@@ -414,16 +431,30 @@ export class ShopifyImportService {
       sync_status: 'synced'
     };
 
-    const { error } = await this.supabaseAdmin
+    const { data, error } = await this.supabaseAdmin
       .from('products')
       .upsert(productData, {
         onConflict: 'store_id,shopify_product_id',
         ignoreDuplicates: false
-      });
+      })
+      .select('id, stock, name, cost')
+      .single();
 
     if (error) {
       throw new Error(`Failed to upsert product: ${error.message}`);
     }
+
+    // Return product data for shipment creation (only if stock > 0)
+    if (data && stock > 0) {
+      return {
+        id: data.id,
+        stock: stock,
+        name: shopifyProduct.title,
+        cost: 0 // Will use product cost from DB
+      };
+    }
+
+    return null;
   }
 
   // Upsert customer to database
@@ -715,6 +746,109 @@ export class ShopifyImportService {
       error_message: errorMessage,
       completed_at: new Date().toISOString()
     });
+  }
+
+  // Create automatic inbound shipment for imported products
+  private async createAutomaticInboundShipment(
+    products: Array<{ id: string; stock: number; name: string; cost: number }>
+  ): Promise<void> {
+    try {
+      // Generate reference using the database function
+      const { data: referenceData, error: refError } = await this.supabaseAdmin
+        .rpc('generate_inbound_reference', { p_store_id: this.integration.store_id });
+
+      if (refError) {
+        console.error('❌ Error generating inbound reference:', refError);
+        throw refError;
+      }
+
+      const reference = referenceData as string;
+
+      console.log(`📦 [SHOPIFY-IMPORT] Creating inbound shipment with reference: ${reference}`);
+
+      // Create the inbound shipment
+      const { data: shipment, error: shipmentError } = await this.supabaseAdmin
+        .from('inbound_shipments')
+        .insert({
+          store_id: this.integration.store_id,
+          internal_reference: reference,
+          supplier_id: null, // Shopify import (no supplier)
+          carrier_id: null,
+          tracking_code: `SHOPIFY-IMPORT-${new Date().toISOString().split('T')[0]}`,
+          estimated_arrival_date: new Date().toISOString().split('T')[0],
+          received_date: new Date().toISOString(),
+          status: 'received', // Already received in Shopify
+          shipping_cost: 0,
+          total_cost: 0, // Will be calculated from items
+          notes: `Recepción automática de inventario inicial desde Shopify. Importados ${products.length} productos con stock.`,
+          created_by: this.integration.user_id || null,
+          received_by: this.integration.user_id || null
+        })
+        .select('id')
+        .single();
+
+      if (shipmentError) {
+        console.error('❌ Error creating inbound shipment:', shipmentError);
+        throw shipmentError;
+      }
+
+      console.log(`✅ [SHOPIFY-IMPORT] Inbound shipment created: ${shipment.id}`);
+
+      // Create shipment items
+      const shipmentItems = products.map(product => ({
+        shipment_id: shipment.id,
+        product_id: product.id,
+        qty_ordered: product.stock,
+        qty_received: product.stock, // Already received
+        qty_rejected: 0,
+        unit_cost: product.cost || 0,
+        discrepancy_notes: 'Inventario inicial importado desde Shopify'
+      }));
+
+      const { error: itemsError } = await this.supabaseAdmin
+        .from('inbound_shipment_items')
+        .insert(shipmentItems);
+
+      if (itemsError) {
+        console.error('❌ Error creating shipment items:', itemsError);
+        throw itemsError;
+      }
+
+      console.log(`✅ [SHOPIFY-IMPORT] Created ${shipmentItems.length} shipment items`);
+
+      // Create inventory movements for audit trail
+      const inventoryMovements = products
+        .filter(p => p.stock > 0)
+        .map(product => ({
+          store_id: this.integration.store_id,
+          product_id: product.id,
+          movement_type: 'inbound_receipt',
+          quantity: product.stock,
+          reference_type: 'inbound_shipment',
+          reference_id: shipment.id,
+          notes: 'Inventario inicial importado desde Shopify',
+          created_by: this.integration.user_id || null
+        }));
+
+      if (inventoryMovements.length > 0) {
+        const { error: movementsError } = await this.supabaseAdmin
+          .from('inventory_movements')
+          .insert(inventoryMovements);
+
+        if (movementsError) {
+          console.warn('⚠️ [SHOPIFY-IMPORT] Could not create inventory movements:', movementsError);
+          // Don't fail the import if movements can't be created
+        } else {
+          console.log(`✅ [SHOPIFY-IMPORT] Created ${inventoryMovements.length} inventory movement records`);
+        }
+      }
+
+      console.log(`📊 [SHOPIFY-IMPORT] Total stock imported: ${products.reduce((sum, p) => sum + p.stock, 0)} units`);
+
+    } catch (error: any) {
+      console.error('❌ [SHOPIFY-IMPORT] Error creating automatic inbound shipment:', error);
+      throw error;
+    }
   }
 
   // Get import status for UI monitoring

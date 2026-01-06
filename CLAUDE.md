@@ -152,18 +152,29 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 ### Shopify Integration (Production-Ready)
 **Files:** `src/pages/Integrations.tsx`, `src/components/ShopifyIntegrationModal.tsx`, `api/routes/shopify.ts`, `api/services/shopify-*.service.ts`
-**Documentation:** `SHOPIFY_ORDER_LINE_ITEMS.md`, `SHOPIFY_PRODUCT_SYNC_GUIDE.md`, `SHOPIFY_INVENTORY_SYNC.md`
+**Documentation:** `SHOPIFY_ORDER_LINE_ITEMS.md`, `SHOPIFY_PRODUCT_SYNC_GUIDE.md`, `SHOPIFY_INVENTORY_SYNC.md`, `SHOPIFY_AUTOMATIC_INBOUND_SHIPMENT.md`
 
 **Features:**
 - One-time import (products, customers, orders)
 - **Bidirectional product sync:** Ordefy ↔ Shopify (products, inventory, prices)
 - **Automatic inventory sync:** All stock changes auto-sync to Shopify (NEW: Dec 2025)
+- **Automatic inbound shipment:** Creates merchandise reception when importing products (NEW: Jan 2026)
 - **Order Line Items:** Normalized table with product mapping (replaces JSONB parsing)
 - Webhooks: orders/create, orders/updated, products/delete
 - Webhook reliability: Idempotency (24h TTL), exponential backoff retries (60s→960s, max 5), real-time metrics
 - Rate limiting: 2 req/sec for Shopify API
 - HMAC signature verification
 - Auto-send new orders to n8n (N8N_WEBHOOK_URL)
+
+**Automatic Inbound Shipment (NEW: Jan 2026):**
+- When importing products from Shopify, automatically creates an inbound shipment
+- Reference: ISH-YYYYMMDD-XXX (e.g., ISH-20260106-001)
+- Status: 'received' (inventory already in Shopify)
+- Only includes products with stock > 0
+- Creates inventory movements for complete audit trail
+- Notes: "Recepción automática de inventario inicial desde Shopify"
+- Prevents inventory discrepancies when dispatching orders
+- Non-blocking: Import succeeds even if shipment creation fails
 
 **Product Mapping:**
 - `find_product_by_shopify_ids()` - Matches local products by Shopify IDs/SKU
