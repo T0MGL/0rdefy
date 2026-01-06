@@ -637,6 +637,16 @@ export default function Orders() {
     setLabelOrderId(null);
   }, [labelOrderId, handleOrderPrinted]);
 
+  // Clean up when modal closes (including cancel)
+  const handleLabelModalClose = useCallback((open: boolean) => {
+    setLabelPreviewOpen(open);
+    if (!open) {
+      // Reset data when closing
+      setLabelPreviewData(null);
+      setLabelOrderId(null);
+    }
+  }, []);
+
   const handleBulkPrint = useCallback(async () => {
     const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token);
     if (printableOrders.length === 0) {
@@ -1296,7 +1306,7 @@ export default function Orders() {
       {/* Label Preview Modal */}
       <LabelPreviewModal
         open={labelPreviewOpen}
-        onOpenChange={setLabelPreviewOpen}
+        onOpenChange={handleLabelModalClose}
         data={labelPreviewData}
         onPrinted={handleLabelPrinted}
       />

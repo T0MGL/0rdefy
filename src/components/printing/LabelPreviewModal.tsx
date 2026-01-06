@@ -2,8 +2,6 @@ import { useRef, useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Printer, Copy, Check } from 'lucide-react';
@@ -206,34 +204,26 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
-          <DialogHeader className="p-4 pb-3">
-            <DialogTitle>Etiqueta de Envío</DialogTitle>
-          </DialogHeader>
-
-          {/* Actions */}
-          <div className="flex gap-2 justify-end px-4 pb-3">
-            <Button variant="outline" onClick={handleCopyLink} className="gap-2" type="button">
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-              {copied ? 'Copiado' : 'Copiar Link'}
-            </Button>
-            <Button
-              type="button"
-              onClick={handlePrint}
-              className="gap-2"
-            >
-              <Printer size={16} />
-              Imprimir 4x6
-            </Button>
+        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden bg-white dark:bg-gray-950">
+          {/* Actions bar at top */}
+          <div className="flex items-center justify-between p-3 border-b">
+            <span className="font-semibold text-sm">Etiqueta de Envío</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleCopyLink} className="gap-1.5 h-8" type="button">
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? 'Copiado' : 'Copiar Link'}
+              </Button>
+              <Button size="sm" onClick={handlePrint} className="gap-1.5 h-8" type="button">
+                <Printer size={14} />
+                Imprimir
+              </Button>
+            </div>
           </div>
 
-          {/* Preview container - Compact */}
-          <div className="bg-gray-100 dark:bg-gray-900 p-2 flex justify-center overflow-hidden" style={{ maxHeight: '70vh' }}>
-            <div className="bg-white shadow-lg" style={{ outline: 'none', border: 'none' }}>
-              {/* Preview scaled to fit modal nicely */}
-              <div style={{ transform: 'scale(0.65)', transformOrigin: 'top center', marginBottom: '-35%' }}>
-                <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
-              </div>
+          {/* Label preview - fills the modal */}
+          <div className="flex justify-center p-3 bg-gray-50 dark:bg-gray-900">
+            <div style={{ transform: 'scale(0.55)', transformOrigin: 'top center', height: '330px' }}>
+              <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
             </div>
           </div>
         </DialogContent>
