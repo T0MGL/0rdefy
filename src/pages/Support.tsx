@@ -10,7 +10,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { Search, PlayCircle, FileText, MessageCircle } from 'lucide-react';
+import { Search, PlayCircle, FileText, MessageCircle, Printer, Monitor, CheckCircle, AlertTriangle } from 'lucide-react';
 
 const faqs = [
   {
@@ -181,6 +181,180 @@ export default function Support() {
         <h2 className="text-2xl font-bold">Centro de Soporte</h2>
         <p className="text-muted-foreground">Encuentra respuestas y aprende a usar Ordefy</p>
       </div>
+
+      {/* Label Configuration Guide */}
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Printer className="text-primary" size={20} />
+          Configurar Etiquetas de Envío 4x6
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Sigue estos pasos para configurar correctamente tu impresora térmica para etiquetas de envío 4x6 pulgadas.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Windows Instructions */}
+          <div className="border rounded-lg p-4 dark:border-gray-700">
+            <h4 className="font-semibold mb-3 flex items-center gap-2">
+              <Monitor size={18} />
+              Windows
+            </h4>
+            <ol className="list-decimal list-inside space-y-3 text-sm">
+              <li>
+                <strong>Abrir Configuración:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Ve a <code className="bg-muted px-2 py-1 rounded text-xs">Inicio → Configuración → Dispositivos → Impresoras y escáneres</code>
+                </p>
+              </li>
+              <li>
+                <strong>Seleccionar Impresora:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Haz clic en tu impresora térmica y luego en <code className="bg-muted px-2 py-1 rounded text-xs">Administrar</code>
+                </p>
+              </li>
+              <li>
+                <strong>Preferencias de Impresión:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Haz clic en <code className="bg-muted px-2 py-1 rounded text-xs">Preferencias de impresión</code>
+                </p>
+              </li>
+              <li>
+                <strong>Crear Tamaño Personalizado:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Busca la opción <code className="bg-muted px-2 py-1 rounded text-xs">Tamaño personalizado</code> o <code className="bg-muted px-2 py-1 rounded text-xs">Custom Size</code>
+                </p>
+              </li>
+              <li>
+                <strong>Configurar Dimensiones:</strong>
+                <div className="ml-6 mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 dark:bg-blue-950/20 dark:border-blue-900">
+                  <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
+                    Medidas exactas:
+                  </p>
+                  <ul className="space-y-1 text-sm text-blue-700 dark:text-blue-400">
+                    <li>• <strong>Ancho:</strong> 101.6 mm (4 pulgadas)</li>
+                    <li>• <strong>Alto:</strong> 152.4 mm (6 pulgadas)</li>
+                    <li>• <strong>Orientación:</strong> Horizontal/Landscape</li>
+                  </ul>
+                </div>
+              </li>
+              <li>
+                <strong>Guardar:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Guarda como "Etiqueta 4x6" y establécelo como predeterminado
+                </p>
+              </li>
+            </ol>
+          </div>
+
+          {/* macOS Instructions */}
+          <div className="border rounded-lg p-4 dark:border-gray-700">
+            <h4 className="font-semibold mb-3 flex items-center gap-2">
+              <Monitor size={18} />
+              macOS
+            </h4>
+            <ol className="list-decimal list-inside space-y-3 text-sm">
+              <li>
+                <strong>Abrir Preferencias del Sistema:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Ve a <code className="bg-muted px-2 py-1 rounded text-xs">Preferencias del Sistema → Impresoras y Escáneres</code>
+                </p>
+              </li>
+              <li>
+                <strong>Seleccionar Impresora:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Selecciona tu impresora térmica de la lista
+                </p>
+              </li>
+              <li>
+                <strong>Opciones y Suministros:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Haz clic en <code className="bg-muted px-2 py-1 rounded text-xs">Opciones y Suministros</code>
+                </p>
+              </li>
+              <li>
+                <strong>Gestionar Tamaños:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Busca <code className="bg-muted px-2 py-1 rounded text-xs">Gestionar tamaños personalizados...</code>
+                </p>
+              </li>
+              <li>
+                <strong>Configurar Dimensiones:</strong>
+                <div className="ml-6 mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 dark:bg-blue-950/20 dark:border-blue-900">
+                  <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
+                    Medidas exactas:
+                  </p>
+                  <ul className="space-y-1 text-sm text-blue-700 dark:text-blue-400">
+                    <li>• <strong>Ancho:</strong> 101.6 mm (4 pulgadas)</li>
+                    <li>• <strong>Alto:</strong> 152.4 mm (6 pulgadas)</li>
+                    <li>• <strong>Márgenes:</strong> 0 mm (todos los lados)</li>
+                  </ul>
+                </div>
+              </li>
+              <li>
+                <strong>Guardar:</strong>
+                <p className="ml-6 mt-1 text-muted-foreground">
+                  Haz clic en <strong>+</strong>, nombra "Etiqueta 4x6" y guarda
+                </p>
+              </li>
+            </ol>
+          </div>
+        </div>
+
+        {/* Tips & Troubleshooting Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+          {/* Print Tips */}
+          <div className="border rounded-lg p-4 bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900">
+            <h4 className="font-semibold mb-3 flex items-center gap-2 text-green-800 dark:text-green-300">
+              <CheckCircle size={18} />
+              Consejos de Impresión
+            </h4>
+            <ul className="space-y-2 text-sm text-green-700 dark:text-green-400">
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span>Usa etiquetas de 4x6 pulgadas (101.6 x 152.4 mm)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span>Orientación horizontal (landscape)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span>Verifica vista previa antes de imprimir</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span>Compatible: Dymo, Zebra, Brother</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Troubleshooting */}
+          <div className="border rounded-lg p-4 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900">
+            <h4 className="font-semibold mb-3 flex items-center gap-2 text-amber-800 dark:text-amber-300">
+              <AlertTriangle size={18} />
+              Solución de Problemas
+            </h4>
+            <ul className="space-y-2 text-sm text-amber-700 dark:text-amber-400">
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span><strong>Etiqueta cortada:</strong> Verificar dimensiones (101.6 x 152.4 mm)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span><strong>Texto pequeño:</strong> Revisar orientación horizontal</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span><strong>QR no escanea:</strong> Aumentar calidad de impresión</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1">•</span>
+                <span><strong>Márgenes mal:</strong> Establecer todos en 0 mm</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </Card>
 
       {/* Search & Filter */}
       <Card className="p-4">

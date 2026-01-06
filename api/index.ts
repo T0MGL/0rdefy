@@ -44,6 +44,7 @@ import { collaboratorsRouter } from './routes/collaborators';
 import { externalWebhooksRouter } from './routes/external-webhooks';
 // import phoneVerificationRouter from './routes/phone-verification'; // TODO: Enable when WhatsApp number is ready
 import billingRouter from './routes/billing';
+import uploadRouter from './routes/upload';
 
 // Load environment variables
 dotenv.config();
@@ -477,6 +478,9 @@ app.use('/api/webhook', externalWebhooksRouter); // Public endpoint for receivin
 // Billing routes (Stripe subscriptions)
 // Note: /api/billing/webhook uses raw body parser internally for Stripe signature
 app.use('/api/billing', billingRouter);
+
+// Upload routes (Image uploads to Supabase Storage)
+app.use('/api/upload', uploadRouter);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

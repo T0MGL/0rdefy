@@ -9,10 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, Role } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
-import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users } from 'lucide-react';
+import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users, Loader2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   getSessions,
@@ -29,6 +29,7 @@ import {
 import apiClient from '@/services/api.client';
 import { TeamManagement } from '@/components/TeamManagement';
 import BillingPage from '@/pages/Billing';
+import { uploadAvatar, validateImageFile } from '@/services/upload.service';
 
 // Common timezones for Latin America
 const TIMEZONES = [
@@ -66,11 +67,12 @@ const CURRENCIES = [
 export default function Settings() {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { user, currentStore, stores, updateProfile, changePassword, deleteAccount, deleteStore, signOut } = useAuth();
+  const { user, currentStore, stores, updateProfile, changePassword, deleteAccount, deleteStore, signOut, permissions } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
-  const [profileImage, setProfileImage] = useState<string>('');
+  const [profileImage, setProfileImage] = useState<string>((user as any)?.avatar_url || '');
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -134,6 +136,9 @@ export default function Settings() {
       setStoreCurrency(currentStore.currency || 'PYG');
     }
   }, [currentStore]);
+
+  // Check if user is owner (only owners can access billing/subscription)
+  const isOwner = permissions.currentRole === Role.OWNER;
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -222,40 +227,49 @@ export default function Settings() {
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validar tipo
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
+    // Validar archivo
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
       toast({
         title: "Error",
-        description: "Solo se permiten imágenes JPG, PNG o WebP",
+        description: validation.error || "Archivo inválido",
         variant: "destructive"
       });
       return;
     }
 
-    // Validar tamaño (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
+    setIsUploadingAvatar(true);
+
+    try {
+      const result = await uploadAvatar(file);
+
+      if (result.success && result.url) {
+        setProfileImage(result.url);
+        toast({
+          title: "Imagen actualizada",
+          description: "Tu foto de perfil ha sido guardada exitosamente.",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "No se pudo subir la imagen",
+          variant: "destructive"
+        });
+      }
+    } catch (error: any) {
+      console.error('Avatar upload error:', error);
       toast({
         title: "Error",
-        description: "La imagen no debe superar 2MB",
+        description: error.response?.data?.error || "No se pudo subir la imagen",
         variant: "destructive"
       });
-      return;
+    } finally {
+      setIsUploadingAvatar(false);
     }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setProfileImage(reader.result as string);
-      toast({
-        title: "Imagen actualizada",
-        description: "Tu foto de perfil ha sido actualizada exitosamente.",
-      });
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -498,7 +512,7 @@ export default function Settings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6 lg:w-[900px]">
+        <TabsList className="grid w-full grid-cols-5 lg:w-[800px]">
           <TabsTrigger value="profile" className="gap-2">
             <User size={16} />
             Perfil
@@ -519,10 +533,6 @@ export default function Settings() {
             <Shield size={16} />
             Seguridad
           </TabsTrigger>
-          <TabsTrigger value="help" className="gap-2">
-            <AlertCircle size={16} />
-            Ayuda
-          </TabsTrigger>
         </TabsList>
 
         {/* Profile Tab */}
@@ -541,26 +551,32 @@ export default function Settings() {
                     </AvatarFallback>
                   )}
                 </Avatar>
+                {isUploadingAvatar && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
+                    <Loader2 className="h-8 w-8 animate-spin text-white" />
+                  </div>
+                )}
                 <label
                   htmlFor="avatar-upload"
-                  className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center cursor-pointer hover:bg-primary/90 transition-colors"
+                  className={`absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-colors ${isUploadingAvatar ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-primary/90'}`}
                 >
                   <Upload size={16} />
                   <input
                     id="avatar-upload"
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
                     className="hidden"
                     onChange={handleImageUpload}
+                    disabled={isUploadingAvatar}
                   />
                 </label>
               </div>
               <div>
                 <h3 className="font-semibold text-lg">{formData.name}</h3>
                 <p className="text-sm text-muted-foreground">{formData.email}</p>
-                <Button variant="outline" size="sm" className="mt-2" asChild>
-                  <label htmlFor="avatar-upload" className="cursor-pointer">
-                    Cambiar foto
+                <Button variant="outline" size="sm" className="mt-2" disabled={isUploadingAvatar} asChild>
+                  <label htmlFor="avatar-upload" className={isUploadingAvatar ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                    {isUploadingAvatar ? 'Subiendo...' : 'Cambiar foto'}
                   </label>
                 </Button>
               </div>
@@ -691,7 +707,27 @@ export default function Settings() {
 
         {/* Subscription Tab */}
         <TabsContent value="subscription" className="space-y-6">
-          <BillingPage embedded />
+          {isOwner ? (
+            <BillingPage embedded />
+          ) : (
+            <Card className="p-6">
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <CreditCard className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h2 className="text-xl font-semibold mb-2">Acceso restringido</h2>
+                <p className="text-muted-foreground max-w-md mb-6">
+                  Solo el propietario de la tienda puede ver y administrar la suscripción.
+                  Si necesitas información sobre el plan actual o realizar cambios,
+                  contacta al propietario de tu organización.
+                </p>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Shield size={16} />
+                  <span>Tu rol actual: <strong className="text-foreground">{permissions.currentRole}</strong></span>
+                </div>
+              </div>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Preferences Tab */}
@@ -824,197 +860,6 @@ export default function Settings() {
         {/* Team Tab */}
         <TabsContent value="team" className="space-y-6">
           <TeamManagement />
-        </TabsContent>
-
-        {/* Help Tab */}
-        <TabsContent value="help" className="space-y-6">
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-6">Ayuda - Configuración de Etiquetas</h2>
-
-            <div className="space-y-8">
-              {/* Shipping Label Configuration */}
-              <div>
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <AlertCircle className="text-primary" size={20} />
-                  Configurar Tamaño de Etiqueta 4x6
-                </h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Sigue estos pasos para configurar correctamente tu impresora térmica para etiquetas de envío 4x6 pulgadas.
-                </p>
-
-                <div className="space-y-6">
-                  {/* Windows Instructions */}
-                  <div className="border rounded-lg p-4 dark:border-gray-700">
-                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                      <Monitor size={18} />
-                      Windows
-                    </h4>
-                    <ol className="list-decimal list-inside space-y-3 text-sm">
-                      <li>
-                        <strong>Abrir Configuración:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Ve a <code className="bg-muted px-2 py-1 rounded">Inicio → Configuración → Dispositivos → Impresoras y escáneres</code>
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Seleccionar Impresora:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Haz clic en tu impresora térmica y luego en <code className="bg-muted px-2 py-1 rounded">Administrar</code>
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Preferencias de Impresión:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Haz clic en <code className="bg-muted px-2 py-1 rounded">Preferencias de impresión</code>
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Crear Tamaño Personalizado:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          En la pestaña de <strong>Papel/Tamaño</strong>, busca la opción <code className="bg-muted px-2 py-1 rounded">Tamaño personalizado</code> o <code className="bg-muted px-2 py-1 rounded">Custom Size</code>
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Configurar Dimensiones:</strong>
-                        <div className="ml-6 mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 dark:bg-blue-950/20 dark:border-blue-900">
-                          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
-                            Medidas exactas:
-                          </p>
-                          <ul className="space-y-1 text-sm text-blue-700 dark:text-blue-400">
-                            <li>• <strong>Ancho:</strong> 101.6 mm (4 pulgadas)</li>
-                            <li>• <strong>Alto:</strong> 152.4 mm (6 pulgadas)</li>
-                            <li>• <strong>Orientación:</strong> Horizontal/Landscape</li>
-                          </ul>
-                        </div>
-                      </li>
-                      <li>
-                        <strong>Guardar Configuración:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Guarda el tamaño personalizado con un nombre como "Etiqueta 4x6" y establécelo como predeterminado
-                        </p>
-                      </li>
-                    </ol>
-                  </div>
-
-                  {/* macOS Instructions */}
-                  <div className="border rounded-lg p-4 dark:border-gray-700">
-                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                      <Monitor size={18} />
-                      macOS
-                    </h4>
-                    <ol className="list-decimal list-inside space-y-3 text-sm">
-                      <li>
-                        <strong>Abrir Preferencias del Sistema:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Ve a <code className="bg-muted px-2 py-1 rounded">Preferencias del Sistema → Impresoras y Escáneres</code>
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Seleccionar Impresora:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Selecciona tu impresora térmica de la lista
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Opciones y Suministros:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Haz clic en <code className="bg-muted px-2 py-1 rounded">Opciones y Suministros</code>
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Gestionar Tamaños Personalizados:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          En el menú desplegable de tamaño de papel, busca <code className="bg-muted px-2 py-1 rounded">Gestionar tamaños personalizados...</code>
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Crear Nuevo Tamaño:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Haz clic en el botón <strong>+</strong> para agregar un nuevo tamaño
-                        </p>
-                      </li>
-                      <li>
-                        <strong>Configurar Dimensiones:</strong>
-                        <div className="ml-6 mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 dark:bg-blue-950/20 dark:border-blue-900">
-                          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
-                            Medidas exactas:
-                          </p>
-                          <ul className="space-y-1 text-sm text-blue-700 dark:text-blue-400">
-                            <li>• <strong>Ancho:</strong> 101.6 mm (4 pulgadas)</li>
-                            <li>• <strong>Alto:</strong> 152.4 mm (6 pulgadas)</li>
-                            <li>• <strong>Márgenes:</strong> 0 mm (todos los lados)</li>
-                            <li>• <strong>Nombre:</strong> "Etiqueta 4x6"</li>
-                          </ul>
-                        </div>
-                      </li>
-                      <li>
-                        <strong>Guardar y Usar:</strong>
-                        <p className="ml-6 mt-1 text-muted-foreground">
-                          Haz clic en <strong>OK</strong> para guardar. Ahora puedes seleccionar este tamaño al imprimir.
-                        </p>
-                      </li>
-                    </ol>
-                  </div>
-
-                  {/* Print Tips */}
-                  <div className="border rounded-lg p-4 bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900">
-                    <h4 className="font-semibold mb-3 flex items-center gap-2 text-green-800 dark:text-green-300">
-                      <CheckCircle size={18} />
-                      Consejos de Impresión
-                    </h4>
-                    <ul className="space-y-2 text-sm text-green-700 dark:text-green-400">
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>Antes de imprimir:</strong> Asegúrate de que la impresora esté cargada con etiquetas de 4x6 pulgadas (101.6 x 152.4 mm)</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>Vista previa:</strong> Siempre verifica la vista previa de impresión antes de imprimir para asegurar el formato correcto</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>Orientación:</strong> Las etiquetas se imprimen en orientación horizontal (landscape)</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>Calidad del QR:</strong> Asegúrate de que el código QR se imprima claramente para facilitar el escaneo</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>Impresoras compatibles:</strong> Dymo, Zebra, Brother, y otras impresoras térmicas de 4 pulgadas de ancho</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  {/* Troubleshooting */}
-                  <div className="border rounded-lg p-4 bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900">
-                    <h4 className="font-semibold mb-3 flex items-center gap-2 text-amber-800 dark:text-amber-300">
-                      <AlertCircle size={18} />
-                      Solución de Problemas
-                    </h4>
-                    <ul className="space-y-2 text-sm text-amber-700 dark:text-amber-400">
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>La etiqueta se corta:</strong> Verifica que el tamaño personalizado esté configurado correctamente (101.6 x 152.4 mm)</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>Texto muy pequeño:</strong> Asegúrate de que la orientación esté en "Horizontal/Landscape"</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>QR no escanea:</strong> Aumenta la calidad de impresión en las preferencias de la impresora</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="mt-1">•</span>
-                        <span><strong>Márgenes incorrectos:</strong> Establece todos los márgenes en 0 mm en la configuración del tamaño personalizado</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Card>
         </TabsContent>
 
         {/* Security Tab */}
