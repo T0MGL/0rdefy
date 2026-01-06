@@ -20,7 +20,7 @@ const router = express.Router();
  */
 router.get('/sessions', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.userId || req.user?.id;
 
     const sessions = await getUserSessions(userId);
 
@@ -50,7 +50,7 @@ router.get('/sessions', verifyToken, async (req, res) => {
  */
 router.delete('/sessions/:sessionId', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.userId || req.user?.id;
     const { sessionId } = req.params;
 
     await terminateSession(sessionId, userId);
@@ -87,7 +87,7 @@ router.delete('/sessions/:sessionId', verifyToken, async (req, res) => {
  */
 router.delete('/sessions', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.userId || req.user?.id;
     const currentToken = req.headers.authorization?.replace('Bearer ', '');
 
     await terminateAllSessions(userId, currentToken);
@@ -127,7 +127,7 @@ router.delete('/sessions', verifyToken, async (req, res) => {
  */
 router.get('/activity', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.userId || req.user?.id;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
 
@@ -157,7 +157,7 @@ router.get('/activity', verifyToken, async (req, res) => {
  */
 router.get('/activity/recent', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.userId || req.user?.id;
 
     const activities = await getUserActivity(userId, 10, 0);
 
