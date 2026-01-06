@@ -50,8 +50,8 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   const isPaidByShopify = data?.financialStatus === 'paid' || data?.financialStatus === 'authorized';
   const hasCODAmount = data?.codAmount && data.codAmount > 0;
   const isCashPayment = data?.paymentMethod === 'cash' ||
-                        data?.paymentMethod === 'efectivo' ||
-                        data?.paymentMethod === 'cash_on_delivery';
+    data?.paymentMethod === 'efectivo' ||
+    data?.paymentMethod === 'cash_on_delivery';
 
   // Show COD if there's an amount to collect and it's not already paid by Shopify
   const showCOD = hasCODAmount && (!isPaidByShopify || isCashPayment);
@@ -265,8 +265,8 @@ function LabelContent({
   isPaidByShopify: boolean;
   isPrint?: boolean;
 }) {
-  // Minimal top margin to maximize content space
-  const marginTop = isPrint ? '0.25in' : '0';     // Small top margin
+  // Balanced margin - enough space to show header, minimal bottom waste
+  const marginTop = isPrint ? '0.7in' : '0';      // Increased from 0.4in to center vertically
   const sidePadding = isPrint ? '0.08in' : '0';
 
   return (
@@ -291,7 +291,7 @@ function LabelContent({
       {/* Inner container with border - MAXIMIZED HEIGHT */}
       <div style={{
         width: '100%',
-        height: '5.55in',  // Taller to fill more space (6in - 0.25in top - 0.2in bottom)
+        height: '5.5in',  // 6in - 0.4in top - 0.1in bottom = 5.5in
         border: '3px solid black',
         boxSizing: 'border-box',
         display: 'flex',
@@ -299,229 +299,229 @@ function LabelContent({
         overflow: 'hidden',
       }}
       >
-      {/* HEADER - 8% más compacto */}
-      <div style={{
-        height: '8%',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '3px 8px',
-        borderBottom: '3px solid black',
-      }}>
+        {/* HEADER - 9% */}
         <div style={{
-          fontSize: '12px',
-          fontWeight: 800,
-          textTransform: 'uppercase',
-          overflow: 'hidden',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-          maxWidth: '55%',
-        }}>
-          {data.storeName}
-        </div>
-        <div style={{
-          fontSize: '18px',
-          fontWeight: 900,
-          letterSpacing: '-1px',
-        }}>
-          {data.orderNumber}
-        </div>
-      </div>
-
-      {/* ADDRESS - 32% más compacto */}
-      <div style={{
-        height: '32%',
-        padding: '5px 8px',
-        display: 'flex',
-        flexDirection: 'column',
-        borderBottom: '3px solid black',
-      }}>
-        <div style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '1px' }}>
-          ENTREGAR A:
-        </div>
-        <div style={{
-          fontSize: '17px',
-          fontWeight: 900,
-          lineHeight: 1.05,
-          textTransform: 'uppercase',
-          overflow: 'hidden',
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-        }}>
-          {data.customerName}
-        </div>
-        <div style={{
-          fontSize: '12px',
-          fontWeight: 600,
-          lineHeight: 1.15,
-          marginTop: '3px',
-          flex: 1,
-        }}>
-          {data.customerAddress}
-          {data.neighborhood && `, ${data.neighborhood}`}
-        </div>
-        {data.addressReference && (
-          <div style={{ fontSize: '10px', fontStyle: 'italic', marginTop: '1px' }}>
-            REF: {data.addressReference}
-          </div>
-        )}
-        <div style={{
-          display: 'inline-block',
-          padding: '2px 5px',
-          border: '2px solid black',
-          fontFamily: 'monospace',
-          fontSize: '12px',
-          fontWeight: 700,
-          marginTop: '3px',
-          width: 'fit-content',
-        }}>
-          TEL: {data.customerPhone}
-        </div>
-      </div>
-
-      {/* QR + PAYMENT - 33% */}
-      <div style={{
-        height: '33%',
-        display: 'flex',
-        borderBottom: '3px solid black',
-      }}>
-        {/* QR Code */}
-        <div style={{
-          width: '45%',
-          borderRight: '3px solid black',
+          height: '9%', // Slightly increased from 8%
           display: 'flex',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          justifyContent: 'center',
-          padding: '6px',
+          padding: '3px 8px',
+          borderBottom: '3px solid black',
         }}>
-          {qrCodeUrl && (
-            <img
-              src={qrCodeUrl}
-              alt="QR"
-              style={{
-                width: '100%',
-                maxWidth: '120px',
-                height: 'auto',
-                imageRendering: 'pixelated',
-              }}
-            />
-          )}
+          <div style={{
+            fontSize: '12px',
+            fontWeight: 800,
+            textTransform: 'uppercase',
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+            maxWidth: '55%',
+          }}>
+            {data.storeName}
+          </div>
+          <div style={{
+            fontSize: '18px',
+            fontWeight: 900,
+            letterSpacing: '-1px',
+          }}>
+            {data.orderNumber}
+          </div>
         </div>
 
-        {/* Payment Info */}
+        {/* ADDRESS - 33% */}
         <div style={{
-          width: '55%',
+          height: '33%', // Slightly increased from 32%
+          padding: '5px 8px',
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: '8px',
-          textAlign: 'center',
-          gap: '8px',
+          borderBottom: '3px solid black',
         }}>
-          {showCOD ? (
-            <div style={{
-              width: '100%',
-              background: 'black',
-              color: 'white',
-              padding: '12px 8px',
-            }}>
-              <div style={{ fontSize: '16px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>
-                COBRAR
-              </div>
-              <div style={{ fontSize: '22px', fontWeight: 900, letterSpacing: '0.5px' }}>
-                Gs. {data.codAmount?.toLocaleString()}
-              </div>
-            </div>
-          ) : (
-            <div style={{
-              width: '100%',
-              border: '3px solid black',
-              padding: '10px 6px',
-            }}>
-              <div style={{ fontSize: '18px', fontWeight: 900 }}>
-                PAGADO
-              </div>
-              <div style={{ fontSize: '10px', fontWeight: 600 }}>
-                {data.financialStatus === 'authorized' ? 'AUTORIZADO' :
-                 data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD'}
-              </div>
+          <div style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '1px' }}>
+            ENTREGAR A:
+          </div>
+          <div style={{
+            fontSize: '17px',
+            fontWeight: 900,
+            lineHeight: 1.05,
+            textTransform: 'uppercase',
+            overflow: 'hidden',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+          }}>
+            {data.customerName}
+          </div>
+          <div style={{
+            fontSize: '12px',
+            fontWeight: 600,
+            lineHeight: 1.15,
+            marginTop: '3px',
+            flex: 1,
+          }}>
+            {data.customerAddress}
+            {data.neighborhood && `, ${data.neighborhood}`}
+          </div>
+          {data.addressReference && (
+            <div style={{ fontSize: '10px', fontStyle: 'italic', marginTop: '1px' }}>
+              REF: {data.addressReference}
             </div>
           )}
-          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-            {data.carrierName || 'ENVÍO PROPIO'}
+          <div style={{
+            display: 'inline-block',
+            padding: '2px 5px',
+            border: '2px solid black',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            fontWeight: 700,
+            marginTop: '3px',
+            width: 'fit-content',
+          }}>
+            TEL: {data.customerPhone}
           </div>
         </div>
-      </div>
 
-      {/* ITEMS - 27% más espacio */}
-      <div style={{
-        height: '27%',
-        padding: '3px 6px',
-        overflow: 'hidden',
-      }}>
-        <table style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontSize: '9px',
+        {/* QR + PAYMENT - 31% */}
+        <div style={{
+          height: '31%', // Adjusted from 33% to balance total height
+          display: 'flex',
+          borderBottom: '3px solid black',
         }}>
-          <thead>
-            <tr>
-              <th style={{
-                width: '15%',
-                textAlign: 'center',
-                borderBottom: '2px solid black',
-                padding: '1px',
-                fontWeight: 800,
-              }}>
-                QTY
-              </th>
-              <th style={{
-                width: '85%',
-                textAlign: 'left',
-                borderBottom: '2px solid black',
-                padding: '1px',
-                fontWeight: 800,
-              }}>
-                PRODUCTO
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.items.slice(0, 4).map((item, i) => (
-              <tr key={i}>
-                <td style={{
-                  textAlign: 'center',
-                  padding: '1px',
-                  fontWeight: 700,
-                  borderBottom: '1px solid #ddd',
-                }}>
-                  {item.quantity}
-                </td>
-                <td style={{
-                  padding: '1px 2px',
-                  borderBottom: '1px solid #ddd',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '250px',
-                }}>
-                  {item.name}
-                </td>
-              </tr>
-            ))}
-            {data.items.length > 4 && (
-              <tr>
-                <td style={{ textAlign: 'center', padding: '1px', fontWeight: 700 }}>+</td>
-                <td style={{ padding: '1px 2px', fontStyle: 'italic' }}>
-                  ...y {data.items.length - 4} más
-                </td>
-              </tr>
+          {/* QR Code */}
+          <div style={{
+            width: '45%',
+            borderRight: '3px solid black',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '6px',
+          }}>
+            {qrCodeUrl && (
+              <img
+                src={qrCodeUrl}
+                alt="QR"
+                style={{
+                  width: '100%',
+                  maxWidth: '120px',
+                  height: 'auto',
+                  imageRendering: 'pixelated',
+                }}
+              />
             )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+
+          {/* Payment Info */}
+          <div style={{
+            width: '55%',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '8px',
+            textAlign: 'center',
+            gap: '8px',
+          }}>
+            {showCOD ? (
+              <div style={{
+                width: '100%',
+                background: 'black',
+                color: 'white',
+                padding: '12px 8px',
+              }}>
+                <div style={{ fontSize: '16px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>
+                  COBRAR
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 900, letterSpacing: '0.5px' }}>
+                  Gs. {data.codAmount?.toLocaleString()}
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                width: '100%',
+                border: '3px solid black',
+                padding: '10px 6px',
+              }}>
+                <div style={{ fontSize: '18px', fontWeight: 900 }}>
+                  PAGADO
+                </div>
+                <div style={{ fontSize: '10px', fontWeight: 600 }}>
+                  {data.financialStatus === 'authorized' ? 'AUTORIZADO' :
+                    data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD'}
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
+              {data.carrierName || 'ENVÍO PROPIO'}
+            </div>
+          </div>
+        </div>
+
+        {/* ITEMS - 27% más espacio */}
+        <div style={{
+          height: '27%',
+          padding: '3px 6px',
+          overflow: 'hidden',
+        }}>
+          <table style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '9px',
+          }}>
+            <thead>
+              <tr>
+                <th style={{
+                  width: '15%',
+                  textAlign: 'center',
+                  borderBottom: '2px solid black',
+                  padding: '1px',
+                  fontWeight: 800,
+                }}>
+                  QTY
+                </th>
+                <th style={{
+                  width: '85%',
+                  textAlign: 'left',
+                  borderBottom: '2px solid black',
+                  padding: '1px',
+                  fontWeight: 800,
+                }}>
+                  PRODUCTO
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.slice(0, 4).map((item, i) => (
+                <tr key={i}>
+                  <td style={{
+                    textAlign: 'center',
+                    padding: '1px',
+                    fontWeight: 700,
+                    borderBottom: '1px solid #ddd',
+                  }}>
+                    {item.quantity}
+                  </td>
+                  <td style={{
+                    padding: '1px 2px',
+                    borderBottom: '1px solid #ddd',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '250px',
+                  }}>
+                    {item.name}
+                  </td>
+                </tr>
+              ))}
+              {data.items.length > 4 && (
+                <tr>
+                  <td style={{ textAlign: 'center', padding: '1px', fontWeight: 700 }}>+</td>
+                  <td style={{ padding: '1px 2px', fontStyle: 'italic' }}>
+                    ...y {data.items.length - 4} más
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
