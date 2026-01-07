@@ -56,12 +56,79 @@ export function OrderConfirmationDialog({
   const [courierId, setCourierId] = useState<string>('');
   const [address, setAddress] = useState('');
   const [googleMapsLink, setGoogleMapsLink] = useState('');
+  const [carrierZones, setCarrierZones] = useState<any[]>([]);
+  const [selectedZone, setSelectedZone] = useState<string>('');
+  const [shippingCost, setShippingCost] = useState<number>(0);
+  const [loadingZones, setLoadingZones] = useState(false);
+
+  // Fetch carrier zones when carrier is selected
+  useEffect(() => {
+    const fetchCarrierZones = async () => {
+      if (!courierId) {
+        setCarrierZones([]);
+        setSelectedZone('');
+        setShippingCost(0);
+        return;
+      }
+
+      try {
+        setLoadingZones(true);
+        const token = localStorage.getItem('auth_token');
+        const storeId = localStorage.getItem('current_store_id');
+
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/${courierId}/zones`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Store-ID': storeId || '',
+            },
+          }
+        );
+
+        if (response.ok) {
+          const { data } = await response.json();
+          setCarrierZones(data || []);
+
+          // Auto-select first zone if only one available
+          if (data && data.length === 1) {
+            setSelectedZone(data[0].id);
+            setShippingCost(Number(data[0].rate) || 0);
+          }
+        } else {
+          setCarrierZones([]);
+        }
+      } catch (error) {
+        console.error('Error fetching carrier zones:', error);
+        setCarrierZones([]);
+      } finally {
+        setLoadingZones(false);
+      }
+    };
+
+    fetchCarrierZones();
+  }, [courierId]);
+
+  // Update shipping cost when zone is selected
+  useEffect(() => {
+    if (selectedZone && carrierZones.length > 0) {
+      const zone = carrierZones.find((z) => z.id === selectedZone);
+      if (zone) {
+        setShippingCost(Number(zone.rate) || 0);
+      }
+    }
+  }, [selectedZone, carrierZones]);
 
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setIsConfirmed(false);
       setConfirmedOrder(null);
+      setCourierId('');
+      setSelectedZone('');
+      setShippingCost(0);
+      setCarrierZones([]);
+
       // Pre-fill address if order has one
       if (order?.address) {
         setAddress(order.address);
@@ -133,6 +200,15 @@ export function OrderConfirmationDialog({
       return;
     }
 
+    if (!selectedZone) {
+      toast({
+        title: 'Zona requerida',
+        description: 'Debes seleccionar una zona de entrega',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -146,9 +222,14 @@ export function OrderConfirmationDialog({
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
+      // Get selected zone details
+      const zoneData = carrierZones.find((z) => z.id === selectedZone);
+
       const payload: any = {
         courier_id: courierId,
         upsell_added: upsellAdded,
+        delivery_zone: zoneData?.zone_name || '',
+        shipping_cost: shippingCost,
       };
 
       // Add optional fields if provided
@@ -251,6 +332,9 @@ export function OrderConfirmationDialog({
     setCourierId('');
     setAddress('');
     setGoogleMapsLink('');
+    setSelectedZone('');
+    setShippingCost(0);
+    setCarrierZones([]);
     setIsConfirmed(false);
     setConfirmedOrder(null);
     setIsPrinting(false);
@@ -392,6 +476,52 @@ export function OrderConfirmationDialog({
                 )}
               </div>
 
+              {/* Zone Selection - Only show if carrier is selected */}
+              {courierId && (
+                <div className="space-y-2">
+                  <Label htmlFor="zone">
+                    Zona de Entrega <span className="text-red-500">*</span>
+                  </Label>
+                  {loadingZones ? (
+                    <div className="flex items-center justify-center p-4">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="ml-2 text-sm text-muted-foreground">Cargando zonas...</span>
+                    </div>
+                  ) : carrierZones.length === 0 ? (
+                    <div className="p-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20">
+                      <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                        Este transportista no tiene zonas configuradas. Ve a Logística → Transportadoras para configurar tarifas por zona.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <Select value={selectedZone} onValueChange={setSelectedZone}>
+                        <SelectTrigger id="zone">
+                          <SelectValue placeholder="Selecciona una zona" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {carrierZones.map((zone) => (
+                            <SelectItem key={zone.id} value={zone.id}>
+                              {zone.zone_name} {zone.zone_code && `(${zone.zone_code})`} - Gs. {Number(zone.rate || 0).toLocaleString()}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedZone && shippingCost > 0 && (
+                        <div className="mt-2 p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                          <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                            Costo de envío: <span className="text-lg">Gs. {shippingCost.toLocaleString()}</span>
+                          </p>
+                          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                            Este costo será descontado del beneficio neto
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Address (Optional) */}
               <div className="space-y-2">
                 <Label htmlFor="address">
@@ -431,7 +561,7 @@ export function OrderConfirmationDialog({
                 >
                   Cancelar
                 </Button>
-                <Button onClick={handleConfirm} disabled={loading || !courierId}>
+                <Button onClick={handleConfirm} disabled={loading || !courierId || !selectedZone}>
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

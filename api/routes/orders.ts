@@ -1605,7 +1605,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             address,
             latitude,
             longitude,
-            google_maps_link
+            google_maps_link,
+            delivery_zone,
+            shipping_cost
         } = req.body;
 
         console.log(`✅ [ORDERS] Confirming order ${id} with courier ${courier_id}`);
@@ -1649,6 +1651,10 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         if (google_maps_link) updateData.google_maps_link = google_maps_link;
         if (latitude !== undefined) updateData.latitude = latitude;
         if (longitude !== undefined) updateData.longitude = longitude;
+
+        // Update shipping cost and delivery zone
+        if (delivery_zone) updateData.delivery_zone = delivery_zone;
+        if (shipping_cost !== undefined) updateData.shipping_cost = Number(shipping_cost) || 0;
 
         const { data, error } = await supabaseAdmin
             .from('orders')

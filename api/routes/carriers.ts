@@ -115,6 +115,56 @@ carriersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
+// GET /api/carriers/:id/zones - Get carrier zones with rates
+// ================================================================
+carriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Verify carrier exists and belongs to store
+        const { data: carrier, error: carrierError } = await supabaseAdmin
+            .from('carriers')
+            .select('id, name')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (carrierError || !carrier) {
+            return res.status(404).json({
+                error: 'Carrier not found'
+            });
+        }
+
+        // Get all active zones for this carrier
+        const { data: zones, error: zonesError } = await supabaseAdmin
+            .from('carrier_zones')
+            .select('*')
+            .eq('carrier_id', id)
+            .eq('is_active', true)
+            .order('zone_name', { ascending: true });
+
+        if (zonesError) {
+            console.error('[GET /api/carriers/:id/zones] Error:', zonesError);
+            return res.status(500).json({
+                error: 'Failed to fetch carrier zones',
+                message: zonesError.message
+            });
+        }
+
+        res.json({
+            success: true,
+            data: zones || []
+        });
+    } catch (error: any) {
+        console.error(`[GET /api/carriers/${req.params.id}/zones] Error:`, error);
+        res.status(500).json({
+            error: 'Failed to fetch carrier zones',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
 // POST /api/carriers - Create new carrier
 // ================================================================
 carriersRouter.post('/', async (req: AuthRequest, res: Response) => {
