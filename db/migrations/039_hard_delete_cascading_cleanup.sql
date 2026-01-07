@@ -102,7 +102,7 @@ BEGIN
     -- STEP 2: Delete from picking/packing sessions
     -- ============================================================
     -- Find all picking sessions containing this order
-    SELECT ARRAY_AGG(DISTINCT session_id)
+    SELECT ARRAY_AGG(DISTINCT picking_session_id)
     INTO v_picking_session_ids
     FROM picking_session_orders
     WHERE order_id = OLD.id;
@@ -122,7 +122,7 @@ BEGIN
         DELETE FROM picking_sessions
         WHERE id = ANY(v_picking_session_ids)
         AND NOT EXISTS (
-            SELECT 1 FROM picking_session_orders WHERE session_id = picking_sessions.id
+            SELECT 1 FROM picking_session_orders WHERE picking_session_id = picking_sessions.id
         );
         RAISE NOTICE '✅ Deleted orphaned picking sessions';
     END IF;
@@ -130,7 +130,7 @@ BEGIN
     -- ============================================================
     -- STEP 3: Delete from return sessions
     -- ============================================================
-    SELECT ARRAY_AGG(DISTINCT session_id)
+    SELECT ARRAY_AGG(DISTINCT return_session_id)
     INTO v_return_session_ids
     FROM return_session_orders
     WHERE order_id = OLD.id;
@@ -146,7 +146,7 @@ BEGIN
         DELETE FROM return_sessions
         WHERE id = ANY(v_return_session_ids)
         AND NOT EXISTS (
-            SELECT 1 FROM return_session_orders WHERE session_id = return_sessions.id
+            SELECT 1 FROM return_session_orders WHERE return_session_id = return_sessions.id
         );
         RAISE NOTICE '✅ Deleted orphaned return sessions';
     END IF;

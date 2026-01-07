@@ -71,18 +71,18 @@ BEGIN
     END IF;
 
     -- Delete from picking/packing sessions
-    SELECT ARRAY_AGG(DISTINCT session_id) INTO v_picking_session_ids FROM picking_session_orders WHERE order_id = OLD.id;
+    SELECT ARRAY_AGG(DISTINCT picking_session_id) INTO v_picking_session_ids FROM picking_session_orders WHERE order_id = OLD.id;
     IF v_picking_session_ids IS NOT NULL AND array_length(v_picking_session_ids, 1) > 0 THEN
         DELETE FROM packing_progress WHERE order_id = OLD.id;
         DELETE FROM picking_session_orders WHERE order_id = OLD.id;
-        DELETE FROM picking_sessions WHERE id = ANY(v_picking_session_ids) AND NOT EXISTS (SELECT 1 FROM picking_session_orders WHERE session_id = picking_sessions.id);
+        DELETE FROM picking_sessions WHERE id = ANY(v_picking_session_ids) AND NOT EXISTS (SELECT 1 FROM picking_session_orders WHERE picking_session_id = picking_sessions.id);
     END IF;
 
     -- Delete from return sessions
-    SELECT ARRAY_AGG(DISTINCT session_id) INTO v_return_session_ids FROM return_session_orders WHERE order_id = OLD.id;
+    SELECT ARRAY_AGG(DISTINCT return_session_id) INTO v_return_session_ids FROM return_session_orders WHERE order_id = OLD.id;
     IF v_return_session_ids IS NOT NULL AND array_length(v_return_session_ids, 1) > 0 THEN
         DELETE FROM return_session_orders WHERE order_id = OLD.id;
-        DELETE FROM return_sessions WHERE id = ANY(v_return_session_ids) AND NOT EXISTS (SELECT 1 FROM return_session_orders WHERE session_id = return_sessions.id);
+        DELETE FROM return_sessions WHERE id = ANY(v_return_session_ids) AND NOT EXISTS (SELECT 1 FROM return_session_orders WHERE return_session_id = return_sessions.id);
     END IF;
 
     -- Delete other related data

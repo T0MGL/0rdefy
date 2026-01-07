@@ -53,6 +53,18 @@ export interface OrderForPacking {
   order_number: string;
   customer_name: string;
   customer_phone: string;
+  customer_address?: string;
+  address_reference?: string;
+  neighborhood?: string;
+  delivery_notes?: string;
+  delivery_link_token?: string;
+  carrier_id?: string;
+  carrier_name?: string;
+  cod_amount?: number;
+  payment_method?: string;
+  financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
+  printed?: boolean;
+  printed_at?: string;
   items: Array<{
     product_id: string;
     product_name: string;
@@ -569,6 +581,7 @@ export async function getPackingList(
         orders (
           id,
           shopify_order_number,
+          shopify_order_id,
           customer_first_name,
           customer_last_name,
           customer_phone,
@@ -580,6 +593,7 @@ export async function getPackingList(
           courier_id,
           cod_amount,
           payment_method,
+          financial_status,
           printed,
           printed_at
         )
@@ -610,18 +624,61 @@ export async function getPackingList(
 
     const carrierMap = new Map(carriersData?.map(c => [c.id, c.name]) || []);
 
+    // Get ALL order line items (not just packing_progress)
+    // This ensures we show ALL products in the order, even if not yet packed
+    const { data: orderLineItems, error: lineItemsError } = await supabaseAdmin
+      .from('order_line_items')
+      .select(`
+        order_id,
+        product_id,
+        product_name,
+        variant_title,
+        quantity,
+        products (
+          id,
+          name,
+          image_url
+        )
+      `)
+      .in('order_id', orderIds);
+
+    if (lineItemsError) throw lineItemsError;
+
+    // Create a map of packing progress for quick lookup
+    const packingProgressMap = new Map<string, { quantity_needed: number; quantity_packed: number }>();
+    packingProgress?.forEach((p: any) => {
+      const key = `${p.order_id}-${p.product_id}`;
+      packingProgressMap.set(key, {
+        quantity_needed: p.quantity_needed,
+        quantity_packed: p.quantity_packed
+      });
+    });
+
     // Format orders with their items
     const orders: OrderForPacking[] = sessionOrders?.map((so: any) => {
       const order = so.orders;
-      const orderProgress = packingProgress?.filter(p => p.order_id === order.id) || [];
 
-      const items = orderProgress.map((p: any) => ({
-        product_id: p.product_id,
-        product_name: p.products?.name || '',
-        product_image: p.products?.image_url || '',
-        quantity_needed: p.quantity_needed,
-        quantity_packed: p.quantity_packed
-      }));
+      // Get ALL line items for this order (from order_line_items table)
+      const orderItems = orderLineItems?.filter((li: any) => li.order_id === order.id) || [];
+
+      const items = orderItems.map((lineItem: any) => {
+        const progressKey = `${order.id}-${lineItem.product_id}`;
+        const progress = packingProgressMap.get(progressKey);
+
+        // Use product name from products table if available, otherwise from line item
+        const productName = lineItem.products?.name || lineItem.product_name;
+        const fullProductName = lineItem.variant_title
+          ? `${productName} - ${lineItem.variant_title}`
+          : productName;
+
+        return {
+          product_id: lineItem.product_id,
+          product_name: fullProductName,
+          product_image: lineItem.products?.image_url || '',
+          quantity_needed: progress?.quantity_needed || parseInt(lineItem.quantity) || 0,
+          quantity_packed: progress?.quantity_packed || 0
+        };
+      });
 
       const is_complete = items.every(item => item.quantity_packed >= item.quantity_needed);
 
@@ -639,6 +696,7 @@ export async function getPackingList(
         carrier_name: order.courier_id ? carrierMap.get(order.courier_id) : undefined,
         cod_amount: order.cod_amount,
         payment_method: order.payment_method,
+        financial_status: order.financial_status,
         printed: order.printed,
         printed_at: order.printed_at,
         items,
