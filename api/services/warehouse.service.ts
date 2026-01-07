@@ -249,6 +249,48 @@ export async function createSession(
       );
     }
 
+    // STOCK VALIDATION: Check if there's enough stock for all products
+    const productIds = Array.from(productQuantities.keys());
+    const { data: stockData, error: stockError } = await supabaseAdmin
+      .from('products')
+      .select('id, name, stock, sku')
+      .in('id', productIds);
+
+    if (stockError) throw stockError;
+
+    const stockMap = new Map(stockData?.map(p => [p.id, { name: p.name, stock: p.stock || 0, sku: p.sku }]) || []);
+    const insufficientStock: Array<{ name: string; sku: string; needed: number; available: number }> = [];
+
+    productQuantities.forEach((quantityNeeded, productId) => {
+      const product = stockMap.get(productId);
+      if (product && product.stock < quantityNeeded) {
+        insufficientStock.push({
+          name: product.name || 'Producto sin nombre',
+          sku: product.sku || 'N/A',
+          needed: quantityNeeded,
+          available: product.stock
+        });
+      }
+    });
+
+    if (insufficientStock.length > 0) {
+      const stockList = insufficientStock
+        .map(p => `• ${p.name} (SKU: ${p.sku}) - Necesario: ${p.needed}, Disponible: ${p.available}`)
+        .join('\n');
+
+      console.warn('⚠️  Insufficient stock detected for picking session:', insufficientStock);
+
+      throw new Error(
+        `⚠️ Stock insuficiente para crear la sesión de preparación\n\n` +
+        `Los siguientes productos no tienen suficiente inventario:\n\n` +
+        `${stockList}\n\n` +
+        `📋 Opciones:\n` +
+        `1. Recibe mercadería (Ingresos) para aumentar el stock\n` +
+        `2. Ajusta manualmente el stock en Productos\n` +
+        `3. Excluye las órdenes con estos productos de la sesión`
+      );
+    }
+
     // Insert aggregated picking list
     const pickingItems = Array.from(productQuantities.entries()).map(([productId, quantity]) => ({
       picking_session_id: session.id,

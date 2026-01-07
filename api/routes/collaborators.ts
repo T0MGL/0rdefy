@@ -26,10 +26,26 @@ const JWT_AUDIENCE = 'ordefy-app';
 const TOKEN_EXPIRY = '7d';
 const SALT_ROUNDS = 10;
 
+/**
+ * Mask email for privacy (e.g., john.doe@example.com -> j***@example.com)
+ */
+function maskEmail(email: string): string {
+  const [localPart, domain] = email.split('@');
+  if (!localPart || !domain) return '***@***';
+
+  // Show first char and mask the rest
+  const maskedLocal = localPart.length > 1
+    ? localPart[0] + '***'
+    : localPart + '***';
+
+  return `${maskedLocal}@${domain}`;
+}
+
 // Apply authentication middleware to all routes (except public ones)
 collaboratorsRouter.use((req, res, next) => {
   // Public routes that don't require authentication
-  const publicRoutes = ['/validate-token/', '/accept-invitation'];
+  // Note: cleanup-expired-tokens uses X-Cron-Secret header instead
+  const publicRoutes = ['/validate-token/', '/accept-invitation', '/cleanup-expired-tokens'];
   const isPublicRoute = publicRoutes.some(route => req.path.includes(route));
 
   if (isPublicRoute) {
@@ -328,12 +344,17 @@ collaboratorsRouter.get(
 
       console.log('[ValidateToken] Valid invitation found for:', invitation.invited_email);
 
+      // SECURITY: Only expose minimal information needed for the UI
+      // Don't reveal assigned_role (security-sensitive)
+      // Email is masked for privacy but shown so user can confirm it's for them
+      const maskedEmail = maskEmail(invitation.invited_email);
+
       res.json({
         valid: true,
         invitation: {
           name: invitation.invited_name,
-          email: invitation.invited_email,
-          role: invitation.assigned_role,
+          email: maskedEmail, // Masked email for privacy (e.g., j***@example.com)
+          // role intentionally omitted - revealed after password set
           storeName: invitation.store.name,
           expiresAt: invitation.expires_at
         }
@@ -371,26 +392,33 @@ collaboratorsRouter.post(
         });
       }
 
-      // Validate token
+      // RACE CONDITION FIX: Use atomic update to claim the invitation
+      // This prevents two concurrent requests from accepting the same invitation
+      // by atomically setting used=true and only proceeding if update affected a row
       const { data: invitation, error: invError } = await supabaseAdmin
         .from('collaborator_invitations')
-        .select('*')
+        .update({
+          used: true,
+          used_at: new Date().toISOString()
+        })
         .eq('token', token)
-        .eq('used', false)
+        .eq('used', false)  // Only update if not already used (atomic check)
         .gt('expires_at', new Date().toISOString())
+        .select('*')
         .single();
 
       if (invError || !invitation) {
-        console.warn('[AcceptInvitation] Invalid invitation');
+        console.warn('[AcceptInvitation] Invalid or already claimed invitation');
         return res.status(404).json({
           error: 'Invalid or expired invitation'
         });
       }
 
-      console.log('[AcceptInvitation] Valid invitation for:', invitation.invited_email);
+      console.log('[AcceptInvitation] Invitation atomically claimed for:', invitation.invited_email);
 
       // Check if user already exists with this email
       let userId: string;
+      let isExistingUser = false;
       const { data: existingUser } = await supabaseAdmin
         .from('users')
         .select('id, password_hash')
@@ -401,6 +429,7 @@ collaboratorsRouter.post(
         // User exists - they're accepting an invitation to a new store
         console.log('[AcceptInvitation] Existing user found:', existingUser.id);
         userId = existingUser.id;
+        isExistingUser = true;
 
         // Verify password matches (they should login with existing password)
         const passwordMatch = await bcrypt.compare(password, existingUser.password_hash);
@@ -434,7 +463,8 @@ collaboratorsRouter.post(
         console.log('[AcceptInvitation] New user created:', userId);
       }
 
-      // Create user_stores relationship
+      // ATOMIC OPERATION: Create user_stores and mark invitation as used together
+      // If either fails, we need to rollback
       const { error: linkError } = await supabaseAdmin
         .from('user_stores')
         .insert({
@@ -448,20 +478,32 @@ collaboratorsRouter.post(
 
       if (linkError) {
         console.error('[AcceptInvitation] Error linking user to store:', linkError);
+        // ROLLBACK: Revert invitation claim and delete new user if created
+        console.log('[AcceptInvitation] Rolling back: reverting invitation claim');
+        await supabaseAdmin
+          .from('collaborator_invitations')
+          .update({ used: false, used_at: null, used_by_user_id: null })
+          .eq('id', invitation.id);
+
+        if (!isExistingUser) {
+          console.log('[AcceptInvitation] Rolling back: deleting newly created user');
+          await supabaseAdmin.from('users').delete().eq('id', userId);
+        }
         return res.status(500).json({ error: 'Failed to link user to store' });
       }
 
       console.log('[AcceptInvitation] User linked to store');
 
-      // Mark invitation as used
-      await supabaseAdmin
+      // Update invitation with user_id who accepted it (invitation already marked used atomically above)
+      const { error: updateInvError } = await supabaseAdmin
         .from('collaborator_invitations')
-        .update({
-          used: true,
-          used_at: new Date().toISOString(),
-          used_by_user_id: userId
-        })
+        .update({ used_by_user_id: userId })
         .eq('id', invitation.id);
+
+      if (updateInvError) {
+        // Non-critical error - invitation is already marked as used, just log
+        console.warn('[AcceptInvitation] Failed to update used_by_user_id:', updateInvError);
+      }
 
       // Generate JWT token for auto-login
       const authToken = jwt.sign(
@@ -678,6 +720,56 @@ collaboratorsRouter.get(
       });
     } catch (error) {
       console.error('[Stats] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// POST /api/collaborators/cleanup-expired-tokens
+// Limpieza de tokens de invitación expirados (para cron job)
+// ============================================================================
+
+collaboratorsRouter.post(
+  '/cleanup-expired-tokens',
+  async (req, res) => {
+    try {
+      // Simple auth check - could be enhanced with a secret key
+      const cronSecret = req.headers['x-cron-secret'];
+      const expectedSecret = process.env.CRON_SECRET;
+
+      // If CRON_SECRET is set, verify it
+      if (expectedSecret && cronSecret !== expectedSecret) {
+        console.warn('[Cleanup] Unauthorized cleanup attempt');
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      // Delete expired AND unused invitations older than 7 days (double the expiry period)
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 7);
+
+      const { data: deleted, error } = await supabaseAdmin
+        .from('collaborator_invitations')
+        .delete()
+        .eq('used', false)
+        .lt('expires_at', cutoffDate.toISOString())
+        .select('id');
+
+      if (error) {
+        console.error('[Cleanup] Error deleting expired tokens:', error);
+        return res.status(500).json({ error: 'Failed to cleanup tokens' });
+      }
+
+      const deletedCount = deleted?.length || 0;
+      console.log(`[Cleanup] Deleted ${deletedCount} expired invitation tokens`);
+
+      res.json({
+        success: true,
+        deleted: deletedCount,
+        cutoff_date: cutoffDate.toISOString()
+      });
+    } catch (error) {
+      console.error('[Cleanup] Unexpected error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

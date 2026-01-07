@@ -8,6 +8,7 @@
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { productNotFound, databaseError, serverError } from '../utils/errorResponses';
 
 export const inventoryRouter = Router();
 
@@ -313,7 +314,7 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
 
         if (productError || !product) {
             console.error('❌ [INVENTORY] Product not found:', productError);
-            return res.status(404).json({ error: 'Producto no encontrado' });
+            return productNotFound(res, undefined, product_id);
         }
 
         const stock_before = product.stock;
@@ -331,7 +332,7 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
 
         if (updateError) {
             console.error('❌ [INVENTORY] Error updating stock:', updateError);
-            return res.status(500).json({ error: updateError.message });
+            return databaseError(res, updateError);
         }
 
         // Log the movement
@@ -367,9 +368,6 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
         });
     } catch (error) {
         console.error('❌ [INVENTORY] Unexpected error:', error);
-        return res.status(500).json({
-            error: 'Error al ajustar inventario',
-            details: error instanceof Error ? error.message : 'Error desconocido'
-        });
+        return serverError(res, error);
     }
 });

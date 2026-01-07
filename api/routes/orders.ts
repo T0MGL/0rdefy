@@ -131,33 +131,36 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
     }
 });
 
-// POST /api/orders/:id/delivery-confirm - Courier confirms delivery (public)
-// This endpoint is accessible without auth for courier delivery confirmation
-ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) => {
+// POST /api/orders/token/:token/delivery-confirm - Courier confirms delivery (public)
+// SECURITY: Uses delivery_link_token from URL - courier scans QR code
+ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const { token } = req.params;
         const { proof_photo_url, payment_method, notes } = req.body;
 
-        console.log(`✅ [ORDERS] Courier confirming delivery for order ${id}`, {
+        console.log(`✅ [ORDERS] Courier confirming delivery via token`);
+
+        // SECURITY: Look up order by token - only valid tokens can access
+        const { data: existingOrder, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('id, store_id, sleeves_status, courier_id, has_active_incident')
+            .eq('delivery_link_token', token)
+            .single();
+
+        if (fetchError || !existingOrder) {
+            console.error(`❌ [ORDERS] Order not found for token`);
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'Token de entrega inválido o expirado'
+            });
+        }
+
+        const id = existingOrder.id;
+        console.log(`✅ [ORDERS] Token validated for order ${id}`, {
             payment_method,
             has_notes: !!notes,
             has_photo: !!proof_photo_url
         });
-
-        // First, get the order to verify it exists and get its store_id
-        const { data: existingOrder, error: fetchError } = await supabaseAdmin
-            .from('orders')
-            .select('id, store_id, sleeves_status, courier_id, has_active_incident')
-            .eq('id', id)
-            .single();
-
-        if (fetchError || !existingOrder) {
-            console.error(`❌ [ORDERS] Order ${id} not found`);
-            return res.status(404).json({
-                error: 'Order not found',
-                message: 'El pedido no existe'
-            });
-        }
 
         // Check if order has an active incident
         if (existingOrder.has_active_incident) {
@@ -258,11 +261,11 @@ ordersRouter.post('/:id/delivery-confirm', async (req: Request, res: Response) =
     }
 });
 
-// POST /api/orders/:id/delivery-fail - Courier reports failed delivery (public)
-// This endpoint is accessible without auth for courier delivery confirmation
-ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
+// POST /api/orders/token/:token/delivery-fail - Courier reports failed delivery (public)
+// SECURITY: Uses delivery_link_token from URL - courier scans QR code
+ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Response) => {
     try {
-        const { id } = req.params;
+        const { token } = req.params;
         const { delivery_failure_reason, failure_notes } = req.body;
 
         if (!delivery_failure_reason) {
@@ -272,25 +275,28 @@ ordersRouter.post('/:id/delivery-fail', async (req: Request, res: Response) => {
             });
         }
 
-        console.log(`❌ [ORDERS] Courier reporting failed delivery for order ${id}`, {
-            reason: delivery_failure_reason,
-            has_notes: !!failure_notes
-        });
+        console.log(`❌ [ORDERS] Courier reporting failed delivery via token`);
 
-        // First, get the order to verify it exists and get its store_id
+        // SECURITY: Look up order by token - only valid tokens can access
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
             .select('id, store_id, sleeves_status, courier_id, has_active_incident')
-            .eq('id', id)
+            .eq('delivery_link_token', token)
             .single();
 
         if (fetchError || !existingOrder) {
-            console.error(`❌ [ORDERS] Order ${id} not found`);
+            console.error(`❌ [ORDERS] Order not found for token`);
             return res.status(404).json({
                 error: 'Order not found',
-                message: 'El pedido no existe'
+                message: 'Token de entrega inválido o expirado'
             });
         }
+
+        const id = existingOrder.id;
+        console.log(`❌ [ORDERS] Token validated for order ${id}`, {
+            reason: delivery_failure_reason,
+            has_notes: !!failure_notes
+        });
 
         // Check if order has an active incident
         if (existingOrder.has_active_incident) {

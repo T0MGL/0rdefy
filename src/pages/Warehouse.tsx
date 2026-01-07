@@ -28,6 +28,7 @@ import type {
   PackingListResponse
 } from '@/services/warehouse.service';
 import { unifiedService } from '@/services/unified.service';
+import { showErrorToast } from '@/utils/errorMessages';
 import { GlobalViewToggle } from '@/components/GlobalViewToggle';
 
 type View = 'dashboard' | 'picking' | 'packing';
@@ -99,9 +100,10 @@ export default function Warehouse() {
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron cargar los datos del almacén',
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'load_dashboard',
+        entity: 'datos del almacén',
         variant: 'destructive',
       });
     } finally {
@@ -189,9 +191,10 @@ export default function Warehouse() {
       });
     } catch (error: any) {
       console.error('Error creating session:', error);
-      toast({
-        title: 'Error',
-        description: error.response?.data?.details || 'No se pudo crear la sesión',
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'create_session',
+        entity: 'sesión de picking',
         variant: 'destructive',
       });
     } finally {
@@ -210,18 +213,23 @@ export default function Warehouse() {
 
   async function handleUpdatePickingProgress(productId: string, newQuantity: number) {
     if (!currentSession) return;
+
+    // Optimistic update - update UI immediately
+    const previousPickingList = [...pickingList];
+    setPickingList(prev =>
+      prev.map(item =>
+        item.product_id === productId
+          ? { ...item, quantity_picked: newQuantity }
+          : item
+      )
+    );
+
     try {
       await warehouseService.updatePickingProgress(currentSession.id, productId, newQuantity);
-      // Update local state
-      setPickingList(prev =>
-        prev.map(item =>
-          item.product_id === productId
-            ? { ...item, quantity_picked: newQuantity }
-            : item
-        )
-      );
     } catch (error: any) {
       console.error('Error updating picking progress:', error);
+      // Revert optimistic update on error
+      setPickingList(previousPickingList);
       toast({
         title: 'Error',
         description: error.response?.data?.details || 'No se pudo actualizar el progreso',
@@ -272,18 +280,61 @@ export default function Warehouse() {
     if (!currentSession || packingInProgress) return;
 
     setPackingInProgress(true);
+
+    // Optimistic update - update UI immediately
+    const previousPackingData = packingData ? { ...packingData } : null;
+
+    if (packingData) {
+      // Update local state optimistically
+      const updatedOrders = packingData.orders.map(order => {
+        if (order.id === orderId) {
+          const updatedItems = order.items.map(item => {
+            if (item.product_id === productId && item.quantity_packed < item.quantity_needed) {
+              return { ...item, quantity_packed: item.quantity_packed + 1 };
+            }
+            return item;
+          });
+
+          const isComplete = updatedItems.every(item => item.quantity_packed >= item.quantity_needed);
+          return { ...order, items: updatedItems, is_complete: isComplete };
+        }
+        return order;
+      });
+
+      const updatedAvailableItems = packingData.availableItems.map(item => {
+        if (item.product_id === productId) {
+          return {
+            ...item,
+            total_packed: item.total_packed + 1,
+            remaining: item.remaining - 1
+          };
+        }
+        return item;
+      });
+
+      setPackingData({
+        ...packingData,
+        orders: updatedOrders,
+        availableItems: updatedAvailableItems
+      });
+
+      // Clear selection immediately for better UX
+      setSelectedItem(null);
+    }
+
     try {
       await warehouseService.updatePackingProgress(currentSession.id, orderId, productId);
-      toast({
-        title: 'Producto empacado',
-        description: 'El producto se agregó al pedido correctamente',
-      });
-      // Reload packing list to update state
+
+      // Reload to ensure sync with server (but UI already updated)
       await loadPackingList();
-      // Clear selection
-      setSelectedItem(null);
     } catch (error: any) {
       console.error('Error packing item:', error);
+
+      // Revert optimistic update on error
+      if (previousPackingData) {
+        setPackingData(previousPackingData);
+      }
+
       toast({
         title: 'Error',
         description: error.response?.data?.details || 'No se pudo empacar el producto',
@@ -984,8 +1035,8 @@ function PickingView({
           return (
             <Card
               key={item.id}
-              className={`p-4 transition-all ${isComplete
-                ? 'border-green-500 bg-green-50 dark:bg-green-950/20 shadow-md'
+              className={`p-4 transition-state ${isComplete
+                ? 'border-green-500 bg-green-50 dark:bg-green-950/20 shadow-md animate-pulse-success'
                 : 'border-border'
                 }`}
             >
@@ -1278,8 +1329,8 @@ function PackingView({
               return (
                 <Card
                   key={order.id}
-                  className={`p-4 transition-all ${order.is_complete
-                    ? 'border-green-600 dark:border-green-600 bg-green-50 dark:bg-green-950/20'
+                  className={`p-4 transition-state ${order.is_complete
+                    ? 'border-green-600 dark:border-green-600 bg-green-50 dark:bg-green-950/20 animate-pulse-success'
                     : needsSelectedItem
                       ? `border-green-600 dark:border-green-600 ring-2 ring-green-600/20 shadow-lg ${packingInProgress ? 'cursor-wait opacity-70' : 'cursor-pointer'} bg-green-50/50 dark:bg-green-950/10`
                       : ''

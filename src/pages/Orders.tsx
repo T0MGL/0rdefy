@@ -737,8 +737,13 @@ export default function Orders() {
           ? order.order_line_items.map((item: any) => ({
             name: item.product_name || item.title,
             quantity: item.quantity,
+            price: item.price || item.unit_price,
           }))
-          : [{ name: order.product, quantity: order.quantity }],
+          : [{
+              name: order.product,
+              quantity: order.quantity,
+              price: (order as any).total_price ? (order as any).total_price / order.quantity : 0
+            }],
       };
 
       console.log('🏷️ [ORDERS] Label data for single print:', labelData);
@@ -792,6 +797,7 @@ export default function Orders() {
           {
             name: order.product,
             quantity: order.quantity,
+            price: (order as any).total_price ? (order as any).total_price / order.quantity : 0
           },
         ],
       }));

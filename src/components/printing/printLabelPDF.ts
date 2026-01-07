@@ -24,6 +24,7 @@ interface LabelData {
   items: Array<{
     name: string;
     quantity: number;
+    price?: number; // Unit price for display
   }>;
 }
 
@@ -71,6 +72,26 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
 
   // Set default font
   pdf.setFont('helvetica', 'normal');
+
+  // === WATERMARK - Very subtle ORDEFY branding ===
+  const pageWidth = 4;
+  const pageHeight = 6;
+  const centerX = pageWidth / 2;
+  const centerY = pageHeight / 2;
+
+  pdf.saveGraphicsState();
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(100);
+  pdf.setTextColor(245, 245, 245); // Very light gray - almost imperceptible
+
+  // Draw diagonal watermark in center
+  pdf.text('ORDEFY', centerX, centerY, {
+    align: 'center',
+    angle: -45
+  });
+
+  pdf.restoreGraphicsState();
+  pdf.setTextColor(0, 0, 0); // Reset to black
 
   // === OUTER BORDER ===
   pdf.setLineWidth(0.04);
@@ -159,10 +180,11 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   // QR Container (left 45%)
   const qrX = 0.04;
   const qrWidth = 1.8;
-  pdf.line(qrX + qrWidth, actionY, qrX + qrWidth, actionY + actionHeight);
 
-  // Add QR code image
+  // Add QR code image first
   pdf.addImage(qrDataUrl, 'PNG', qrX + 0.2, actionY + 0.15, 1.4, 1.4);
+
+  // Vertical separator line will be drawn AFTER payment box (below) to avoid overlay
 
   // Action details (right 55%)
   const actionDetailsX = qrX + qrWidth + 0.1;
@@ -208,12 +230,19 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
     pdf.text(statusText, actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
   }
 
+  // Draw vertical separator line AFTER payment box to avoid overlay
+  pdf.setLineWidth(0.02);
+  pdf.setDrawColor(200, 200, 200); // Light gray line
+  pdf.line(qrX + qrWidth, actionY, qrX + qrWidth, actionY + actionHeight);
+  pdf.setDrawColor(0, 0, 0); // Reset to black
+
   // Carrier info
   pdf.setFontSize(12);
   pdf.setFont('helvetica', 'bold');
   pdf.text(`SERVICIOS: ${data.carrierName || 'PROPIO'}`, actionDetailsX + actionDetailsWidth / 2, actionY + 1.5, { align: 'center' });
 
   // Action bottom border
+  pdf.setLineWidth(0.04);
   pdf.line(0.04, actionY + actionHeight, 3.96, actionY + actionHeight);
 
   // === ZONE D: PACKING LIST (25% = 1.5in) ===
@@ -234,11 +263,17 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   let rowY = packingY + 0.45;
   const displayItems = data.items.slice(0, 4);
 
-  displayItems.forEach((item, index) => {
+  displayItems.forEach((item) => {
     pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
 
+    // Item name with price (if available)
+    let itemText = item.name;
+    if (item.price && item.price > 0) {
+      itemText += ` @ Gs. ${item.price.toLocaleString()}`;
+    }
+
     // Truncate long item names
-    const itemLines = pdf.splitTextToSize(item.name, 3.2);
+    const itemLines = pdf.splitTextToSize(itemText, 3.2);
     pdf.text(itemLines[0], 0.6, rowY);
 
     // Light separator line
@@ -302,6 +337,26 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
 function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: boolean) {
   // Set default font
   pdf.setFont('helvetica', 'normal');
+
+  // === WATERMARK - Very subtle ORDEFY branding ===
+  const pageWidth = 4;
+  const pageHeight = 6;
+  const centerX = pageWidth / 2;
+  const centerY = pageHeight / 2;
+
+  pdf.saveGraphicsState();
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(100);
+  pdf.setTextColor(245, 245, 245); // Very light gray - almost imperceptible
+
+  // Draw diagonal watermark in center
+  pdf.text('ORDEFY', centerX, centerY, {
+    align: 'center',
+    angle: -45
+  });
+
+  pdf.restoreGraphicsState();
+  pdf.setTextColor(0, 0, 0); // Reset to black
 
   // === OUTER BORDER ===
   pdf.setLineWidth(0.04);
@@ -375,9 +430,12 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
 
   const qrX = 0.04;
   const qrWidth = 1.8;
-  pdf.line(qrX + qrWidth, actionY, qrX + qrWidth, actionY + actionHeight);
 
+  // Draw QR code first
   pdf.addImage(qrDataUrl, 'PNG', qrX + 0.2, actionY + 0.15, 1.4, 1.4);
+
+  // Draw vertical separator line AFTER payment box (below) to avoid overlay
+  // This will be drawn later after the payment box
 
   const actionDetailsX = qrX + qrWidth + 0.1;
   const actionDetailsWidth = 2.06;
@@ -415,10 +473,17 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
     pdf.text(statusText, actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
   }
 
+  // Draw vertical separator line AFTER payment box to avoid overlay
+  pdf.setLineWidth(0.02);
+  pdf.setDrawColor(200, 200, 200); // Light gray line
+  pdf.line(qrX + qrWidth, actionY, qrX + qrWidth, actionY + actionHeight);
+  pdf.setDrawColor(0, 0, 0); // Reset to black
+
   pdf.setFontSize(12);
   pdf.setFont('helvetica', 'bold');
   pdf.text(`SERVICIOS: ${data.carrierName || 'PROPIO'}`, actionDetailsX + actionDetailsWidth / 2, actionY + 1.5, { align: 'center' });
 
+  pdf.setLineWidth(0.04);
   pdf.line(0.04, actionY + actionHeight, 3.96, actionY + actionHeight);
 
   // === ZONE D: PACKING LIST ===
@@ -439,7 +504,13 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
   displayItems.forEach((item) => {
     pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
 
-    const itemLines = pdf.splitTextToSize(item.name, 3.2);
+    // Item name with price (if available)
+    let itemText = item.name;
+    if (item.price && item.price > 0) {
+      itemText += ` @ Gs. ${item.price.toLocaleString()}`;
+    }
+
+    const itemLines = pdf.splitTextToSize(itemText, 3.2);
     pdf.text(itemLines[0], 0.6, rowY);
 
     pdf.setDrawColor(200, 200, 200);

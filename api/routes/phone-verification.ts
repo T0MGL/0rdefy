@@ -50,18 +50,34 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
     }
 
     // Check rate limiting (60 seconds between requests)
-    const { data: canRequest } = await supabaseAdmin
+    const { data: canRequest, error: rpcError } = await supabaseAdmin
       .rpc('can_request_verification_code', { p_user_id: userId });
 
-    if (!canRequest) {
+    // SECURITY: If RPC fails, deny the request (fail-closed)
+    if (rpcError) {
+      console.error('[PhoneVerification] RPC error checking rate limit:', rpcError);
+      return res.status(500).json({
+        error: 'Error al verificar límite de solicitudes. Intenta nuevamente.'
+      });
+    }
+
+    // Explicit check for false (not just falsy) to handle RPC returning null
+    if (canRequest !== true) {
       return res.status(429).json({
         error: 'Debes esperar 60 segundos antes de solicitar un nuevo código'
       });
     }
 
     // Generate 6-digit code
-    const { data: codeData } = await supabaseAdmin
+    const { data: codeData, error: codeGenError } = await supabaseAdmin
       .rpc('generate_verification_code');
+
+    if (codeGenError || !codeData) {
+      console.error('[PhoneVerification] Error generating verification code:', codeGenError);
+      return res.status(500).json({
+        error: 'Error al generar código de verificación. Intenta nuevamente.'
+      });
+    }
 
     const code = codeData;
 

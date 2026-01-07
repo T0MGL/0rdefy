@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { productsExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
+import { showErrorToast } from '@/utils/errorMessages';
 
 export default function Products() {
   const [showCalculator, setShowCalculator] = useState(false);
@@ -40,6 +41,9 @@ export default function Products() {
   const [hasShopifyIntegration, setHasShopifyIntegration] = useState(false);
   const [isPublishing, setIsPublishing] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<'manual' | 'shopify'>('manual');
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const [productToPublish, setProductToPublish] = useState<Product | null>(null);
+  const [stockAdjustLoading, setStockAdjustLoading] = useState(false);
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
 
@@ -80,10 +84,21 @@ export default function Products() {
     setDeleteDialogOpen(true);
   };
 
-  const handlePublishToShopify = async (productId: string) => {
-    setIsPublishing(productId);
+  // Show confirmation dialog before publishing to Shopify
+  const handlePublishToShopifyClick = (product: Product) => {
+    setProductToPublish(product);
+    setPublishConfirmOpen(true);
+  };
+
+  // Actually publish to Shopify after confirmation
+  const handlePublishToShopify = async () => {
+    if (!productToPublish) return;
+
+    setPublishConfirmOpen(false);
+    setIsPublishing(productToPublish.id);
+
     try {
-      await productsService.publishToShopify(productId);
+      await productsService.publishToShopify(productToPublish.id);
 
       // Recargar productos para obtener el shopify_product_id actualizado
       const updatedProducts = await productsService.getAll();
@@ -95,13 +110,14 @@ export default function Products() {
       });
     } catch (error: any) {
       console.error('Error al publicar producto:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'No se pudo publicar el producto en Shopify',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'products',
+        action: 'publish_to_shopify',
+        entity: 'producto',
       });
     } finally {
       setIsPublishing(null);
+      setProductToPublish(null);
     }
   };
 
@@ -114,17 +130,18 @@ export default function Products() {
   const confirmStockAdjustment = async () => {
     if (!selectedProduct || stockAdjustment === 0) return;
 
-    try {
-      const newStock = selectedProduct.stock + stockAdjustment;
-      if (newStock < 0) {
-        toast({
-          title: 'Error',
-          description: 'El stock no puede ser negativo',
-          variant: 'destructive',
-        });
-        return;
-      }
+    const newStock = selectedProduct.stock + stockAdjustment;
+    if (newStock < 0) {
+      toast({
+        title: 'Error',
+        description: 'El stock no puede ser negativo',
+        variant: 'destructive',
+      });
+      return;
+    }
 
+    setStockAdjustLoading(true);
+    try {
       await productsService.update(selectedProduct.id, {
         stock: newStock,
       });
@@ -140,11 +157,14 @@ export default function Products() {
       });
     } catch (error) {
       console.error('Error al ajustar stock:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo actualizar el stock',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'products',
+        action: 'adjust_stock',
+        entity: 'stock',
+        details: { productName: selectedProduct.name, adjustment: stockAdjustment },
       });
+    } finally {
+      setStockAdjustLoading(false);
     }
   };
 
@@ -186,9 +206,10 @@ export default function Products() {
       });
     } catch (error) {
       console.error('Error al eliminar producto:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo eliminar el producto. Por favor intenta de nuevo.',
+      showErrorToast(toast, error, {
+        module: 'products',
+        action: 'delete',
+        entity: 'producto',
         variant: 'destructive',
       });
     }
@@ -242,9 +263,10 @@ export default function Products() {
       setDialogOpen(false);
     } catch (error) {
       console.error('Error al guardar producto:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo guardar el producto',
+      showErrorToast(toast, error, {
+        module: 'products',
+        action: productToEdit ? 'update' : 'create',
+        entity: 'producto',
         variant: 'destructive',
       });
     }
@@ -456,7 +478,7 @@ export default function Products() {
                       variant="outline"
                       size="sm"
                       className="w-full gap-2 bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
-                      onClick={() => handlePublishToShopify(product.id)}
+                      onClick={() => handlePublishToShopifyClick(product)}
                       disabled={isPublishing === product.id}
                     >
                       {isPublishing === product.id ? (
@@ -723,15 +745,73 @@ export default function Products() {
                 variant="outline"
                 onClick={() => setStockDialogOpen(false)}
                 className="flex-1"
+                disabled={stockAdjustLoading}
               >
                 Cancelar
               </Button>
               <Button
                 onClick={confirmStockAdjustment}
-                disabled={stockAdjustment === 0}
+                disabled={stockAdjustment === 0 || stockAdjustLoading}
                 className="flex-1"
               >
-                Confirmar
+                {stockAdjustLoading ? 'Guardando...' : 'Confirmar'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Publish to Shopify Confirmation Dialog */}
+      <Dialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Publicar en Shopify</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-green-500/10 dark:bg-green-500/20 border border-green-500/20 dark:border-green-500/30 rounded-lg p-4">
+              <div className="flex gap-3">
+                <div className="flex-shrink-0 mt-0.5">
+                  <ShoppingBag className="h-5 w-5 text-green-600 dark:text-green-500" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-green-800 dark:text-green-500">
+                    Confirmar publicación
+                  </p>
+                  <p className="text-sm text-green-700 dark:text-green-600 mt-1">
+                    El producto será publicado en tu tienda de Shopify y estará disponible para venta.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                Producto: <span className="text-muted-foreground">{productToPublish?.name}</span>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Precio: {formatCurrency(productToPublish?.price || 0)}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Stock: {productToPublish?.stock || 0} unidades
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPublishConfirmOpen(false);
+                  setProductToPublish(null);
+                }}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handlePublishToShopify}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+              >
+                Publicar
               </Button>
             </div>
           </div>

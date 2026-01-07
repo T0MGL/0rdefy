@@ -8,6 +8,7 @@ import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission } from '../middleware/permissions';
 import { Module, Permission } from '../permissions';
 import * as warehouseService from '../services/warehouse.service';
+import { noOrdersSelected, serverError, missingRequiredFields } from '../utils/errorResponses';
 
 const router = Router();
 
@@ -83,9 +84,7 @@ router.post('/sessions', async (req, res) => {
     }
 
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
-      return res.status(400).json({
-        error: 'orderIds must be a non-empty array'
-      });
+      return noOrdersSelected(res);
     }
 
     const session = await warehouseService.createSession(
@@ -97,10 +96,7 @@ router.post('/sessions', async (req, res) => {
     res.status(201).json(session);
   } catch (error) {
     console.error('Error creating picking session:', error);
-    res.status(500).json({
-      error: 'Failed to create picking session',
-      details: error.message
-    });
+    return serverError(res, error);
   }
 });
 
@@ -125,10 +121,7 @@ router.get('/sessions/:sessionId/picking-list', async (req, res) => {
     res.json(pickingList);
   } catch (error) {
     console.error('Error fetching picking list:', error);
-    res.status(500).json({
-      error: 'Failed to fetch picking list',
-      details: error.message
-    });
+    return serverError(res, error);
   }
 });
 

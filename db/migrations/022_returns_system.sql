@@ -116,47 +116,84 @@ BEGIN
   LOOP
     -- Update product stock for accepted items
     IF v_item.quantity_accepted > 0 THEN
-      UPDATE products
-      SET stock = stock + v_item.quantity_accepted
-      WHERE id = v_item.product_id;
+      DECLARE
+        v_stock_before INT;
+        v_stock_after INT;
+        v_store_id UUID;
+      BEGIN
+        -- Get current stock and store_id
+        SELECT stock, store_id INTO v_stock_before, v_store_id
+        FROM products
+        WHERE id = v_item.product_id
+        FOR UPDATE;
 
-      -- Log inventory movement
-      INSERT INTO inventory_movements (
-        product_id,
-        order_id,
-        movement_type,
-        quantity,
-        reason,
-        created_at
-      ) VALUES (
-        v_item.product_id,
-        v_item.order_id,
-        'return_accepted',
-        v_item.quantity_accepted,
-        'Return session: ' || v_session.session_code,
-        CURRENT_TIMESTAMP
-      );
+        v_stock_after := v_stock_before + v_item.quantity_accepted;
+
+        UPDATE products
+        SET stock = v_stock_after,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = v_item.product_id;
+
+        -- Log inventory movement with correct column names
+        INSERT INTO inventory_movements (
+          store_id,
+          product_id,
+          order_id,
+          movement_type,
+          quantity_change,
+          stock_before,
+          stock_after,
+          notes,
+          created_at
+        ) VALUES (
+          v_store_id,
+          v_item.product_id,
+          v_item.order_id,
+          'return_accepted',
+          v_item.quantity_accepted,
+          v_stock_before,
+          v_stock_after,
+          'Return session: ' || v_session.session_code,
+          CURRENT_TIMESTAMP
+        );
+      END;
 
       v_accepted_count := v_accepted_count + v_item.quantity_accepted;
     END IF;
 
     -- Log rejected items (no stock update)
     IF v_item.quantity_rejected > 0 THEN
-      INSERT INTO inventory_movements (
-        product_id,
-        order_id,
-        movement_type,
-        quantity,
-        reason,
-        created_at
-      ) VALUES (
-        v_item.product_id,
-        v_item.order_id,
-        'return_rejected',
-        v_item.quantity_rejected,
-        'Rejected - ' || COALESCE(v_item.rejection_reason, 'unknown') || ': ' || COALESCE(v_item.rejection_notes, ''),
-        CURRENT_TIMESTAMP
-      );
+      DECLARE
+        v_current_stock INT;
+        v_store_id UUID;
+      BEGIN
+        -- Get store_id and current stock for logging
+        SELECT stock, store_id INTO v_current_stock, v_store_id
+        FROM products
+        WHERE id = v_item.product_id;
+
+        INSERT INTO inventory_movements (
+          store_id,
+          product_id,
+          order_id,
+          movement_type,
+          quantity_change,
+          stock_before,
+          stock_after,
+          notes,
+          created_at
+        ) VALUES (
+          v_store_id,
+          v_item.product_id,
+          v_item.order_id,
+          'return_rejected',
+          0,  -- No stock change for rejected items
+          v_current_stock,
+          v_current_stock,
+          'Rejected - ' || COALESCE(v_item.rejection_reason, 'unknown') || ': ' || COALESCE(v_item.rejection_notes, ''),
+          CURRENT_TIMESTAMP
+        );
+      END;
 
       v_rejected_count := v_rejected_count + v_item.quantity_rejected;
     END IF;
@@ -174,7 +211,7 @@ BEGIN
     WHERE session_id = p_session_id
   LOOP
     UPDATE orders
-    SET status = 'returned',
+    SET sleeves_status = 'returned',
         updated_at = CURRENT_TIMESTAMP
     WHERE id = v_order_id;
 

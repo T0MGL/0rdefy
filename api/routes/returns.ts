@@ -73,7 +73,20 @@ router.get('/sessions', async (req, res) => {
 router.get('/sessions/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const storeId = req.storeId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
     const session = await returnsService.getReturnSession(id);
+
+    // SECURITY: Verify session belongs to the authenticated user's store
+    if (session.store_id !== storeId) {
+      console.warn(`[Returns] Unauthorized access attempt: user from store ${storeId} tried to access session from store ${session.store_id}`);
+      return res.status(404).json({ error: 'Return session not found' });
+    }
+
     res.json(session);
   } catch (error) {
     console.error('Error fetching return session:', error);
@@ -145,7 +158,12 @@ router.post('/sessions', async (req, res) => {
 router.patch('/items/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const storeId = req.storeId;
     const updates = req.body;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
 
     // Validate quantities
     if (updates.quantity_accepted !== undefined && updates.quantity_accepted < 0) {
@@ -155,7 +173,7 @@ router.patch('/items/:id', async (req, res) => {
       return res.status(400).json({ error: 'quantity_rejected must be non-negative' });
     }
 
-    const item = await returnsService.updateReturnItem(id, updates);
+    const item = await returnsService.updateReturnItem(id, updates, storeId);
     res.json(item);
   } catch (error) {
     console.error('Error updating return item:', error);
@@ -173,6 +191,19 @@ router.patch('/items/:id', async (req, res) => {
 router.post('/sessions/:id/complete', async (req, res) => {
   try {
     const { id } = req.params;
+    const storeId = req.storeId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    // SECURITY: Verify session belongs to this store before completing
+    const session = await returnsService.getReturnSession(id);
+    if (session.store_id !== storeId) {
+      console.warn(`[Returns] Unauthorized complete attempt: store ${storeId} tried to complete session from store ${session.store_id}`);
+      return res.status(404).json({ error: 'Return session not found' });
+    }
+
     const result = await returnsService.completeReturnSession(id);
     res.json(result);
   } catch (error) {
@@ -191,6 +222,19 @@ router.post('/sessions/:id/complete', async (req, res) => {
 router.post('/sessions/:id/cancel', async (req, res) => {
   try {
     const { id } = req.params;
+    const storeId = req.storeId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    // SECURITY: Verify session belongs to this store before cancelling
+    const session = await returnsService.getReturnSession(id);
+    if (session.store_id !== storeId) {
+      console.warn(`[Returns] Unauthorized cancel attempt: store ${storeId} tried to cancel session from store ${session.store_id}`);
+      return res.status(404).json({ error: 'Return session not found' });
+    }
+
     await returnsService.cancelReturnSession(id);
     res.json({ message: 'Return session cancelled successfully' });
   } catch (error) {

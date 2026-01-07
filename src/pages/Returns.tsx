@@ -216,15 +216,42 @@ export default function Returns() {
       rejection_notes?: string;
     }
   ) => {
+    // Optimistic update - update UI immediately
+    const previousItems = [...items];
+    const previousAcceptedItems = [...acceptedItems];
+    const previousRejectedItems = [...rejectedItems];
+
+    // Update local state
+    const updatedItems = items.map(item => {
+      if (item.id === itemId) {
+        return { ...item, ...updates };
+      }
+      return item;
+    });
+
+    setItems(updatedItems);
+
+    // Re-categorize items
+    const newAccepted = updatedItems.filter(item => item.quantity_accepted > 0);
+    const newRejected = updatedItems.filter(item => item.quantity_rejected > 0);
+    setAcceptedItems(newAccepted);
+    setRejectedItems(newRejected);
+
     try {
       await returnsService.updateReturnItem(itemId, updates);
 
-      // Refresh session
+      // Optionally refresh from server to ensure sync (but UI already updated)
       if (currentSession) {
         await loadSession(currentSession.id);
       }
     } catch (error) {
       console.error('Error updating item:', error);
+
+      // Revert optimistic update on error
+      setItems(previousItems);
+      setAcceptedItems(previousAcceptedItems);
+      setRejectedItems(previousRejectedItems);
+
       toast({
         title: 'Error',
         description: 'No se pudo actualizar el item',

@@ -234,22 +234,13 @@ router.get(
       });
     } catch (error: any) {
       console.error('[Billing] Store plan error:', error.message);
-      // Return free plan as fallback on error
-      res.json({
-        subscription: {
-          plan: 'free',
-          status: 'active',
-          billingCycle: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-          trialEndsAt: null,
-        },
-        usage: {
-          orders: { used: 0, limit: 50, percentage: 0 },
-          products: { used: 0, limit: 100, percentage: 0 },
-          users: { used: 1, limit: 1, percentage: 100 },
-        },
-        allPlans: [],
+      // SECURITY: Fail-closed - return error instead of defaulting to free plan
+      // Defaulting to free could allow feature bypass if DB is down
+      // Frontend should handle this error and show appropriate message
+      return res.status(503).json({
+        error: 'Unable to verify subscription status',
+        code: 'SUBSCRIPTION_CHECK_FAILED',
+        retryable: true
       });
     }
   }
@@ -752,10 +743,11 @@ async function updateSubscriptionInDB(
   const subscriptionPlan = getPlanFromPriceId(priceId);
 
   if (!subscriptionPlan) {
-    console.error('[Billing Webhook] SECURITY: Unknown priceId:', priceId);
-    // If we don't recognize the priceId, this could be a manipulation attempt
-    // Default to free for safety - user can contact support
-    console.warn('[Billing Webhook] SECURITY: Defaulting to free plan for unrecognized priceId');
+    // SECURITY: Unknown priceId is a critical error - could be manipulation attempt
+    // DO NOT default to free - this would give paid features without payment
+    console.error('[Billing Webhook] SECURITY ALERT: Unknown priceId rejected:', priceId);
+    console.error('[Billing Webhook] Store:', storeId, 'Subscription:', subscription.id);
+    throw new Error(`SECURITY: Unrecognized priceId "${priceId}" - subscription rejected. Contact support if this is legitimate.`);
   }
 
   // Get billing cycle from Stripe API (trusted source)
@@ -768,8 +760,8 @@ async function updateSubscriptionInDB(
     status = 'active'; // Still active but will cancel
   }
 
-  // SECURITY: Use verified plan or default to 'free' if priceId is not recognized
-  const verifiedPlan = subscriptionPlan || 'free';
+  // SECURITY: Plan is verified from priceId mapping (never from metadata)
+  const verifiedPlan = subscriptionPlan;
 
   await supabaseAdmin
     .from('subscriptions')

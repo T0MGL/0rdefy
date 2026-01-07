@@ -336,8 +336,46 @@ export async function updateReturnItem(
     quantity_rejected?: number;
     rejection_reason?: string;
     rejection_notes?: string;
-  }
+  },
+  storeId: string
 ): Promise<ReturnSessionItem> {
+  // First, get current item with session info to validate quantities AND store ownership
+  const { data: currentItem, error: fetchError } = await supabaseAdmin
+    .from('return_session_items')
+    .select(`
+      quantity_expected,
+      quantity_accepted,
+      quantity_rejected,
+      session:return_sessions!inner(store_id)
+    `)
+    .eq('id', itemId)
+    .single();
+
+  if (fetchError || !currentItem) {
+    throw new Error('Return item not found');
+  }
+
+  // SECURITY: Verify item belongs to session from the authenticated user's store
+  const itemStoreId = (currentItem.session as any)?.store_id;
+  if (itemStoreId !== storeId) {
+    console.warn(`[Returns] Unauthorized item update attempt: store ${storeId} tried to update item from store ${itemStoreId}`);
+    throw new Error('Return item not found');
+  }
+
+  // Calculate final values (use updates or current values)
+  const finalAccepted = updates.quantity_accepted ?? currentItem.quantity_accepted;
+  const finalRejected = updates.quantity_rejected ?? currentItem.quantity_rejected;
+  const expectedQty = currentItem.quantity_expected;
+
+  // VALIDATION: accepted + rejected cannot exceed expected quantity
+  if (finalAccepted + finalRejected > expectedQty) {
+    throw new Error(
+      `Invalid quantities: accepted (${finalAccepted}) + rejected (${finalRejected}) ` +
+      `cannot exceed expected quantity (${expectedQty})`
+    );
+  }
+
+  // Proceed with update
   const { data, error } = await supabaseAdmin
     .from('return_session_items')
     .update(updates)

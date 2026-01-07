@@ -126,11 +126,16 @@ export function TeamManagement() {
   // Remove member mutation
   const removeMember = useMutation({
     mutationFn: async (userId: string) => {
-      await apiClient.delete(`/collaborators/${userId}`);
+      const response = await apiClient.delete(`/collaborators/${userId}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['collaborators'] });
       queryClient.invalidateQueries({ queryKey: ['collaborators', 'stats'] });
+    },
+    onError: (error: any) => {
+      console.error('[TeamManagement] Error removing member:', error);
+      alert(`Error al remover colaborador: ${error?.response?.data?.error || error.message}`);
     }
   });
 
@@ -334,9 +339,14 @@ export function TeamManagement() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
+                          onClick={async () => {
                             if (confirm(`¿Remover a ${member.name} del equipo?`)) {
-                              removeMember.mutate(member.id);
+                              try {
+                                await removeMember.mutateAsync(member.id);
+                                alert(`${member.name} ha sido removido del equipo`);
+                              } catch (error) {
+                                // Error handling is in onError callback
+                              }
                             }
                           }}
                           disabled={removeMember.isPending}

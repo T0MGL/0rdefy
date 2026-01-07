@@ -41,18 +41,51 @@ export default function Merchandise() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [shipmentsData, productsData, suppliersData] = await Promise.all([
+      // Use Promise.allSettled to handle partial failures gracefully
+      const results = await Promise.allSettled([
         merchandiseService.getAll(statusFilter === 'all' ? {} : { status: statusFilter }),
         productsService.getAll('local'), // Only load local products (not from Shopify)
         suppliersService.getAll(),
       ]);
-      setShipments(shipmentsData);
-      setProducts(productsData);
-      setSuppliers(suppliersData);
+
+      const [shipmentsResult, productsResult, suppliersResult] = results;
+      const errors: string[] = [];
+
+      // Handle each result independently
+      if (shipmentsResult.status === 'fulfilled') {
+        setShipments(shipmentsResult.value);
+      } else {
+        errors.push('envíos');
+        console.error('Error loading shipments:', shipmentsResult.reason);
+      }
+
+      if (productsResult.status === 'fulfilled') {
+        setProducts(productsResult.value);
+      } else {
+        errors.push('productos');
+        console.error('Error loading products:', productsResult.reason);
+      }
+
+      if (suppliersResult.status === 'fulfilled') {
+        setSuppliers(suppliersResult.value);
+      } else {
+        errors.push('proveedores');
+        console.error('Error loading suppliers:', suppliersResult.reason);
+      }
+
+      // Show error only if something failed
+      if (errors.length > 0) {
+        toast({
+          title: 'Error parcial',
+          description: `No se pudo cargar: ${errors.join(', ')}`,
+          variant: 'destructive',
+        });
+      }
     } catch (error) {
+      // This catch is for unexpected errors in the settlement handling itself
       toast({
         title: 'Error',
-        description: 'Failed to load data',
+        description: 'Error inesperado al cargar datos',
         variant: 'destructive',
       });
     } finally {
