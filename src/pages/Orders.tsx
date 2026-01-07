@@ -1067,7 +1067,7 @@ export default function Orders() {
                         }`}
                     >
                       <td className="py-4 px-3 text-center">
-                        {order.delivery_link_token ? (
+                        {order.delivery_link_token && !isDeleted ? (
                           <Button
                             variant="ghost"
                             size="icon"
