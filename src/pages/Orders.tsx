@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrderQuickView } from '@/components/OrderQuickView';
@@ -21,6 +22,7 @@ import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHighlight } from '@/hooks/useHighlight';
+import * as warehouseService from '@/services/warehouse.service';
 import { Order } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2 } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -150,6 +152,7 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
 
 export default function Orders() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const { currentStore, user } = useAuth();
   const userRole = user?.role || 'viewer'; // Default to viewer if no role
   const { getDateRange } = useDateRange();
@@ -565,6 +568,36 @@ export default function Orders() {
       });
     }
   }, [toast, refetch]);
+
+  // Quick prepare: Create picking session and redirect to warehouse
+  const handleQuickPrepare = useCallback(async (orderId: string) => {
+    try {
+      toast({
+        title: '📦 Creando sesión de picking...',
+        description: 'Un momento por favor',
+      });
+
+      // Create picking session with this single order
+      const session = await warehouseService.createSession([orderId]);
+
+      if (session) {
+        toast({
+          title: '✅ Sesión creada',
+          description: 'Redirigiendo a Almacén...',
+        });
+
+        // Redirect to warehouse with session ID (will auto-open picking)
+        navigate(`/warehouse?session=${session.id}`);
+      }
+    } catch (error: any) {
+      console.error('Error creating picking session:', error);
+      toast({
+        title: '❌ Error',
+        description: error.message || 'No se pudo crear la sesión de picking',
+        variant: 'destructive',
+      });
+    }
+  }, [toast, navigate]);
 
   // Manual refresh for impatient users
   const handleManualRefresh = useCallback(async () => {
@@ -1271,6 +1304,20 @@ export default function Orders() {
                           >
                             <Phone size={16} />
                           </Button>
+
+                          {/* Quick Prepare button (only for confirmed orders) */}
+                          {order.sleeves_status === 'confirmed' && !isDeleted && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleQuickPrepare(order.id)}
+                              title="Preparar pedido (Picking & Packing)"
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                            >
+                              <PackageOpen size={16} />
+                            </Button>
+                          )}
+
                           <Button
                             variant="ghost"
                             size="icon"

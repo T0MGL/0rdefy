@@ -54,7 +54,7 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   // Determine payment status
   // Priority: Shopify financial_status > local payment_method
   const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
-  const isCODLocal = (data.paymentMethod === 'cash' || data.paymentMethod === 'efectivo') &&
+  const isCODLocal = (data.paymentMethod === 'cash' || data.paymentMethod === 'efectivo' || data.paymentMethod === 'cod') &&
     data.codAmount && data.codAmount > 0;
 
   // If Shopify says paid, it's paid. Otherwise check local COD logic
@@ -135,8 +135,9 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   pdf.setLineWidth(0.02);
   const phoneText = `TEL: ${data.customerPhone}`;
   const phoneWidth = pdf.getTextWidth(phoneText) + 0.1;
-  pdf.rect(0.12, detailsY - 0.12, phoneWidth, 0.2);
-  pdf.text(phoneText, 0.17, detailsY);
+  const phoneBoxY = detailsY + 0.02; // Moved down slightly to avoid overlap
+  pdf.rect(0.12, phoneBoxY - 0.12, phoneWidth, 0.2);
+  pdf.text(phoneText, 0.17, phoneBoxY);
 
   // Address bottom border
   pdf.setLineWidth(0.04);
@@ -275,7 +276,7 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
 
     // Determine payment status for this label
     const isPaidByShopify = labels[i].financialStatus === 'paid' || labels[i].financialStatus === 'authorized';
-    const isCODLocal = (labels[i].paymentMethod === 'cash' || labels[i].paymentMethod === 'efectivo') &&
+    const isCODLocal = (labels[i].paymentMethod === 'cash' || labels[i].paymentMethod === 'efectivo' || labels[i].paymentMethod === 'cod') &&
       labels[i].codAmount && labels[i].codAmount > 0;
     const isCOD = !isPaidByShopify && isCODLocal;
 
@@ -352,8 +353,9 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
   pdf.setLineWidth(0.02);
   const phoneText = `TEL: ${data.customerPhone}`;
   const phoneWidth = pdf.getTextWidth(phoneText) + 0.1;
-  pdf.rect(0.12, detailsY - 0.12, phoneWidth, 0.2);
-  pdf.text(phoneText, 0.17, detailsY);
+  const phoneBoxY = detailsY + 0.02; // Moved down slightly to avoid overlap
+  pdf.rect(0.12, phoneBoxY - 0.12, phoneWidth, 0.2);
+  pdf.text(phoneText, 0.17, phoneBoxY);
 
   pdf.setLineWidth(0.04);
   pdf.line(0.04, addressY + addressHeight, 3.96, addressY + addressHeight);

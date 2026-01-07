@@ -571,7 +571,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     }
   }
 
-  // Record referral if applicable
+  // Update referral with trial started (if exists from signup)
   if (referralCode && userId) {
     const { data: refCode } = await supabaseAdmin
       .from('referral_codes')
@@ -580,13 +580,38 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       .single();
 
     if (refCode && refCode.user_id !== userId) {
-      await supabaseAdmin.from('referrals').insert({
-        referrer_user_id: refCode.user_id,
-        referred_user_id: userId,
-        referral_code: referralCode,
-        referred_plan: plan,
-        referred_discount_applied: true,
-      });
+      // Check if referral already exists (created during signup)
+      const { data: existingReferral } = await supabaseAdmin
+        .from('referrals')
+        .select('id')
+        .eq('referred_user_id', userId)
+        .single();
+
+      if (existingReferral) {
+        // Update existing referral with trial start
+        await supabaseAdmin
+          .from('referrals')
+          .update({
+            trial_started_at: new Date().toISOString(),
+            referred_plan: plan,
+            referred_discount_applied: true,
+          })
+          .eq('id', existingReferral.id);
+
+        console.log('[Billing Webhook] Updated referral with trial start:', existingReferral.id);
+      } else {
+        // Create new referral (fallback if not created during signup)
+        await supabaseAdmin.from('referrals').insert({
+          referrer_user_id: refCode.user_id,
+          referred_user_id: userId,
+          referral_code: referralCode,
+          trial_started_at: new Date().toISOString(),
+          referred_plan: plan,
+          referred_discount_applied: true,
+        });
+
+        console.log('[Billing Webhook] Created new referral with trial start');
+      }
     }
   }
 }

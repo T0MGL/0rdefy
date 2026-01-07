@@ -268,7 +268,7 @@ collaboratorsRouter.get(
 
 collaboratorsRouter.delete(
   '/invitations/:id',
-  requireRole(Role.OWNER),
+  requireRole(Role.OWNER, Role.ADMIN),
   async (req: PermissionRequest, res: Response) => {
     try {
       const { storeId } = req;
@@ -655,6 +655,7 @@ collaboratorsRouter.patch(
 
 collaboratorsRouter.get(
   '/stats',
+  requireRole(Role.OWNER, Role.ADMIN),
   async (req: PermissionRequest, res: Response) => {
     try {
       const { storeId } = req;
@@ -668,7 +669,13 @@ collaboratorsRouter.get(
         return res.status(500).json({ error: 'Failed to fetch stats' });
       }
 
-      res.json(stats);
+      // Add can_add_more field based on slots_available
+      const canAddMore = stats.slots_available > 0 || stats.slots_available === -1;
+
+      res.json({
+        ...stats,
+        can_add_more: canAddMore
+      });
     } catch (error) {
       console.error('[Stats] Unexpected error:', error);
       res.status(500).json({ error: 'Internal server error' });

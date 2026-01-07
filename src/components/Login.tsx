@@ -46,6 +46,20 @@ export default function Login() {
       if (result.error) {
         console.error('❌ [LOGIN] Failed:', result.error);
 
+        // Check if access was revoked (user was removed from all stores)
+        const isAccessRevoked = result.error.toLowerCase().includes('acceso ha sido revocado') ||
+                               result.error.toLowerCase().includes('access revoked');
+
+        if (isAccessRevoked) {
+          toast({
+            title: "Acceso Revocado",
+            description: result.error,
+            variant: "destructive",
+            duration: 10000,
+          });
+          return;
+        }
+
         // Check if it's an email not found error
         const isEmailNotFound = result.error.toLowerCase().includes('no encontramos') ||
                                result.error.toLowerCase().includes('email') ||

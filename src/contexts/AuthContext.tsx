@@ -312,7 +312,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('💥 [AUTH] Login error:', err);
 
       if (err.response) {
-        return { error: err.response.data.error || 'Credenciales inválidas' };
+        const errorData = err.response.data;
+        const errorMessage = errorData.error || 'Credenciales inválidas';
+        const errorCode = errorData.errorCode;
+
+        // Special handling for ACCESS_REVOKED (user was removed from all stores)
+        if (errorCode === 'ACCESS_REVOKED') {
+          console.warn('⛔ [AUTH] Access revoked - user was removed from stores');
+        }
+
+        return { error: errorMessage };
       } else if (err.request) {
         return { error: 'No se pudo conectar con el servidor' };
       } else {

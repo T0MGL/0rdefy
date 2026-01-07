@@ -49,6 +49,7 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   const hasCODAmount = data?.codAmount && data.codAmount > 0;
   const isCashPayment = data?.paymentMethod === 'cash' ||
     data?.paymentMethod === 'efectivo' ||
+    data?.paymentMethod === 'cod' ||
     data?.paymentMethod === 'cash_on_delivery';
 
   // Show COD if there's an amount to collect and it's not already paid by Shopify

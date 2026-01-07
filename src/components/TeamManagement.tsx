@@ -43,6 +43,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import apiClient from '@/services/api.client';
+import type { CollaboratorStats, CollaboratorInvitation, TeamMember } from '@/types';
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Propietario',
@@ -83,7 +84,7 @@ export function TeamManagement() {
   const [inviteUrl, setInviteUrl] = useState('');
 
   // Fetch stats
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<CollaboratorStats>({
     queryKey: ['collaborators', 'stats'],
     queryFn: async () => {
       const res = await apiClient.get('/collaborators/stats');
@@ -92,7 +93,7 @@ export function TeamManagement() {
   });
 
   // Fetch members
-  const { data: membersData, isLoading: loadingMembers } = useQuery({
+  const { data: membersData, isLoading: loadingMembers } = useQuery<{ members: TeamMember[] }>({
     queryKey: ['collaborators'],
     queryFn: async () => {
       const res = await apiClient.get('/collaborators');
@@ -101,7 +102,7 @@ export function TeamManagement() {
   });
 
   // Fetch invitations
-  const { data: invitationsData } = useQuery({
+  const { data: invitationsData } = useQuery<{ invitations: CollaboratorInvitation[] }>({
     queryKey: ['collaborators', 'invitations'],
     queryFn: async () => {
       const res = await apiClient.get('/collaborators/invitations');
@@ -117,7 +118,8 @@ export function TeamManagement() {
     },
     onSuccess: (data) => {
       setInviteUrl(data.invitation.inviteUrl);
-      queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+      queryClient.invalidateQueries({ queryKey: ['collaborators', 'invitations'] });
+      queryClient.invalidateQueries({ queryKey: ['collaborators', 'stats'] });
     }
   });
 
@@ -128,6 +130,18 @@ export function TeamManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+      queryClient.invalidateQueries({ queryKey: ['collaborators', 'stats'] });
+    }
+  });
+
+  // Cancel invitation mutation
+  const cancelInvitation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      await apiClient.delete(`/collaborators/invitations/${invitationId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['collaborators', 'invitations'] });
+      queryClient.invalidateQueries({ queryKey: ['collaborators', 'stats'] });
     }
   });
 
@@ -149,8 +163,7 @@ export function TeamManagement() {
     createInvitation.reset();
   };
 
-  const canAddUsers = stats?.can_add_more !== false;
-  const pendingInvitations = invitationsData?.invitations?.filter((inv: any) => inv.status === 'pending') || [];
+  const canAddUsers = stats?.can_add_more ?? true;
 
   return (
     <div className="space-y-6">
@@ -297,7 +310,7 @@ export function TeamManagement() {
             <p className="text-center text-gray-500 py-8">No hay miembros en el equipo</p>
           ) : (
             <div className="space-y-3">
-              {membersData?.members.map((member: any) => {
+              {membersData?.members.map((member) => {
                 const RoleIcon = ROLE_ICONS[member.role] || Shield;
                 const roleColor = ROLE_COLORS[member.role] || ROLE_COLORS.admin;
                 return (
@@ -340,34 +353,86 @@ export function TeamManagement() {
         </CardContent>
       </Card>
 
-      {/* Pending Invitations */}
-      {pendingInvitations.length > 0 && (
+      {/* All Invitations */}
+      {invitationsData?.invitations && invitationsData.invitations.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Invitaciones Pendientes ({pendingInvitations.length})</CardTitle>
+            <CardTitle>Invitaciones ({invitationsData.invitations.length})</CardTitle>
             <CardDescription>
-              Estas invitaciones están esperando ser aceptadas
+              Gestiona todas las invitaciones enviadas
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {pendingInvitations.map((invitation: any) => (
-                <div
-                  key={invitation.id}
-                  className="flex items-center justify-between p-3 rounded-lg border bg-muted/50"
-                >
-                  <div>
-                    <div className="font-medium">{invitation.name}</div>
-                    <div className="text-sm text-muted-foreground">{invitation.email}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{ROLE_LABELS[invitation.role]}</Badge>
-                    <div className="text-xs text-muted-foreground">
-                      Expira: {new Date(invitation.expiresAt).toLocaleDateString()}
+            <div className="space-y-3">
+              {invitationsData.invitations.map((invitation) => {
+                const isPending = invitation.status === 'pending';
+                const isExpired = invitation.status === 'expired';
+                const isUsed = invitation.status === 'used';
+
+                return (
+                  <div
+                    key={invitation.id}
+                    className={`flex items-center justify-between p-4 rounded-lg border ${
+                      isUsed ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' :
+                      isExpired ? 'bg-gray-50 dark:bg-gray-950/20 border-gray-200 dark:border-gray-800 opacity-60' :
+                      'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <div>
+                        <div className="font-medium">{invitation.name}</div>
+                        <div className="text-sm text-muted-foreground">{invitation.email}</div>
+                        {isUsed && invitation.usedAt && (
+                          <div className="text-xs text-green-600 dark:text-green-400 mt-1">
+                            Aceptada el {new Date(invitation.usedAt).toLocaleDateString()}
+                          </div>
+                        )}
+                        {isExpired && (
+                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                            Expiró el {new Date(invitation.expiresAt).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline">{ROLE_LABELS[invitation.role]}</Badge>
+
+                      {isPending && (
+                        <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                          Pendiente
+                        </Badge>
+                      )}
+                      {isExpired && (
+                        <Badge variant="secondary" className="text-gray-600">
+                          Expirada
+                        </Badge>
+                      )}
+                      {isUsed && (
+                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          Aceptada
+                        </Badge>
+                      )}
+
+                      {isPending && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (confirm(`¿Cancelar la invitación para ${invitation.name}?`)) {
+                              cancelInvitation.mutate(invitation.id);
+                            }
+                          }}
+                          disabled={cancelInvitation.isPending}
+                        >
+                          <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                        </Button>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>

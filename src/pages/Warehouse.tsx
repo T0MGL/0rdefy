@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Package, PackageCheck, Printer, ArrowLeft, Check, Plus, Minus, Layers, Loader2 } from 'lucide-react';
+import { Package, PackageCheck, PackageOpen, Printer, ArrowLeft, Check, Plus, Minus, Layers, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -672,20 +672,18 @@ function DashboardView({
                 {confirmedOrders.map(order => (
                   <Card
                     key={order.id}
-                    className={`p-3 transition-all cursor-pointer ${selectedOrders.has(order.id)
+                    className={`p-3 transition-all ${selectedOrders.has(order.id)
                       ? 'border-primary bg-primary/5'
                       : 'hover:border-primary/50'
                       }`}
-                    onClick={() => onToggleOrder(order.id)}
                   >
                     <div className="flex items-start gap-3">
                       <Checkbox
                         checked={selectedOrders.has(order.id)}
                         onCheckedChange={() => onToggleOrder(order.id)}
                         className="mt-0.5"
-                        onClick={(e) => e.stopPropagation()}
                       />
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onToggleOrder(order.id)}>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-semibold text-sm">
                             #{order.order_number}
@@ -704,6 +702,35 @@ function DashboardView({
                           </Badge>
                         )}
                       </div>
+                      {/* Quick Prepare Button */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const session = await warehouseService.createSession([order.id]);
+                            setCurrentSession(session);
+                            setView('picking');
+                            toast({
+                              title: '📦 Sesión creada',
+                              description: `Preparando pedido #${order.order_number}`,
+                            });
+                          } catch (error: any) {
+                            console.error('Error creating session:', error);
+                            toast({
+                              title: 'Error',
+                              description: error.response?.data?.details || 'No se pudo crear la sesión',
+                              variant: 'destructive',
+                            });
+                          }
+                        }}
+                        className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20 flex-shrink-0"
+                        title="Preparar este pedido ahora"
+                      >
+                        <PackageOpen className="h-4 w-4 mr-1" />
+                        Preparar
+                      </Button>
                     </div>
                   </Card>
                 ))}

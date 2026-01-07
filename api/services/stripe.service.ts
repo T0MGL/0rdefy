@@ -823,7 +823,7 @@ export async function generateReferralCode(userId: string): Promise<string> {
 }
 
 /**
- * Get user's referral stats
+ * Get user's referral stats with funnel metrics
  */
 export async function getReferralStats(userId: string): Promise<{
   code: string;
@@ -832,6 +832,13 @@ export async function getReferralStats(userId: string): Promise<{
   totalCreditsEarned: number;
   availableCredits: number;
   referrals: any[];
+  funnel?: {
+    totalRegistered: number;
+    totalTrialsStarted: number;
+    totalPaid: number;
+    signupToTrialRate: number;
+    trialToPaidRate: number;
+  };
 }> {
   console.log('[Stripe] getReferralStats for user:', userId);
 
@@ -901,13 +908,34 @@ export async function getReferralStats(userId: string): Promise<{
     console.log('[Stripe] get_available_credits not available:', creditsError.message);
   }
 
+  // Get funnel analytics (new in migration 037)
+  const { data: funnelData, error: funnelError } = await supabaseAdmin.rpc(
+    'get_referral_funnel',
+    { p_user_id: userId }
+  );
+
+  let funnel = undefined;
+  if (funnelData && funnelData.length > 0) {
+    const f = funnelData[0];
+    funnel = {
+      totalRegistered: parseInt(f.total_registered) || 0,
+      totalTrialsStarted: parseInt(f.total_trials_started) || 0,
+      totalPaid: parseInt(f.total_paid) || 0,
+      signupToTrialRate: parseFloat(f.signup_to_trial_rate) || 0,
+      trialToPaidRate: parseFloat(f.trial_to_paid_rate) || 0,
+    };
+  } else if (funnelError) {
+    console.log('[Stripe] get_referral_funnel not available:', funnelError.message);
+  }
+
   return {
     code: referralCode.code,
-    totalSignups: referralCode.total_signups || 0,
+    totalSignups: referralCode.total_signups || 0, // Now = trials started (after migration 037)
     totalConversions: referralCode.total_conversions || 0,
     totalCreditsEarned: (referralCode.total_credits_earned_cents || 0) / 100,
     availableCredits: (availableCredits || 0) / 100,
     referrals: referrals || [],
+    funnel,
   };
 }
 

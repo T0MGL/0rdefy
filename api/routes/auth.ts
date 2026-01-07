@@ -117,21 +117,26 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 
         // Track referral if valid code was provided
         if (referrerUserId) {
-            console.log('🎁 [REGISTER] Creating referral record...');
-            const { error: referralInsertError } = await supabaseAdmin
-                .from('referrals')
-                .insert({
-                    referrer_user_id: referrerUserId,
-                    referred_user_id: newUser.id,
-                    referral_code: referralCode.toUpperCase(),
-                    signed_up_at: new Date().toISOString()
-                });
-
-            if (referralInsertError) {
-                console.error('⚠️ [REGISTER] Error creating referral record:', referralInsertError);
-                // Don't fail registration
+            // SECURITY: Prevent self-referrals
+            if (referrerUserId === newUser.id) {
+                console.warn('⚠️ [REGISTER] User attempted to refer themselves - ignoring referral code');
             } else {
-                console.log('✅ [REGISTER] Referral tracked successfully');
+                console.log('🎁 [REGISTER] Creating referral record...');
+                const { error: referralInsertError } = await supabaseAdmin
+                    .from('referrals')
+                    .insert({
+                        referrer_user_id: referrerUserId,
+                        referred_user_id: newUser.id,
+                        referral_code: referralCode.toUpperCase(),
+                        signed_up_at: new Date().toISOString()
+                    });
+
+                if (referralInsertError) {
+                    console.error('⚠️ [REGISTER] Error creating referral record:', referralInsertError);
+                    // Don't fail registration
+                } else {
+                    console.log('✅ [REGISTER] Referral tracked successfully');
+                }
             }
         }
 
@@ -274,6 +279,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             .select(`
                 store_id,
                 role,
+                is_active,
                 stores (
                     id,
                     name,
@@ -282,7 +288,8 @@ authRouter.post('/login', async (req: Request, res: Response) => {
                     timezone
                 )
             `)
-            .eq('user_id', user.id);
+            .eq('user_id', user.id)
+            .eq('is_active', true); // Only fetch active store memberships
 
         if (storesError) {
             console.error('❌ [LOGIN] Error fetching stores:', storesError);
@@ -297,7 +304,25 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             role: us.role
         })) || [];
 
-        console.log(`🏪 [LOGIN] Found ${stores.length} store(s) for user`);
+        console.log(`🏪 [LOGIN] Found ${stores.length} active store(s) for user`);
+
+        // Check if user was removed from all stores
+        if (stores.length === 0) {
+            // Check if user was ever part of any store
+            const { data: allStores } = await supabaseAdmin
+                .from('user_stores')
+                .select('id')
+                .eq('user_id', user.id);
+
+            if (allStores && allStores.length > 0) {
+                console.warn('⚠️ [LOGIN] User has no active stores (was removed):', email);
+                return res.status(403).json({
+                    success: false,
+                    error: 'Tu acceso ha sido revocado. Contacta al administrador de tu tienda para más información.',
+                    errorCode: 'ACCESS_REVOKED'
+                });
+            }
+        }
 
         // User completed onboarding if they have at least one store and a name
         // Phone is optional as older users might not have it
