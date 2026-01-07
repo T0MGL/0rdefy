@@ -134,6 +134,7 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - ✅ Added shipping label print tracking (migration 017)
 - ✅ Collaborator invitation system with role-based access (migration 030)
 - ✅ Shopify order fields expansion - total_discounts, tags, timestamps (migration 033)
+- ✅ **NEW: Hard delete system for orders** - Complete cascading cleanup (migration 039)
 
 ### Merchandise (Inbound Shipments)
 **Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`
@@ -562,3 +563,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 033: Shopify order fields expansion (total_discounts, tags, timestamps)
 - 034: **NEW:** WhatsApp phone verification system (prevents multicuentas)
 - 036: **NEW:** Billing & Subscriptions system (Stripe, referrals, discount codes)
+- 039: **NEW:** Hard delete with cascading cleanup (owner only, no soft delete, complete data cleanup)

@@ -69,10 +69,13 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Build query - fetch orders from previousPeriodStart to currentPeriodEnd
         // This ensures we have data for both current and previous periods
+        // IMPORTANT: Exclude deleted orders and test orders from analytics
         const query = supabaseAdmin
             .from('orders')
             .select('*')
             .eq('store_id', req.storeId)
+            .is('deleted_at', null)  // Exclude soft-deleted orders
+            .eq('is_test', false)    // Exclude test orders
             .gte('created_at', previousPeriodStart.toISOString())
             .lte('created_at', currentPeriodEnd.toISOString());
 

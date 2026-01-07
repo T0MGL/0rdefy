@@ -593,8 +593,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             shopify_order_id,
             startDate,
             endDate,
-            show_deleted = 'false',  // New filter for deleted orders
-            show_test = 'true'       // New filter for test orders
+            show_test = 'true',        // Filter for test orders
+            show_deleted = 'true'      // Show soft-deleted orders (with opacity)
         } = req.query;
 
         // Build query
@@ -633,14 +633,15 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             .order('created_at', { ascending: false })
             .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 
-        // Filter deleted orders (exclude by default unless show_deleted=true)
-        if (show_deleted !== 'true') {
-            query = query.is('deleted_at', null);
-        }
-
         // Filter test orders (show by default unless show_test=false)
         if (show_test === 'false') {
             query = query.eq('is_test', false);
+        }
+
+        // Filter soft-deleted orders (show by default with reduced opacity)
+        // Set show_deleted=false to hide them completely
+        if (show_deleted === 'false') {
+            query = query.is('deleted_at', null);
         }
 
         if (status) {
@@ -729,7 +730,10 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 order_line_items: lineItems,  // Also include as order_line_items for compatibility
                 printed: order.printed,
                 printed_at: order.printed_at,
-                printed_by: order.printed_by
+                printed_by: order.printed_by,
+                deleted_at: order.deleted_at,  // For soft delete opacity in UI
+                deleted_by: order.deleted_by,
+                deletion_type: order.deletion_type
             };
         }) || [];
 
@@ -1261,24 +1265,23 @@ ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
-// DELETE /api/orders/:id - Delete order (soft delete by default, hard delete for owner with ?permanent=true)
+// DELETE /api/orders/:id - Delete order (soft delete for non-owners, hard delete for owner)
 // ================================================================
 ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const isPermanent = req.query.permanent === 'true';
         const userRole = req.userRole;
         const userId = req.userId;
 
-        console.log(`🗑️ [ORDERS] Delete request for order ${id} - Permanent: ${isPermanent}, Role: ${userRole}`);
+        console.log(`🗑️ [ORDERS] Delete request for order ${id} by ${userRole}`);
 
-        // First, get the order details
+        // Get order details
         const { data: order, error: fetchError } = await supabaseAdmin
             .from('orders')
             .select('id, shopify_order_id, sleeves_status, deleted_at')
             .eq('id', id)
             .eq('store_id', req.storeId)
-            .maybeSingle();
+            .single();
 
         if (fetchError || !order) {
             return res.status(404).json({
@@ -1286,43 +1289,13 @@ ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE),
             });
         }
 
-        // Check if order is already soft-deleted
-        if (order.deleted_at && !isPermanent) {
-            return res.status(400).json({
-                error: 'Order is already deleted',
-                message: 'Use ?permanent=true to permanently delete this order (owner only)'
-            });
-        }
+        // ============================================================
+        // OWNER: Hard Delete (permanent removal with cascading cleanup)
+        // ============================================================
+        if (userRole === 'owner') {
+            console.log(`🔥 [ORDERS] Owner hard delete - removing order ${id} permanently`);
 
-        // HARD DELETE (permanent removal)
-        if (isPermanent) {
-            // Only owner can hard delete
-            if (userRole !== 'owner') {
-                return res.status(403).json({
-                    error: 'Permission denied',
-                    message: 'Only the store owner can permanently delete orders'
-                });
-            }
-
-            // Clean up Shopify idempotency records if needed
-            if (order.shopify_order_id) {
-                console.log(`🧹 Cleaning idempotency records for Shopify order ${order.shopify_order_id}`);
-
-                await supabaseAdmin
-                    .from('shopify_webhook_idempotency')
-                    .delete()
-                    .eq('shopify_event_id', order.shopify_order_id);
-
-                await supabaseAdmin
-                    .from('shopify_webhook_events')
-                    .delete()
-                    .eq('shopify_event_id', order.shopify_order_id)
-                    .eq('store_id', req.storeId);
-
-                console.log(`✅ Idempotency records cleaned`);
-            }
-
-            // Attempt hard delete (trigger will restore stock automatically if needed)
+            // Hard delete (trigger will handle cascading cleanup + stock restoration)
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .delete()
@@ -1334,26 +1307,39 @@ ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE),
             if (error) {
                 console.error(`❌ Hard delete failed:`, error.message);
                 return res.status(400).json({
-                    error: 'Cannot permanently delete order',
+                    error: 'Cannot delete order',
                     message: error.message
                 });
             }
 
             const wasStockAffected = order.sleeves_status && ['ready_to_ship', 'shipped', 'delivered'].includes(order.sleeves_status);
 
-            console.log(`✅ Order ${id} permanently deleted${wasStockAffected ? ' (stock restored automatically)' : ''}`);
+            console.log(`✅ Order ${id} permanently deleted${wasStockAffected ? ' (stock restored, all data cleaned)' : ' (all data cleaned)'}`);
+
             return res.json({
-                message: wasStockAffected
-                    ? 'Order permanently deleted. Stock was automatically restored to inventory.'
-                    : 'Order permanently deleted',
+                success: true,
+                message: 'Order permanently deleted. All related data has been cleaned up.',
                 id: data.id,
                 deletion_type: 'hard',
                 stock_restored: wasStockAffected
             });
         }
 
-        // SOFT DELETE (mark as deleted)
+        // ============================================================
+        // NON-OWNER: Soft Delete (mark as deleted, reduced opacity in UI)
+        // ============================================================
         else {
+            console.log(`👤 [ORDERS] Non-owner soft delete - hiding order ${id} (can be restored by owner)`);
+
+            // Check if already soft-deleted
+            if (order.deleted_at) {
+                return res.status(400).json({
+                    error: 'Order already deleted',
+                    message: 'This order is already hidden. Only the owner can permanently delete it.'
+                });
+            }
+
+            // Soft delete (mark as deleted)
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .update({
@@ -1376,11 +1362,12 @@ ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE),
             }
 
             console.log(`✅ Order ${id} soft-deleted by ${userRole}`);
+
             return res.json({
-                message: 'Order deleted successfully (can be restored)',
+                success: true,
+                message: 'Order hidden successfully. It will appear with reduced opacity until the owner permanently deletes it.',
                 id: data.id,
-                deletion_type: 'soft',
-                note: 'This order can be restored by the owner or admin'
+                deletion_type: 'soft'
             });
         }
     } catch (error: any) {
@@ -1393,59 +1380,10 @@ ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE),
 });
 
 // ================================================================
-// POST /api/orders/:id/restore - Restore soft-deleted order (owner/admin only)
+// Note: Dual deletion system:
+// - Non-owners: Soft delete (deleted_at timestamp, reduced opacity in UI)
+// - Owner: Hard delete (permanent removal, cascading cleanup, stock restoration)
 // ================================================================
-ordersRouter.post('/:id/restore', extractUserRole, async (req: PermissionRequest, res: Response) => {
-    try {
-        const { id } = req.params;
-        const userRole = req.userRole;
-        const userId = req.userId;
-
-        // Only owner and admin can restore orders
-        if (!['owner', 'admin'].includes(userRole || '')) {
-            return res.status(403).json({
-                error: 'Permission denied',
-                message: 'Only the owner or admin can restore deleted orders'
-            });
-        }
-
-        console.log(`♻️ [ORDERS] Restoring order ${id} by ${userRole}`);
-
-        // Call database function to restore
-        const { data, error } = await supabaseAdmin
-            .rpc('restore_soft_deleted_order', {
-                p_order_id: id,
-                p_restored_by: userId
-            });
-
-        if (error) {
-            console.error(`❌ Restore failed:`, error);
-            return res.status(500).json({
-                error: 'Failed to restore order',
-                message: error.message
-            });
-        }
-
-        const result = data?.[0];
-        if (!result?.success) {
-            return res.status(400).json({
-                error: result?.message || 'Failed to restore order'
-            });
-        }
-
-        console.log(`✅ Order ${id} restored successfully`);
-        res.json({
-            message: 'Order restored successfully',
-            id: result.order_id
-        });
-    } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/restore] Error:`, error);
-        res.status(500).json({
-            error: 'Failed to restore order',
-            message: error.message
-        });
-    }
-});
 
 // ================================================================
 // PATCH /api/orders/:id/test - Mark/unmark order as test
