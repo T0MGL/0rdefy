@@ -39,39 +39,88 @@ COMMENT ON COLUMN orders.marked_test_at IS 'Timestamp when order was marked as t
 DROP TRIGGER IF EXISTS trigger_prevent_order_deletion ON orders;
 
 -- ================================================================
--- FUNCTION: Allow soft delete, prevent hard delete if stock affected
+-- FUNCTION: Restore stock automatically on hard delete if affected
 -- ================================================================
-CREATE OR REPLACE FUNCTION smart_order_deletion_protection()
+CREATE OR REPLACE FUNCTION smart_order_deletion_with_stock_restoration()
 RETURNS TRIGGER AS $$
+DECLARE
+    line_item JSONB;
+    v_product_id UUID;
+    v_quantity INT;
+    v_product_name TEXT;
 BEGIN
-    -- Check if this is a real DELETE (hard delete) or just an UPDATE (soft delete)
-    -- Soft delete is handled via UPDATE setting deleted_at
-    -- Hard delete is actual DELETE FROM orders
-
-    -- Only prevent HARD DELETE if stock was affected
+    -- Check if this is a hard delete of an order that affected inventory
     IF OLD.sleeves_status IN ('ready_to_ship', 'shipped', 'delivered') THEN
-        RAISE EXCEPTION 'Cannot permanently delete order % - stock has been decremented. Use soft delete (mark as deleted) instead, or cancel the order first.', OLD.id;
+        -- Stock was decremented, we need to restore it before deleting
+        RAISE NOTICE 'Order % affected inventory. Restoring stock before permanent deletion...', OLD.id;
+
+        -- Loop through line_items and restore stock for each product
+        FOR line_item IN SELECT * FROM jsonb_array_elements(OLD.line_items)
+        LOOP
+            -- Extract product_id and quantity from line_item
+            v_product_id := (line_item->>'product_id')::UUID;
+            v_quantity := (line_item->>'quantity')::INT;
+            v_product_name := line_item->>'product_name';
+
+            -- Skip if no product_id (might be a custom item)
+            IF v_product_id IS NULL THEN
+                RAISE NOTICE 'Skipping item "%" - no product_id', v_product_name;
+                CONTINUE;
+            END IF;
+
+            -- Restore stock
+            UPDATE products
+            SET stock = stock + v_quantity,
+                updated_at = NOW()
+            WHERE id = v_product_id;
+
+            -- Log the restoration
+            INSERT INTO inventory_movements (
+                product_id,
+                store_id,
+                order_id,
+                movement_type,
+                quantity,
+                reference_type,
+                notes,
+                created_at
+            ) VALUES (
+                v_product_id,
+                OLD.store_id,
+                OLD.id,
+                'order_hard_delete_restoration',
+                v_quantity,
+                'order_deletion',
+                format('Stock restored due to permanent deletion of order %s (was in status: %s)',
+                    OLD.id, OLD.sleeves_status),
+                NOW()
+            );
+
+            RAISE NOTICE 'Restored % units of product % (ID: %)', v_quantity, v_product_name, v_product_id;
+        END LOOP;
+
+        RAISE NOTICE 'Stock restoration completed for order %', OLD.id;
     END IF;
 
-    -- Allow deletion if order hasn't affected inventory yet
+    -- Allow deletion (stock has been restored if needed)
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql;
 
 -- ================================================================
--- TRIGGER: Smart deletion protection (allows soft delete, restricts hard delete)
+-- TRIGGER: Restore stock on hard delete if needed
 -- ================================================================
-CREATE TRIGGER trigger_prevent_hard_delete_if_stock_affected
+CREATE TRIGGER trigger_restore_stock_on_hard_delete
     BEFORE DELETE
     ON orders
     FOR EACH ROW
-    EXECUTE FUNCTION smart_order_deletion_protection();
+    EXECUTE FUNCTION smart_order_deletion_with_stock_restoration();
 
-COMMENT ON FUNCTION smart_order_deletion_protection() IS
-'Allows soft delete (UPDATE deleted_at), prevents hard delete (DELETE) if stock was affected';
+COMMENT ON FUNCTION smart_order_deletion_with_stock_restoration() IS
+'Automatically restores stock when owner permanently deletes an order that affected inventory';
 
-COMMENT ON TRIGGER trigger_prevent_hard_delete_if_stock_affected ON orders IS
-'Protects inventory integrity: blocks hard delete if stock decremented, allows soft delete always';
+COMMENT ON TRIGGER trigger_restore_stock_on_hard_delete ON orders IS
+'Restores inventory when order is hard-deleted (permanent deletion by owner)';
 
 -- ================================================================
 -- PART 3: Function to restore soft-deleted orders

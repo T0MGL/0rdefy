@@ -42,11 +42,13 @@ idx_orders_test             -- Filtrar pedidos de prueba
 -- No permitía cambios de estado
 ```
 
-#### Ahora (Inteligente):
+#### Ahora (Inteligente con Auto-Restauración):
 ```sql
 -- ✅ Permite soft delete (UPDATE con deleted_at) siempre
--- ❌ Bloquea hard delete (DELETE) solo si stock fue afectado
+-- ✅ Permite hard delete (DELETE) incluso si stock fue afectado
+-- 🔄 RESTAURA STOCK AUTOMÁTICAMENTE antes de hard delete
 -- ✅ Permite cambios de estado sin restricciones innecesarias
+-- 📝 Registra todos los movimientos en inventory_movements
 ```
 
 ### Nuevas Funciones
@@ -182,21 +184,30 @@ handleToggleTest(id, isTest)   // Marcar/desmarcar test
 | **Restaurar** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Marcar Test** | ✅ | ✅ | ✅ (con EDIT) | ✅ (con EDIT) | Depende de permisos |
 
-### Protección de Inventario
+### Protección de Inventario con Auto-Restauración
 
 ```
 Pedido en estados: ready_to_ship, shipped, delivered
 ↓
 Stock decrementado
 ↓
-❌ BLOQUEA hard delete (DELETE permanente)
-✅ PERMITE soft delete (UPDATE deleted_at)
-✅ PERMITE cambios de estado
+Owner hace HARD DELETE
+↓
+🔄 TRIGGER automático:
+   - Detecta que stock fue afectado
+   - Restaura stock de todos los productos
+   - Registra movimiento: 'order_hard_delete_restoration'
+   - Logs en inventory_movements
+↓
+✅ Pedido eliminado permanentemente
+✅ Stock restaurado automáticamente
 ```
 
-**Solución para Hard Delete:**
-1. Cancelar el pedido primero (restaura stock)
-2. Luego eliminar permanentemente
+**Beneficios:**
+- ✅ No requiere pasos manuales
+- ✅ No se puede "olvidar" restaurar el stock
+- ✅ Audit trail completo en inventory_movements
+- ✅ ACID compliance (todo sucede en la misma transacción)
 
 ## 📝 Flujos de Usuario
 
@@ -223,15 +234,24 @@ Stock decrementado
 ```
 1. Owner hace click en "Eliminar Permanentemente"
    ↓
-2. Sistema verifica si stock fue afectado
+2. Confirmación: "¿Estás seguro? Esta acción NO se puede deshacer"
    ↓
-3a. Si stock NO afectado:
-    - DELETE FROM orders
-    - Pedido desaparece
-    ↓
-3b. Si stock SÍ afectado:
-    - ❌ Error: "Cannot permanently delete - stock affected"
-    - Sugerencia: Cancelar primero para restaurar stock
+3. Sistema ejecuta DELETE (hard delete)
+   ↓
+4. TRIGGER detecta si stock fue afectado:
+   ↓
+   4a. Si stock NO afectado:
+       - DELETE FROM orders
+       - Mensaje: "Pedido eliminado permanentemente"
+       ↓
+   4b. Si stock SÍ afectado (ready_to_ship/shipped/delivered):
+       - RESTAURA stock automáticamente
+       - Registra en inventory_movements
+       - DELETE FROM orders
+       - Mensaje: "Pedido eliminado. Stock restaurado automáticamente"
+       ↓
+5. Pedido desaparece completamente
+   Stock restaurado si era necesario
 ```
 
 ### Flujo 3: Marcar como Test

@@ -1322,7 +1322,7 @@ ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE),
                 console.log(`✅ Idempotency records cleaned`);
             }
 
-            // Attempt hard delete (will fail if stock affected via trigger)
+            // Attempt hard delete (trigger will restore stock automatically if needed)
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .delete()
@@ -1335,17 +1335,20 @@ ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE),
                 console.error(`❌ Hard delete failed:`, error.message);
                 return res.status(400).json({
                     error: 'Cannot permanently delete order',
-                    message: error.message.includes('stock has been decremented')
-                        ? 'This order has affected inventory and cannot be permanently deleted. You can cancel the order first to restore stock, then delete it.'
-                        : error.message
+                    message: error.message
                 });
             }
 
-            console.log(`✅ Order ${id} permanently deleted`);
+            const wasStockAffected = order.sleeves_status && ['ready_to_ship', 'shipped', 'delivered'].includes(order.sleeves_status);
+
+            console.log(`✅ Order ${id} permanently deleted${wasStockAffected ? ' (stock restored automatically)' : ''}`);
             return res.json({
-                message: 'Order permanently deleted',
+                message: wasStockAffected
+                    ? 'Order permanently deleted. Stock was automatically restored to inventory.'
+                    : 'Order permanently deleted',
                 id: data.id,
-                deletion_type: 'hard'
+                deletion_type: 'hard',
+                stock_restored: wasStockAffected
             });
         }
 
