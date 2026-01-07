@@ -28,6 +28,7 @@ import {
   Send,
   AlertCircle,
   Lock,
+  BarChart3,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -60,6 +61,7 @@ const menuSections: MenuSection[] = [
     items: [
       { path: '/', label: 'Dashboard General', icon: Activity, module: Module.DASHBOARD },
       { path: '/dashboard-logistics', label: 'Dashboard Logístico', icon: PackageCheck, module: Module.WAREHOUSE },
+      { path: '/logistics', label: 'Costos de Envío', icon: BarChart3, module: Module.ANALYTICS },
     ],
   },
   {

@@ -93,30 +93,44 @@ export function RevenueIntelligence() {
     );
   }
 
-  // Calculate revenue breakdown
-  const totalRevenue = overview.revenue;
-  const totalCOGS = overview.costs;
-  const grossMargin = totalRevenue - totalCOGS;
-  const grossMarginPercent = totalRevenue > 0 ? ((grossMargin / totalRevenue) * 100) : 0;
+  // ===== MÉTRICAS REALES (Solo pedidos entregados) =====
+  // Usamos métricas "real" para mostrar números precisos de dinero efectivamente cobrado
+  const totalRevenue = overview.realRevenue ?? overview.revenue;
+  const totalProductCosts = overview.realProductCosts ?? overview.productCosts ?? 0;
+  const totalDeliveryCosts = overview.realDeliveryCosts ?? overview.deliveryCosts ?? 0;
+  const gasto_publicitario = overview.gasto_publicitario ?? 0;
+
+  // COGS = Costo de productos solamente (sin envío ni publicidad)
+  const totalCOGS = totalProductCosts;
+
+  // Margen bruto = Ingresos - Costo de productos
+  const grossMargin = overview.realGrossProfit ?? (totalRevenue - totalCOGS);
+  const grossMarginPercent = overview.realGrossMargin ?? (totalRevenue > 0 ? ((grossMargin / totalRevenue) * 100) : 0);
 
   const revenueBreakdown = [
     { name: 'Margen Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
     { name: 'COGS', value: Math.round(totalCOGS), color: 'hsl(0, 84%, 60%)' },
   ];
 
-  // Calculate net margin data
-  const gasto_publicitario = overview.gasto_publicitario;
-  const shipping = overview.deliveryCosts;
-  const ops = 0; // TODO: Add operational costs when available
-  const netProfit = overview.netProfit;
+  // ===== DESGLOSE DE MARGEN NETO =====
+  // Margen neto = Ingresos - (Productos + Envío + Publicidad)
+  const netProfit = overview.realNetProfit ?? overview.netProfit;
 
   const netMarginData = [
     { name: 'Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
     { name: 'Gasto Publicitario', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
-    { name: 'Shipping', value: Math.round(shipping), color: 'hsl(48, 96%, 53%)' },
-    { name: 'Ops', value: Math.round(ops), color: 'hsl(271, 81%, 56%)' },
+    { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
+    { name: 'Ops', value: Math.round(totalProductCosts + totalDeliveryCosts + gasto_publicitario - grossMargin), color: 'hsl(0, 0%, 60%)' },
     { name: 'NETO', value: Math.round(netProfit), color: 'hsl(84, 81%, 63%)' },
   ];
+
+  // ===== DESGLOSE DE COSTOS OPERATIVOS =====
+  const totalCosts = totalProductCosts + totalDeliveryCosts + gasto_publicitario;
+  const costBreakdown = [
+    { name: 'Productos', value: Math.round(totalProductCosts), color: 'hsl(0, 84%, 60%)' },
+    { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
+    { name: 'Publicidad', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
+  ].filter(item => item.value > 0); // Only show non-zero costs
 
   // Calculate product profitability
   const productProfitability = topProducts.map((product) => {
@@ -206,8 +220,8 @@ export function RevenueIntelligence() {
         />
       </div>
 
-      {/* Top Section - 3 Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Top Section - 4 Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Card 1: Revenue vs COGS */}
         <Card className="border-primary/20">
           <CardHeader>
@@ -336,6 +350,50 @@ export function RevenueIntelligence() {
                     Gs. {Math.round(minRevenue).toLocaleString()} - {Math.round(maxRevenue).toLocaleString()}
                   </span>
                 </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 4: Cost Breakdown */}
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-base">Desglose de Costos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-red-50 dark:bg-red-950">
+                  <TrendingDown className="text-red-600 dark:text-red-400" size={20} />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                  <p className="text-2xl font-bold text-card-foreground">
+                    Gs. {Math.round(totalCosts).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              <div className="pt-3 border-t border-border space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Productos</span>
+                  <span className="font-semibold text-card-foreground">
+                    Gs. {Math.round(totalProductCosts).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Envío</span>
+                  <span className="font-semibold text-orange-600 dark:text-orange-400">
+                    Gs. {Math.round(totalDeliveryCosts).toLocaleString()}
+                  </span>
+                </div>
+                {gasto_publicitario > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Publicidad</span>
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">
+                      Gs. {Math.round(gasto_publicitario).toLocaleString()}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>

@@ -32,6 +32,7 @@ declare global {
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const DashboardLogistics = lazy(() => import("./pages/DashboardLogistics"));
+const Logistics = lazy(() => import("./pages/Logistics"));
 const Orders = lazy(() => import("./pages/Orders"));
 const Warehouse = lazy(() => import("./pages/Warehouse"));
 const Shipping = lazy(() => import("./pages/Shipping"));
@@ -157,6 +158,7 @@ const App = () => {
                             {/* Dashboard - accessible to all authenticated users */}
                             <Route path="/" element={<PermissionLayout module={Module.DASHBOARD} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Dashboard /></PermissionLayout>} />
                             <Route path="/dashboard-logistics" element={<PermissionLayout module={Module.WAREHOUSE} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><DashboardLogistics /></PermissionLayout>} />
+                            <Route path="/logistics" element={<PermissionLayout module={Module.ANALYTICS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Logistics /></PermissionLayout>} />
 
                             {/* Orders module */}
                             <Route path="/orders" element={<PermissionLayout module={Module.ORDERS} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Orders /></PermissionLayout>} />

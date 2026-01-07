@@ -258,10 +258,11 @@ export default function Dashboard() {
                   <InfoTooltip content="Retorno de la inversión publicitaria (Ingresos / Gasto Publicitario)." />
                 </div>
               }
-              value={`${dashboardOverview.roas.toFixed(2)}x`}
-              change={dashboardOverview.changes?.roas !== null ? Math.abs(dashboardOverview.changes?.roas || 0) : undefined}
-              trend={dashboardOverview.changes?.roas !== null ? (dashboardOverview.changes?.roas >= 0 ? 'up' : 'down') : undefined}
+              value={dashboardOverview.gasto_publicitario > 0 ? `${dashboardOverview.roas.toFixed(2)}x` : 'N/A'}
+              change={dashboardOverview.gasto_publicitario > 0 && dashboardOverview.changes?.roas !== null ? Math.abs(dashboardOverview.changes?.roas || 0) : undefined}
+              trend={dashboardOverview.gasto_publicitario > 0 && dashboardOverview.changes?.roas !== null ? (dashboardOverview.changes?.roas >= 0 ? 'up' : 'down') : undefined}
               icon={<Target className="text-green-600" size={20} />}
+              subtitle={dashboardOverview.gasto_publicitario === 0 ? 'Sin campañas activas' : undefined}
             />
             <MetricCard
               title={
@@ -270,10 +271,11 @@ export default function Dashboard() {
                   <InfoTooltip content="Retorno sobre la inversión total considerando todos los costos operativos." />
                 </div>
               }
-              value={`${dashboardOverview.roi.toFixed(1)}%`}
-              change={dashboardOverview.changes?.roi !== null ? Math.abs(dashboardOverview.changes?.roi || 0) : undefined}
-              trend={dashboardOverview.changes?.roi !== null ? (dashboardOverview.changes?.roi >= 0 ? 'up' : 'down') : undefined}
+              value={dashboardOverview.costs > 0 ? `${dashboardOverview.roi.toFixed(1)}%` : 'N/A'}
+              change={dashboardOverview.costs > 0 && dashboardOverview.changes?.roi !== null ? Math.abs(dashboardOverview.changes?.roi || 0) : undefined}
+              trend={dashboardOverview.costs > 0 && dashboardOverview.changes?.roi !== null ? (dashboardOverview.changes?.roi >= 0 ? 'up' : 'down') : undefined}
               icon={<Target className="text-blue-600" size={20} />}
+              subtitle={dashboardOverview.costs === 0 ? 'Sin datos' : undefined}
             />
             <MetricCard
               title={
@@ -392,7 +394,10 @@ export default function Dashboard() {
 
       {/* Financial Chart */}
       <Card className="p-6 bg-card">
-        <h3 className="text-lg font-semibold mb-4 text-card-foreground">Resumen Financiero</h3>
+        <h3 className="text-lg font-semibold mb-4 text-card-foreground">Resumen Financiero (Pedidos Entregados)</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Ingresos, costos y beneficio basados únicamente en pedidos entregados
+        </p>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -405,14 +410,18 @@ export default function Dashboard() {
                 borderRadius: '8px',
                 color: 'hsl(var(--card-foreground))',
               }}
+              formatter={(value: number, name: string) => {
+                const formattedValue = new Intl.NumberFormat('es-PY').format(value);
+                return [`Gs. ${formattedValue}`, name];
+              }}
             />
             <Legend wrapperStyle={{ color: 'hsl(var(--card-foreground))' }} />
             <Line
               type="monotone"
-              dataKey="revenue"
+              dataKey="realRevenue"
               stroke="hsl(84, 81%, 63%)"
               strokeWidth={2.5}
-              name="Ingresos"
+              name="Ingresos Reales"
               dot={false}
             />
             <Line
@@ -420,7 +429,7 @@ export default function Dashboard() {
               dataKey="costs"
               stroke="hsl(0, 84%, 60%)"
               strokeWidth={2.5}
-              name="Costos"
+              name="Costos (Producto + Envío)"
               dot={false}
             />
             <Line
@@ -436,7 +445,7 @@ export default function Dashboard() {
               dataKey="profit"
               stroke="hsl(142, 76%, 45%)"
               strokeWidth={2.5}
-              name="Beneficio"
+              name="Beneficio Neto"
               dot={false}
             />
           </LineChart>
