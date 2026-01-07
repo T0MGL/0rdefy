@@ -79,10 +79,10 @@ BEGIN
     END IF;
 
     -- Delete from return sessions
-    SELECT ARRAY_AGG(DISTINCT return_session_id) INTO v_return_session_ids FROM return_session_orders WHERE order_id = OLD.id;
+    SELECT ARRAY_AGG(DISTINCT session_id) INTO v_return_session_ids FROM return_session_orders WHERE order_id = OLD.id;
     IF v_return_session_ids IS NOT NULL AND array_length(v_return_session_ids, 1) > 0 THEN
         DELETE FROM return_session_orders WHERE order_id = OLD.id;
-        DELETE FROM return_sessions WHERE id = ANY(v_return_session_ids) AND NOT EXISTS (SELECT 1 FROM return_session_orders WHERE return_session_id = return_sessions.id);
+        DELETE FROM return_sessions WHERE id = ANY(v_return_session_ids) AND NOT EXISTS (SELECT 1 FROM return_session_orders WHERE session_id = return_sessions.id);
     END IF;
 
     -- Delete other related data
@@ -114,16 +114,9 @@ CREATE TRIGGER trigger_cascade_delete_order_data
     EXECUTE FUNCTION cascade_delete_order_data();
 
 -- ================================================================
--- PASO 2: Dar acceso de OWNER
+-- PASO 2: LOS USUARIOS YA SON OWNERS (SKIP)
 -- ================================================================
-
-UPDATE user_stores
-SET role = 'owner'
-WHERE user_id IN (
-  SELECT id FROM users
-  WHERE email IN ('gaston@thebrightidea.ai', 'hanselechague6@gmail.com')
-)
-AND is_active = true;
+-- Los usuarios ya tienen acceso de owner, no es necesario ejecutar esto
 
 -- ================================================================
 -- PASO 3: Eliminar TODOS los pedidos de Bright Idea

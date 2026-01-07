@@ -130,7 +130,7 @@ BEGIN
     -- ============================================================
     -- STEP 3: Delete from return sessions
     -- ============================================================
-    SELECT ARRAY_AGG(DISTINCT return_session_id)
+    SELECT ARRAY_AGG(DISTINCT session_id)
     INTO v_return_session_ids
     FROM return_session_orders
     WHERE order_id = OLD.id;
@@ -146,7 +146,7 @@ BEGIN
         DELETE FROM return_sessions
         WHERE id = ANY(v_return_session_ids)
         AND NOT EXISTS (
-            SELECT 1 FROM return_session_orders WHERE return_session_id = return_sessions.id
+            SELECT 1 FROM return_session_orders WHERE session_id = return_sessions.id
         );
         RAISE NOTICE '✅ Deleted orphaned return sessions';
     END IF;
