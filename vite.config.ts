@@ -15,6 +15,8 @@ export default defineConfig({
     // Generate absolute asset URLs for embedded apps
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 1000,
+    // Disable module preload to prevent unused preload warnings
+    modulePreload: false,
     rollupOptions: {
       output: {
         // Ensure consistent file names
