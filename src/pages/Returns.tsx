@@ -53,6 +53,7 @@ export default function Returns() {
   const [eligibleOrders, setEligibleOrders] = useState<EligibleOrder[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [sessionNotes, setSessionNotes] = useState('');
+  const [ordersInActiveSessions, setOrdersInActiveSessions] = useState<Set<string>>(new Set());
 
   // Process session state
   const [items, setItems] = useState<ReturnSessionItem[]>([]);
@@ -85,8 +86,26 @@ export default function Returns() {
   const loadEligibleOrders = useCallback(async () => {
     setLoading(true);
     try {
-      const orders = await returnsService.getEligibleOrders();
+      const [orders, inProgressSessions] = await Promise.all([
+        returnsService.getEligibleOrders(),
+        returnsService.getReturnSessions(),
+      ]);
+
       setEligibleOrders(orders);
+
+      // Find orders that are already in active return sessions
+      const activeSessionOrders = new Set<string>();
+      const activeSessions = inProgressSessions.filter(s => s.status === 'in_progress');
+
+      for (const session of activeSessions) {
+        // Fetch session details to get order IDs
+        const sessionDetail = await returnsService.getReturnSession(session.id);
+        sessionDetail.orders.forEach((order: any) => {
+          activeSessionOrders.add(order.order_id);
+        });
+      }
+
+      setOrdersInActiveSessions(activeSessionOrders);
     } catch (error) {
       console.error('Error loading eligible orders:', error);
       toast({
@@ -143,6 +162,20 @@ export default function Returns() {
       return;
     }
 
+    // Check if any selected orders are in active sessions
+    const ordersInSession = Array.from(selectedOrders).filter(orderId =>
+      ordersInActiveSessions.has(orderId)
+    );
+
+    if (ordersInSession.length > 0) {
+      toast({
+        title: 'Error',
+        description: `${ordersInSession.length} pedido(s) seleccionado(s) ya están en una sesión de devolución activa. Por favor, deselecciónalos o completa la sesión existente.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const session = await returnsService.createReturnSession(
@@ -160,11 +193,12 @@ export default function Returns() {
       setView('process');
       setSelectedOrders(new Set());
       setSessionNotes('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating session:', error);
+      const errorMessage = error?.message || 'No se pudo crear la sesión';
       toast({
         title: 'Error',
-        description: 'No se pudo crear la sesión',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
@@ -441,52 +475,69 @@ export default function Returns() {
         />
       ) : (
         <div className="grid gap-4">
-          {eligibleOrders.map((order) => (
-            <Card key={order.id} className="p-6">
-              <div className="flex items-center gap-4">
-                <Checkbox
-                  checked={selectedOrders.has(order.id)}
-                  onCheckedChange={(checked) => {
-                    const newSelected = new Set(selectedOrders);
-                    if (checked) {
-                      newSelected.add(order.id);
-                    } else {
-                      newSelected.delete(order.id);
-                    }
-                    setSelectedOrders(newSelected);
-                  }}
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="font-semibold">#{order.order_number}</h3>
-                    <Badge variant={
-                      order.status === 'delivered' ? 'default' :
-                      order.status === 'shipped' ? 'secondary' :
-                      'destructive'
-                    }>
-                      {order.status === 'delivered' ? 'Entregado' :
-                       order.status === 'shipped' ? 'Enviado' :
-                       'Cancelado'}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400">Cliente:</span>
-                      <span className="ml-1 font-medium">{order.customer_name}</span>
+          {eligibleOrders.map((order) => {
+            const isInActiveSession = ordersInActiveSessions.has(order.id);
+            const hasNoItems = order.items_count === 0;
+            const isDisabled = isInActiveSession || hasNoItems;
+
+            return (
+              <Card key={order.id} className={`p-6 ${isDisabled ? 'opacity-50' : ''}`}>
+                <div className="flex items-center gap-4">
+                  <Checkbox
+                    checked={selectedOrders.has(order.id)}
+                    disabled={isDisabled}
+                    onCheckedChange={(checked) => {
+                      const newSelected = new Set(selectedOrders);
+                      if (checked) {
+                        newSelected.add(order.id);
+                      } else {
+                        newSelected.delete(order.id);
+                      }
+                      setSelectedOrders(newSelected);
+                    }}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h3 className="font-semibold">#{order.order_number}</h3>
+                      <Badge variant={
+                        order.status === 'delivered' ? 'default' :
+                        order.status === 'shipped' ? 'secondary' :
+                        'destructive'
+                      }>
+                        {order.status === 'delivered' ? 'Entregado' :
+                         order.status === 'shipped' ? 'Enviado' :
+                         'Cancelado'}
+                      </Badge>
+                      {isInActiveSession && (
+                        <Badge variant="outline" className="bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 border-yellow-300 dark:border-yellow-700">
+                          En Sesión Activa
+                        </Badge>
+                      )}
+                      {hasNoItems && (
+                        <Badge variant="outline" className="bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 border-red-300 dark:border-red-700">
+                          Sin Items Mapeados
+                        </Badge>
+                      )}
                     </div>
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400">Items:</span>
-                      <span className="ml-1 font-medium">{order.items_count}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400">Total:</span>
-                      <span className="ml-1 font-medium">${order.total_price.toFixed(2)}</span>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-600 dark:text-gray-400">Cliente:</span>
+                        <span className="ml-1 font-medium">{order.customer_name}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600 dark:text-gray-400">Items:</span>
+                        <span className="ml-1 font-medium">{order.items_count}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600 dark:text-gray-400">Total:</span>
+                        <span className="ml-1 font-medium">${order.total_price.toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
 

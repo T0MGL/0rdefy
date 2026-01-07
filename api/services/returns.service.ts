@@ -139,6 +139,34 @@ export async function createReturnSession(
 
   const sessionCode = codeData;
 
+  // Check if any of these orders are already in an active return session
+  const { data: existingSessions, error: checkError } = await supabaseAdmin
+    .from('return_session_orders')
+    .select(`
+      order_id,
+      return_sessions!inner(
+        id,
+        session_code,
+        status
+      )
+    `)
+    .in('order_id', orderIds)
+    .in('return_sessions.status', ['in_progress']);
+
+  if (checkError) {
+    console.error('Error checking existing sessions:', checkError);
+    throw new Error(`Failed to check existing sessions: ${checkError.message}`);
+  }
+
+  if (existingSessions && existingSessions.length > 0) {
+    const sessionCodes = [...new Set(existingSessions.map((s: any) => s.return_sessions.session_code))];
+    const orderCount = existingSessions.length;
+    throw new Error(
+      `${orderCount} pedido(s) ya están en sesión de devolución activa: ${sessionCodes.join(', ')}. ` +
+      `Por favor, completa o cancela la sesión existente antes de crear una nueva.`
+    );
+  }
+
   // Get order details with normalized line items
   const { data: orders, error: ordersError } = await supabaseAdmin
     .from('orders')
