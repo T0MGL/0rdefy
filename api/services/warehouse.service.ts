@@ -161,51 +161,82 @@ export async function createSession(
 
     if (updateError) throw updateError;
 
-    // 6. Fetch line items from normalized table (order_line_items)
-    // This table has proper product_id mapping (Shopify ID -> Local UUID)
-    const { data: lineItems, error: itemsError } = await supabaseAdmin
+    // 6. Fetch line items - support both Shopify (order_line_items) and manual (JSONB line_items)
+
+    // First, try to get from normalized order_line_items table (Shopify orders)
+    const { data: normalizedLineItems, error: normalizedError } = await supabaseAdmin
       .from('order_line_items')
       .select('order_id, product_id, quantity, shopify_product_id, shopify_variant_id, product_name')
       .in('order_id', orderIds);
 
-    if (itemsError) throw itemsError;
+    if (normalizedError) throw normalizedError;
 
-    // Check if any line items are missing product_id mapping
-    const unmappedItems = lineItems?.filter(item => !item.product_id) || [];
-    if (unmappedItems.length > 0) {
-      console.warn('⚠️  WARNING: Some line items do not have product_id mapped:');
-      unmappedItems.forEach(item => {
-        console.warn(`   - ${item.product_name} (Shopify: ${item.shopify_product_id})`);
-      });
-
-      // Create a user-friendly list of missing products
-      const missingProductsList = unmappedItems
-        .map(i => `• ${i.product_name} (Shopify Product ID: ${i.shopify_product_id})`)
-        .join('\n');
-
-      throw new Error(
-        `❌ No se puede crear la sesión de preparación\n\n` +
-        `Los siguientes ${unmappedItems.length} producto(s) NO existen en tu inventario de Ordefy:\n\n` +
-        `${missingProductsList}\n\n` +
-        `📋 Solución:\n` +
-        `1. Ve a la página de Productos\n` +
-        `2. Agrega manualmente estos productos a tu inventario\n` +
-        `   O bien:\n` +
-        `   Ve a Integraciones > Shopify y haz clic en "Sincronizar Productos"\n` +
-        `3. Una vez agregados, vuelve a intentar crear la sesión de preparación`
-      );
-    }
-
-    // Aggregate quantities by product from order_line_items
+    // Check if we have normalized line items (Shopify orders)
     const productQuantities = new Map<string, number>();
-    lineItems?.forEach(item => {
-      const productId = item.product_id;
-      const quantity = parseInt(item.quantity) || 0;
-      if (productId) {
-        const currentQty = productQuantities.get(productId) || 0;
-        productQuantities.set(productId, currentQty + quantity);
+
+    if (normalizedLineItems && normalizedLineItems.length > 0) {
+      console.log('📊 Using normalized order_line_items (Shopify orders)');
+
+      // Check if any line items are missing product_id mapping
+      const unmappedItems = normalizedLineItems.filter(item => !item.product_id);
+      if (unmappedItems.length > 0) {
+        console.warn('⚠️  WARNING: Some line items do not have product_id mapped:');
+        unmappedItems.forEach(item => {
+          console.warn(`   - ${item.product_name} (Shopify: ${item.shopify_product_id})`);
+        });
+
+        const missingProductsList = unmappedItems
+          .map(i => `• ${i.product_name} (Shopify Product ID: ${i.shopify_product_id})`)
+          .join('\n');
+
+        throw new Error(
+          `❌ No se puede crear la sesión de preparación\n\n` +
+          `Los siguientes ${unmappedItems.length} producto(s) NO existen en tu inventario de Ordefy:\n\n` +
+          `${missingProductsList}\n\n` +
+          `📋 Solución:\n` +
+          `1. Ve a la página de Productos\n` +
+          `2. Agrega manualmente estos productos a tu inventario\n` +
+          `   O bien:\n` +
+          `   Ve a Integraciones > Shopify y haz clic en "Sincronizar Productos"\n` +
+          `3. Una vez agregados, vuelve a intentar crear la sesión de preparación`
+        );
       }
-    });
+
+      // Aggregate quantities from normalized line items
+      normalizedLineItems.forEach(item => {
+        const productId = item.product_id;
+        const quantity = parseInt(item.quantity) || 0;
+        if (productId) {
+          const currentQty = productQuantities.get(productId) || 0;
+          productQuantities.set(productId, currentQty + quantity);
+        }
+      });
+    } else {
+      // No normalized line items - must be manual orders
+      // Fetch orders with JSONB line_items
+      console.log('📋 Using JSONB line_items (manual orders)');
+
+      const { data: ordersWithLineItems, error: ordersError } = await supabaseAdmin
+        .from('orders')
+        .select('id, line_items')
+        .in('id', orderIds);
+
+      if (ordersError) throw ordersError;
+
+      // Parse JSONB line_items and aggregate quantities
+      ordersWithLineItems?.forEach(order => {
+        if (Array.isArray(order.line_items)) {
+          order.line_items.forEach((item: any) => {
+            const productId = item.product_id;
+            const quantity = parseInt(item.quantity) || 0;
+            if (productId) {
+              const currentQty = productQuantities.get(productId) || 0;
+              productQuantities.set(productId, currentQty + quantity);
+            }
+          });
+        }
+      });
+    }
 
     // Validate all product IDs are UUIDs (reuse uuidRegex from line 81)
     const invalidProductIds = Array.from(productQuantities.keys()).filter(id => !uuidRegex.test(id));
@@ -468,7 +499,7 @@ export async function finishPicking(
     }
 
     // Initialize packing progress for each order item
-    // First get the order IDs from the session
+    // Support both Shopify (order_line_items) and manual (JSONB line_items) orders
     const { data: sessionOrders, error: sessionOrdersError } = await supabaseAdmin
       .from('picking_session_orders')
       .select('order_id')
@@ -478,15 +509,6 @@ export async function finishPicking(
 
     const orderIdsInSession = sessionOrders?.map(so => so.order_id) || [];
 
-    // Now get the orders with their line_items
-    const { data: ordersWithItems, error: orderItemsError } = await supabaseAdmin
-      .from('orders')
-      .select('id, line_items')
-      .in('id', orderIdsInSession);
-
-    if (orderItemsError) throw orderItemsError;
-
-    // Extract and flatten order items from JSONB line_items
     const packingRecords: Array<{
       picking_session_id: string;
       order_id: string;
@@ -495,23 +517,58 @@ export async function finishPicking(
       quantity_packed: number;
     }> = [];
 
-    ordersWithItems?.forEach(order => {
-      if (Array.isArray(order.line_items)) {
-        order.line_items.forEach((item: any) => {
-          const productId = item.product_id;
-          const quantity = parseInt(item.quantity) || 0;
-          if (productId) {
-            packingRecords.push({
-              picking_session_id: sessionId,
-              order_id: order.id,
-              product_id: productId,
-              quantity_needed: quantity,
-              quantity_packed: 0
-            });
-          }
-        });
-      }
-    });
+    // First, try to get from normalized order_line_items table (Shopify orders)
+    const { data: normalizedLineItems, error: normalizedError } = await supabaseAdmin
+      .from('order_line_items')
+      .select('order_id, product_id, quantity')
+      .in('order_id', orderIdsInSession);
+
+    if (normalizedError) throw normalizedError;
+
+    if (normalizedLineItems && normalizedLineItems.length > 0) {
+      console.log('📊 Creating packing records from normalized order_line_items (Shopify)');
+      normalizedLineItems.forEach(item => {
+        const productId = item.product_id;
+        const quantity = parseInt(item.quantity) || 0;
+        if (productId) {
+          packingRecords.push({
+            picking_session_id: sessionId,
+            order_id: item.order_id,
+            product_id: productId,
+            quantity_needed: quantity,
+            quantity_packed: 0
+          });
+        }
+      });
+    } else {
+      // No normalized line items - must be manual orders
+      console.log('📋 Creating packing records from JSONB line_items (manual)');
+
+      const { data: ordersWithItems, error: orderItemsError } = await supabaseAdmin
+        .from('orders')
+        .select('id, line_items')
+        .in('id', orderIdsInSession);
+
+      if (orderItemsError) throw orderItemsError;
+
+      ordersWithItems?.forEach(order => {
+        if (Array.isArray(order.line_items)) {
+          order.line_items.forEach((item: any) => {
+            const productId = item.product_id;
+            const quantity = parseInt(item.quantity) || 0;
+            if (productId) {
+              packingRecords.push({
+                picking_session_id: sessionId,
+                order_id: order.id,
+                product_id: productId,
+                quantity_needed: quantity,
+                quantity_packed: 0
+              });
+            }
+          });
+        }
+      });
+    }
 
     if (packingRecords.length > 0) {
       const { error: packingError } = await supabaseAdmin
