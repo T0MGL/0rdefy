@@ -257,7 +257,7 @@ function LabelContent({
   isPrint?: boolean;
 }) {
   // Balanced margin - enough space to show header, minimal bottom waste
-  const marginTop = isPrint ? '0.7in' : '0';      // Increased from 0.4in to center vertically
+  const marginTop = isPrint ? '0.15in' : '0';      // Reduced margin to prevent cutting content
   const sidePadding = isPrint ? '0.08in' : '0';
 
   return (
@@ -282,7 +282,7 @@ function LabelContent({
       {/* Inner container with border - MAXIMIZED HEIGHT */}
       <div style={{
         width: '100%',
-        height: '5.55in',  // Slightly taller to fill bottom space
+        height: '5.7in',  // Increased height to use full page minus top margin
         border: '3px solid black',
         boxSizing: 'border-box',
         display: 'flex',
@@ -359,13 +359,15 @@ function LabelContent({
           )}
           <div style={{
             display: 'inline-block',
-            padding: '2px 5px',
+            padding: '3px 6px',
             border: '2px solid black',
             fontFamily: 'monospace',
             fontSize: '12px',
             fontWeight: 700,
-            marginTop: '3px',
+            marginTop: '4px',
+            marginBottom: '2px',
             width: 'fit-content',
+            boxSizing: 'border-box',
           }}>
             TEL: {data.customerPhone}
           </div>

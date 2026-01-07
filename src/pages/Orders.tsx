@@ -46,7 +46,6 @@ import {
 } from '@/components/ui/tooltip';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
 import { printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
-import { LabelPreviewModal } from '@/components/printing/LabelPreviewModal';
 
 const statusColors = {
   pending: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800',
@@ -183,29 +182,10 @@ export default function Orders() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Printing feedack
+  // Printing feedback
   const [isPrinting, setIsPrinting] = useState(false);
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // Label preview modal
-  const [labelPreviewOpen, setLabelPreviewOpen] = useState(false);
-  const [labelPreviewData, setLabelPreviewData] = useState<{
-    storeName: string;
-    orderNumber: string;
-    customerName: string;
-    customerPhone: string;
-    customerAddress?: string;
-    neighborhood?: string;
-    addressReference?: string;
-    carrierName?: string;
-    codAmount?: number;
-    paymentMethod?: string;
-    financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
-    deliveryToken: string;
-    items: Array<{ name: string; quantity: number }>;
-  } | null>(null);
-  const [labelOrderId, setLabelOrderId] = useState<string | null>(null);
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
   const debouncedSearch = useDebounce(search, 300);
   const { isHighlighted } = useHighlight();
@@ -711,50 +691,51 @@ export default function Orders() {
     }
   }, [toast]);
 
-  const handlePrintLabel = useCallback((order: Order) => {
-    // Open preview modal instead of printing directly
-    setLabelOrderId(order.id);
-    setLabelPreviewData({
-      storeName: currentStore?.name || 'ORDEFY',
-      orderNumber: order.shopify_order_name || order.id.substring(0, 8),
-      customerName: order.customer,
-      customerPhone: order.phone,
-      customerAddress: order.address || (order as any).customer_address,
-      neighborhood: (order as any).neighborhood,
-      addressReference: (order as any).address_reference,
-      carrierName: getCarrierName(order.carrier),
-      codAmount: (order as any).cod_amount,
-      paymentMethod: (order as any).payment_method || 'cash', // Use payment_method instead of payment_gateway
-      financialStatus: (order as any).financial_status,
-      deliveryToken: order.delivery_link_token || '',
-      items: [
-        {
-          name: order.product,
-          quantity: order.quantity,
-        },
-      ],
-    });
-    setLabelPreviewOpen(true);
-  }, [currentStore, getCarrierName]);
+  const handlePrintLabel = useCallback(async (order: Order) => {
+    // Use PDF system directly (same as confirmation dialog)
+    try {
+      setPrintingOrderId(order.id);
+      const { printLabelPDF } = await import('@/components/printing/printLabelPDF');
 
-  const handleLabelPrinted = useCallback(() => {
-    if (labelOrderId) {
-      handleOrderPrinted(labelOrderId);
-    }
-    setLabelPreviewOpen(false);
-    setLabelPreviewData(null);
-    setLabelOrderId(null);
-  }, [labelOrderId, handleOrderPrinted]);
+      const labelData = {
+        storeName: currentStore?.name || 'ORDEFY',
+        orderNumber: order.shopify_order_name || order.id.substring(0, 8),
+        customerName: order.customer,
+        customerPhone: order.phone,
+        customerAddress: order.address || (order as any).customer_address,
+        neighborhood: (order as any).neighborhood,
+        addressReference: (order as any).address_reference,
+        carrierName: getCarrierName(order.carrier),
+        codAmount: (order as any).cod_amount,
+        paymentMethod: (order as any).payment_method || 'cash',
+        financialStatus: (order as any).financial_status,
+        deliveryToken: order.delivery_link_token || '',
+        items: order.order_line_items && order.order_line_items.length > 0
+          ? order.order_line_items.map((item: any) => ({
+            name: item.product_name || item.title,
+            quantity: item.quantity,
+          }))
+          : [{ name: order.product, quantity: order.quantity }],
+      };
 
-  // Clean up when modal closes (including cancel)
-  const handleLabelModalClose = useCallback((open: boolean) => {
-    setLabelPreviewOpen(open);
-    if (!open) {
-      // Reset data when closing
-      setLabelPreviewData(null);
-      setLabelOrderId(null);
+      const success = await printLabelPDF(labelData);
+
+      if (success) {
+        // Mark as printed and update status
+        await handleOrderPrinted(order.id);
+      }
+    } catch (error) {
+      console.error('Error printing label:', error);
+      toast({
+        title: 'Error de impresión',
+        description: 'No se pudo generar la etiqueta.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPrintingOrderId(null);
     }
-  }, []);
+  }, [currentStore, getCarrierName, handleOrderPrinted, toast]);
+
 
   const handleBulkPrint = useCallback(async () => {
     const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token);
@@ -1484,14 +1465,6 @@ export default function Orders() {
         onConfirm={confirmDelete}
         variant="destructive"
         confirmText="Eliminar"
-      />
-
-      {/* Label Preview Modal */}
-      <LabelPreviewModal
-        open={labelPreviewOpen}
-        onOpenChange={handleLabelModalClose}
-        data={labelPreviewData}
-        onPrinted={handleLabelPrinted}
       />
     </div>
   );
