@@ -592,7 +592,9 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             customer_phone,
             shopify_order_id,
             startDate,
-            endDate
+            endDate,
+            show_deleted = 'false',  // New filter for deleted orders
+            show_test = 'true'       // New filter for test orders
         } = req.query;
 
         // Build query
@@ -630,6 +632,16 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             .eq('store_id', req.storeId)
             .order('created_at', { ascending: false })
             .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+
+        // Filter deleted orders (exclude by default unless show_deleted=true)
+        if (show_deleted !== 'true') {
+            query = query.is('deleted_at', null);
+        }
+
+        // Filter test orders (show by default unless show_test=false)
+        if (show_test === 'false') {
+            query = query.eq('is_test', false);
+        }
 
         if (status) {
             query = query.eq('sleeves_status', status);
@@ -1249,16 +1261,21 @@ ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
 });
 
 // ================================================================
-// DELETE /api/orders/:id - Delete order (soft delete in production)
+// DELETE /api/orders/:id - Delete order (soft delete by default, hard delete for owner with ?permanent=true)
 // ================================================================
 ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
+        const isPermanent = req.query.permanent === 'true';
+        const userRole = req.userRole;
+        const userId = req.userId;
 
-        // First, get the order to check if it has shopify_order_id
+        console.log(`🗑️ [ORDERS] Delete request for order ${id} - Permanent: ${isPermanent}, Role: ${userRole}`);
+
+        // First, get the order details
         const { data: order, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, shopify_order_id')
+            .select('id, shopify_order_id, sleeves_status, deleted_at')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .maybeSingle();
@@ -1269,51 +1286,215 @@ ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE),
             });
         }
 
-        // If order has shopify_order_id, clean up idempotency records to allow re-sync
-        if (order.shopify_order_id) {
-            console.log(`🧹 Cleaning idempotency records for Shopify order ${order.shopify_order_id}`);
-
-            // Delete from shopify_webhook_idempotency
-            await supabaseAdmin
-                .from('shopify_webhook_idempotency')
-                .delete()
-                .eq('shopify_event_id', order.shopify_order_id);
-
-            // Delete from shopify_webhook_events
-            await supabaseAdmin
-                .from('shopify_webhook_events')
-                .delete()
-                .eq('shopify_event_id', order.shopify_order_id)
-                .eq('store_id', req.storeId);
-
-            console.log(`✅ Idempotency records cleaned for order ${order.shopify_order_id}`);
-        }
-
-        // Now delete the order
-        const { data, error } = await supabaseAdmin
-            .from('orders')
-            .delete()
-            .eq('id', id)
-            .eq('store_id', req.storeId)
-            .select('id')
-            .single();
-
-        if (error || !data) {
-            return res.status(500).json({
-                error: 'Failed to delete order'
+        // Check if order is already soft-deleted
+        if (order.deleted_at && !isPermanent) {
+            return res.status(400).json({
+                error: 'Order is already deleted',
+                message: 'Use ?permanent=true to permanently delete this order (owner only)'
             });
         }
 
-        res.json({
-            message: order.shopify_order_id
-                ? 'Order deleted successfully. It can now be re-synced from Shopify if needed.'
-                : 'Order deleted successfully',
-            id: data.id
-        });
+        // HARD DELETE (permanent removal)
+        if (isPermanent) {
+            // Only owner can hard delete
+            if (userRole !== 'owner') {
+                return res.status(403).json({
+                    error: 'Permission denied',
+                    message: 'Only the store owner can permanently delete orders'
+                });
+            }
+
+            // Clean up Shopify idempotency records if needed
+            if (order.shopify_order_id) {
+                console.log(`🧹 Cleaning idempotency records for Shopify order ${order.shopify_order_id}`);
+
+                await supabaseAdmin
+                    .from('shopify_webhook_idempotency')
+                    .delete()
+                    .eq('shopify_event_id', order.shopify_order_id);
+
+                await supabaseAdmin
+                    .from('shopify_webhook_events')
+                    .delete()
+                    .eq('shopify_event_id', order.shopify_order_id)
+                    .eq('store_id', req.storeId);
+
+                console.log(`✅ Idempotency records cleaned`);
+            }
+
+            // Attempt hard delete (will fail if stock affected via trigger)
+            const { data, error } = await supabaseAdmin
+                .from('orders')
+                .delete()
+                .eq('id', id)
+                .eq('store_id', req.storeId)
+                .select('id')
+                .single();
+
+            if (error) {
+                console.error(`❌ Hard delete failed:`, error.message);
+                return res.status(400).json({
+                    error: 'Cannot permanently delete order',
+                    message: error.message.includes('stock has been decremented')
+                        ? 'This order has affected inventory and cannot be permanently deleted. You can cancel the order first to restore stock, then delete it.'
+                        : error.message
+                });
+            }
+
+            console.log(`✅ Order ${id} permanently deleted`);
+            return res.json({
+                message: 'Order permanently deleted',
+                id: data.id,
+                deletion_type: 'hard'
+            });
+        }
+
+        // SOFT DELETE (mark as deleted)
+        else {
+            const { data, error } = await supabaseAdmin
+                .from('orders')
+                .update({
+                    deleted_at: new Date().toISOString(),
+                    deleted_by: userId,
+                    deletion_type: 'soft',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', id)
+                .eq('store_id', req.storeId)
+                .select('id')
+                .single();
+
+            if (error || !data) {
+                console.error(`❌ Soft delete failed:`, error);
+                return res.status(500).json({
+                    error: 'Failed to delete order',
+                    message: error?.message
+                });
+            }
+
+            console.log(`✅ Order ${id} soft-deleted by ${userRole}`);
+            return res.json({
+                message: 'Order deleted successfully (can be restored)',
+                id: data.id,
+                deletion_type: 'soft',
+                note: 'This order can be restored by the owner or admin'
+            });
+        }
     } catch (error: any) {
         console.error(`[DELETE /api/orders/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Failed to delete order',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/orders/:id/restore - Restore soft-deleted order (owner/admin only)
+// ================================================================
+ordersRouter.post('/:id/restore', extractUserRole, async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userRole = req.userRole;
+        const userId = req.userId;
+
+        // Only owner and admin can restore orders
+        if (!['owner', 'admin'].includes(userRole || '')) {
+            return res.status(403).json({
+                error: 'Permission denied',
+                message: 'Only the owner or admin can restore deleted orders'
+            });
+        }
+
+        console.log(`♻️ [ORDERS] Restoring order ${id} by ${userRole}`);
+
+        // Call database function to restore
+        const { data, error } = await supabaseAdmin
+            .rpc('restore_soft_deleted_order', {
+                p_order_id: id,
+                p_restored_by: userId
+            });
+
+        if (error) {
+            console.error(`❌ Restore failed:`, error);
+            return res.status(500).json({
+                error: 'Failed to restore order',
+                message: error.message
+            });
+        }
+
+        const result = data?.[0];
+        if (!result?.success) {
+            return res.status(400).json({
+                error: result?.message || 'Failed to restore order'
+            });
+        }
+
+        console.log(`✅ Order ${id} restored successfully`);
+        res.json({
+            message: 'Order restored successfully',
+            id: result.order_id
+        });
+    } catch (error: any) {
+        console.error(`[POST /api/orders/${req.params.id}/restore] Error:`, error);
+        res.status(500).json({
+            error: 'Failed to restore order',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// PATCH /api/orders/:id/test - Mark/unmark order as test
+// ================================================================
+ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { is_test } = req.body;
+        const userId = req.userId;
+
+        if (typeof is_test !== 'boolean') {
+            return res.status(400).json({
+                error: 'Invalid request',
+                message: 'is_test must be a boolean value'
+            });
+        }
+
+        console.log(`🧪 [ORDERS] ${is_test ? 'Marking' : 'Unmarking'} order ${id} as test`);
+
+        // Call database function to mark/unmark as test
+        const { data, error } = await supabaseAdmin
+            .rpc('mark_order_as_test', {
+                p_order_id: id,
+                p_marked_by: userId,
+                p_is_test: is_test
+            });
+
+        if (error) {
+            console.error(`❌ Mark test failed:`, error);
+            return res.status(500).json({
+                error: 'Failed to update order test status',
+                message: error.message
+            });
+        }
+
+        const result = data?.[0];
+        if (!result?.success) {
+            return res.status(400).json({
+                error: result?.message || 'Failed to update test status'
+            });
+        }
+
+        console.log(`✅ Order ${id} test status updated`);
+        res.json({
+            message: result.message,
+            id: result.order_id,
+            is_test
+        });
+    } catch (error: any) {
+        console.error(`[PATCH /api/orders/${req.params.id}/test] Error:`, error);
+        res.status(500).json({
+            error: 'Failed to update test status',
             message: error.message
         });
     }

@@ -119,6 +119,13 @@ export interface Order {
   printed?: boolean;
   printed_at?: string;
   printed_by?: string;
+  // Soft delete and test status
+  deleted_at?: string;
+  deleted_by?: string;
+  deletion_type?: 'soft' | 'hard';
+  is_test?: boolean;
+  marked_test_by?: string;
+  marked_test_at?: string;
   // Order line items (for Shopify orders)
   order_line_items?: Array<{
     id: string;
@@ -237,10 +244,13 @@ export interface Supplier {
 
 export interface ChartData {
   date: string;
-  revenue: number;
-  costs: number;
+  revenue: number;          // Revenue proyectado (todos los pedidos)
+  realRevenue: number;      // Revenue real (solo entregados)
+  costs: number;            // Costos totales (producto + envío) de entregados
+  productCosts: number;     // Costo de productos de entregados
+  shippingCosts: number;    // Costo de envío de entregados
   gasto_publicitario: number;
-  profit: number;
+  profit: number;           // Beneficio real (solo entregados)
 }
 
 export interface MetricCardProps {
@@ -434,6 +444,39 @@ export interface ShopifyIntegration {
   installed_at: string;
   last_sync_at?: string;
   updated_at: string;
+}
+
+// Collaborators & Team Management
+export interface CollaboratorStats {
+  current_users: number;
+  pending_invitations: number;
+  max_users: number;
+  plan: string;
+  slots_available: number;
+  can_add_more: boolean;
+}
+
+export interface CollaboratorInvitation {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: 'pending' | 'expired' | 'used';
+  invitedBy?: { name: string };
+  expiresAt: string;
+  createdAt: string;
+  usedAt?: string;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role: string;
+  invitedBy?: string;
+  invitedAt?: string;
+  joinedAt: string;
 }
 
 export * from './notification';

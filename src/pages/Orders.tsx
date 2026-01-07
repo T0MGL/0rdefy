@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2 } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -150,7 +150,8 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
 
 export default function Orders() {
   const { toast } = useToast();
-  const { currentStore } = useAuth();
+  const { currentStore, user } = useAuth();
+  const userRole = user?.role || 'viewer'; // Default to viewer if no role
   const { getDateRange } = useDateRange();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -468,27 +469,102 @@ export default function Orders() {
     if (!orderToDelete) return;
 
     try {
-      const success = await ordersService.delete(orderToDelete);
+      // Soft delete by default (permanent=false)
+      const success = await ordersService.delete(orderToDelete, false);
       if (success) {
-        setOrders(prev => prev.filter(o => o.id !== orderToDelete));
+        // Refresh orders to show updated state
+        await loadOrders();
         setDeleteDialogOpen(false);
         setOrderToDelete(null);
         toast({
           title: '✅ Pedido eliminado',
-          description: 'El pedido ha sido eliminado exitosamente.',
+          description: 'El pedido ha sido marcado como eliminado. Puede restaurarlo desde los filtros.',
         });
-      } else {
-        throw new Error('Failed to delete order');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting order:', error);
       toast({
         title: '❌ Error',
-        description: 'No se pudo eliminar el pedido',
+        description: error.message || 'No se pudo eliminar el pedido',
         variant: 'destructive',
       });
     }
-  }, [orderToDelete, toast]);
+  }, [orderToDelete, toast, loadOrders]);
+
+  const handlePermanentDelete = useCallback(async (orderId: string) => {
+    if (userRole !== 'owner') {
+      toast({
+        title: '❌ Acceso denegado',
+        description: 'Solo el owner puede eliminar permanentemente pedidos',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!confirm('¿Estás seguro de que deseas eliminar PERMANENTEMENTE este pedido? Esta acción NO se puede deshacer.')) {
+      return;
+    }
+
+    try {
+      const success = await ordersService.delete(orderId, true);
+      if (success) {
+        await loadOrders();
+        toast({
+          title: '✅ Pedido eliminado permanentemente',
+          description: 'El pedido ha sido eliminado de forma permanente.',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error permanently deleting order:', error);
+      toast({
+        title: '❌ Error',
+        description: error.message || 'No se pudo eliminar permanentemente el pedido',
+        variant: 'destructive',
+      });
+    }
+  }, [userRole, toast, loadOrders]);
+
+  const handleRestoreOrder = useCallback(async (orderId: string) => {
+    try {
+      const success = await ordersService.restore(orderId);
+      if (success) {
+        await loadOrders();
+        toast({
+          title: '✅ Pedido restaurado',
+          description: 'El pedido ha sido restaurado exitosamente.',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error restoring order:', error);
+      toast({
+        title: '❌ Error',
+        description: error.message || 'No se pudo restaurar el pedido',
+        variant: 'destructive',
+      });
+    }
+  }, [toast, loadOrders]);
+
+  const handleToggleTest = useCallback(async (orderId: string, isTest: boolean) => {
+    try {
+      const success = await ordersService.markAsTest(orderId, isTest);
+      if (success) {
+        await loadOrders();
+        toast({
+          title: isTest ? '🧪 Pedido marcado como test' : '✅ Pedido desmarcado como test',
+          description: isTest
+            ? 'El pedido ahora se mostrará con opacidad reducida'
+            : 'El pedido ahora se muestra normalmente',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error toggling test status:', error);
+      toast({
+        title: '❌ Error',
+        description: error.message || 'No se pudo actualizar el estado de test',
+        variant: 'destructive',
+      });
+    }
+  }, [toast, loadOrders]);
 
   // Manual refresh for impatient users
   const handleManualRefresh = useCallback(async () => {
@@ -615,7 +691,7 @@ export default function Orders() {
       addressReference: (order as any).address_reference,
       carrierName: getCarrierName(order.carrier),
       codAmount: (order as any).cod_amount,
-      paymentMethod: (order as any).payment_gateway || 'cash', // Pass actual payment gateway
+      paymentMethod: (order as any).payment_method || 'cash', // Use payment_method instead of payment_gateway
       financialStatus: (order as any).financial_status,
       deliveryToken: order.delivery_link_token || '',
       items: [
@@ -670,7 +746,7 @@ export default function Orders() {
         addressReference: (order as any).address_reference,
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
-        paymentMethod: (order as any).payment_gateway || 'cash', // Pass actual payment gateway
+        paymentMethod: (order as any).payment_method || 'cash', // Use payment_method instead of payment_gateway
         financialStatus: (order as any).financial_status, // Shopify payment status
         deliveryToken: order.delivery_link_token || '',
         items: [
@@ -943,11 +1019,16 @@ export default function Orders() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((order) => (
+                  {filteredOrders.map((order) => {
+                    const isDeleted = !!order.deleted_at;
+                    const isTest = !!order.is_test;
+                    const rowOpacity = isDeleted || isTest ? 'opacity-40' : '';
+
+                    return (
                     <tr
                       key={order.id}
                       id={`item-${order.id}`}
-                      className={`border-t border-border hover:bg-muted/30 transition-all ${isHighlighted(order.id)
+                      className={`border-t border-border hover:bg-muted/30 transition-all ${rowOpacity} ${isHighlighted(order.id)
                         ? 'bg-yellow-100 dark:bg-yellow-900/30 ring-2 ring-yellow-400 dark:ring-yellow-500'
                         : ''
                         }`}
@@ -974,7 +1055,7 @@ export default function Orders() {
                         )}
                       </td>
                       <td className="py-4 px-6">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-mono">
                             {order.shopify_order_name ||
                               (order.shopify_order_number ? `#${order.shopify_order_number}` : null) ||
@@ -987,6 +1068,22 @@ export default function Orders() {
                               className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs px-1.5 py-0"
                             >
                               Shopify
+                            </Badge>
+                          )}
+                          {isDeleted && (
+                            <Badge
+                              variant="outline"
+                              className="bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 text-xs px-1.5 py-0"
+                            >
+                              Eliminado
+                            </Badge>
+                          )}
+                          {isTest && !isDeleted && (
+                            <Badge
+                              variant="outline"
+                              className="bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 text-xs px-1.5 py-0"
+                            >
+                              Test
                             </Badge>
                           )}
                           {order.payment_gateway && (
@@ -1185,19 +1282,58 @@ export default function Orders() {
                           >
                             <Package2 size={16} />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDeleteOrder(order.id)}
-                            title="Eliminar pedido"
-                          >
-                            <Trash2 size={16} />
-                          </Button>
+                          {isDeleted ? (
+                            <>
+                              {/* Botones para pedidos eliminados */}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleRestoreOrder(order.id)}
+                                title="Restaurar pedido"
+                                className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
+                              >
+                                <RefreshCw size={16} />
+                              </Button>
+                              {userRole === 'owner' && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  onClick={() => handlePermanentDelete(order.id)}
+                                  title="Eliminar permanentemente (solo owner)"
+                                >
+                                  <Trash2 size={16} />
+                                </Button>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              {/* Botones normales para pedidos activos */}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleToggleTest(order.id, !isTest)}
+                                title={isTest ? "Desmarcar como test" : "Marcar como test"}
+                                className={isTest ? "text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-950/20" : ""}
+                              >
+                                <Package size={16} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDeleteOrder(order.id)}
+                                title="Eliminar pedido"
+                              >
+                                <Trash2 size={16} />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

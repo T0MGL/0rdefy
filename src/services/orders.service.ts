@@ -184,20 +184,59 @@ export const ordersService = {
     }
   },
 
-  delete: async (id: string): Promise<boolean> => {
+  delete: async (id: string, permanent: boolean = false): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
+      const url = permanent
+        ? `${API_BASE_URL}/orders/${id}?permanent=true`
+        : `${API_BASE_URL}/orders/${id}`;
+      const response = await fetch(url, {
         method: 'DELETE',
         headers: getHeaders(),
       });
       if (!response.ok) {
         if (response.status === 404) return false;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
       return true;
     } catch (error) {
       console.error('Error deleting order:', error);
-      return false;
+      throw error; // Re-throw to show error message in UI
+    }
+  },
+
+  restore: async (id: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/restore`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+      return true;
+    } catch (error) {
+      console.error('Error restoring order:', error);
+      throw error;
+    }
+  },
+
+  markAsTest: async (id: string, isTest: boolean): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/test`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ is_test: isTest }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+      return true;
+    } catch (error) {
+      console.error('Error updating test status:', error);
+      throw error;
     }
   },
 
