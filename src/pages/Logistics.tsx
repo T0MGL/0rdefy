@@ -105,8 +105,15 @@ export default function Logistics() {
           );
 
           if (response.ok) {
-            const { data } = await response.json();
-            setLogisticsMetrics(data);
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const { data } = await response.json();
+              setLogisticsMetrics(data);
+            } else {
+              console.error('Error loading logistics metrics: Response is not JSON');
+            }
+          } else {
+            console.error('Error loading logistics metrics: HTTP', response.status);
           }
         } catch (error) {
           console.error('Error loading logistics metrics:', error);
@@ -286,7 +293,7 @@ export default function Logistics() {
       </div>
 
       {/* Logistics Performance Metrics */}
-      {logisticsMetrics && (
+      {logisticsMetrics && logisticsMetrics.totalOrders > 0 && (
         <div>
           <h3 className="text-lg font-semibold mb-4">Métricas de Rendimiento</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
