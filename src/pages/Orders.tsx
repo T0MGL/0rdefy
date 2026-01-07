@@ -473,7 +473,7 @@ export default function Orders() {
       const success = await ordersService.delete(orderToDelete, false);
       if (success) {
         // Refresh orders to show updated state
-        await loadOrders();
+        await refetch();
         setDeleteDialogOpen(false);
         setOrderToDelete(null);
         toast({
@@ -489,7 +489,7 @@ export default function Orders() {
         variant: 'destructive',
       });
     }
-  }, [orderToDelete, toast, loadOrders]);
+  }, [orderToDelete, toast, refetch]);
 
   const handlePermanentDelete = useCallback(async (orderId: string) => {
     if (userRole !== 'owner') {
@@ -508,7 +508,7 @@ export default function Orders() {
     try {
       const success = await ordersService.delete(orderId, true);
       if (success) {
-        await loadOrders();
+        await refetch();
         toast({
           title: '✅ Pedido eliminado permanentemente',
           description: 'El pedido ha sido eliminado de forma permanente.',
@@ -522,13 +522,13 @@ export default function Orders() {
         variant: 'destructive',
       });
     }
-  }, [userRole, toast, loadOrders]);
+  }, [userRole, toast, refetch]);
 
   const handleRestoreOrder = useCallback(async (orderId: string) => {
     try {
       const success = await ordersService.restore(orderId);
       if (success) {
-        await loadOrders();
+        await refetch();
         toast({
           title: '✅ Pedido restaurado',
           description: 'El pedido ha sido restaurado exitosamente.',
@@ -542,13 +542,13 @@ export default function Orders() {
         variant: 'destructive',
       });
     }
-  }, [toast, loadOrders]);
+  }, [toast, refetch]);
 
   const handleToggleTest = useCallback(async (orderId: string, isTest: boolean) => {
     try {
       const success = await ordersService.markAsTest(orderId, isTest);
       if (success) {
-        await loadOrders();
+        await refetch();
         toast({
           title: isTest ? '🧪 Pedido marcado como test' : '✅ Pedido desmarcado como test',
           description: isTest
@@ -564,7 +564,7 @@ export default function Orders() {
         variant: 'destructive',
       });
     }
-  }, [toast, loadOrders]);
+  }, [toast, refetch]);
 
   // Manual refresh for impatient users
   const handleManualRefresh = useCallback(async () => {
