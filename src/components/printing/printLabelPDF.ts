@@ -57,6 +57,15 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   const isCODLocal = (data.paymentMethod === 'cash' || data.paymentMethod === 'efectivo' || data.paymentMethod === 'cod') &&
     data.codAmount && data.codAmount > 0;
 
+  // Debug logging
+  console.log('🔍 [PDF DEBUG] Payment data:', {
+    paymentMethod: data.paymentMethod,
+    codAmount: data.codAmount,
+    financialStatus: data.financialStatus,
+    isPaidByShopify,
+    isCODLocal,
+  });
+
   // If Shopify says paid, it's paid. Otherwise check local COD logic
   const isCOD = !isPaidByShopify && isCODLocal;
 
@@ -135,7 +144,7 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   pdf.setLineWidth(0.02);
   const phoneText = `TEL: ${data.customerPhone}`;
   const phoneWidth = pdf.getTextWidth(phoneText) + 0.1;
-  const phoneBoxY = detailsY + 0.02; // Moved down slightly to avoid overlap
+  const phoneBoxY = detailsY + 0.05; // Moved down to avoid overlap with address zone border
   pdf.rect(0.12, phoneBoxY - 0.12, phoneWidth, 0.2);
   pdf.text(phoneText, 0.17, phoneBoxY);
 
@@ -353,7 +362,7 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
   pdf.setLineWidth(0.02);
   const phoneText = `TEL: ${data.customerPhone}`;
   const phoneWidth = pdf.getTextWidth(phoneText) + 0.1;
-  const phoneBoxY = detailsY + 0.02; // Moved down slightly to avoid overlap
+  const phoneBoxY = detailsY + 0.05; // Moved down to avoid overlap with address zone border
   pdf.rect(0.12, phoneBoxY - 0.12, phoneWidth, 0.2);
   pdf.text(phoneText, 0.17, phoneBoxY);
 

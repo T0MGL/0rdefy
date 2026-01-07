@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { ordersExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
+import { showErrorToast } from '@/utils/errorMessages';
 import {
   Select,
   SelectContent,
@@ -181,6 +182,9 @@ export default function Orders() {
   // Selection state
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  // Permanent delete confirmation
+  const [permanentDeleteDialogOpen, setPermanentDeleteDialogOpen] = useState(false);
+  const [orderToPermanentDelete, setOrderToPermanentDelete] = useState<string | null>(null);
 
   // Printing feedback
   const [isPrinting, setIsPrinting] = useState(false);
@@ -251,7 +255,7 @@ export default function Orders() {
     try {
       const updatedOrder = await ordersService.confirm(orderId);
       if (updatedOrder) {
-        // Update with server response
+        // Update with server response (no flickering - smooth transition)
         setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
         toast({
           title: 'Pedido confirmado',
@@ -265,10 +269,10 @@ export default function Orders() {
     } catch (error) {
       // Revert optimistic update on error
       setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
-      toast({
-        title: 'Error',
-        description: 'No se pudo confirmar el pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'confirm',
+        entity: 'pedido',
       });
     }
   }, [orders, toast]);
@@ -302,10 +306,10 @@ export default function Orders() {
     } catch (error) {
       // Revert optimistic update on error
       setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
-      toast({
-        title: 'Error',
-        description: 'No se pudo rechazar el pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'cancel',
+        entity: 'pedido',
       });
     }
   }, [orders, toast]);
@@ -339,10 +343,11 @@ export default function Orders() {
     } catch (error) {
       // Revert optimistic update on error
       setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
-      toast({
-        title: 'Error',
-        description: 'No se pudo actualizar el estado',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'update_status',
+        entity: 'pedido',
+        details: { from: originalOrder.status, to: newStatus },
       });
     }
   }, [orders, toast]);
@@ -385,10 +390,10 @@ export default function Orders() {
       });
     } catch (error) {
       console.error('💥 [ORDERS] Error creating order:', error);
-      toast({
-        title: '❌ Error',
-        description: 'No se pudo crear el pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'create',
+        entity: 'pedido',
       });
     }
   }, [toast]);
@@ -435,10 +440,10 @@ export default function Orders() {
       }
     } catch (error) {
       console.error('Error updating order:', error);
-      toast({
-        title: '❌ Error',
-        description: 'No se pudo actualizar el pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'update',
+        entity: 'pedido',
       });
     }
   }, [orderToEdit, toast]);
@@ -466,15 +471,17 @@ export default function Orders() {
       }
     } catch (error: any) {
       console.error('Error deleting order:', error);
-      toast({
-        title: '❌ Error',
-        description: error.message || 'No se pudo eliminar el pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'delete',
+        entity: 'pedido',
+        details: { status: orderToDelete?.status },
       });
     }
   }, [orderToDelete, toast, refetch]);
 
-  const handlePermanentDelete = useCallback(async (orderId: string) => {
+  // Show confirmation dialog for permanent delete
+  const handlePermanentDeleteClick = useCallback((orderId: string) => {
     if (userRole !== 'owner') {
       toast({
         title: '❌ Acceso denegado',
@@ -483,15 +490,31 @@ export default function Orders() {
       });
       return;
     }
+    setOrderToPermanentDelete(orderId);
+    setPermanentDeleteDialogOpen(true);
+  }, [userRole, toast]);
 
-    if (!confirm('¿Estás seguro de que deseas eliminar PERMANENTEMENTE este pedido? Esta acción NO se puede deshacer.')) {
-      return;
-    }
+  // Actually perform permanent delete after confirmation
+  const handlePermanentDelete = useCallback(async () => {
+    if (!orderToPermanentDelete) return;
+
+    setPermanentDeleteDialogOpen(false);
+    const orderId = orderToPermanentDelete;
+    setOrderToPermanentDelete(null);
 
     try {
       const success = await ordersService.delete(orderId, true);
       if (success) {
-        await refetch();
+        // Remove from local state first (optimistic)
+        setOrders(prev => prev.filter(o => o.id !== orderId));
+
+        // Try to refetch, but don't fail if it errors
+        try {
+          await refetch();
+        } catch (refetchError) {
+          console.warn('Refetch after delete failed, local state already updated:', refetchError);
+        }
+
         toast({
           title: '✅ Pedido eliminado permanentemente',
           description: 'El pedido ha sido eliminado de forma permanente.',
@@ -499,13 +522,13 @@ export default function Orders() {
       }
     } catch (error: any) {
       console.error('Error permanently deleting order:', error);
-      toast({
-        title: '❌ Error',
-        description: error.message || 'No se pudo eliminar permanentemente el pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'permanent_delete',
+        entity: 'pedido',
       });
     }
-  }, [userRole, toast, refetch]);
+  }, [orderToPermanentDelete, toast, refetch]);
 
   const handleRestoreOrder = useCallback(async (orderId: string) => {
     try {
@@ -519,10 +542,10 @@ export default function Orders() {
       }
     } catch (error: any) {
       console.error('Error restoring order:', error);
-      toast({
-        title: '❌ Error',
-        description: error.message || 'No se pudo restaurar el pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'restore',
+        entity: 'pedido',
       });
     }
   }, [toast, refetch]);
@@ -541,10 +564,10 @@ export default function Orders() {
       }
     } catch (error: any) {
       console.error('Error toggling test status:', error);
-      toast({
-        title: '❌ Error',
-        description: error.message || 'No se pudo actualizar el estado de test',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'toggle_test',
+        entity: 'pedido',
       });
     }
   }, [toast, refetch]);
@@ -571,10 +594,10 @@ export default function Orders() {
       }
     } catch (error: any) {
       console.error('Error creating picking session:', error);
-      toast({
-        title: '❌ Error',
-        description: error.message || 'No se pudo crear la sesión de picking',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'create_session',
+        entity: 'sesión de picking',
       });
     }
   }, [toast, navigate]);
@@ -590,10 +613,10 @@ export default function Orders() {
       });
     } catch (error) {
       console.error('Error refreshing orders:', error);
-      toast({
-        title: '❌ Error',
-        description: 'No se pudo actualizar la lista de pedidos',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'refresh',
+        entity: 'lista de pedidos',
       });
     } finally {
       setIsRefreshing(false);
@@ -683,10 +706,10 @@ export default function Orders() {
       }
     } catch (error) {
       console.error('Error updating order after print:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo actualizar el estado del pedido',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'mark_printed',
+        entity: 'pedido',
       });
     }
   }, [toast]);
@@ -718,6 +741,8 @@ export default function Orders() {
           : [{ name: order.product, quantity: order.quantity }],
       };
 
+      console.log('🏷️ [ORDERS] Label data for single print:', labelData);
+
       const success = await printLabelPDF(labelData);
 
       if (success) {
@@ -726,10 +751,10 @@ export default function Orders() {
       }
     } catch (error) {
       console.error('Error printing label:', error);
-      toast({
-        title: 'Error de impresión',
-        description: 'No se pudo generar la etiqueta.',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'print_label',
+        entity: 'etiqueta',
       });
     } finally {
       setPrintingOrderId(null);
@@ -771,6 +796,8 @@ export default function Orders() {
         ],
       }));
 
+      console.log('🏷️ [ORDERS] Label data for batch print:', labelsData);
+
       const success = await printBatchLabelsPDF(labelsData);
 
       if (success) {
@@ -797,10 +824,10 @@ export default function Orders() {
       }
     } catch (error) {
       console.error('Bulk print error:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo generar el PDF en lote.',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'bulk_print',
+        entity: 'etiquetas',
       });
     } finally {
       setIsPrinting(false);
@@ -1180,7 +1207,9 @@ export default function Orders() {
                           onValueChange={(newStatus: Order['status']) => handleStatusUpdate(order.id, newStatus)}
                         >
                           <SelectTrigger className={`w-36 h-8 ${statusColors[order.status]}`}>
-                            <SelectValue />
+                            <SelectValue>
+                              {statusLabels[order.status] || order.status}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="pending">Pendiente</SelectItem>
@@ -1327,7 +1356,7 @@ export default function Orders() {
                                   variant="ghost"
                                   size="icon"
                                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  onClick={() => handlePermanentDelete(order.id)}
+                                  onClick={() => handlePermanentDeleteClick(order.id)}
                                   title="Eliminar permanentemente (solo owner)"
                                 >
                                   <Trash2 size={16} />
@@ -1465,6 +1494,18 @@ export default function Orders() {
         onConfirm={confirmDelete}
         variant="destructive"
         confirmText="Eliminar"
+      />
+
+      {/* Permanent Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={permanentDeleteDialogOpen}
+        onOpenChange={setPermanentDeleteDialogOpen}
+        title="⚠️ Eliminación PERMANENTE"
+        description="Esta acción NO se puede deshacer. El pedido será eliminado PERMANENTEMENTE del sistema junto con todos sus datos asociados (historial de estados, intentos de entrega, etc.). ¿Estás seguro?"
+        onConfirm={handlePermanentDelete}
+        variant="destructive"
+        confirmText="Eliminar Permanentemente"
+        cancelText="Cancelar"
       />
     </div>
   );
