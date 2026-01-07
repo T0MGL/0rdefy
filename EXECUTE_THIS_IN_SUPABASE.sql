@@ -38,14 +38,35 @@ BEGIN
     IF OLD.sleeves_status IN ('ready_to_ship', 'shipped', 'delivered') THEN
         FOR line_item IN SELECT * FROM jsonb_array_elements(OLD.line_items)
         LOOP
-            v_product_id := (line_item->>'product_id')::UUID;
-            v_quantity := (line_item->>'quantity')::INT;
-            v_product_name := line_item->>'product_name';
-            IF v_product_id IS NULL THEN CONTINUE; END IF;
-            UPDATE products SET stock = stock + v_quantity, updated_at = NOW() WHERE id = v_product_id;
-            INSERT INTO inventory_movements (product_id, store_id, order_id, movement_type, quantity, reference_type, notes, created_at)
-            VALUES (v_product_id, OLD.store_id, OLD.id, 'order_hard_delete_restoration', v_quantity, 'order_deletion',
-                    format('Stock restored due to permanent deletion of order %s (status: %s)', OLD.id, OLD.sleeves_status), NOW());
+            DECLARE
+                v_stock_before INT;
+                v_stock_after INT;
+            BEGIN
+                v_product_id := (line_item->>'product_id')::UUID;
+                v_quantity := (line_item->>'quantity')::INT;
+                v_product_name := line_item->>'product_name';
+                IF v_product_id IS NULL THEN CONTINUE; END IF;
+
+                -- Get current stock before update
+                SELECT stock INTO v_stock_before FROM products WHERE id = v_product_id;
+                v_stock_after := v_stock_before + v_quantity;
+
+                -- Restore stock
+                UPDATE products SET stock = v_stock_after, updated_at = NOW() WHERE id = v_product_id;
+
+                -- Log the restoration
+                INSERT INTO inventory_movements (
+                    product_id, store_id, order_id, movement_type,
+                    quantity_change, stock_before, stock_after,
+                    reason, notes, created_at
+                ) VALUES (
+                    v_product_id, OLD.store_id, OLD.id, 'order_hard_delete_restoration',
+                    v_quantity, v_stock_before, v_stock_after,
+                    'order_deletion',
+                    format('Stock restored due to permanent deletion of order %s (status: %s)', OLD.id, OLD.sleeves_status),
+                    NOW()
+                );
+            END;
         END LOOP;
     END IF;
 

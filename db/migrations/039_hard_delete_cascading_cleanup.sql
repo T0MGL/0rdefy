@@ -64,24 +64,35 @@ BEGIN
                 CONTINUE;
             END IF;
 
-            -- Restore stock
-            UPDATE products
-            SET stock = stock + v_quantity,
-                updated_at = NOW()
-            WHERE id = v_product_id;
+            -- Get current stock before update
+            DECLARE
+                v_stock_before INT;
+                v_stock_after INT;
+            BEGIN
+                SELECT stock INTO v_stock_before FROM products WHERE id = v_product_id;
+                v_stock_after := v_stock_before + v_quantity;
 
-            -- Log restoration
-            INSERT INTO inventory_movements (
-                product_id, store_id, order_id, movement_type, quantity,
-                reference_type, notes, created_at
-            ) VALUES (
-                v_product_id, OLD.store_id, OLD.id,
-                'order_hard_delete_restoration', v_quantity,
-                'order_deletion',
-                format('Stock restored due to permanent deletion of order %s (status: %s)',
-                    OLD.id, OLD.sleeves_status),
-                NOW()
-            );
+                -- Restore stock
+                UPDATE products
+                SET stock = v_stock_after,
+                    updated_at = NOW()
+                WHERE id = v_product_id;
+
+                -- Log restoration
+                INSERT INTO inventory_movements (
+                    product_id, store_id, order_id, movement_type,
+                    quantity_change, stock_before, stock_after,
+                    reason, notes, created_at
+                ) VALUES (
+                    v_product_id, OLD.store_id, OLD.id,
+                    'order_hard_delete_restoration',
+                    v_quantity, v_stock_before, v_stock_after,
+                    'order_deletion',
+                    format('Stock restored due to permanent deletion of order %s (status: %s)',
+                        OLD.id, OLD.sleeves_status),
+                    NOW()
+                );
+            END;
 
             RAISE NOTICE '✅ Restored % units of product % (ID: %)', v_quantity, v_product_name, v_product_id;
         END LOOP;
