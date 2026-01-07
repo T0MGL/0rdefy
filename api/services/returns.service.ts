@@ -78,7 +78,6 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
       customer_last_name,
       customer_phone,
       total_price,
-      line_items,
       delivered_at,
       in_transit_at,
       created_at,
@@ -93,6 +92,20 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
     throw new Error(`Failed to fetch eligible orders: ${error.message}`);
   }
 
+  // Get line items count for each order
+  const orderIds = data.map(o => o.id);
+  const { data: lineItemCounts } = await supabaseAdmin
+    .from('order_line_items')
+    .select('order_id')
+    .in('order_id', orderIds)
+    .not('product_id', 'is', null);
+
+  // Count items per order
+  const itemCountMap = new Map<string, number>();
+  lineItemCounts?.forEach(item => {
+    itemCountMap.set(item.order_id, (itemCountMap.get(item.order_id) || 0) + 1);
+  });
+
   return data.map(order => ({
     id: order.id,
     order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
@@ -100,7 +113,7 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
     customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Sin nombre',
     customer_phone: order.customer_phone,
     total_price: order.total_price,
-    items_count: order.line_items?.length || 0,
+    items_count: itemCountMap.get(order.id) || 0,
     delivered_at: order.delivered_at,
     shipped_at: order.in_transit_at,
   }));
@@ -126,10 +139,10 @@ export async function createReturnSession(
 
   const sessionCode = codeData;
 
-  // Get order details
+  // Get order details with normalized line items
   const { data: orders, error: ordersError } = await supabaseAdmin
     .from('orders')
-    .select('id, sleeves_status, line_items')
+    .select('id, sleeves_status')
     .eq('store_id', storeId)
     .in('id', orderIds);
 
@@ -138,10 +151,25 @@ export async function createReturnSession(
     throw new Error(`Failed to fetch orders: ${ordersError.message}`);
   }
 
+  // Get line items from order_line_items table
+  const { data: lineItems, error: lineItemsError } = await supabaseAdmin
+    .from('order_line_items')
+    .select('order_id, product_id, quantity, unit_price')
+    .in('order_id', orderIds)
+    .not('product_id', 'is', null); // Only include items with valid product mapping
+
+  if (lineItemsError) {
+    console.error('Error fetching line items:', lineItemsError);
+    throw new Error(`Failed to fetch line items: ${lineItemsError.message}`);
+  }
+
+  // Check if we have any valid line items
+  if (!lineItems || lineItems.length === 0) {
+    throw new Error('No valid line items found for selected orders. Make sure orders have products mapped.');
+  }
+
   // Calculate total items
-  const totalItems = orders.reduce((sum, order) => {
-    return sum + (order.line_items?.length || 0);
-  }, 0);
+  const totalItems = lineItems.length;
 
   // Create session
   const { data: session, error: sessionError } = await supabaseAdmin
@@ -179,31 +207,22 @@ export async function createReturnSession(
     throw new Error(`Failed to link orders: ${ordersLinkError.message}`);
   }
 
-  // Create items from order line_items
-  const items = [];
-  for (const order of orders) {
-    if (order.line_items && Array.isArray(order.line_items)) {
-      for (const lineItem of order.line_items) {
-        items.push({
-          session_id: session.id,
-          order_id: order.id,
-          product_id: lineItem.product_id,
-          quantity_expected: lineItem.quantity,
-          unit_cost: lineItem.unit_cost || 0,
-        });
-      }
-    }
-  }
+  // Create return session items from order_line_items
+  const items = lineItems.map(lineItem => ({
+    session_id: session.id,
+    order_id: lineItem.order_id,
+    product_id: lineItem.product_id,
+    quantity_expected: lineItem.quantity,
+    unit_cost: lineItem.unit_price || 0,
+  }));
 
-  if (items.length > 0) {
-    const { error: itemsError } = await supabaseAdmin
-      .from('return_session_items')
-      .insert(items);
+  const { error: itemsError } = await supabaseAdmin
+    .from('return_session_items')
+    .insert(items);
 
-    if (itemsError) {
-      console.error('Error creating items:', itemsError);
-      throw new Error(`Failed to create items: ${itemsError.message}`);
-    }
+  if (itemsError) {
+    console.error('Error creating items:', itemsError);
+    throw new Error(`Failed to create items: ${itemsError.message}`);
   }
 
   return session;
