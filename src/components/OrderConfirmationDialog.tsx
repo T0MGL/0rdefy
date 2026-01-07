@@ -18,12 +18,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { useToast } from '@/hooks/use-toast';
 import { useCarriers } from '@/hooks/useCarriers';
-import { Loader2, CheckCircle2, Printer } from 'lucide-react';
+import { Loader2, CheckCircle2, Printer, Check, ChevronsUpDown } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { printLabelPDF } from '@/components/printing/printLabelPDF';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
+import { cn } from '@/lib/utils';
 import type { Order } from '@/types';
 
 interface OrderConfirmationDialogProps {
@@ -60,6 +73,7 @@ export function OrderConfirmationDialog({
   const [selectedZone, setSelectedZone] = useState<string>('');
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [loadingZones, setLoadingZones] = useState(false);
+  const [openZoneCombobox, setOpenZoneCombobox] = useState(false);
 
   // Fetch carrier zones when carrier is selected
   useEffect(() => {
@@ -335,6 +349,7 @@ export function OrderConfirmationDialog({
     setSelectedZone('');
     setShippingCost(0);
     setCarrierZones([]);
+    setOpenZoneCombobox(false);
     setIsConfirmed(false);
     setConfirmedOrder(null);
     setIsPrinting(false);
@@ -495,18 +510,55 @@ export function OrderConfirmationDialog({
                     </div>
                   ) : (
                     <>
-                      <Select value={selectedZone} onValueChange={setSelectedZone}>
-                        <SelectTrigger id="zone">
-                          <SelectValue placeholder="Selecciona una zona" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {carrierZones.map((zone) => (
-                            <SelectItem key={zone.id} value={zone.id}>
-                              {zone.zone_name} {zone.zone_code && `(${zone.zone_code})`} - Gs. {Number(zone.rate || 0).toLocaleString()}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Popover open={openZoneCombobox} onOpenChange={setOpenZoneCombobox}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            id="zone"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={openZoneCombobox}
+                            className="w-full justify-between"
+                          >
+                            {selectedZone
+                              ? carrierZones.find((zone) => zone.id === selectedZone)?.zone_name || "Selecciona una zona"
+                              : "Selecciona una zona"}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-full p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Buscar zona..." />
+                            <CommandEmpty>No se encontraron zonas.</CommandEmpty>
+                            <CommandGroup className="max-h-64 overflow-auto">
+                              {carrierZones.map((zone) => (
+                                <CommandItem
+                                  key={zone.id}
+                                  value={`${zone.zone_name} ${zone.zone_code || ''}`}
+                                  onSelect={() => {
+                                    setSelectedZone(zone.id);
+                                    setOpenZoneCombobox(false);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      selectedZone === zone.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex items-center justify-between w-full">
+                                    <span>
+                                      {zone.zone_name} {zone.zone_code && `(${zone.zone_code})`}
+                                    </span>
+                                    <span className="text-sm font-semibold text-primary ml-2">
+                                      Gs. {Number(zone.rate || 0).toLocaleString()}
+                                    </span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                       {selectedZone && shippingCost > 0 && (
                         <div className="mt-2 p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
                           <p className="text-sm font-medium text-blue-900 dark:text-blue-100">

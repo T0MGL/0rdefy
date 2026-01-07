@@ -508,6 +508,9 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/analytics/chart - Chart data (daily aggregated)
 // ================================================================
+// Muestra datos de TODOS los pedidos para proyección de caja
+// Pero calcula costos SOLO de pedidos entregados (costos reales incurridos)
+// ================================================================
 analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
     try {
         const { days = '7', startDate: startDateParam, endDate: endDateParam } = req.query;
@@ -624,23 +627,37 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         }
 
         // Group orders by date
-        const dailyData: Record<string, { revenue: number; costs: number; gasto_publicitario: number; profit: number }> = {};
+        // Revenue proyectado = todos los pedidos (para saber cuánto puede entrar)
+        // Costos reales = solo pedidos entregados (dinero que ya salió)
+        const dailyData: Record<string, {
+            projectedRevenue: number; // Todos los pedidos
+            realRevenue: number;      // Solo entregados
+            productCosts: number;     // Solo entregados
+            shippingCosts: number;    // Solo entregados
+            gasto_publicitario: number;
+        }> = {};
 
         for (const order of orders) {
             const date = new Date(order.created_at).toISOString().split('T')[0];
 
             if (!dailyData[date]) {
-                dailyData[date] = { revenue: 0, costs: 0, gasto_publicitario: 0, profit: 0 };
+                dailyData[date] = { projectedRevenue: 0, realRevenue: 0, productCosts: 0, shippingCosts: 0, gasto_publicitario: 0 };
             }
 
-            dailyData[date].revenue += order.total_price || 0;
+            // Proyección: suma todos los pedidos
+            dailyData[date].projectedRevenue += Number(order.total_price) || 0;
 
-            // Calculate costs using cached product data
-            if (order.line_items && Array.isArray(order.line_items)) {
-                for (const item of order.line_items) {
-                    // Use product_id (which is the Shopify ID) to look up cost
-                    const productCost = productCostMap.get(item.product_id?.toString()) || 0;
-                    dailyData[date].costs += productCost * (item.quantity || 1);
+            // Solo sumar costos e ingresos reales para pedidos entregados
+            if (order.sleeves_status === 'delivered') {
+                dailyData[date].realRevenue += Number(order.total_price) || 0;
+                dailyData[date].shippingCosts += Number(order.shipping_cost) || 0;
+
+                // Calculate product costs using cached product data
+                if (order.line_items && Array.isArray(order.line_items)) {
+                    for (const item of order.line_items) {
+                        const productCost = productCostMap.get(item.product_id?.toString()) || 0;
+                        dailyData[date].productCosts += productCost * (Number(item.quantity) || 1);
+                    }
                 }
             }
         }
@@ -648,10 +665,13 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         // Add additional values to revenue and costs for each day
         for (const date in dailyAdditionalValues) {
             if (!dailyData[date]) {
-                dailyData[date] = { revenue: 0, costs: 0, gasto_publicitario: 0, profit: 0 };
+                dailyData[date] = { projectedRevenue: 0, realRevenue: 0, productCosts: 0, shippingCosts: 0, gasto_publicitario: 0 };
             }
-            dailyData[date].revenue += dailyAdditionalValues[date].income;
-            dailyData[date].costs += dailyAdditionalValues[date].expense;
+            // Los ingresos adicionales se suman a ambos (proyectado y real)
+            dailyData[date].projectedRevenue += dailyAdditionalValues[date].income;
+            dailyData[date].realRevenue += dailyAdditionalValues[date].income;
+            // Los gastos adicionales se suman a costos de producto
+            dailyData[date].productCosts += dailyAdditionalValues[date].expense;
         }
 
         // Add gasto publicitario costs from campaigns for each day
@@ -659,14 +679,27 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             dailyData[date].gasto_publicitario = Math.round(dailyCampaignCosts[date] || 0);
         }
 
-        // Calculate profit for each day
-        const chartData = Object.entries(dailyData).map(([date, data]) => ({
-            date,
-            revenue: Math.round(data.revenue),
-            costs: Math.round(data.costs),
-            gasto_publicitario: data.gasto_publicitario,
-            profit: Math.round(data.revenue - data.costs - data.gasto_publicitario),
-        })).sort((a, b) => a.date.localeCompare(b.date));
+        // Calculate chart data with real profit (only delivered orders)
+        // Profit = Ingresos reales - Costos de producto - Costos de envío - Gasto publicitario
+        const chartData = Object.entries(dailyData).map(([date, data]) => {
+            const totalCosts = data.productCosts + data.shippingCosts + data.gasto_publicitario;
+            const realProfit = data.realRevenue - totalCosts;
+
+            return {
+                date,
+                // Revenue proyectado (todos los pedidos) para ver tendencia
+                revenue: Math.round(data.projectedRevenue),
+                // Revenue real (solo entregados)
+                realRevenue: Math.round(data.realRevenue),
+                // Costos totales (solo de entregados)
+                costs: Math.round(data.productCosts + data.shippingCosts),
+                productCosts: Math.round(data.productCosts),
+                shippingCosts: Math.round(data.shippingCosts),
+                gasto_publicitario: data.gasto_publicitario,
+                // Profit real (solo de entregados)
+                profit: Math.round(realProfit),
+            };
+        }).sort((a, b) => a.date.localeCompare(b.date));
 
         res.json({
             data: chartData
@@ -825,6 +858,9 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
 // ================================================================
 // GET /api/analytics/top-products - Top selling products
 // ================================================================
+// IMPORTANT: Solo cuenta ventas de pedidos ENTREGADOS
+// Esto refleja las ventas reales (dinero efectivamente cobrado)
+// ================================================================
 analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => {
     try {
         const { limit = '5', startDate, endDate } = req.query;
@@ -840,11 +876,12 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             });
         }
 
-        // Build query
+        // Build query - SOLO pedidos entregados (ventas reales)
         let query = supabaseAdmin
             .from('orders')
             .select('line_items')
-            .eq('store_id', req.storeId);
+            .eq('store_id', req.storeId)
+            .eq('sleeves_status', 'delivered'); // Solo pedidos entregados
 
         // Apply date filters if provided
         if (startDate) {
@@ -920,13 +957,18 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
         // Combine product details with sales data and calculate profitability
         const topProducts = (productsData || []).map(product => {
             const price = Number(product.price) || 0;
-            const cost = Number(product.cost) || 0;
-            const profitability = price > 0 ? parseFloat((((price - cost) / price) * 100).toFixed(1)) : 0;
+            const baseCost = Number(product.cost) || 0;
+            const packagingCost = Number(product.packaging_cost) || 0;
+            const additionalCosts = Number(product.additional_costs) || 0;
+            // Total unit cost includes base cost + packaging + additional costs
+            const totalCost = baseCost + packagingCost + additionalCosts;
+            const profitability = price > 0 ? parseFloat((((price - totalCost) / price) * 100).toFixed(1)) : 0;
 
             return {
                 ...product,
                 sales: productSales[product.id]?.quantity || 0,
                 sales_revenue: productSales[product.id]?.revenue || 0,
+                total_cost: totalCost, // Return total cost for frontend calculations
                 profitability,
             };
         }).sort((a, b) => b.sales - a.sales);

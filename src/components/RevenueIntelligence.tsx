@@ -135,7 +135,12 @@ export function RevenueIntelligence() {
   // Calculate product profitability
   const productProfitability = topProducts.map((product) => {
     const revenue = product.sales * Number(product.price);
-    const cogs = product.sales * Number(product.cost || 0);
+    // Use total_cost from backend (includes packaging + additional costs)
+    // Fallback to manual calculation if not provided
+    const totalUnitCost = product.total_cost
+      ? Number(product.total_cost)
+      : (Number(product.cost || 0) + Number(product.packaging_cost || 0) + Number(product.additional_costs || 0));
+    const cogs = product.sales * totalUnitCost;
     const margin = revenue - cogs;
     const marginPercent = revenue > 0 ? parseFloat(((margin / revenue) * 100).toFixed(1)) : 0;
     const roi = cogs > 0 ? parseFloat(((revenue / cogs) * 100).toFixed(1)) : 0;
