@@ -38,7 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -314,6 +314,45 @@ export default function Orders() {
     }
   }, [orders, toast]);
 
+  // Helper function to generate WhatsApp confirmation message
+  const generateWhatsAppConfirmationLink = useCallback((order: Order) => {
+    const storeName = currentStore?.name || 'Nuestra Tienda';
+    const lineItems = order.order_line_items || [];
+
+    // Build product list
+    let productList = '';
+    if (lineItems.length > 0) {
+      productList = lineItems.map(item =>
+        `- ${item.product_name || item.title}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`
+      ).join('\n');
+    } else if (order.product) {
+      productList = `- ${order.product}${order.quantity > 1 ? ` (x${order.quantity})` : ''}`;
+    }
+
+    // Build address
+    const address = order.address || 'No especificada';
+
+    const message = `Hola ${order.customer}!
+
+Gracias por tu pedido en *${storeName}*
+
+*Tu pedido:*
+${productList}
+
+*Dirección de envío:*
+${address}
+
+*Total:* ${formatCurrency(order.total ?? 0)}
+
+Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
+
+    // Clean phone number and create WhatsApp link
+    const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+    const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+
+    return `https://api.whatsapp.com/send?phone=${whatsappNumber}&text=${encodeURIComponent(message)}`;
+  }, [currentStore]);
+
   const handleStatusUpdate = useCallback(async (orderId: string, newStatus: Order['status']) => {
     // Get original order before updating
     const originalOrder = orders.find(o => o.id === orderId);
@@ -456,17 +495,33 @@ export default function Orders() {
   const confirmDelete = useCallback(async () => {
     if (!orderToDelete) return;
 
+    // Owner = hard delete (permanent), collaborators = soft delete
+    const isOwner = userRole === 'owner';
+    const isPermanent = isOwner;
+
     try {
-      // Soft delete by default (permanent=false)
-      const success = await ordersService.delete(orderToDelete, false);
+      const success = await ordersService.delete(orderToDelete, isPermanent);
       if (success) {
+        if (isPermanent) {
+          // Hard delete: remove from local state
+          setOrders(prev => prev.filter(o => o.id !== orderToDelete));
+        }
+
         // Refresh orders to show updated state
-        await refetch();
+        try {
+          await refetch();
+        } catch (refetchError) {
+          console.warn('Refetch after delete failed:', refetchError);
+        }
+
         setDeleteDialogOpen(false);
         setOrderToDelete(null);
+
         toast({
-          title: '✅ Pedido eliminado',
-          description: 'El pedido ha sido marcado como eliminado. Puede restaurarlo desde los filtros.',
+          title: isPermanent ? '✅ Pedido eliminado permanentemente' : '✅ Pedido eliminado',
+          description: isPermanent
+            ? 'El pedido ha sido eliminado de forma permanente.'
+            : 'El pedido ha sido marcado como eliminado. Puede restaurarlo desde los filtros.',
         });
       }
     } catch (error: any) {
@@ -478,7 +533,7 @@ export default function Orders() {
         details: { status: orderToDelete?.status },
       });
     }
-  }, [orderToDelete, toast, refetch]);
+  }, [orderToDelete, toast, refetch, userRole]);
 
   // Show confirmation dialog for permanent delete
   const handlePermanentDeleteClick = useCallback((orderId: string) => {
@@ -1055,7 +1110,7 @@ export default function Orders() {
                       Transportadora
                     </th>
                     <th className="text-center py-4 px-6 text-sm font-medium text-muted-foreground">
-                      Confirmación
+                      Siguiente Paso
                     </th>
                     <th className="text-right py-4 px-6 text-sm font-medium text-muted-foreground">
                       Total
@@ -1230,19 +1285,31 @@ export default function Orders() {
                       </td>
                       <td className="py-4 px-6 text-sm">{getCarrierName(order.carrier)}</td>
                       <td className="py-4 px-6 text-center">
-                        {order.status !== 'pending' ? (
-                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
-                            {order.status === 'confirmed' && <CheckCircle size={14} className="mr-1" />}
-                            {order.status === 'cancelled' && <XCircle size={14} className="mr-1" />}
-                            {order.status === 'delivered' && <CheckCircle size={14} className="mr-1" />}
-                            {statusLabels[order.status]}
-                          </Badge>
-                        ) : (
-                          <div className="flex gap-1 justify-center">
+                        {/* Siguiente Paso - Acciones contextuales según el estado */}
+                        {order.status === 'pending' && (
+                          <div className="flex gap-1 justify-center flex-wrap">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
+                                    onClick={() => window.open(generateWhatsAppConfirmationLink(order), '_blank')}
+                                  >
+                                    <MessageSquare size={14} className="mr-1" />
+                                    Enviar
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Enviar mensaje de confirmación por WhatsApp</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 px-2 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
+                              className="h-7 px-2 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
                               onClick={() => {
                                 setOrderToConfirm(order);
                                 setConfirmDialogOpen(true);
@@ -1261,6 +1328,93 @@ export default function Orders() {
                               Rechazar
                             </Button>
                           </div>
+                        )}
+                        {order.status === 'confirmed' && (
+                          <div className="flex gap-1 justify-center">
+                            {order.delivery_link_token ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-800 hover:bg-cyan-100 dark:hover:bg-cyan-900/30 hover:border-cyan-400 dark:hover:border-cyan-700 hover:shadow-sm transition-all duration-200"
+                                onClick={() => handlePrintLabel(order)}
+                                disabled={printingOrderId === order.id}
+                              >
+                                {printingOrderId === order.id ? (
+                                  <Loader2 size={14} className="mr-1 animate-spin" />
+                                ) : (
+                                  <Printer size={14} className="mr-1" />
+                                )}
+                                Imprimir
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:border-indigo-400 dark:hover:border-indigo-700 hover:shadow-sm transition-all duration-200"
+                                onClick={() => handleQuickPrepare(order.id)}
+                              >
+                                <PackageOpen size={14} className="mr-1" />
+                                Preparar
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                        {order.status === 'in_preparation' && (
+                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                            <PackageOpen size={14} className="mr-1" />
+                            En Preparación
+                          </Badge>
+                        )}
+                        {order.status === 'ready_to_ship' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/30 hover:border-purple-400 dark:hover:border-purple-700 hover:shadow-sm transition-all duration-200"
+                            onClick={() => handleStatusUpdate(order.id, 'shipped')}
+                          >
+                            <Truck size={14} className="mr-1" />
+                            Despachar
+                          </Button>
+                        )}
+                        {(order.status === 'shipped' || order.status === 'in_transit') && (
+                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                            <Truck size={14} className="mr-1" />
+                            En Camino
+                          </Badge>
+                        )}
+                        {order.status === 'delivered' && (
+                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                            <CheckCircle size={14} className="mr-1" />
+                            Entregado
+                          </Badge>
+                        )}
+                        {order.status === 'returned' && (
+                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                            <RotateCcw size={14} className="mr-1" />
+                            Devuelto
+                          </Badge>
+                        )}
+                        {order.status === 'cancelled' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
+                            onClick={() => handleStatusUpdate(order.id, 'pending')}
+                          >
+                            <RefreshCw size={14} className="mr-1" />
+                            Reactivar
+                          </Button>
+                        )}
+                        {order.status === 'incident' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/30 hover:border-orange-400 dark:hover:border-orange-700 hover:shadow-sm transition-all duration-200"
+                            onClick={() => navigate(`/incidents?order=${order.id}`)}
+                          >
+                            <AlertTriangle size={14} className="mr-1" />
+                            Ver Incidencia
+                          </Button>
                         )}
                       </td>
                       <td className="py-4 px-6 text-right text-sm font-semibold">
@@ -1493,11 +1647,13 @@ export default function Orders() {
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        title="¿Eliminar pedido?"
-        description="Esta acción no se puede deshacer. El pedido será eliminado permanentemente del sistema."
+        title={userRole === 'owner' ? '⚠️ ¿Eliminar pedido permanentemente?' : '¿Eliminar pedido?'}
+        description={userRole === 'owner'
+          ? 'Esta acción NO se puede deshacer. El pedido será eliminado PERMANENTEMENTE del sistema junto con todos sus datos asociados.'
+          : 'El pedido será marcado como eliminado. Podrás restaurarlo desde los filtros si es necesario.'}
         onConfirm={confirmDelete}
         variant="destructive"
-        confirmText="Eliminar"
+        confirmText={userRole === 'owner' ? 'Eliminar Permanentemente' : 'Eliminar'}
       />
 
       {/* Permanent Delete Confirmation Dialog */}
