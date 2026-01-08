@@ -95,7 +95,7 @@ export default function Logistics() {
         // Fetch logistics metrics
         try {
           const response = await fetch(
-            `/api/analytics/logistics-metrics?startDate=${dateParams.startDate}&endDate=${dateParams.endDate}`,
+            `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/analytics/logistics-metrics?startDate=${dateParams.startDate}&endDate=${dateParams.endDate}`,
             {
               headers: {
                 Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
