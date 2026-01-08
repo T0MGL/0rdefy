@@ -12,13 +12,15 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
 import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
+import { DemoTourProvider } from "@/components/demo-tour/DemoTourProvider";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { PermissionRoute } from "@/components/PermissionRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ShopifyAppBridgeProvider } from "@/components/ShopifyAppBridgeProvider";
 import { PlanLimitHandler } from "@/components/PlanLimitHandler";
-import { OnboardingTour } from "@/components/onboarding";
+// Lazy load DemoTour - only loaded when tour is triggered
+const DemoTour = lazy(() => import("@/components/demo-tour").then(m => ({ default: m.DemoTour })));
 
 // TypeScript declaration for Shopify App Bridge
 declare global {
@@ -143,10 +145,13 @@ const App = () => {
                     <PlanLimitHandler />
                     <DateRangeProvider>
                       <OnboardingTourProvider>
+                        <DemoTourProvider>
                         <ErrorBoundary>
                           <OnboardingGuard>
-                            {/* Onboarding Tour - renders overlay when active */}
-                            <OnboardingTour autoStart={true} />
+                            {/* Demo Tour - interactive onboarding experience (lazy loaded) */}
+                            <Suspense fallback={null}>
+                              <DemoTour autoStart={true} />
+                            </Suspense>
                         <Suspense fallback={<CardSkeleton count={1} />}>
                           <Routes>
                             {/* Public routes */}
@@ -218,6 +223,7 @@ const App = () => {
                           </Suspense>
                         </OnboardingGuard>
                         </ErrorBoundary>
+                        </DemoTourProvider>
                       </OnboardingTourProvider>
                     </DateRangeProvider>
                   </SubscriptionProvider>
