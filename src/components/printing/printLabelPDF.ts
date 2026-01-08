@@ -53,22 +53,27 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   });
 
   // Determine payment status
-  // Priority: Shopify financial_status > local payment_method
+  // Priority: Check COD first (if codAmount > 0, it's COD regardless of payment_method)
+  // This handles cases where payment_method might be incorrect but codAmount is set
+  const hasCODAmount = data.codAmount && data.codAmount > 0;
   const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
-  const isCODLocal = (data.paymentMethod === 'cash' || data.paymentMethod === 'efectivo' || data.paymentMethod === 'cod') &&
-    data.codAmount && data.codAmount > 0;
+  const isCODMethod = data.paymentMethod === 'cash' ||
+                      data.paymentMethod === 'efectivo' ||
+                      data.paymentMethod === 'cod' ||
+                      data.paymentMethod === 'cash_on_delivery';
 
   // Debug logging
   console.log('🔍 [PDF DEBUG] Payment data:', {
     paymentMethod: data.paymentMethod,
     codAmount: data.codAmount,
     financialStatus: data.financialStatus,
+    hasCODAmount,
     isPaidByShopify,
-    isCODLocal,
+    isCODMethod,
   });
 
-  // If Shopify says paid, it's paid. Otherwise check local COD logic
-  const isCOD = !isPaidByShopify && isCODLocal;
+  // Logic: If has COD amount OR COD payment method (and not paid by Shopify), show COBRAR
+  const isCOD = !isPaidByShopify && (hasCODAmount || isCODMethod);
 
   // Set default font
   pdf.setFont('helvetica', 'normal');
@@ -319,10 +324,13 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
     });
 
     // Determine payment status for this label
+    const hasCODAmount = labels[i].codAmount && labels[i].codAmount > 0;
     const isPaidByShopify = labels[i].financialStatus === 'paid' || labels[i].financialStatus === 'authorized';
-    const isCODLocal = (labels[i].paymentMethod === 'cash' || labels[i].paymentMethod === 'efectivo' || labels[i].paymentMethod === 'cod') &&
-      labels[i].codAmount && labels[i].codAmount > 0;
-    const isCOD = !isPaidByShopify && isCODLocal;
+    const isCODMethod = labels[i].paymentMethod === 'cash' ||
+                        labels[i].paymentMethod === 'efectivo' ||
+                        labels[i].paymentMethod === 'cod' ||
+                        labels[i].paymentMethod === 'cash_on_delivery';
+    const isCOD = !isPaidByShopify && (hasCODAmount || isCODMethod);
 
     // Draw the label
     drawLabelOnPage(pdf, labels[i], qrDataUrl, isCOD);
