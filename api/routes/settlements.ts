@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';
 import { Module } from '../permissions';
+import * as settlementsService from '../services/settlements.service';
 
 export const settlementsRouter = Router();
 
@@ -446,5 +447,369 @@ settlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ================================================================
+// DISPATCH SESSIONS - New dispatch/settlement workflow
+// ================================================================
+
+/**
+ * GET /api/settlements/dispatch-sessions
+ * List all dispatch sessions
+ */
+settlementsRouter.get('/dispatch-sessions', async (req: AuthRequest, res: Response) => {
+  try {
+    const { status, carrier_id, start_date, end_date, limit, offset } = req.query;
+
+    const result = await settlementsService.getDispatchSessions(req.storeId!, {
+      status: status as string,
+      carrierId: carrier_id as string,
+      startDate: start_date as string,
+      endDate: end_date as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('❌ [DISPATCH] Error fetching dispatch sessions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/settlements/dispatch-sessions/:id
+ * Get dispatch session by ID with orders
+ */
+settlementsRouter.get('/dispatch-sessions/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const session = await settlementsService.getDispatchSessionById(id, req.storeId!);
+    res.json(session);
+  } catch (error: any) {
+    console.error('❌ [DISPATCH] Error fetching dispatch session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settlements/dispatch-sessions
+ * Create new dispatch session with orders
+ */
+settlementsRouter.post('/dispatch-sessions', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrier_id, order_ids } = req.body;
+
+    if (!carrier_id) {
+      return res.status(400).json({ error: 'carrier_id is required' });
+    }
+    if (!order_ids || !Array.isArray(order_ids) || order_ids.length === 0) {
+      return res.status(400).json({ error: 'order_ids array is required' });
+    }
+
+    console.log('📦 [DISPATCH] Creating dispatch session:', {
+      carrier_id,
+      order_count: order_ids.length
+    });
+
+    const session = await settlementsService.createDispatchSession(
+      req.storeId!,
+      carrier_id,
+      order_ids,
+      req.userId!
+    );
+
+    console.log('✅ [DISPATCH] Session created:', session.session_code);
+
+    res.status(201).json(session);
+  } catch (error: any) {
+    console.error('❌ [DISPATCH] Error creating dispatch session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/settlements/dispatch-sessions/:id/export
+ * Export dispatch session as CSV for courier
+ */
+settlementsRouter.get('/dispatch-sessions/:id/export', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const csv = await settlementsService.exportDispatchCSV(id, req.storeId!);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="despacho-${id}.csv"`);
+    res.send('\uFEFF' + csv); // Add BOM for Excel UTF-8 compatibility
+  } catch (error: any) {
+    console.error('❌ [DISPATCH] Error exporting CSV:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settlements/dispatch-sessions/:id/import
+ * Import delivery results from CSV
+ */
+settlementsRouter.post('/dispatch-sessions/:id/import', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { results } = req.body;
+
+    if (!results || !Array.isArray(results)) {
+      return res.status(400).json({ error: 'results array is required' });
+    }
+
+    console.log('📥 [DISPATCH] Importing results for session:', id, 'rows:', results.length);
+
+    const importResult = await settlementsService.importDispatchResults(id, req.storeId!, results);
+
+    console.log('✅ [DISPATCH] Import complete:', importResult);
+
+    res.json(importResult);
+  } catch (error: any) {
+    console.error('❌ [DISPATCH] Error importing results:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settlements/dispatch-sessions/:id/process
+ * Process dispatch session and create settlement
+ */
+settlementsRouter.post('/dispatch-sessions/:id/process', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    console.log('💰 [DISPATCH] Processing settlement for session:', id);
+
+    const settlement = await settlementsService.processSettlement(id, req.storeId!, req.userId!);
+
+    console.log('✅ [DISPATCH] Settlement created:', settlement.settlement_code);
+
+    res.status(201).json(settlement);
+  } catch (error: any) {
+    console.error('❌ [DISPATCH] Error processing settlement:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================================================================
+// DAILY SETTLEMENTS (NEW v2) - Enhanced endpoints
+// ================================================================
+
+/**
+ * GET /api/settlements/v2
+ * List all daily settlements with enhanced info
+ */
+settlementsRouter.get('/v2', async (req: AuthRequest, res: Response) => {
+  try {
+    const { status, carrier_id, start_date, end_date, limit, offset } = req.query;
+
+    const result = await settlementsService.getDailySettlements(req.storeId!, {
+      status: status as string,
+      carrierId: carrier_id as string,
+      startDate: start_date as string,
+      endDate: end_date as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('❌ [SETTLEMENTS V2] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/settlements/v2/:id
+ * Get settlement by ID with full details
+ */
+settlementsRouter.get('/v2/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const settlement = await settlementsService.getSettlementById(id, req.storeId!);
+    res.json(settlement);
+  } catch (error: any) {
+    console.error('❌ [SETTLEMENTS V2] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settlements/v2/:id/pay
+ * Record payment for settlement
+ */
+settlementsRouter.post('/v2/:id/pay', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { amount, method, reference, notes } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+    if (!method) {
+      return res.status(400).json({ error: 'Payment method is required' });
+    }
+
+    const settlement = await settlementsService.markSettlementPaid(id, req.storeId!, {
+      amount,
+      method,
+      reference,
+      notes
+    });
+
+    console.log('✅ [SETTLEMENTS V2] Payment recorded:', id, amount);
+
+    res.json(settlement);
+  } catch (error: any) {
+    console.error('❌ [SETTLEMENTS V2] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================================================================
+// CARRIER ZONES
+// ================================================================
+
+/**
+ * GET /api/settlements/zones
+ * Get all carrier zones
+ */
+settlementsRouter.get('/zones', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrier_id } = req.query;
+
+    const zones = await settlementsService.getCarrierZones(
+      req.storeId!,
+      carrier_id as string
+    );
+
+    res.json(zones);
+  } catch (error: any) {
+    console.error('❌ [ZONES] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settlements/zones
+ * Create or update carrier zone
+ */
+settlementsRouter.post('/zones', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrier_id, zone_name, zone_code, rate, is_active } = req.body;
+
+    if (!carrier_id) {
+      return res.status(400).json({ error: 'carrier_id is required' });
+    }
+    if (!zone_name) {
+      return res.status(400).json({ error: 'zone_name is required' });
+    }
+    if (rate === undefined || rate < 0) {
+      return res.status(400).json({ error: 'Valid rate is required' });
+    }
+
+    const zone = await settlementsService.upsertCarrierZone(req.storeId!, carrier_id, {
+      zone_name,
+      zone_code,
+      rate,
+      is_active
+    });
+
+    console.log('✅ [ZONES] Zone created/updated:', zone_name, rate);
+
+    res.status(201).json(zone);
+  } catch (error: any) {
+    console.error('❌ [ZONES] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settlements/zones/bulk
+ * Bulk import carrier zones (from Excel)
+ */
+settlementsRouter.post('/zones/bulk', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrier_id, zones } = req.body;
+
+    if (!carrier_id) {
+      return res.status(400).json({ error: 'carrier_id is required' });
+    }
+    if (!zones || !Array.isArray(zones) || zones.length === 0) {
+      return res.status(400).json({ error: 'zones array is required' });
+    }
+
+    console.log('📥 [ZONES] Bulk importing zones for carrier:', carrier_id, 'count:', zones.length);
+
+    const result = await settlementsService.bulkUpsertCarrierZones(req.storeId!, carrier_id, zones);
+
+    console.log('✅ [ZONES] Bulk import complete:', result);
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('❌ [ZONES] Bulk import error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/settlements/zones/:id
+ * Delete carrier zone
+ */
+settlementsRouter.delete('/zones/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    await settlementsService.deleteCarrierZone(id, req.storeId!);
+
+    console.log('🗑️ [ZONES] Zone deleted:', id);
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('❌ [ZONES] Delete error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================================================================
+// ANALYTICS / DASHBOARD
+// ================================================================
+
+/**
+ * GET /api/settlements/summary/v2
+ * Get enhanced settlements summary for dashboard
+ */
+settlementsRouter.get('/summary/v2', async (req: AuthRequest, res: Response) => {
+  try {
+    const { start_date, end_date } = req.query;
+
+    const summary = await settlementsService.getSettlementsSummary(
+      req.storeId!,
+      start_date as string,
+      end_date as string
+    );
+
+    res.json(summary);
+  } catch (error: any) {
+    console.error('❌ [SETTLEMENTS] Summary error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/settlements/pending-by-carrier
+ * Get pending balances grouped by carrier
+ */
+settlementsRouter.get('/pending-by-carrier', async (req: AuthRequest, res: Response) => {
+  try {
+    const pending = await settlementsService.getPendingByCarrier(req.storeId!);
+    res.json(pending);
+  } catch (error: any) {
+    console.error('❌ [SETTLEMENTS] Pending by carrier error:', error);
+    res.status(500).json({ error: error.message });
   }
 });

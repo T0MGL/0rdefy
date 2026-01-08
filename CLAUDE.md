@@ -229,6 +229,61 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - Rejected items → no stock change + logged as 'return_rejected' with reason
 - Order status updated to 'returned' on session completion
 
+### Dispatch & Settlements System (Courier Reconciliation)
+**Files:** `src/pages/Settlements.tsx`, `api/routes/settlements.ts`, `api/services/settlements.service.ts`, `db/migrations/045_dispatch_settlements_system.sql`
+
+**Workflow (Despacho → Conciliación → Liquidación → Pago):**
+1. **Despacho:** Select ready_to_ship orders → create dispatch session (DISP-DDMMYYYY-NN)
+2. **Export CSV:** Download session for courier (Google Sheets/Excel compatible)
+3. **Courier Delivery:** Courier delivers orders, marks results in CSV
+4. **Conciliación:** Import CSV results → system validates and reconciles
+5. **Liquidación:** Calculate net amount (COD collected - shipping costs)
+6. **Pago:** Mark settlement as paid
+
+**Features:**
+- Batch dispatch sessions with auto-generated codes
+- CSV export for courier communication (transition until QR scanning)
+- CSV import with Spanish column name support (ESTADO_ENTREGA, MONTO_COBRADO, etc.)
+- Zone-based carrier rates (Asunción: 25,000 Gs, Central: 30,000-35,000 Gs, Interior: 45,000 Gs)
+- Delivery result tracking: delivered, failed, rejected, rescheduled
+- Discrepancy detection during reconciliation
+- Financial summary: COD expected vs collected, shipping costs, net receivable
+- Pending amounts by carrier dashboard
+
+**Delivery Results:**
+- `delivered`: Order delivered, COD collected (if applicable)
+- `failed`: Delivery attempt failed (no one home, wrong address, etc.)
+- `rejected`: Customer rejected delivery
+- `rescheduled`: Delivery rescheduled for another day
+
+**Session Status Flow:**
+```
+open → dispatched → reconciled → settled
+  ↓         ↓            ↓           ↓
+Create   Export CSV   Import CSV   Calculate
+Session  + Mark       + Validate   Settlement
+         Shipped      Results      + Mark Paid
+```
+
+**Net Receivable Calculation:**
+```
+Net Receivable = COD Collected - Shipping Costs - Failed Attempt Fees
+```
+
+**Tables:** dispatch_sessions, dispatch_session_orders, carrier_zones
+**Functions:** generate_dispatch_session_code, process_dispatch_settlement, calculate_shipping_cost
+
+**API Endpoints:**
+- `GET/POST /api/settlements/dispatch-sessions` - List/create dispatch sessions
+- `GET /api/settlements/dispatch-sessions/:id` - Session detail with orders
+- `POST /api/settlements/dispatch-sessions/:id/dispatch` - Mark as dispatched
+- `GET /api/settlements/dispatch-sessions/:id/export` - Export CSV for courier
+- `POST /api/settlements/dispatch-sessions/:id/import` - Import delivery results
+- `POST /api/settlements/dispatch-sessions/:id/settle` - Process settlement
+- `POST /api/settlements/v2/:id/paid` - Mark settlement as paid
+- `GET /api/settlements/summary/v2` - Analytics summary
+- `GET /api/settlements/pending-by-carrier` - Pending amounts by carrier
+
 ### Shipping Labels System
 **Files:** `src/components/OrderShippingLabel.tsx`, `src/pages/Orders.tsx`, `db/migrations/017_add_printed_status.sql`
 **Documentation:** `INSTRUCCIONES_IMPRESION.md`
@@ -417,6 +472,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at), order_line_items
 - History: order_status_history, follow_up_log
 - Delivery: delivery_attempts, daily_settlements, settlement_orders
+- Dispatch: dispatch_sessions, dispatch_session_orders, carrier_zones (zone-based courier rates)
 - Inventory: inventory_movements (audit log for all stock changes)
 - Merchandise: inbound_shipments, inbound_shipment_items
 - Warehouse: picking_sessions, picking_session_orders, picking_session_items, packing_progress
@@ -431,6 +487,9 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - generate_session_code (warehouse batch codes)
 - generate_return_session_code (returns batch codes)
 - complete_return_session (process returns and update inventory)
+- generate_dispatch_session_code (dispatch batch codes DISP-DDMMYYYY-NN)
+- process_dispatch_settlement (calculate net amount from reconciliation)
+- calculate_shipping_cost (zone-based rate lookup)
 - update_product_stock_on_order_status (automatic stock management)
 - prevent_line_items_edit_after_stock_deducted (data integrity)
 - prevent_order_deletion_after_stock_deducted (data integrity)
@@ -514,6 +573,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - ✅ **NEW: WhatsApp phone verification (prevents multicuentas)**
 
 - ✅ **NEW: Stripe Billing System** (subscriptions, trials, referrals, discount codes)
+- ✅ **NEW: Dispatch & Settlements** (courier reconciliation, CSV export/import, zone-based rates)
 
 **Coming Soon:**
 - 2FA authentication
@@ -564,3 +624,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 034: **NEW:** WhatsApp phone verification system (prevents multicuentas)
 - 036: **NEW:** Billing & Subscriptions system (Stripe, referrals, discount codes)
 - 039: **NEW:** Hard delete with cascading cleanup (owner only, no soft delete, complete data cleanup)
+- 045: **NEW:** Dispatch & Settlements system (courier reconciliation, zone rates, CSV import/export)
