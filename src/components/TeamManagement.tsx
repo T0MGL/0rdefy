@@ -80,6 +80,8 @@ export function TeamManagement() {
   const queryClient = useQueryClient();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
   const [inviteData, setInviteData] = useState({
     name: '',
     email: '',
@@ -169,7 +171,44 @@ export function TeamManagement() {
     setInviteOpen(false);
     setInviteUrl('');
     setInviteData({ name: '', email: '', role: 'confirmador' });
+    setCopiedUrl(false);
+    setCopiedWhatsApp(false);
+    setCopiedEmail(false);
     createInvitation.reset();
+  };
+
+  const getWhatsAppMessage = () => {
+    return `¡Hola ${inviteData.name}! 👋
+
+Te invito a colaborar en mi tienda en Ordefy.
+
+Haz clic aquí para aceptar:
+${inviteUrl}
+
+(El link expira en 7 días)`;
+  };
+
+  const getEmailMessage = () => {
+    return `¡Hola ${inviteData.name}!
+
+Te invito a colaborar en mi tienda en Ordefy.
+
+Haz clic en el siguiente link para aceptar:
+${inviteUrl}
+
+(El link expira en 7 días)`;
+  };
+
+  const copyWhatsAppMessage = () => {
+    navigator.clipboard.writeText(getWhatsAppMessage());
+    setCopiedWhatsApp(true);
+    setTimeout(() => setCopiedWhatsApp(false), 2000);
+  };
+
+  const copyEmailMessage = () => {
+    navigator.clipboard.writeText(getEmailMessage());
+    setCopiedEmail(true);
+    setTimeout(() => setCopiedEmail(false), 2000);
   };
 
   const canAddUsers = stats?.can_add_more ?? true;
@@ -309,31 +348,46 @@ export function TeamManagement() {
                   </div>
 
                   {/* Share Buttons */}
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground text-center">Compartir por:</p>
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground text-center">Copiar mensaje para:</p>
                     <div className="grid grid-cols-2 gap-2">
                       <Button
                         variant="outline"
-                        className="w-full bg-green-50 hover:bg-green-100 border-green-200 text-green-700 dark:bg-green-950/30 dark:hover:bg-green-950/50 dark:border-green-800 dark:text-green-400"
-                        onClick={() => {
-                          const message = `¡Hola ${inviteData.name}! 👋\n\nTe invito a colaborar en mi tienda en Ordefy.\n\nHaz clic en el siguiente link para aceptar:\n${inviteUrl}\n\n(El link expira en 7 días)`;
-                          window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
-                        }}
+                        className={`w-full ${copiedWhatsApp
+                          ? 'bg-green-600 hover:bg-green-700 text-white border-green-600'
+                          : 'bg-green-50 hover:bg-green-100 border-green-200 text-green-700 dark:bg-green-950/30 dark:hover:bg-green-950/50 dark:border-green-800 dark:text-green-400'}`}
+                        onClick={copyWhatsAppMessage}
                       >
-                        <MessageCircle className="w-4 h-4 mr-2" />
-                        WhatsApp
+                        {copiedWhatsApp ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                            ¡Copiado!
+                          </>
+                        ) : (
+                          <>
+                            <MessageCircle className="w-4 h-4 mr-2" />
+                            WhatsApp
+                          </>
+                        )}
                       </Button>
                       <Button
                         variant="outline"
-                        className="w-full"
-                        onClick={() => {
-                          const subject = 'Invitación a colaborar en Ordefy';
-                          const body = `¡Hola ${inviteData.name}!\n\nTe invito a colaborar en mi tienda en Ordefy.\n\nHaz clic en el siguiente link para aceptar:\n${inviteUrl}\n\n(El link expira en 7 días)`;
-                          window.open(`mailto:${inviteData.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
-                        }}
+                        className={`w-full ${copiedEmail
+                          ? 'bg-primary hover:bg-primary/90 text-white border-primary'
+                          : ''}`}
+                        onClick={copyEmailMessage}
                       >
-                        <Mail className="w-4 h-4 mr-2" />
-                        Email
+                        {copiedEmail ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                            ¡Copiado!
+                          </>
+                        ) : (
+                          <>
+                            <Mail className="w-4 h-4 mr-2" />
+                            Email
+                          </>
+                        )}
                       </Button>
                     </div>
                   </div>
@@ -419,86 +473,56 @@ export function TeamManagement() {
         </CardContent>
       </Card>
 
-      {/* All Invitations */}
-      {invitationsData?.invitations && invitationsData.invitations.length > 0 && (
+      {/* Pending Invitations Only */}
+      {invitationsData?.invitations && invitationsData.invitations.filter(inv => inv.status === 'pending').length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Invitaciones ({invitationsData.invitations.length})</CardTitle>
+            <CardTitle>Invitaciones Pendientes ({invitationsData.invitations.filter(inv => inv.status === 'pending').length})</CardTitle>
             <CardDescription>
-              Gestiona todas las invitaciones enviadas
+              Invitaciones enviadas que aún no han sido aceptadas
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {invitationsData.invitations.map((invitation) => {
-                const isPending = invitation.status === 'pending';
-                const isExpired = invitation.status === 'expired';
-                const isUsed = invitation.status === 'used';
-
-                return (
+              {invitationsData.invitations
+                .filter(invitation => invitation.status === 'pending')
+                .map((invitation) => (
                   <div
                     key={invitation.id}
-                    className={`flex items-center justify-between p-4 rounded-lg border ${
-                      isUsed ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' :
-                      isExpired ? 'bg-gray-50 dark:bg-gray-950/20 border-gray-200 dark:border-gray-800 opacity-60' :
-                      'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800'
-                    }`}
+                    className="flex items-center justify-between p-4 rounded-lg border bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800"
                   >
                     <div className="flex items-center gap-3 flex-1">
                       <div>
                         <div className="font-medium">{invitation.name}</div>
                         <div className="text-sm text-muted-foreground">{invitation.email}</div>
-                        {isUsed && invitation.usedAt && (
-                          <div className="text-xs text-green-600 dark:text-green-400 mt-1">
-                            Aceptada el {new Date(invitation.usedAt).toLocaleDateString()}
-                          </div>
-                        )}
-                        {isExpired && (
-                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                            Expiró el {new Date(invitation.expiresAt).toLocaleDateString()}
-                          </div>
-                        )}
+                        <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                          Expira el {new Date(invitation.expiresAt).toLocaleDateString()}
+                        </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-3">
                       <Badge variant="outline">{ROLE_LABELS[invitation.role]}</Badge>
 
-                      {isPending && (
-                        <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
-                          Pendiente
-                        </Badge>
-                      )}
-                      {isExpired && (
-                        <Badge variant="secondary" className="text-gray-600">
-                          Expirada
-                        </Badge>
-                      )}
-                      {isUsed && (
-                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                          <CheckCircle2 className="w-3 h-3 mr-1" />
-                          Aceptada
-                        </Badge>
-                      )}
+                      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                        Pendiente
+                      </Badge>
 
-                      {isPending && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            if (confirm(`¿Cancelar la invitación para ${invitation.name}?`)) {
-                              cancelInvitation.mutate(invitation.id);
-                            }
-                          }}
-                          disabled={cancelInvitation.isPending}
-                        >
-                          <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (confirm(`¿Cancelar la invitación para ${invitation.name}?`)) {
+                            cancelInvitation.mutate(invitation.id);
+                          }
+                        }}
+                        disabled={cancelInvitation.isPending}
+                      >
+                        <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                      </Button>
                     </div>
                   </div>
-                );
-              })}
+                ))}
             </div>
           </CardContent>
         </Card>

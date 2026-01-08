@@ -2,7 +2,7 @@
 -- Migration 037: Fix Collaborator Limits to Use plan_limits
 -- Description: Update can_add_user_to_store and get_store_user_stats functions
 --              to read from subscriptions + plan_limits instead of stores.max_users
--- Author: Claude Code
+-- Author: Bright Idea
 -- Date: 2026-01-03
 -- =============================================
 

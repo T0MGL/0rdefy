@@ -2,7 +2,7 @@
 -- Migration 036: Billing & Subscriptions System
 -- Description: Complete billing system with Stripe integration,
 --              subscription plans, trials, referrals, and discount codes
--- Author: Claude Code
+-- Author: Bright Idea
 -- Date: 2024-12-31
 -- =============================================
 

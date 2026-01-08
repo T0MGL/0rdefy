@@ -148,6 +148,7 @@ const App = () => {
                             <Route path="/login" element={<LoginDemo />} />
                             <Route path="/signup" element={<SignUp />} />
                             <Route path="/onboarding" element={<Onboarding />} />
+                            <Route path="/i/:token" element={<AcceptInvitation />} />
                             <Route path="/accept-invite/:token" element={<AcceptInvitation />} />
                             <Route path="/delivery/:token" element={<Delivery />} />
                             <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />

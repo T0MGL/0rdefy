@@ -168,8 +168,9 @@ collaboratorsRouter.post(
         });
       }
 
-      // Generate secure token
-      const token = crypto.randomBytes(32).toString('hex');
+      // Generate short, memorable token (8 chars alphanumeric)
+      // Using base36 (0-9, a-z) for URL-friendly codes like: "a1b2c3d4"
+      const token = crypto.randomBytes(6).toString('base64url').substring(0, 8).toLowerCase();
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
 
@@ -195,9 +196,9 @@ collaboratorsRouter.post(
 
       console.log('[Invite] Invitation created successfully:', invitation.id);
 
-      // Generate invitation URL
+      // Generate invitation URL (short format: /i/abc12345)
       const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
-      const inviteUrl = `${baseUrl}/accept-invite/${token}`;
+      const inviteUrl = `${baseUrl}/i/${token}`;
 
       // TODO: Send email with invitation link
       // await sendInvitationEmail({
@@ -517,6 +518,30 @@ collaboratorsRouter.post(
         }
       );
 
+      // Fetch complete user data with stores (same format as login)
+      const { data: userData } = await supabaseAdmin
+        .from('users')
+        .select('id, name, email, phone, phone_verified')
+        .eq('id', userId)
+        .single();
+
+      const { data: userStores } = await supabaseAdmin
+        .from('user_stores')
+        .select(`
+          role,
+          store:stores(id, name, country, timezone)
+        `)
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      const stores = userStores?.map((us: any) => ({
+        id: us.store.id,
+        name: us.store.name,
+        country: us.store.country,
+        timezone: us.store.timezone,
+        role: us.role
+      })) || [];
+
       console.log('[AcceptInvitation] Success! Auto-login token generated');
 
       res.json({
@@ -524,9 +549,12 @@ collaboratorsRouter.post(
         token: authToken,
         storeId: invitation.store_id,
         user: {
-          id: userId,
-          email: invitation.invited_email,
-          name: invitation.invited_name
+          id: userData?.id || userId,
+          email: userData?.email || invitation.invited_email,
+          name: userData?.name || invitation.invited_name,
+          phone: userData?.phone,
+          phone_verified: userData?.phone_verified || false,
+          stores
         }
       });
     } catch (error) {

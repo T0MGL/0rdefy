@@ -1,7 +1,7 @@
 -- =============================================
 -- Migration 037: Fix Referral Tracking System
 -- Description: Proper tracking of referrals with trial phases
--- Author: Claude Code
+-- Author: Bright Idea
 -- Date: 2026-01-06
 -- =============================================
 

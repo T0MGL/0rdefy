@@ -89,13 +89,17 @@ export default function AcceptInvitation() {
         throw new Error(data.error || 'Error al aceptar invitación');
       }
 
-      // Auto-login: Save token and store ID
+      // Auto-login: Save token, store ID, and user data (same format as login)
       localStorage.setItem('auth_token', data.token);
       localStorage.setItem('current_store_id', data.storeId);
 
-      // Redirect to dashboard
-      navigate('/dashboard');
-      window.location.reload(); // Force reload to initialize auth context
+      // Save user data for AuthContext (must include stores array)
+      if (data.user) {
+        localStorage.setItem('user', JSON.stringify(data.user));
+      }
+
+      // Redirect to dashboard with full page reload to initialize auth context
+      window.location.href = '/dashboard';
     } catch (err: any) {
       console.error('Error accepting invitation:', err);
       setError(err.message || 'Error al aceptar la invitación');
