@@ -98,6 +98,7 @@ export function RevenueIntelligence() {
   const totalRevenue = overview.realRevenue ?? overview.revenue;
   const totalProductCosts = overview.realProductCosts ?? overview.productCosts ?? 0;
   const totalDeliveryCosts = overview.realDeliveryCosts ?? overview.deliveryCosts ?? 0;
+  const totalConfirmationCosts = overview.realConfirmationCosts ?? overview.confirmationCosts ?? 0;
   const gasto_publicitario = overview.gasto_publicitario ?? 0;
 
   // COGS = Costo de productos solamente (sin envío ni publicidad)
@@ -120,15 +121,17 @@ export function RevenueIntelligence() {
     { name: 'Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
     { name: 'Gasto Publicitario', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
     { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
-    { name: 'Ops', value: Math.round(totalProductCosts + totalDeliveryCosts + gasto_publicitario - grossMargin), color: 'hsl(0, 0%, 60%)' },
+    { name: 'Confirmación', value: Math.round(totalConfirmationCosts), color: 'hsl(280, 91%, 60%)' },
+    { name: 'Ops', value: Math.round(totalProductCosts + totalDeliveryCosts + totalConfirmationCosts + gasto_publicitario - grossMargin), color: 'hsl(0, 0%, 60%)' },
     { name: 'NETO', value: Math.round(netProfit), color: 'hsl(84, 81%, 63%)' },
   ];
 
   // ===== DESGLOSE DE COSTOS OPERATIVOS =====
-  const totalCosts = totalProductCosts + totalDeliveryCosts + gasto_publicitario;
+  const totalCosts = totalProductCosts + totalDeliveryCosts + totalConfirmationCosts + gasto_publicitario;
   const costBreakdown = [
     { name: 'Productos', value: Math.round(totalProductCosts), color: 'hsl(0, 84%, 60%)' },
     { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
+    { name: 'Confirmación', value: Math.round(totalConfirmationCosts), color: 'hsl(280, 91%, 60%)' },
     { name: 'Publicidad', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
   ].filter(item => item.value > 0); // Only show non-zero costs
 
@@ -391,6 +394,14 @@ export function RevenueIntelligence() {
                     Gs. {Math.round(totalDeliveryCosts).toLocaleString()}
                   </span>
                 </div>
+                {totalConfirmationCosts > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Confirmación</span>
+                    <span className="font-semibold text-purple-600 dark:text-purple-400">
+                      Gs. {Math.round(totalConfirmationCosts).toLocaleString()}
+                    </span>
+                  </div>
+                )}
                 {gasto_publicitario > 0 && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Publicidad</span>

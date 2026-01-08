@@ -33,7 +33,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
 
-        // Get store tax rate
+        // Get store tax rate and confirmation fee from store_config
         const { data: storeData, error: storeError } = await supabaseAdmin
             .from('stores')
             .select('tax_rate')
@@ -45,6 +45,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         }
 
         const taxRate = Number(storeData?.tax_rate) || 0;
+
+        // Get confirmation fee from store_config
+        const { data: configData } = await supabaseAdmin
+            .from('store_config')
+            .select('confirmation_fee')
+            .eq('store_id', req.storeId)
+            .single();
+
+        const confirmationFee = Number(configData?.confirmation_fee) || 0;
 
         // Calculate date ranges for comparison (use provided dates or default to 7 days)
         let currentPeriodStart: Date;
@@ -182,6 +191,18 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 }
             }
 
+            // 1.8. CONFIRMATION FEES (cost per confirmed order)
+            // Count confirmed orders (all statuses except pending, cancelled, rejected)
+            const confirmedOrders = ordersList.filter(o =>
+                !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+            );
+            const realConfirmedOrders = ordersList.filter(o =>
+                o.sleeves_status === 'delivered'
+            );
+
+            const confirmationCosts = confirmedOrders.length * confirmationFee;
+            const realConfirmationCosts = realConfirmedOrders.length * confirmationFee;
+
             // 2. TAX COLLECTED (IVA incluido en el precio de venta)
             // Fórmula: IVA = precio - (precio / (1 + tasa/100))
             // Ejemplo: Si precio = 11000 y tasa = 10%, entonces IVA = 11000 - (11000 / 1.10) = 1000
@@ -267,24 +288,22 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Also add to real revenue if it's actual cash
             realRevenue += additionalIncome;
 
-            // Add expenses to product costs
-            const additionalExpenses = additionalValues
-                .filter(av => av.type === 'expense')
-                .reduce((sum, av) => sum + (Number(av.amount) || 0), 0);
-            productCosts += additionalExpenses;
-            realProductCosts += additionalExpenses;
+            // IMPORTANTE: additional_values de tipo "expense" NO se suman aquí
+            // Solo se muestran en la pestaña de Additional Values
+            // Los gastos de marketing/publicidad ya están en la tabla campaigns
 
             // 4. GASTO PUBLICITARIO (from campaigns table)
             const gastoPublicitario = gastoPublicitarioCosts;
 
             // 5. TOTAL OPERATIONAL COSTS
             // Para e-commerce COD, los costos totales incluyen:
-            // - Costo de productos
-            // - Costos de envío
-            // - Gasto Publicitario
+            // - Costo de productos (COGS)
+            // - Costos de envío (shipping_cost)
+            // - Costos de confirmación (confirmation_fee × confirmed orders)
+            // - Gasto Publicitario (campaigns)
             // IMPORTANTE: Estos son los costos TOTALES operativos
-            const totalCosts = productCosts + deliveryCosts + gastoPublicitario;
-            const realTotalCosts = realProductCosts + realDeliveryCosts + gastoPublicitario;
+            const totalCosts = productCosts + deliveryCosts + confirmationCosts + gastoPublicitario;
+            const realTotalCosts = realProductCosts + realDeliveryCosts + realConfirmationCosts + gastoPublicitario;
 
             // 6. GROSS PROFIT & MARGIN
             // MARGEN BRUTO = Solo resta el costo de productos (COGS)
@@ -346,6 +365,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 realProductCosts: realProductCosts,
                 deliveryCosts: deliveryCosts,
                 realDeliveryCosts: realDeliveryCosts,
+                confirmationCosts: confirmationCosts,
+                realConfirmationCosts: realConfirmationCosts,
                 gasto_publicitario: gastoPublicitario,
                 // Costos totales (para mostrar en dashboard)
                 costs: totalCosts,
@@ -407,6 +428,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             costs: calculateChange(currentMetrics.costs, previousMetrics.costs),
             productCosts: calculateChange(currentMetrics.productCosts, previousMetrics.productCosts),
             deliveryCosts: calculateChange(currentMetrics.deliveryCosts, previousMetrics.deliveryCosts),
+            confirmationCosts: calculateChange(currentMetrics.confirmationCosts, previousMetrics.confirmationCosts),
             gasto_publicitario: calculateChange(currentMetrics.gasto_publicitario, previousMetrics.gasto_publicitario),
             grossProfit: calculateChange(currentMetrics.grossProfit, previousMetrics.grossProfit),
             grossMargin: calculateChange(currentMetrics.grossMargin, previousMetrics.grossMargin),
@@ -416,6 +438,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             realCosts: calculateChange(currentMetrics.realCosts, previousMetrics.realCosts),
             realProductCosts: calculateChange(currentMetrics.realProductCosts, previousMetrics.realProductCosts),
             realDeliveryCosts: calculateChange(currentMetrics.realDeliveryCosts, previousMetrics.realDeliveryCosts),
+            realConfirmationCosts: calculateChange(currentMetrics.realConfirmationCosts, previousMetrics.realConfirmationCosts),
             realGrossProfit: calculateChange(currentMetrics.realGrossProfit, previousMetrics.realGrossProfit),
             realGrossMargin: calculateChange(currentMetrics.realGrossMargin, previousMetrics.realGrossMargin),
             realNetProfit: calculateChange(currentMetrics.realNetProfit, previousMetrics.realNetProfit),
@@ -435,7 +458,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 // Costos separados para transparencia
                 productCosts: Math.round(currentMetrics.productCosts),
                 deliveryCosts: Math.round(currentMetrics.deliveryCosts),
-                costs: Math.round(totalCosts), // Costos totales (productos + envío + gasto publicitario)
+                confirmationCosts: Math.round(currentMetrics.confirmationCosts),
+                costs: Math.round(totalCosts), // Costos totales (productos + envío + confirmación + gasto publicitario)
                 gasto_publicitario,
                 // Gross profit and margin (Revenue - Product Costs only)
                 grossProfit: Math.round(grossProfit),
@@ -449,6 +473,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 projectedRevenue: Math.round(currentMetrics.projectedRevenue),
                 realProductCosts: Math.round(currentMetrics.realProductCosts),
                 realDeliveryCosts: Math.round(currentMetrics.realDeliveryCosts),
+                realConfirmationCosts: Math.round(currentMetrics.realConfirmationCosts),
                 realCosts: Math.round(currentMetrics.realCosts),
                 realGrossProfit: Math.round(currentMetrics.realGrossProfit),
                 realGrossMargin: parseFloat(currentMetrics.realGrossMargin.toFixed(1)),
@@ -477,6 +502,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     costs: changes.costs,
                     productCosts: changes.productCosts,
                     deliveryCosts: changes.deliveryCosts,
+                    confirmationCosts: changes.confirmationCosts,
                     gasto_publicitario: changes.gasto_publicitario,
                     grossProfit: changes.grossProfit,
                     grossMargin: changes.grossMargin,
@@ -486,6 +512,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     realCosts: changes.realCosts,
                     realProductCosts: changes.realProductCosts,
                     realDeliveryCosts: changes.realDeliveryCosts,
+                    realConfirmationCosts: changes.realConfirmationCosts,
                     realGrossProfit: changes.realGrossProfit,
                     realGrossMargin: changes.realGrossMargin,
                     realNetProfit: changes.realNetProfit,
