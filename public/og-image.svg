@@ -1,72 +1,33 @@
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background gradient -->
+  <!-- Dark background -->
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+
+  <!-- Subtle gradient overlay -->
   <defs>
-    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e293b;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="accent-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
-    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#84cc16;stop-opacity:0.08" />
+      <stop offset="100%" style="stop-color:#84cc16;stop-opacity:0" />
+    </radialGradient>
   </defs>
+  <rect width="1200" height="630" fill="url(#glow)"/>
 
-  <!-- Background -->
-  <rect width="1200" height="630" fill="url(#bg-gradient)"/>
-
-  <!-- Decorative circles -->
-  <circle cx="100" cy="100" r="200" fill="#3b82f6" opacity="0.1"/>
-  <circle cx="1100" cy="530" r="250" fill="#8b5cf6" opacity="0.1"/>
-
-  <!-- Grid pattern -->
-  <g opacity="0.05">
-    <line x1="0" y1="157.5" x2="1200" y2="157.5" stroke="white" stroke-width="1"/>
-    <line x1="0" y1="315" x2="1200" y2="315" stroke="white" stroke-width="1"/>
-    <line x1="0" y1="472.5" x2="1200" y2="472.5" stroke="white" stroke-width="1"/>
-    <line x1="300" y1="0" x2="300" y2="630" stroke="white" stroke-width="1"/>
-    <line x1="600" y1="0" x2="600" y2="630" stroke="white" stroke-width="1"/>
-    <line x1="900" y1="0" x2="900" y2="630" stroke="white" stroke-width="1"/>
+  <!-- Logo icon (3 stacked layers) -->
+  <g transform="translate(280, 230)">
+    <!-- Top diamond -->
+    <path d="M80 0 L140 35 L80 70 L20 35 Z" fill="none" stroke="#84cc16" stroke-width="8" stroke-linejoin="round"/>
+    <!-- Middle layer -->
+    <path d="M20 65 L80 100 L140 65" fill="none" stroke="#84cc16" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Bottom layer -->
+    <path d="M20 95 L80 130 L140 95" fill="none" stroke="#84cc16" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <!-- Logo icon (box/package) -->
-  <g transform="translate(540, 180)">
-    <rect x="0" y="20" width="120" height="100" rx="8" fill="url(#accent-gradient)"/>
-    <path d="M60 20 L120 50 L120 120 L60 90 Z" fill="#2563eb"/>
-    <path d="M60 20 L0 50 L0 120 L60 90 Z" fill="#3b82f6"/>
-    <path d="M0 50 L60 20 L120 50 L60 80 Z" fill="#60a5fa"/>
-    <rect x="45" y="55" width="30" height="20" rx="2" fill="white" opacity="0.9"/>
-  </g>
-
-  <!-- Main text: ORDEFY -->
-  <text x="600" y="380" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="96" font-weight="800" fill="white" text-anchor="middle" letter-spacing="8">
-    ORDEFY
+  <!-- Text: ordefy -->
+  <text x="480" y="340" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="120" font-weight="600" letter-spacing="-2">
+    <tspan fill="#84cc16">o</tspan><tspan fill="#a3e635">r</tspan><tspan fill="#bef264">d</tspan><tspan fill="#d9f99d">e</tspan><tspan fill="#ecfccb">f</tspan><tspan fill="#f7fee7">y</tspan>
   </text>
 
   <!-- Tagline -->
-  <text x="600" y="440" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="400" fill="#94a3b8" text-anchor="middle">
+  <text x="600" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#737373" text-anchor="middle">
     Gestion de E-commerce
-  </text>
-
-  <!-- Feature badges -->
-  <g transform="translate(300, 500)">
-    <rect x="0" y="0" width="140" height="36" rx="18" fill="#1e40af" opacity="0.3"/>
-    <text x="70" y="24" font-family="system-ui, sans-serif" font-size="14" fill="#93c5fd" text-anchor="middle">Pedidos</text>
-  </g>
-  <g transform="translate(460, 500)">
-    <rect x="0" y="0" width="140" height="36" rx="18" fill="#1e40af" opacity="0.3"/>
-    <text x="70" y="24" font-family="system-ui, sans-serif" font-size="14" fill="#93c5fd" text-anchor="middle">Inventario</text>
-  </g>
-  <g transform="translate(620, 500)">
-    <rect x="0" y="0" width="140" height="36" rx="18" fill="#1e40af" opacity="0.3"/>
-    <text x="70" y="24" font-family="system-ui, sans-serif" font-size="14" fill="#93c5fd" text-anchor="middle">Warehouse</text>
-  </g>
-  <g transform="translate(780, 500)">
-    <rect x="0" y="0" width="140" height="36" rx="18" fill="#1e40af" opacity="0.3"/>
-    <text x="70" y="24" font-family="system-ui, sans-serif" font-size="14" fill="#93c5fd" text-anchor="middle">Analytics</text>
-  </g>
-
-  <!-- Bright Idea attribution -->
-  <text x="600" y="590" font-family="system-ui, sans-serif" font-size="14" fill="#475569" text-anchor="middle">
-    by Bright Idea
   </text>
 </svg>
