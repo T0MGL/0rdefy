@@ -115,6 +115,68 @@ export interface ImportRow {
 // ============================================================
 
 /**
+ * Get orders ready to be dispatched (confirmed status, not in any session)
+ */
+export async function getOrdersToDispatch(
+  storeId: string,
+  carrierId?: string
+): Promise<{ data: any[]; count: number }> {
+  // Get orders that are confirmed and not already in a dispatch session
+  // Note: orders table uses 'courier_id' for carrier reference and 'sleeves_status' for order status
+  let query = supabaseAdmin
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      shopify_order_number,
+      customer_first_name,
+      customer_last_name,
+      customer_phone,
+      shipping_address,
+      total_price,
+      payment_method,
+      payment_status,
+      courier_id,
+      sleeves_status,
+      shipping_cost,
+      delivery_zone,
+      created_at,
+      carriers:courier_id(name)
+    `, { count: 'exact' })
+    .eq('store_id', storeId)
+    .eq('sleeves_status', 'confirmed')
+    .order('created_at', { ascending: true });
+
+  if (carrierId) {
+    query = query.eq('courier_id', carrierId);
+  }
+
+  const { data: orders, error, count } = await query;
+
+  if (error) throw error;
+
+  // Get order IDs already in dispatch sessions
+  const { data: dispatchedOrders } = await supabaseAdmin
+    .from('dispatch_session_orders')
+    .select('order_id')
+    .in('order_id', (orders || []).map(o => o.id));
+
+  const dispatchedOrderIds = new Set((dispatchedOrders || []).map(d => d.order_id));
+
+  // Filter out orders already in dispatch sessions
+  const availableOrders = (orders || []).filter(o => !dispatchedOrderIds.has(o.id));
+
+  // Transform to flatten carrier name
+  const transformedOrders = availableOrders.map((o: any) => ({
+    ...o,
+    carrier_name: o.carriers?.name,
+    carriers: undefined
+  }));
+
+  return { data: transformedOrders, count: transformedOrders.length };
+}
+
+/**
  * Get all dispatch sessions for a store
  */
 export async function getDispatchSessions(
