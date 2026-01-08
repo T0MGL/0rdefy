@@ -98,8 +98,11 @@ export default function AcceptInvitation() {
         localStorage.setItem('user', JSON.stringify(data.user));
       }
 
+      // Mark as new collaborator to trigger demo tour (similar to onboarding_completed for owners)
+      localStorage.setItem('collaborator_joined', 'true');
+
       // Redirect to dashboard with full page reload to initialize auth context
-      window.location.href = '/dashboard';
+      window.location.href = '/';
     } catch (err: any) {
       console.error('Error accepting invitation:', err);
       setError(err.message || 'Error al aceptar la invitación');

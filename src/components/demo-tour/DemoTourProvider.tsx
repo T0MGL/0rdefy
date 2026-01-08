@@ -29,7 +29,8 @@ export interface DemoTourStep {
 }
 
 // Tour path types
-export type TourPath = 'shopify' | 'manual';
+// 'collaborator' is auto-set for non-owner roles to skip path selection
+export type TourPath = 'shopify' | 'manual' | 'collaborator';
 
 // Tour state
 interface DemoTourState {
@@ -492,17 +493,21 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
   }, [state.isActive, state.currentStepIndex, currentStep, navigate, state.isTransitioning]);
 
   const startTour = useCallback((tourId: string, autoStarted: boolean = false) => {
+    // Collaborators (non-owner/admin) skip path selection - auto-set to 'collaborator'
+    const isCollaborator = permissions.currentRole !== Role.OWNER && permissions.currentRole !== Role.ADMIN;
+    const initialPath: TourPath | null = isCollaborator ? 'collaborator' : null;
+
     setState(prev => ({
       ...prev,
       isActive: true,
       currentStepIndex: 0,
-      path: null,
+      path: initialPath,
       demoData: {},
       isTransitioning: false,
       tourId,
       isAutoStarted: autoStarted,
     }));
-  }, []);
+  }, [permissions.currentRole]);
 
   const setPath = useCallback((path: TourPath) => {
     setState(prev => ({

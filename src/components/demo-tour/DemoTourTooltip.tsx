@@ -72,7 +72,10 @@ export function DemoTourTooltip() {
   const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition>({});
   const isFirstStep = currentStepIndex === 0;
   const isLastStep = currentStepIndex === totalSteps - 1;
-  const isWelcomeStep = currentStep?.id === 'welcome' && path === null;
+  // Welcome step with path selection (only for owners/admins who need to choose Shopify vs Manual)
+  const isWelcomeStepWithPathSelection = currentStep?.id === 'welcome' && path === null;
+  // Welcome step for collaborators (shows simple welcome without path selection)
+  const isCollaboratorWelcome = currentStep?.id === 'welcome' && path === 'collaborator';
 
   // Calculate tooltip position
   useEffect(() => {
@@ -177,8 +180,8 @@ export function DemoTourTooltip() {
     if (!isActive) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't interfere with path selection
-      if (isWelcomeStep) return;
+      // Don't interfere with path selection (only for owner/admin welcome)
+      if (isWelcomeStepWithPathSelection) return;
 
       switch (e.key) {
         case 'ArrowRight':
@@ -202,7 +205,7 @@ export function DemoTourTooltip() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isActive, nextStep, prevStep, completeTour, isFirstStep, isLastStep, isWelcomeStep]);
+  }, [isActive, nextStep, prevStep, completeTour, isFirstStep, isLastStep, isWelcomeStepWithPathSelection]);
 
   if (!isActive || !currentStep) return null;
 
@@ -216,8 +219,8 @@ export function DemoTourTooltip() {
     );
   }
 
-  // Welcome step with path selection
-  if (isWelcomeStep) {
+  // Welcome step with path selection (for owners/admins)
+  if (isWelcomeStepWithPathSelection) {
     return (
       <AnimatePresence mode="wait">
         <motion.div
@@ -299,6 +302,63 @@ export function DemoTourTooltip() {
           <div className="px-6 pb-6 pt-2">
             <p className="text-xs text-muted-foreground/60 text-center">
               Podrás cambiar la configuración en cualquier momento
+            </p>
+          </div>
+        </motion.div>
+      </AnimatePresence>
+    );
+  }
+
+  // Welcome step for collaborators (simple welcome without path selection)
+  if (isCollaboratorWelcome) {
+    return (
+      <AnimatePresence mode="wait">
+        <motion.div
+          key="collaborator-welcome"
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          transition={{ type: 'spring', stiffness: 350, damping: 35 }}
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+          style={{
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          {/* Header */}
+          <div className="bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-6 pb-4 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center mx-auto mb-4">
+              <Sparkles className="w-8 h-8 text-primary" />
+            </div>
+            <h2 className="text-2xl font-bold text-card-foreground mb-2">
+              {currentStep.title}
+            </h2>
+            <p className="text-muted-foreground">
+              {currentStep.description}
+            </p>
+          </div>
+
+          {/* Quick overview */}
+          <div className="p-6 pt-4 space-y-4">
+            <p className="text-sm text-center text-muted-foreground">
+              Te mostraremos las herramientas principales para tu rol
+            </p>
+
+            {/* Start button */}
+            <Button
+              onClick={nextStep}
+              className="w-full gap-2 h-12 text-base"
+            >
+              Comenzar Tour
+              <ArrowRight className="w-5 h-5" />
+            </Button>
+          </div>
+
+          {/* Footer hint */}
+          <div className="px-6 pb-6 pt-0">
+            <p className="text-xs text-muted-foreground/60 text-center">
+              Usa <kbd className="px-1 py-0.5 bg-muted rounded text-[9px]">Enter</kbd> para avanzar
             </p>
           </div>
         </motion.div>

@@ -25,20 +25,28 @@ export function DemoTour({ autoStart = true }: DemoTourProps) {
   const { permissions, currentStore } = useAuth();
   const [hasTriggeredStart, setHasTriggeredStart] = useState(false);
 
-  // Auto-start tour for new users
+  // Auto-start tour for new users (owners after onboarding, collaborators after accepting invitation)
   useEffect(() => {
     if (!autoStart || hasTriggeredStart || hasCompletedTour || isActive) return;
     if (!currentStore) return;
 
-    // Check if onboarding was just completed
+    // Check if onboarding was just completed (for owners) or collaborator just joined
     const onboardingCompleted = localStorage.getItem('onboarding_completed');
+    const collaboratorJoined = localStorage.getItem('collaborator_joined');
     const tourStarted = localStorage.getItem('ordefy_demo_tour_id');
 
-    if (onboardingCompleted === 'true' && !tourStarted) {
+    const shouldStartTour = (onboardingCompleted === 'true' || collaboratorJoined === 'true') && !tourStarted;
+
+    if (shouldStartTour) {
+      // Clear the collaborator_joined flag so tour doesn't restart
+      if (collaboratorJoined === 'true') {
+        localStorage.removeItem('collaborator_joined');
+      }
+
       // Delay to let dashboard render
       const timer = setTimeout(() => {
         const tourId = permissions.currentRole === Role.OWNER ? 'owner-tour' : `${permissions.currentRole}-tour`;
-        startTour(tourId, true); // true = auto-started after registration
+        startTour(tourId, true); // true = auto-started after registration/invitation
         setHasTriggeredStart(true);
       }, 800);
       return () => clearTimeout(timer);

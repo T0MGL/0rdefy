@@ -23,7 +23,8 @@ interface CompletionStepProps {
   onComplete?: () => void;
 }
 
-const learnedItems = [
+// Items for owner/admin tours (full workflow)
+const ownerLearnedItems = [
   { icon: Truck, label: 'Crear transportadoras con zonas', color: 'text-blue-500' },
   { icon: Package, label: 'Agregar productos con precios', color: 'text-purple-500' },
   { icon: ShoppingBag, label: 'Gestionar pedidos completos', color: 'text-orange-500' },
@@ -31,8 +32,18 @@ const learnedItems = [
   { icon: BarChart3, label: 'Despacho y seguimiento', color: 'text-pink-500' },
 ];
 
+// Items for collaborator tours (role-specific)
+const collaboratorLearnedItems = [
+  { icon: Warehouse, label: 'Navegar por tu área de trabajo', color: 'text-blue-500' },
+  { icon: ShoppingBag, label: 'Gestionar tus tareas asignadas', color: 'text-purple-500' },
+  { icon: BarChart3, label: 'Consultar información relevante', color: 'text-green-500' },
+];
+
 export function CompletionStep({ onComplete }: CompletionStepProps) {
   const { completeTour, path, isAutoStarted } = useDemoTour();
+
+  // Select learned items based on path (collaborator vs owner)
+  const learnedItems = path === 'collaborator' ? collaboratorLearnedItems : ownerLearnedItems;
   const [isCompleting, setIsCompleting] = useState(false);
 
   // Trigger confetti on mount - only if auto-started (after registration)
@@ -175,6 +186,8 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
           >
             {path === 'shopify'
               ? 'Tu tienda Shopify está conectada y lista'
+              : path === 'collaborator'
+              ? 'Ya conoces las herramientas de tu rol'
               : 'Ya conoces el flujo completo de operaciones'
             }
           </motion.p>
@@ -212,23 +225,26 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
             </div>
           </div>
 
-          {/* Next steps */}
+          {/* Next steps - different for collaborators vs owners */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
               Próximos pasos
             </h3>
-            <div className="grid grid-cols-2 gap-3">
-              <motion.a
-                href="/integrations"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 1 }}
-                className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors group"
-              >
-                <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium flex-1">Integraciones</span>
-                <ExternalLink className="w-3 h-3 text-muted-foreground group-hover:text-foreground" />
-              </motion.a>
+            <div className={cn('grid gap-3', path === 'collaborator' ? 'grid-cols-1' : 'grid-cols-2')}>
+              {/* Only show Integrations for owners/admins */}
+              {path !== 'collaborator' && (
+                <motion.a
+                  href="/integrations"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 1 }}
+                  className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors group"
+                >
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-medium flex-1">Integraciones</span>
+                  <ExternalLink className="w-3 h-3 text-muted-foreground group-hover:text-foreground" />
+                </motion.a>
+              )}
 
               <motion.a
                 href="/support"
@@ -243,18 +259,20 @@ export function CompletionStep({ onComplete }: CompletionStepProps) {
             </div>
           </div>
 
-          {/* Cleanup notice */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.2 }}
-            className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg"
-          >
-            <Sparkles className="w-4 h-4 text-amber-500 mt-0.5" />
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              El pedido de demostración se eliminará automáticamente. Tus productos y transportadora quedarán disponibles.
-            </p>
-          </motion.div>
+          {/* Cleanup notice - only for owners/admins who created demo data */}
+          {path !== 'collaborator' && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.2 }}
+              className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg"
+            >
+              <Sparkles className="w-4 h-4 text-amber-500 mt-0.5" />
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                El pedido de demostración se eliminará automáticamente. Tus productos y transportadora quedarán disponibles.
+              </p>
+            </motion.div>
+          )}
         </div>
 
         {/* Footer */}
