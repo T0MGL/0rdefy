@@ -238,6 +238,7 @@ export default function Integrations() {
               className="w-full gap-2"
               disabled={status === 'coming_soon'}
               onClick={() => handleIntegrationClick(integration)}
+              data-integration={integration.id}
             >
               {status === 'connected' ? (
                 <>

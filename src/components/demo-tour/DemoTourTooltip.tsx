@@ -23,6 +23,7 @@ const LabelStep = lazy(() => import('./steps/LabelStep').then(m => ({ default: m
 const DispatchStep = lazy(() => import('./steps/DispatchStep').then(m => ({ default: m.DispatchStep })));
 const MerchandiseStep = lazy(() => import('./steps/MerchandiseStep').then(m => ({ default: m.MerchandiseStep })));
 const CompletionStep = lazy(() => import('./steps/CompletionStep').then(m => ({ default: m.CompletionStep })));
+const ShopifyStep = lazy(() => import('./steps/ShopifyStep').then(m => ({ default: m.ShopifyStep })));
 
 // Map step IDs to interactive components
 const interactiveSteps: Record<string, React.LazyExoticComponent<React.ComponentType<{ onComplete?: () => void }>>> = {
@@ -35,6 +36,7 @@ const interactiveSteps: Record<string, React.LazyExoticComponent<React.Component
   'dispatch': DispatchStep,
   'merchandise': MerchandiseStep,
   'completion': CompletionStep,
+  'connect-shopify': ShopifyStep,
 };
 
 // Loading fallback for lazy loaded steps
