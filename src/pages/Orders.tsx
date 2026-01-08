@@ -1331,32 +1331,15 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                         )}
                         {order.status === 'confirmed' && (
                           <div className="flex gap-1 justify-center">
-                            {order.delivery_link_token ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-800 hover:bg-cyan-100 dark:hover:bg-cyan-900/30 hover:border-cyan-400 dark:hover:border-cyan-700 hover:shadow-sm transition-all duration-200"
-                                onClick={() => handlePrintLabel(order)}
-                                disabled={printingOrderId === order.id}
-                              >
-                                {printingOrderId === order.id ? (
-                                  <Loader2 size={14} className="mr-1 animate-spin" />
-                                ) : (
-                                  <Printer size={14} className="mr-1" />
-                                )}
-                                Imprimir
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:border-indigo-400 dark:hover:border-indigo-700 hover:shadow-sm transition-all duration-200"
-                                onClick={() => handleQuickPrepare(order.id)}
-                              >
-                                <PackageOpen size={14} className="mr-1" />
-                                Preparar
-                              </Button>
-                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:border-indigo-400 dark:hover:border-indigo-700 hover:shadow-sm transition-all duration-200"
+                              onClick={() => handleQuickPrepare(order.id)}
+                            >
+                              <PackageOpen size={14} className="mr-1" />
+                              Preparar
+                            </Button>
                           </div>
                         )}
                         {order.status === 'in_preparation' && (
