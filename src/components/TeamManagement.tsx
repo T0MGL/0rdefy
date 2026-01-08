@@ -40,7 +40,11 @@ import {
   UserCheck,
   Calculator,
   Package,
-  AlertCircle
+  AlertCircle,
+  MessageCircle,
+  Mail,
+  Link2,
+  Sparkles
 } from 'lucide-react';
 import apiClient from '@/services/api.client';
 import type { CollaboratorStats, CollaboratorInvitation, TeamMember } from '@/types';
@@ -261,25 +265,77 @@ export function TeamManagement() {
                   </Button>
                 </form>
               ) : (
-                <div className="space-y-4">
-                  <Alert>
-                    <CheckCircle2 className="w-4 h-4" />
-                    <AlertDescription>
-                      Invitación creada. Copia el link y envíalo por WhatsApp o Email.
-                    </AlertDescription>
-                  </Alert>
+                <div className="space-y-5">
+                  {/* Success Banner */}
+                  <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-4 text-center space-y-2">
+                    <div className="mx-auto w-12 h-12 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center">
+                      <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400" />
+                    </div>
+                    <p className="font-medium text-green-800 dark:text-green-200">
+                      ¡Invitación creada!
+                    </p>
+                    <p className="text-sm text-green-600 dark:text-green-400">
+                      Comparte el link con <strong>{inviteData.name}</strong>
+                    </p>
+                  </div>
 
-                  <div className="space-y-2">
-                    <Label>Link de Invitación</Label>
+                  {/* Invite Link Card */}
+                  <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Link2 className="w-4 h-4" />
+                      <span>Link de invitación</span>
+                    </div>
                     <div className="flex gap-2">
-                      <Input value={inviteUrl} readOnly className="font-mono text-xs" />
-                      <Button onClick={copyInviteUrl} variant="outline" size="icon">
-                        {copiedUrl ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                      <Input
+                        value={inviteUrl}
+                        readOnly
+                        className="font-mono text-xs bg-background"
+                      />
+                      <Button
+                        onClick={copyInviteUrl}
+                        variant={copiedUrl ? "default" : "outline"}
+                        size="icon"
+                        className={copiedUrl ? "bg-green-600 hover:bg-green-700" : ""}
+                      >
+                        {copiedUrl ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                       </Button>
                     </div>
                     {copiedUrl && (
-                      <p className="text-xs text-green-600 dark:text-green-400">Link copiado al portapapeles</p>
+                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        ¡Link copiado al portapapeles!
+                      </p>
                     )}
+                  </div>
+
+                  {/* Share Buttons */}
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground text-center">Compartir por:</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        className="w-full bg-green-50 hover:bg-green-100 border-green-200 text-green-700 dark:bg-green-950/30 dark:hover:bg-green-950/50 dark:border-green-800 dark:text-green-400"
+                        onClick={() => {
+                          const message = `¡Hola ${inviteData.name}! 👋\n\nTe invito a colaborar en mi tienda en Ordefy.\n\nHaz clic en el siguiente link para aceptar:\n${inviteUrl}\n\n(El link expira en 7 días)`;
+                          window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+                        }}
+                      >
+                        <MessageCircle className="w-4 h-4 mr-2" />
+                        WhatsApp
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          const subject = 'Invitación a colaborar en Ordefy';
+                          const body = `¡Hola ${inviteData.name}!\n\nTe invito a colaborar en mi tienda en Ordefy.\n\nHaz clic en el siguiente link para aceptar:\n${inviteUrl}\n\n(El link expira en 7 días)`;
+                          window.open(`mailto:${inviteData.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+                        }}
+                      >
+                        <Mail className="w-4 h-4 mr-2" />
+                        Email
+                      </Button>
+                    </div>
                   </div>
 
                   <Button onClick={closeInviteDialog} className="w-full" variant="outline">

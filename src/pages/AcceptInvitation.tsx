@@ -12,7 +12,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, Users, Building2 } from 'lucide-react';
+import { config } from '@/config';
 
 interface InvitationData {
   name: string;
@@ -41,7 +43,7 @@ export default function AcceptInvitation() {
 
   const validateToken = async () => {
     try {
-      const res = await fetch(`/api/collaborators/validate-token/${token}`);
+      const res = await fetch(`${config.api.baseUrl}/api/collaborators/validate-token/${token}`);
       const data = await res.json();
 
       if (!data.valid) {
@@ -75,7 +77,7 @@ export default function AcceptInvitation() {
     setAccepting(true);
 
     try {
-      const res = await fetch('/api/collaborators/accept-invitation', {
+      const res = await fetch(`${config.api.baseUrl}/api/collaborators/accept-invitation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password })
@@ -105,10 +107,10 @@ export default function AcceptInvitation() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Validando invitación...</p>
+          <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Validando invitación...</p>
         </div>
       </div>
     );
@@ -117,32 +119,29 @@ export default function AcceptInvitation() {
   // Error state (invalid/expired invitation)
   if (error && !invitation) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <Card className="max-w-md w-full">
-          <CardHeader>
-            <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
-              <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
-                <XCircle className="w-6 h-6" />
-              </div>
-              <div>
-                <CardTitle>Invitación Inválida</CardTitle>
-                <CardDescription className="text-red-600/80 dark:text-red-400/80">
-                  No se pudo validar la invitación
-                </CardDescription>
-              </div>
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center">
+              <XCircle className="h-8 w-8 text-destructive" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl text-destructive">Invitación Inválida</CardTitle>
+              <CardDescription className="mt-2">
+                No se pudo validar la invitación
+              </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-gray-600 dark:text-gray-400">{error}</p>
-            <div className="space-y-2 text-sm text-gray-500 dark:text-gray-500">
-              <p>Posibles causas:</p>
+            <div className="bg-muted/50 rounded-lg p-4 space-y-2 text-sm text-muted-foreground">
+              <p className="font-medium">Posibles causas:</p>
               <ul className="list-disc list-inside space-y-1 ml-2">
                 <li>La invitación ha expirado (7 días de validez)</li>
                 <li>La invitación ya fue utilizada</li>
                 <li>El link de invitación es incorrecto</li>
               </ul>
             </div>
-            <Button onClick={() => navigate('/login')} className="w-full">
+            <Button onClick={() => navigate('/login')} className="w-full" size="lg">
               Ir al Login
             </Button>
           </CardContent>
@@ -153,32 +152,36 @@ export default function AcceptInvitation() {
 
   // Success state - Show form to accept invitation
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
-      <Card className="max-w-md w-full">
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center">
-              <CheckCircle2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <CardTitle>Invitación a {invitation?.storeName}</CardTitle>
-              <CardDescription>
-                Has sido invitado como <strong className="text-foreground">{invitation?.role}</strong>
-              </CardDescription>
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
+      <Card className="max-w-lg w-full">
+        <CardHeader className="text-center space-y-4">
+          <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+            <Users className="h-8 w-8 text-primary" />
+          </div>
+          <div>
+            <Badge variant="secondary" className="mb-2">
+              <Building2 className="h-3 w-3 mr-1" />
+              Invitación de Equipo
+            </Badge>
+            <CardTitle className="text-2xl font-bold">
+              Únete a {invitation?.storeName}
+            </CardTitle>
+            <CardDescription className="text-base mt-2">
+              Has sido invitado a colaborar en esta tienda
+            </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleAccept} className="space-y-4">
             {/* Pre-filled Information */}
-            <div className="space-y-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border">
-              <div>
-                <Label className="text-xs text-gray-500 dark:text-gray-400">Nombre</Label>
-                <p className="font-medium">{invitation?.name}</p>
+            <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Nombre</span>
+                <span className="font-medium">{invitation?.name}</span>
               </div>
-              <div>
-                <Label className="text-xs text-gray-500 dark:text-gray-400">Email</Label>
-                <p className="font-medium">{invitation?.email}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Email</span>
+                <span className="font-medium">{invitation?.email}</span>
               </div>
             </div>
 
