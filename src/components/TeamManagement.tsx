@@ -185,25 +185,27 @@ export function TeamManagement() {
   };
 
   const getWhatsAppMessage = () => {
-    return `¡Hola ${inviteData.name}! 👋
+    return `Hola ${inviteData.name}!
 
 Te invito a colaborar en mi tienda en Ordefy.
 
-Haz clic aquí para aceptar:
+Haz clic aqui para aceptar:
+
 ${inviteUrl}
 
-(El link expira en 7 días)`;
+El link expira en 7 dias.`;
   };
 
   const getEmailMessage = () => {
-    return `¡Hola ${inviteData.name}!
+    return `Hola ${inviteData.name}!
 
 Te invito a colaborar en mi tienda en Ordefy.
 
 Haz clic en el siguiente link para aceptar:
+
 ${inviteUrl}
 
-(El link expira en 7 días)`;
+El link expira en 7 dias.`;
   };
 
   const copyWhatsAppMessage = () => {

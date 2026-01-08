@@ -136,8 +136,13 @@ export default function Billing({ embedded = false }: BillingProps) {
   const copyReferralLink = () => {
     if (referralStats?.code) {
       const link = `${window.location.origin}/r/${referralStats.code}`;
-      navigator.clipboard.writeText(link);
-      toast.success('Link copiado!');
+      const message = `Te invito a probar Ordefy, la mejor plataforma para gestionar tu e-commerce.
+
+Registrate con mi link y obtenes 20% de descuento en tu primer mes:
+
+${link}`;
+      navigator.clipboard.writeText(message);
+      toast.success('Mensaje con link copiado!');
     }
   };
 
@@ -583,7 +588,7 @@ export default function Billing({ embedded = false }: BillingProps) {
                   />
                   <Button variant="outline" onClick={copyReferralLink}>
                     <Copy className="h-4 w-4 mr-2" />
-                    Copiar
+                    Copiar para WhatsApp
                   </Button>
                 </div>
               </div>
