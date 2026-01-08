@@ -3,9 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useOnboardingTour } from '@/contexts/OnboardingTourContext';
+import { ownerTour, collaboratorTour } from '@/components/onboarding';
 import { formatTimeAgo } from '@/utils/timeUtils';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
-import { Bell, ChevronDown, Calendar } from 'lucide-react';
+import { Bell, ChevronDown, Calendar, Sparkles } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
 import { ordersService } from '@/services/orders.service';
@@ -62,8 +64,9 @@ const breadcrumbMap: Record<string, string> = {
 export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut, user } = useAuth();
+  const { signOut, user, permissions } = useAuth();
   const { selectedRange, setSelectedRange, customRange, setCustomRange } = useDateRange();
+  const { startTour, resetTour, isActive: isTourActive } = useOnboardingTour();
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileImage, setProfileImage] = useState('');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -388,6 +391,26 @@ export function Header() {
                 onClick={() => navigate(preserveShopifyParams('/settings?tab=preferences'))}
               >
                 Preferencias
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="cursor-pointer gap-2"
+                onClick={() => {
+                  // Navigate to dashboard first if not already there
+                  if (location.pathname !== '/') {
+                    navigate('/');
+                  }
+                  // Reset and start the tour
+                  resetTour();
+                  setTimeout(() => {
+                    const isOwner = permissions.currentRole === 'owner';
+                    startTour(isOwner ? ownerTour : collaboratorTour);
+                  }, 300);
+                }}
+                disabled={isTourActive}
+              >
+                <Sparkles size={14} />
+                Repetir Tour
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

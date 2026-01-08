@@ -154,13 +154,15 @@ export default function Dashboard() {
       <DailySummary />
 
       {/* Quick Actions */}
-      <QuickActions />
+      <div data-tour="quick-actions">
+        <QuickActions />
+      </div>
 
       {/* Usage Limits Indicator - Shows when near/at limit */}
       <UsageLimitsIndicator />
 
       {/* Priority Metrics - Always Visible */}
-      <div>
+      <div data-tour="dashboard-metrics">
         <h2 className="text-2xl font-bold mb-4 text-card-foreground">Resumen de Ventas</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <MetricCard

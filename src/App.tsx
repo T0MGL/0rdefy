@@ -11,12 +11,14 @@ import { AuthProvider, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
+import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { PermissionRoute } from "@/components/PermissionRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ShopifyAppBridgeProvider } from "@/components/ShopifyAppBridgeProvider";
 import { PlanLimitHandler } from "@/components/PlanLimitHandler";
+import { OnboardingTour } from "@/components/onboarding";
 
 // TypeScript declaration for Shopify App Bridge
 declare global {
@@ -140,8 +142,11 @@ const App = () => {
                   <SubscriptionProvider>
                     <PlanLimitHandler />
                     <DateRangeProvider>
-                      <ErrorBoundary>
-                        <OnboardingGuard>
+                      <OnboardingTourProvider>
+                        <ErrorBoundary>
+                          <OnboardingGuard>
+                            {/* Onboarding Tour - renders overlay when active */}
+                            <OnboardingTour autoStart={true} />
                         <Suspense fallback={<CardSkeleton count={1} />}>
                           <Routes>
                             {/* Public routes */}
@@ -210,9 +215,10 @@ const App = () => {
                             {/* Billing module - Owner only */}
                             <Route path="/billing" element={<PermissionLayout module={Module.BILLING} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Billing /></PermissionLayout>} />
                           </Routes>
-                        </Suspense>
-                      </OnboardingGuard>
-                      </ErrorBoundary>
+                          </Suspense>
+                        </OnboardingGuard>
+                        </ErrorBoundary>
+                      </OnboardingTourProvider>
                     </DateRangeProvider>
                   </SubscriptionProvider>
                 </AuthProvider>
