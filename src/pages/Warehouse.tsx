@@ -1424,13 +1424,13 @@ function PackingView({
                     </div>
                     {order.is_complete ? (
                       <div className="flex items-center gap-2">
-                        <Badge className="bg-green-600 hover:bg-green-600">
+                        <Badge className="bg-primary hover:bg-primary text-primary-foreground">
                           <Check className="h-3 w-3 mr-1" />
-                          Listo
+                          Completo
                         </Badge>
                         {order.printed && order.printed_at ? (
-                          <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400">
-                            <Check className="h-3 w-3 mr-1" />
+                          <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
+                            <Printer className="h-3 w-3 mr-1" />
                             Impreso
                           </Badge>
                         ) : order.delivery_link_token ? (
@@ -1442,21 +1442,25 @@ function PackingView({
                               onPrintLabel(order);
                             }}
                             disabled={printingOrderId === order.id}
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                            className="h-8"
                           >
                             {printingOrderId === order.id ? (
                               <Loader2 className="h-4 w-4 animate-spin mr-1" />
                             ) : (
                               <Printer className="h-4 w-4 mr-1" />
                             )}
-                            Imprimir Etiqueta
+                            Imprimir
                           </Button>
                         ) : (
-                          <Badge variant="outline" className="text-yellow-600">
-                            Sin token de entrega
+                          <Badge variant="outline" className="text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800">
+                            Sin token
                           </Badge>
                         )}
                       </div>
+                    ) : needsSelectedItem ? (
+                      <Badge className="bg-primary text-primary-foreground animate-pulse font-semibold">
+                        👈 Haz clic aquí
+                      </Badge>
                     ) : (
                       <Badge variant="secondary">
                         En Proceso
@@ -1474,20 +1478,24 @@ function PackingView({
                       return (
                         <div
                           key={item.product_id}
-                          className={`flex items-center gap-3 p-2 rounded ${isHighlighted
-                            ? 'bg-green-100 dark:bg-green-950/30 border border-green-600/30 dark:border-green-600/30'
+                          className={`flex items-center gap-3 p-2 rounded-lg transition-all ${isHighlighted
+                            ? 'bg-primary/15 border-2 border-primary/50 shadow-sm'
                             : itemComplete
-                              ? 'bg-green-50 dark:bg-green-950/20'
-                              : ''
+                              ? 'bg-primary/5'
+                              : 'bg-muted/30'
                             }`}
                         >
-                          {/* Checkbox para items completados */}
+                          {/* Status Indicator */}
                           <div className="flex-shrink-0">
-                            <Checkbox
-                              checked={itemComplete}
-                              disabled
-                              className="h-4 w-4"
-                            />
+                            {itemComplete ? (
+                              <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                                <Check className="h-3 w-3 text-primary-foreground" />
+                              </div>
+                            ) : isHighlighted ? (
+                              <div className="h-5 w-5 rounded-full bg-primary/30 animate-pulse" />
+                            ) : (
+                              <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/20" />
+                            )}
                           </div>
 
                           {item.product_image ? (
@@ -1501,22 +1509,24 @@ function PackingView({
                               <Package className="h-5 w-5 text-muted-foreground" />
                             </div>
                           )}
-                          <div className="flex-1">
+                          <div className="flex-1 min-w-0">
                             <p className={`text-sm font-medium line-clamp-1 ${itemComplete ? 'text-muted-foreground line-through' : ''}`}>
                               {item.product_name}
                             </p>
                             <div className="flex items-center gap-2">
                               <span
                                 className={`text-xs font-semibold ${itemComplete
-                                  ? 'text-green-600 dark:text-green-400'
-                                  : 'text-muted-foreground'
+                                  ? 'text-primary'
+                                  : isHighlighted
+                                    ? 'text-primary'
+                                    : 'text-muted-foreground'
                                   }`}
                               >
                                 {item.quantity_packed} / {item.quantity_needed}
                               </span>
                               {isHighlighted && (
-                                <Badge variant="outline" className="text-[10px] h-4 px-1 bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-600">
-                                  Click para empacar
+                                <Badge variant="outline" className="text-[10px] h-4 px-1.5 bg-primary/10 text-primary border-primary/30 font-semibold">
+                                  ← Empacar
                                 </Badge>
                               )}
                             </div>

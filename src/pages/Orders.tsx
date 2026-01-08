@@ -1213,9 +1213,7 @@ export default function Orders() {
                           onValueChange={(newStatus: Order['status']) => handleStatusUpdate(order.id, newStatus)}
                         >
                           <SelectTrigger className={`w-36 h-8 ${statusColors[order.status]}`}>
-                            <SelectValue>
-                              {statusLabels[order.status] || order.status}
-                            </SelectValue>
+                            <span className="truncate">{statusLabels[order.status] || order.status}</span>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="pending">Pendiente</SelectItem>
