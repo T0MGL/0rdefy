@@ -559,7 +559,7 @@ collaboratorsRouter.get(
         .from('user_stores')
         .select(`
           *,
-          user:users(id, name, email, phone),
+          user:users!user_stores_user_id_fkey(id, name, email, phone),
           invited_by_user:users!user_stores_invited_by_fkey(name)
         `)
         .eq('store_id', storeId)
