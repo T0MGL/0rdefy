@@ -255,51 +255,115 @@ export default function Dashboard() {
               title={
                 <div className="flex items-center">
                   ROAS
-                  <InfoTooltip content="Retorno de la inversión publicitaria (Ingresos / Gasto Publicitario)." />
+                  <InfoTooltip content="Retorno de la inversión publicitaria (solo pedidos entregados)." />
                 </div>
               }
-              value={dashboardOverview.gasto_publicitario > 0 ? `${dashboardOverview.roas.toFixed(2)}x` : 'N/A'}
-              change={dashboardOverview.gasto_publicitario > 0 && dashboardOverview.changes?.roas !== null ? Math.abs(dashboardOverview.changes?.roas || 0) : undefined}
-              trend={dashboardOverview.gasto_publicitario > 0 && dashboardOverview.changes?.roas !== null ? (dashboardOverview.changes?.roas >= 0 ? 'up' : 'down') : undefined}
+              value={
+                dashboardOverview.gasto_publicitario > 0 && (dashboardOverview.realRevenue ?? 0) > 0
+                  ? `${(dashboardOverview.realRoas ?? dashboardOverview.roas).toFixed(2)}x`
+                  : 'N/A'
+              }
+              change={
+                dashboardOverview.gasto_publicitario > 0 &&
+                (dashboardOverview.realRevenue ?? 0) > 0 &&
+                dashboardOverview.changes?.realRoas !== null
+                  ? Math.abs(dashboardOverview.changes?.realRoas || 0)
+                  : undefined
+              }
+              trend={
+                dashboardOverview.gasto_publicitario > 0 &&
+                (dashboardOverview.realRevenue ?? 0) > 0 &&
+                dashboardOverview.changes?.realRoas !== null
+                  ? (dashboardOverview.changes?.realRoas >= 0 ? 'up' : 'down')
+                  : undefined
+              }
               icon={<Target className="text-green-600" size={20} />}
-              subtitle={dashboardOverview.gasto_publicitario === 0 ? 'Sin campañas activas' : undefined}
+              subtitle={
+                dashboardOverview.gasto_publicitario === 0
+                  ? 'Sin campañas activas'
+                  : (dashboardOverview.realRevenue ?? 0) === 0
+                  ? 'Sin pedidos entregados'
+                  : undefined
+              }
             />
             <MetricCard
               title={
                 <div className="flex items-center">
                   ROI General
-                  <InfoTooltip content="Retorno sobre la inversión total considerando todos los costos operativos." />
+                  <InfoTooltip content="Retorno sobre la inversión total (solo pedidos entregados)." />
                 </div>
               }
-              value={dashboardOverview.costs > 0 ? `${dashboardOverview.roi.toFixed(1)}%` : 'N/A'}
-              change={dashboardOverview.costs > 0 && dashboardOverview.changes?.roi !== null ? Math.abs(dashboardOverview.changes?.roi || 0) : undefined}
-              trend={dashboardOverview.costs > 0 && dashboardOverview.changes?.roi !== null ? (dashboardOverview.changes?.roi >= 0 ? 'up' : 'down') : undefined}
+              value={
+                (dashboardOverview.realCosts ?? 0) > 0 && (dashboardOverview.realRevenue ?? 0) > 0
+                  ? `${(dashboardOverview.realRoi ?? dashboardOverview.roi).toFixed(1)}%`
+                  : 'N/A'
+              }
+              change={
+                (dashboardOverview.realCosts ?? 0) > 0 &&
+                (dashboardOverview.realRevenue ?? 0) > 0 &&
+                dashboardOverview.changes?.realRoi !== null
+                  ? Math.abs(dashboardOverview.changes?.realRoi || 0)
+                  : undefined
+              }
+              trend={
+                (dashboardOverview.realCosts ?? 0) > 0 &&
+                (dashboardOverview.realRevenue ?? 0) > 0 &&
+                dashboardOverview.changes?.realRoi !== null
+                  ? (dashboardOverview.changes?.realRoi >= 0 ? 'up' : 'down')
+                  : undefined
+              }
               icon={<Target className="text-blue-600" size={20} />}
-              subtitle={dashboardOverview.costs === 0 ? 'Sin datos' : undefined}
+              subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
             />
             <MetricCard
               title={
                 <div className="flex items-center">
                   Margen Bruto
-                  <InfoTooltip content="Porcentaje de beneficio sobre la venta antes de descontar gastos operativos." />
+                  <InfoTooltip content="Beneficio sobre venta después de costos de producto (solo entregados)." />
                 </div>
               }
-              value={`${dashboardOverview.grossMargin}%`}
-              change={dashboardOverview.changes?.grossMargin !== null ? Math.abs(dashboardOverview.changes?.grossMargin || 0) : undefined}
-              trend={dashboardOverview.changes?.grossMargin !== null ? (dashboardOverview.changes?.grossMargin >= 0 ? 'up' : 'down') : undefined}
+              value={
+                (dashboardOverview.realRevenue ?? 0) > 0
+                  ? `${(dashboardOverview.realGrossMargin ?? dashboardOverview.grossMargin)}%`
+                  : 'N/A'
+              }
+              change={
+                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realGrossMargin !== null
+                  ? Math.abs(dashboardOverview.changes?.realGrossMargin || 0)
+                  : undefined
+              }
+              trend={
+                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realGrossMargin !== null
+                  ? (dashboardOverview.changes?.realGrossMargin >= 0 ? 'up' : 'down')
+                  : undefined
+              }
               icon={<Percent className="text-emerald-600" size={20} />}
+              subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
             />
             <MetricCard
               title={
                 <div className="flex items-center">
                   Margen Neto
-                  <InfoTooltip content="Porcentaje de beneficio final sobre la venta después de todos los gastos." />
+                  <InfoTooltip content="Beneficio final sobre venta después de todos los gastos (solo entregados)." />
                 </div>
               }
-              value={`${dashboardOverview.netMargin}%`}
-              change={dashboardOverview.changes?.netMargin !== null ? Math.abs(dashboardOverview.changes?.netMargin || 0) : undefined}
-              trend={dashboardOverview.changes?.netMargin !== null ? (dashboardOverview.changes?.netMargin >= 0 ? 'up' : 'down') : undefined}
+              value={
+                (dashboardOverview.realRevenue ?? 0) > 0
+                  ? `${(dashboardOverview.realNetMargin ?? dashboardOverview.netMargin)}%`
+                  : 'N/A'
+              }
+              change={
+                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realNetMargin !== null
+                  ? Math.abs(dashboardOverview.changes?.realNetMargin || 0)
+                  : undefined
+              }
+              trend={
+                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realNetMargin !== null
+                  ? (dashboardOverview.changes?.realNetMargin >= 0 ? 'up' : 'down')
+                  : undefined
+              }
               icon={<Percent className="text-primary" size={20} />}
+              subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
             />
             <MetricCard
               title={

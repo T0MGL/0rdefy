@@ -408,7 +408,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         const roi = currentMetrics.roi;
         const roas = currentMetrics.roas;
         const deliveryRate = currentMetrics.deliveryRate;
-        const costPerOrder = totalOrders > 0 ? (totalCosts / totalOrders) : 0;
+
+        // Count only confirmed orders (exclude pending, cancelled, rejected)
+        const confirmedOrders = currentPeriodOrders.filter(o =>
+            !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+        );
+        const confirmedOrdersCount = confirmedOrders.length;
+
+        // Cost per order should only count confirmed orders (orders that incurred real costs)
+        const costPerOrder = confirmedOrdersCount > 0 ? (totalCosts / confirmedOrdersCount) : 0;
         const averageOrderValue = totalOrders > 0 ? (revenue / totalOrders) : 0;
 
         // ===== CALCULATE PERCENTAGE CHANGES (Current period vs Previous period) =====
@@ -419,7 +427,14 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Calculate previous period's costPerOrder and averageOrderValue
         const previousTotalOrders = previousMetrics.totalOrders;
-        const previousCostPerOrder = previousTotalOrders > 0 ? (previousMetrics.costs / previousTotalOrders) : 0;
+
+        // Count confirmed orders in previous period (exclude pending, cancelled, rejected)
+        const previousConfirmedOrders = previousPeriodOrders.filter(o =>
+            !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
+        );
+        const previousConfirmedOrdersCount = previousConfirmedOrders.length;
+
+        const previousCostPerOrder = previousConfirmedOrdersCount > 0 ? (previousMetrics.costs / previousConfirmedOrdersCount) : 0;
         const previousAverageOrderValue = previousTotalOrders > 0 ? (previousMetrics.revenue / previousTotalOrders) : 0;
 
         const changes = {
