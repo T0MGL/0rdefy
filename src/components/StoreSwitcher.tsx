@@ -29,6 +29,9 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
     return null;
   }
 
+  // Only users who are owners of at least one store can create new stores
+  const canCreateStore = stores.some(store => store.role === 'owner');
+
   const handleStoreSwitch = (storeId: string) => {
     if (storeId !== currentStore?.id) {
       switchStore(storeId);
@@ -124,17 +127,22 @@ export function StoreSwitcher({ className, collapsed = false }: StoreSwitcherPro
             </DropdownMenuItem>
           ))}
         </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="cursor-pointer text-muted-foreground hover:text-foreground"
-          onClick={() => {
-            setOpen(false);
-            setCreateDialogOpen(true);
-          }}
-        >
-          <PlusCircle className="mr-2 h-4 w-4" />
-          <span className="text-sm">Crear nueva tienda</span>
-        </DropdownMenuItem>
+        {/* Only show create store option for users who own at least one store */}
+        {canCreateStore && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="cursor-pointer text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setOpen(false);
+                setCreateDialogOpen(true);
+              }}
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              <span className="text-sm">Crear nueva tienda</span>
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
 
       <CreateStoreDialog
