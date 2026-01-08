@@ -2,7 +2,8 @@
  * TeamManagement Component
  *
  * Componente para gestionar colaboradores e invitaciones del equipo.
- * Solo accesible para owners.
+ * - Owners: Pueden ver miembros, invitar colaboradores, y eliminar miembros
+ * - Colaboradores (admin, etc.): Solo pueden ver la lista de miembros activos
  */
 
 import { useState } from 'react';
@@ -47,6 +48,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import apiClient from '@/services/api.client';
+import { useAuth } from '@/contexts/AuthContext';
 import type { CollaboratorStats, CollaboratorInvitation, TeamMember } from '@/types';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -78,7 +80,12 @@ const ROLE_COLORS: Record<string, string> = {
 
 export function TeamManagement() {
   const queryClient = useQueryClient();
+  const { user, currentStore } = useAuth();
   const [inviteOpen, setInviteOpen] = useState(false);
+
+  // Check if current user is the owner
+  const isOwner = currentStore?.role === 'owner';
+  const currentUserId = user?.id;
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
@@ -231,13 +238,15 @@ ${inviteUrl}
             </CardDescription>
           </div>
 
-          <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-            <DialogTrigger asChild>
-              <Button disabled={!canAddUsers}>
-                <UserPlus className="w-4 h-4 mr-2" />
-                Invitar
-              </Button>
-            </DialogTrigger>
+          {/* Only owners can invite new members */}
+          {isOwner && (
+            <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+              <DialogTrigger asChild>
+                <Button disabled={!canAddUsers}>
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Invitar
+                </Button>
+              </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Invitar Colaborador</DialogTitle>
@@ -399,9 +408,10 @@ ${inviteUrl}
               )}
             </DialogContent>
           </Dialog>
+          )}
         </CardHeader>
 
-        {!canAddUsers && (
+        {isOwner && !canAddUsers && (
           <CardContent>
             <Alert>
               <AlertCircle className="w-4 h-4" />
@@ -445,7 +455,8 @@ ${inviteUrl}
 
                     <div className="flex items-center gap-3">
                       <Badge variant="outline">{ROLE_LABELS[member.role]}</Badge>
-                      {member.role !== 'owner' && (
+                      {/* Only owner can remove members, and cannot remove themselves or other owners */}
+                      {isOwner && member.role !== 'owner' && member.id !== currentUserId && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -473,8 +484,8 @@ ${inviteUrl}
         </CardContent>
       </Card>
 
-      {/* Pending Invitations Only */}
-      {invitationsData?.invitations && invitationsData.invitations.filter(inv => inv.status === 'pending').length > 0 && (
+      {/* Pending Invitations Only - Only visible to owners */}
+      {isOwner && invitationsData?.invitations && invitationsData.invitations.filter(inv => inv.status === 'pending').length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Invitaciones Pendientes ({invitationsData.invitations.filter(inv => inv.status === 'pending').length})</CardTitle>
