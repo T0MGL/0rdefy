@@ -210,8 +210,10 @@ export function DemoTourTooltip() {
   if (!isActive || !currentStep) return null;
 
   // Check if this step has an interactive component
+  // Only show interactive components for owner/admin paths (shopify/manual), NOT for collaborators
   const InteractiveComponent = interactiveSteps[currentStep.id];
-  if (InteractiveComponent && path !== null) {
+  const isOwnerPath = path === 'shopify' || path === 'manual';
+  if (InteractiveComponent && isOwnerPath) {
     return (
       <Suspense fallback={<StepLoadingFallback />}>
         <InteractiveComponent />
