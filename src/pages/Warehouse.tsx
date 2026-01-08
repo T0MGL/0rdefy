@@ -393,7 +393,8 @@ export default function Warehouse() {
         deliveryToken: order.delivery_link_token || '',
         items: order.items.map(item => ({
           name: item.product_name,
-          quantity: item.quantity_needed
+          quantity: item.quantity_needed,
+          price: item.unit_price || 0
         }))
       });
 
@@ -472,7 +473,8 @@ export default function Warehouse() {
         deliveryToken: order.delivery_link_token || '',
         items: order.items.map(item => ({
           name: item.product_name,
-          quantity: item.quantity_needed
+          quantity: item.quantity_needed,
+          price: item.unit_price || 0
         }))
       }));
 
@@ -993,38 +995,37 @@ function PickingView({
       )}
 
       {/* Enhanced Progress Bar */}
-      <div className={`mb-6 p-6 rounded-lg border-2 ${allPicked ? 'bg-green-50 dark:bg-green-950/20 border-green-500/30' : 'bg-primary/10 border-primary/20'}`}>
+      <div className={`mb-6 p-6 rounded-lg border-2 ${allPicked ? 'bg-primary/10 border-primary' : 'bg-muted/50 border-border'}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-full ${allPicked ? 'bg-green-600' : 'bg-primary'}`}>
+            <div className="p-2 rounded-full bg-primary">
               {allPicked ? (
-                <Check className="h-5 w-5 text-white" />
+                <Check className="h-5 w-5 text-primary-foreground" />
               ) : (
-                <Package className="h-5 w-5 text-white" />
+                <Package className="h-5 w-5 text-primary-foreground" />
               )}
             </div>
             <div>
-              <span className="text-sm font-medium text-muted-foreground">
+              <span className="text-sm font-medium">
                 Progreso de Picking
               </span>
               <p className="text-xs text-muted-foreground">
-                {totalQuantityPicked} de {totalQuantityNeeded} unidades recolectadas • {pickedItems}/{totalItems} productos completos
+                {totalQuantityPicked} de {totalQuantityNeeded} unidades • {pickedItems}/{totalItems} productos
               </p>
             </div>
           </div>
-          <span className={`text-3xl font-bold ${allPicked ? 'text-green-600' : 'text-primary'}`}>
+          <span className="text-3xl font-bold text-primary">
             {Math.round(progress)}%
           </span>
         </div>
-        <Progress
-          value={progress}
-          className={`h-4 ${allPicked ? '[&>div]:bg-green-600' : ''}`}
-        />
+        <Progress value={progress} className="h-4" />
         {allPicked && (
-          <p className="text-sm text-green-600 dark:text-green-400 font-medium mt-3 flex items-center gap-2">
-            <Check className="h-4 w-4" />
-            ¡Todos los productos han sido recolectados! Puedes finalizar.
-          </p>
+          <div className="mt-4 p-3 bg-primary/20 dark:bg-primary/10 border border-primary/30 rounded-lg flex items-center gap-2">
+            <Check className="h-5 w-5 text-primary" />
+            <p className="text-sm font-semibold text-primary">
+              ¡Recolección completa! Haz clic en "Finalizar Recolección" para continuar.
+            </p>
+          </div>
         )}
       </div>
 
@@ -1035,15 +1036,15 @@ function PickingView({
           return (
             <Card
               key={item.id}
-              className={`p-4 transition-state ${isComplete
-                ? 'border-green-500 bg-green-50 dark:bg-green-950/20 shadow-md animate-pulse-success'
-                : 'border-border'
+              className={`p-4 transition-all relative ${isComplete
+                ? 'border-primary bg-primary/5 shadow-sm'
+                : 'border-border hover:border-primary/50'
                 }`}
             >
               {/* Checkmark Badge for Completed Items */}
               {isComplete && (
-                <div className="absolute top-2 right-2 bg-green-500 rounded-full p-1">
-                  <Check className="h-4 w-4 text-white" />
+                <div className="absolute top-3 right-3 bg-primary rounded-full p-1">
+                  <Check className="h-4 w-4 text-primary-foreground" />
                 </div>
               )}
 
@@ -1060,66 +1061,86 @@ function PickingView({
                     <Package className="h-8 w-8 text-muted-foreground" />
                   </div>
                 )}
-                <div className="flex-1">
-                  <h3 className="font-semibold line-clamp-2">
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm line-clamp-2 mb-1">
                     {item.product_name}
                   </h3>
                   {item.product_sku && (
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground">
                       SKU: {item.product_sku}
                     </p>
                   )}
                   {item.shelf_location && (
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
                       📍 {item.shelf_location}
                     </p>
                   )}
                 </div>
               </div>
 
-              {/* Counter Controls */}
-              <div className="flex items-center justify-between gap-2">
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={() => onUpdateProgress(item.product_id, Math.max(0, item.quantity_picked - 1))}
-                  disabled={item.quantity_picked === 0}
-                  className="h-12 w-12 p-0"
-                >
-                  <Minus className="h-5 w-5" />
-                </Button>
-
-                <div className="flex-1 text-center">
-                  <div className={`text-2xl font-bold ${isComplete ? 'text-green-600' : ''}`}>
-                    {item.quantity_picked} / {item.total_quantity_needed}
+              {/* Quantity Display - Larger, More Prominent */}
+              <div className="mb-3">
+                <div className={`text-center py-2 px-3 rounded-lg ${isComplete ? 'bg-primary/10' : 'bg-muted'}`}>
+                  <div className="text-xs text-muted-foreground mb-1">Recolectado</div>
+                  <div className={`text-3xl font-bold ${isComplete ? 'text-primary' : 'text-foreground'}`}>
+                    {item.quantity_picked} <span className="text-lg text-muted-foreground">/ {item.total_quantity_needed}</span>
                   </div>
                   {isComplete && (
-                    <p className="text-xs text-green-600 dark:text-green-400 font-medium mt-1">
+                    <p className="text-xs text-primary font-semibold mt-1">
                       ✓ Completo
                     </p>
                   )}
                 </div>
-
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={() => onUpdateProgress(item.product_id, Math.min(item.total_quantity_needed, item.quantity_picked + 1))}
-                  disabled={item.quantity_picked >= item.total_quantity_needed}
-                  className="h-12 w-12 p-0"
-                >
-                  <Plus className="h-5 w-5" />
-                </Button>
               </div>
 
-              {/* MAX Button */}
-              <Button
-                variant={isComplete ? "secondary" : "default"}
-                className="w-full mt-2"
-                onClick={() => onUpdateProgress(item.product_id, item.total_quantity_needed)}
-                disabled={isComplete}
-              >
-                {isComplete ? '✓ COMPLETADO' : 'MÁX'}
-              </Button>
+              {/* Action Buttons - Reorganized for Speed */}
+              {!isComplete ? (
+                <div className="space-y-2">
+                  {/* Primary Action: Complete All */}
+                  <Button
+                    variant="default"
+                    size="lg"
+                    className="w-full h-12 text-base font-semibold"
+                    onClick={() => onUpdateProgress(item.product_id, item.total_quantity_needed)}
+                  >
+                    <Check className="h-5 w-5 mr-2" />
+                    Completar Todo
+                  </Button>
+
+                  {/* Secondary Actions: Fine Control */}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={() => onUpdateProgress(item.product_id, Math.max(0, item.quantity_picked - 1))}
+                      disabled={item.quantity_picked === 0}
+                      className="flex-1 h-10"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={() => onUpdateProgress(item.product_id, Math.min(item.total_quantity_needed, item.quantity_picked + 1))}
+                      disabled={item.quantity_picked >= item.total_quantity_needed}
+                      className="flex-1 h-10"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  className="w-full h-12"
+                  disabled
+                >
+                  <Check className="h-5 w-5 mr-2" />
+                  Completado
+                </Button>
+              )}
             </Card>
           );
         })}
@@ -1181,7 +1202,7 @@ function PackingView({
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <div className="bg-card border-b p-4">
+      <div className="bg-card border-b p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button
@@ -1196,7 +1217,7 @@ function PackingView({
                 Empaque: {session.code}
               </h1>
               <p className="text-sm text-muted-foreground">
-                Distribuye los artículos en las cajas de pedidos
+                Selecciona producto de la izquierda → Haz clic en el pedido para empacar
               </p>
             </div>
           </div>
@@ -1216,7 +1237,7 @@ function PackingView({
                 ) : (
                   <>
                     <Layers className="h-4 w-4" />
-                    Imprimir en Lote ({selectedOrdersForPrint.size})
+                    Imprimir Lote ({selectedOrdersForPrint.size})
                   </>
                 )}
               </Button>
@@ -1225,7 +1246,8 @@ function PackingView({
               <Button
                 onClick={onCompleteSession}
                 disabled={loading}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                size="lg"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
               >
                 <Check className="h-4 w-4 mr-2" />
                 Finalizar Sesión
@@ -1233,15 +1255,46 @@ function PackingView({
             )}
           </div>
         </div>
+
+        {/* Progress Indicator */}
+        {!allOrdersComplete && (
+          <div className="mt-4 p-3 bg-muted rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">Progreso de Empaque</span>
+              <span className="text-sm font-semibold text-primary">
+                {orders.filter(o => o.is_complete).length} / {orders.length} pedidos completos
+              </span>
+            </div>
+            <Progress
+              value={(orders.filter(o => o.is_complete).length / orders.length) * 100}
+              className="h-2"
+            />
+          </div>
+        )}
+
+        {allOrdersComplete && allItemsRemaining && (
+          <div className="mt-4 p-3 bg-primary/10 border border-primary/30 rounded-lg flex items-center gap-2">
+            <Check className="h-5 w-5 text-primary" />
+            <p className="text-sm font-semibold text-primary">
+              ¡Todos los pedidos están empacados! Haz clic en "Finalizar Sesión" para completar.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Split View */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Column: Available Items (Basket) */}
-        <div className="w-1/3 border-r p-4 overflow-y-auto bg-card">
-          <h2 className="text-lg font-semibold mb-4 sticky top-0 bg-card pb-2">
-            Artículos para Empaquetar
-          </h2>
+        <div className="w-1/3 border-r p-4 overflow-y-auto bg-muted/20">
+          <div className="sticky top-0 bg-muted/20 pb-3 mb-4 border-b">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Package className="h-5 w-5 text-primary" />
+              Productos Disponibles
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              {selectedItem ? '✓ Producto seleccionado - Haz clic en un pedido →' : 'Selecciona un producto para empacar'}
+            </p>
+          </div>
           <div className="space-y-3">
             {availableItems.map(item => {
               const isSelected = selectedItem === item.product_id;
@@ -1251,51 +1304,53 @@ function PackingView({
                 <Card
                   key={item.product_id}
                   className={`p-3 transition-all ${!hasRemaining || packingInProgress
-                    ? 'opacity-50 cursor-not-allowed bg-muted'
+                    ? 'opacity-40 cursor-not-allowed bg-muted/50'
                     : isSelected
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/10 cursor-pointer'
-                      : 'hover:shadow-md hover:border-primary/50 cursor-pointer'
+                      ? 'border-primary border-2 ring-2 ring-primary/20 bg-primary/10 cursor-pointer shadow-md'
+                      : 'hover:shadow-md hover:border-primary/50 cursor-pointer bg-card'
                     }`}
                   onClick={() => hasRemaining && !packingInProgress && onSelectItem(isSelected ? null : item.product_id)}
                 >
                   <div className="flex gap-3">
-                    {/* Checkbox Visual */}
+                    {/* Selection Indicator */}
                     <div className="flex-shrink-0 mt-1">
-                      <Checkbox
-                        checked={isSelected}
-                        disabled={!hasRemaining || packingInProgress}
-                        className="h-5 w-5"
-                        onClick={(e) => e.stopPropagation()}
-                        onCheckedChange={() => hasRemaining && !packingInProgress && onSelectItem(isSelected ? null : item.product_id)}
-                      />
+                      {isSelected ? (
+                        <div className="h-5 w-5 rounded bg-primary flex items-center justify-center">
+                          <Check className="h-4 w-4 text-primary-foreground" />
+                        </div>
+                      ) : (
+                        <div className={`h-5 w-5 rounded border-2 ${hasRemaining ? 'border-muted-foreground/30' : 'border-muted-foreground/10'}`} />
+                      )}
                     </div>
 
                     {item.product_image ? (
                       <img
                         src={item.product_image}
                         alt={item.product_name}
-                        className="w-12 h-12 object-cover rounded"
+                        className="w-14 h-14 object-cover rounded-lg"
                       />
                     ) : (
-                      <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
-                        <Package className="h-6 w-6 text-muted-foreground" />
+                      <div className="w-14 h-14 bg-muted rounded-lg flex items-center justify-center">
+                        <Package className="h-7 w-7 text-muted-foreground" />
                       </div>
                     )}
-                    <div className="flex-1">
-                      <h3 className="font-medium text-sm line-clamp-1">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-sm line-clamp-2 mb-1">
                         {item.product_name}
                       </h3>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2">
                         <Badge
                           variant={hasRemaining ? 'default' : 'secondary'}
-                          className="text-xs"
+                          className={`text-xs font-semibold ${isSelected ? 'bg-primary/90' : ''}`}
                         >
-                          {item.remaining} restantes
+                          {item.remaining} por empacar
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Recolectado: {item.total_picked} • Empacado: {item.total_packed}
-                      </p>
+                      {isSelected && (
+                        <p className="text-xs text-primary font-medium mt-1">
+                          → Selecciona pedido
+                        </p>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -1305,10 +1360,16 @@ function PackingView({
         </div>
 
         {/* Right Column: Orders (Boxes) */}
-        <div className="flex-1 p-4 overflow-y-auto">
-          <h2 className="text-lg font-semibold mb-4 sticky top-0 bg-background pb-2">
-            Pedidos ({orders.length})
-          </h2>
+        <div className="flex-1 p-4 overflow-y-auto bg-background">
+          <div className="sticky top-0 bg-background pb-3 mb-4 border-b">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <PackageCheck className="h-5 w-5 text-primary" />
+              Pedidos ({orders.length})
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              {selectedItem ? 'Haz clic en un pedido para empacar el producto seleccionado' : 'Primero selecciona un producto de la izquierda'}
+            </p>
+          </div>
           <div className="space-y-4">
             {orders.map(order => {
               const needsSelectedItem = selectedItem
@@ -1329,11 +1390,11 @@ function PackingView({
               return (
                 <Card
                   key={order.id}
-                  className={`p-4 transition-state ${order.is_complete
-                    ? 'border-green-600 dark:border-green-600 bg-green-50 dark:bg-green-950/20 animate-pulse-success'
+                  className={`p-4 transition-all ${order.is_complete
+                    ? 'border-primary bg-primary/5 shadow-sm'
                     : needsSelectedItem
-                      ? `border-green-600 dark:border-green-600 ring-2 ring-green-600/20 shadow-lg ${packingInProgress ? 'cursor-wait opacity-70' : 'cursor-pointer'} bg-green-50/50 dark:bg-green-950/10`
-                      : ''
+                      ? `border-primary border-2 ring-4 ring-primary/20 shadow-lg ${packingInProgress ? 'cursor-wait opacity-70' : 'cursor-pointer hover:ring-primary/30'} bg-primary/5`
+                      : 'border-border bg-card'
                     }`}
                   onClick={() => {
                     if (needsSelectedItem && selectedItemInOrder && !packingInProgress) {
