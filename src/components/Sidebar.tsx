@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -46,7 +46,6 @@ interface MenuItem {
   label: string;
   icon: any;
   module?: Module; // Required module for permission check
-  tourId?: string; // ID for onboarding tour targeting
 }
 
 interface MenuSection {
@@ -60,7 +59,7 @@ const menuSections: MenuSection[] = [
     label: 'Dashboards',
     icon: LayoutDashboard,
     items: [
-      { path: '/', label: 'Dashboard General', icon: Activity, module: Module.DASHBOARD, tourId: 'sidebar-dashboard' },
+      { path: '/', label: 'Dashboard General', icon: Activity, module: Module.DASHBOARD },
       { path: '/dashboard-logistics', label: 'Dashboard Logístico', icon: PackageCheck, module: Module.WAREHOUSE },
       { path: '/logistics', label: 'Costos de Envío', icon: BarChart3, module: Module.ANALYTICS },
     ],
@@ -69,7 +68,7 @@ const menuSections: MenuSection[] = [
     label: 'Ventas',
     icon: ShoppingBag,
     items: [
-      { path: '/orders', label: 'Pedidos', icon: ShoppingCart, module: Module.ORDERS, tourId: 'sidebar-orders' },
+      { path: '/orders', label: 'Pedidos', icon: ShoppingCart, module: Module.ORDERS },
       { path: '/returns', label: 'Devoluciones', icon: RotateCcw, module: Module.RETURNS },
       { path: '/incidents', label: 'Incidencias', icon: AlertCircle, module: Module.ORDERS },
       { path: '/customers', label: 'Clientes', icon: UserCircle, module: Module.CUSTOMERS },
@@ -80,7 +79,7 @@ const menuSections: MenuSection[] = [
     label: 'Logística',
     icon: Truck,
     items: [
-      { path: '/warehouse', label: 'Almacén', icon: Warehouse, module: Module.WAREHOUSE, tourId: 'sidebar-warehouse' },
+      { path: '/warehouse', label: 'Almacén', icon: Warehouse, module: Module.WAREHOUSE },
       { path: '/shipping', label: 'Despacho', icon: Send, module: Module.WAREHOUSE },
       { path: '/merchandise', label: 'Mercadería', icon: PackageOpen, module: Module.MERCHANDISE },
       { path: '/carriers', label: 'Transportadoras', icon: Truck, module: Module.CARRIERS },
@@ -91,7 +90,7 @@ const menuSections: MenuSection[] = [
     label: 'Inventario',
     icon: Store,
     items: [
-      { path: '/products', label: 'Productos', icon: Package, module: Module.PRODUCTS, tourId: 'sidebar-products' },
+      { path: '/products', label: 'Productos', icon: Package, module: Module.PRODUCTS },
       { path: '/inventory', label: 'Movimientos', icon: ClipboardList, module: Module.PRODUCTS },
       { path: '/suppliers', label: 'Proveedores', icon: Users, module: Module.SUPPLIERS },
     ],
@@ -101,7 +100,7 @@ const menuSections: MenuSection[] = [
     icon: Settings2,
     items: [
       { path: '/additional-values', label: 'Valores Adicionales', icon: PlusCircle, module: Module.ANALYTICS },
-      { path: '/integrations', label: 'Integraciones', icon: Link2, module: Module.INTEGRATIONS, tourId: 'sidebar-integrations' },
+      { path: '/integrations', label: 'Integraciones', icon: Link2, module: Module.INTEGRATIONS },
       { path: '/support', label: 'Soporte', icon: HelpCircle }, // No module required - always visible
     ],
   },
@@ -120,33 +119,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         : [...prev, sectionLabel]
     );
   };
-
-  // Listen for tour events to expand sidebar and sections
-  useEffect(() => {
-    const handleExpandForTour = () => {
-      // If sidebar is collapsed, expand it
-      if (collapsed) {
-        onToggle();
-      }
-      // Expand all sections for the tour
-      setExpandedSections(['Dashboards', 'Ventas', 'Logística', 'Inventario', 'Gestión']);
-    };
-
-    const handleExpandSection = (event: CustomEvent<{ section: string }>) => {
-      const { section } = event.detail;
-      if (!expandedSections.includes(section)) {
-        setExpandedSections(prev => [...prev, section]);
-      }
-    };
-
-    window.addEventListener('expandSidebarForTour', handleExpandForTour);
-    window.addEventListener('expandSidebarSection', handleExpandSection as EventListener);
-
-    return () => {
-      window.removeEventListener('expandSidebarForTour', handleExpandForTour);
-      window.removeEventListener('expandSidebarSection', handleExpandSection as EventListener);
-    };
-  }, [collapsed, onToggle, expandedSections]);
 
   // Check if a menu item is locked by plan
   const isItemLocked = (path: string): boolean => {
@@ -240,7 +212,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 key={item.path}
                 to={item.path}
                 end={item.path === '/'}
-                data-tour={item.tourId}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center justify-center px-2 py-2.5 rounded-lg transition-all duration-200',
@@ -376,7 +347,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                           key={item.path}
                           to={item.path}
                           end={item.path === '/'}
-                          data-tour={item.tourId}
                           className={({ isActive }) =>
                             cn(
                               'flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200',
