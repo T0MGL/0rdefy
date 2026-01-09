@@ -225,7 +225,7 @@ El link expira en 7 dias.`;
   return (
     <div className="space-y-6">
       {/* Header with Stats */}
-      <Card>
+      <Card className="bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div>
             <CardTitle>Equipo</CardTitle>
@@ -426,7 +426,7 @@ El link expira en 7 dias.`;
       </Card>
 
       {/* Members List */}
-      <Card>
+      <Card className="bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
         <CardHeader>
           <CardTitle>Miembros Activos ({membersData?.members?.length || 0})</CardTitle>
         </CardHeader>
@@ -488,7 +488,7 @@ El link expira en 7 dias.`;
 
       {/* Pending Invitations Only - Only visible to owners */}
       {isOwner && invitationsData?.invitations && invitationsData.invitations.filter(inv => inv.status === 'pending').length > 0 && (
-        <Card>
+        <Card className="bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
           <CardHeader>
             <CardTitle>Invitaciones Pendientes ({invitationsData.invitations.filter(inv => inv.status === 'pending').length})</CardTitle>
             <CardDescription>
