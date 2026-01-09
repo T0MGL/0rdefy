@@ -214,8 +214,8 @@ function drawLabel(
     pdf.text(detailLines[0] || '', MARGIN + 0.08, detailsY);
   }
 
-  // Phone - always at fixed position near bottom of address zone
-  const phoneY = addressZoneY + addressZoneHeight - 0.25;
+  // Phone - always at fixed position near bottom of address zone (with clearance from separator)
+  const phoneY = addressZoneY + addressZoneHeight - 0.35;
   pdf.setFontSize(13);
   pdf.setFont('courier', 'bold');
   const phoneText = `TEL: ${data.customerPhone}`;
