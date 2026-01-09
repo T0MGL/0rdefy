@@ -187,7 +187,7 @@ function drawLabel(
   pdf.text(displayNameLines, MARGIN + 0.08, nameY);
 
   // Address section - positioned after name
-  const addressStartY = nameY + (displayNameLines.length * lineHeight) + 0.12;
+  const addressStartY = nameY + (displayNameLines.length * lineHeight) + 0.1;
 
   // Build address text
   let fullAddress = customerAddress;
@@ -195,16 +195,19 @@ function drawLabel(
     fullAddress += fullAddress ? `, ${neighborhood}` : neighborhood;
   }
 
+  let addressEndY = addressStartY;
   if (fullAddress) {
-    pdf.setFontSize(12);
+    pdf.setFontSize(11);
     pdf.setFont('helvetica', 'normal');
     const addrLines = pdf.splitTextToSize(fullAddress, CONTENT_WIDTH - 0.16);
-    pdf.text(addrLines.slice(0, 2), MARGIN + 0.08, addressStartY);
+    const displayAddrLines = addrLines.slice(0, 3); // Allow up to 3 lines for address
+    pdf.text(displayAddrLines, MARGIN + 0.08, addressStartY);
+    addressEndY = addressStartY + (displayAddrLines.length * 0.16);
   }
 
-  // City / Reference - smaller text
-  const detailsY = addressStartY + 0.35;
+  // City / Reference - smaller text, positioned after address
   if (city || addressRef) {
+    const detailsY = addressEndY + 0.08;
     pdf.setFontSize(10);
     let detailText = city || '';
     if (addressRef) {
@@ -215,7 +218,7 @@ function drawLabel(
   }
 
   // Phone - always at fixed position near bottom of address zone (with clearance from separator)
-  const phoneY = addressZoneY + addressZoneHeight - 0.35;
+  const phoneY = addressZoneY + addressZoneHeight - 0.32;
   pdf.setFontSize(13);
   pdf.setFont('courier', 'bold');
   const phoneText = `TEL: ${data.customerPhone}`;
