@@ -151,7 +151,7 @@ function drawLabel(
   // Order number - large and prominent
   pdf.setFontSize(22);
   pdf.setFont('helvetica', 'bold');
-  const orderText = `##${data.orderNumber}`;
+  const orderText = `#${data.orderNumber}`;
   pdf.text(orderText, PAGE_WIDTH - MARGIN - 0.08, headerY + 0.35, { align: 'right' });
 
   // Header separator
