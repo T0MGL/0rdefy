@@ -813,6 +813,92 @@ settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
 });
 
 // ================================================================
+// GET /api/settlements/shipped-orders-grouped - Get shipped orders grouped by carrier/date
+// For the new manual reconciliation flow
+// ================================================================
+settlementsRouter.get('/shipped-orders-grouped', async (req: AuthRequest, res: Response) => {
+  try {
+    console.log('📦 [SETTLEMENTS] Fetching shipped orders grouped by carrier/date');
+
+    const groups = await settlementsService.getShippedOrdersGrouped(req.storeId!);
+
+    res.json({ data: groups });
+  } catch (error: any) {
+    console.error('💥 [SETTLEMENTS] Error fetching grouped orders:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ================================================================
+// POST /api/settlements/manual-reconciliation - Process manual reconciliation
+// Without CSV - using checkbox UI
+// ================================================================
+settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrier_id, dispatch_date, orders, total_amount_collected, discrepancy_notes, confirm_discrepancy } = req.body;
+
+    console.log('📝 [SETTLEMENTS] Processing manual reconciliation:', {
+      carrier_id,
+      dispatch_date,
+      orders_count: orders?.length,
+      total_amount_collected
+    });
+
+    if (!carrier_id || !dispatch_date || !orders || !Array.isArray(orders)) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (total_amount_collected === undefined || total_amount_collected === null) {
+      return res.status(400).json({ error: 'total_amount_collected is required' });
+    }
+
+    const settlement = await settlementsService.processManualReconciliation(
+      req.storeId!,
+      req.userId!,
+      {
+        carrier_id,
+        dispatch_date,
+        orders,
+        total_amount_collected,
+        discrepancy_notes,
+        confirm_discrepancy: confirm_discrepancy || false
+      }
+    );
+
+    console.log('✅ [SETTLEMENTS] Manual reconciliation completed:', settlement.settlement_code);
+
+    res.json({ data: settlement });
+  } catch (error: any) {
+    console.error('💥 [SETTLEMENTS] Error in manual reconciliation:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ================================================================
+// GET /api/settlements/dispatch-sessions/:id/export-xlsx - Export as Excel
+// Professional Excel with styling and Ordefy watermark
+// ================================================================
+settlementsRouter.get('/dispatch-sessions/:id/export-xlsx', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    console.log('📊 [SETTLEMENTS] Exporting dispatch session as Excel:', id);
+
+    const buffer = await settlementsService.exportDispatchExcel(id, req.storeId!);
+
+    // Get session info for filename
+    const session = await settlementsService.getDispatchSessionById(id, req.storeId!);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${session.session_code}.xlsx"`);
+    res.send(buffer);
+  } catch (error: any) {
+    console.error('💥 [SETTLEMENTS] Error exporting Excel:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ================================================================
 // DELETE /api/settlements/:id - Delete settlement
 // ================================================================
 settlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {

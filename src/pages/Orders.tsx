@@ -62,16 +62,17 @@ const statusColors = {
   incident: 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800',
 };
 
-const statusLabels = {
+const statusLabels: Record<string, string> = {
   pending: 'Pendiente',
   confirmed: 'Confirmado',
   in_preparation: 'En Preparación',
   ready_to_ship: 'Preparado',
-  shipped: 'En Tránsito',
+  shipped: 'Despachado',
   in_transit: 'En Tránsito',
   delivered: 'Entregado',
   returned: 'Devuelto',
   cancelled: 'Cancelado',
+  rejected: 'Rechazado',
   incident: 'Incidencia',
 };
 
@@ -384,14 +385,27 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
         throw new Error('Failed to update status');
       }
-    } catch (error) {
+    } catch (error: any) {
       // Revert optimistic update on error
       setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
+
+      // Extract detailed error info from backend response
+      const errorResponse = error?.response?.data;
+      const errorDetails = errorResponse?.details;
+
+      // Pass the backend error details to the error handler
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'update_status',
         entity: 'pedido',
-        details: { from: originalOrder.status, to: newStatus },
+        details: {
+          from: errorDetails?.from || originalOrder.status,
+          fromLabel: errorDetails?.fromLabel || statusLabels[originalOrder.status],
+          to: errorDetails?.to || newStatus,
+          toLabel: errorDetails?.toLabel || statusLabels[newStatus],
+          message: errorResponse?.message,
+          suggestion: errorDetails?.suggestion,
+        },
       });
     }
   }, [orders, toast]);

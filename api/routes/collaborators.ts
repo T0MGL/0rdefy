@@ -11,6 +11,7 @@ import jwt from 'jsonwebtoken';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireRole, PermissionRequest } from '../middleware/permissions';
+import { requireFeature } from '../middleware/planLimits';
 import { Role } from '../permissions';
 
 export const collaboratorsRouter = Router();
@@ -55,7 +56,10 @@ collaboratorsRouter.use((req, res, next) => {
   // Apply auth middleware chain for protected routes
   return verifyToken(req, res, () => {
     extractStoreId(req, res, () => {
-      extractUserRole(req as PermissionRequest, res, next);
+      extractUserRole(req as PermissionRequest, res, () => {
+        // Team management requires Starter plan or higher
+        requireFeature('team_management')(req, res, next);
+      });
     });
   });
 });

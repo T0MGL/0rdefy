@@ -517,7 +517,7 @@ export default function Settings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5 lg:w-[800px]">
+        <TabsList className={`grid w-full lg:w-[800px] ${hasTeamManagement ? 'grid-cols-5' : 'grid-cols-4'}`}>
           <TabsTrigger value="profile" className="gap-2">
             <User size={16} />
             Perfil
@@ -530,10 +530,12 @@ export default function Settings() {
             <Bell size={16} />
             Preferencias
           </TabsTrigger>
-          <TabsTrigger value="team" className="gap-2">
-            <Users className="w-4 h-4" />
-            Equipo
-          </TabsTrigger>
+          {hasTeamManagement && (
+            <TabsTrigger value="team" className="gap-2">
+              <Users className="w-4 h-4" />
+              Equipo
+            </TabsTrigger>
+          )}
           <TabsTrigger value="security" className="gap-2">
             <Shield size={16} />
             Seguridad
@@ -862,10 +864,12 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Team Tab */}
-        <TabsContent value="team" className="space-y-6">
-          <TeamManagement />
-        </TabsContent>
+        {/* Team Tab - Only visible for Starter+ plans */}
+        {hasTeamManagement && (
+          <TabsContent value="team" className="space-y-6">
+            <TeamManagement />
+          </TabsContent>
+        )}
 
         {/* Security Tab */}
 

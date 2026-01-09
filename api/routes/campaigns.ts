@@ -8,12 +8,15 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { requireFeature } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 
 export const campaignsRouter = Router();
 
 campaignsRouter.use(verifyToken, extractStoreId, extractUserRole);
 campaignsRouter.use(requireModule(Module.CAMPAIGNS));
+// Campaign tracking requires Growth plan or higher
+campaignsRouter.use(requireFeature('campaign_tracking'));
 
 
 // ================================================================

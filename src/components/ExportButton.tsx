@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -5,9 +6,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Download, FileSpreadsheet, FileText, FileDown } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, FileDown, Lock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { exportService, ExportColumn } from '@/services/export.service';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { UpgradeModal } from '@/components/UpgradeModal';
 
 interface ExportButtonProps {
   data: any[];
@@ -27,8 +30,19 @@ export function ExportButton({
   size = 'default'
 }: ExportButtonProps) {
   const { toast } = useToast();
+  const { hasFeature } = useSubscription();
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+
+  // Check if user has PDF/Excel reports feature
+  const hasPdfExcelReports = hasFeature('pdf_excel_reports');
 
   const handleExport = async (format: 'csv' | 'excel' | 'pdf') => {
+    // Check feature access for PDF/Excel exports
+    if ((format === 'pdf' || format === 'excel') && !hasPdfExcelReports) {
+      setUpgradeModalOpen(true);
+      return;
+    }
+
     try {
       // Show loading toast
       toast({
@@ -62,36 +76,47 @@ export function ExportButton({
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant={variant} size={size} className="gap-2">
-          <Download size={16} />
-          Exportar
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem onClick={() => handleExport('excel')} className="gap-2">
-          <FileSpreadsheet size={16} className="text-green-600 dark:text-green-400" />
-          <div>
-            <p className="font-medium">Excel (.xlsx)</p>
-            <p className="text-xs text-muted-foreground">Hoja de cálculo</p>
-          </div>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleExport('csv')} className="gap-2">
-          <FileText size={16} className="text-blue-600 dark:text-blue-400" />
-          <div>
-            <p className="font-medium">CSV</p>
-            <p className="text-xs text-muted-foreground">Valores separados por coma</p>
-          </div>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleExport('pdf')} className="gap-2">
-          <FileDown size={16} className="text-red-600 dark:text-red-400" />
-          <div>
-            <p className="font-medium">PDF</p>
-            <p className="text-xs text-muted-foreground">Documento profesional</p>
-          </div>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant={variant} size={size} className="gap-2">
+            <Download size={16} />
+            Exportar
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onClick={() => handleExport('excel')} className="gap-2">
+            <FileSpreadsheet size={16} className="text-green-600 dark:text-green-400" />
+            <div className="flex-1">
+              <p className="font-medium">Excel (.xlsx)</p>
+              <p className="text-xs text-muted-foreground">Hoja de cálculo</p>
+            </div>
+            {!hasPdfExcelReports && <Lock size={14} className="text-muted-foreground" />}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('csv')} className="gap-2">
+            <FileText size={16} className="text-blue-600 dark:text-blue-400" />
+            <div>
+              <p className="font-medium">CSV</p>
+              <p className="text-xs text-muted-foreground">Valores separados por coma</p>
+            </div>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExport('pdf')} className="gap-2">
+            <FileDown size={16} className="text-red-600 dark:text-red-400" />
+            <div className="flex-1">
+              <p className="font-medium">PDF</p>
+              <p className="text-xs text-muted-foreground">Documento profesional</p>
+            </div>
+            {!hasPdfExcelReports && <Lock size={14} className="text-muted-foreground" />}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Upgrade Modal for PDF/Excel Reports */}
+      <UpgradeModal
+        open={upgradeModalOpen}
+        onClose={() => setUpgradeModalOpen(false)}
+        feature="pdf_excel_reports"
+      />
+    </>
   );
 }

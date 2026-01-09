@@ -34,7 +34,9 @@ ON orders (store_id, has_amount_discrepancy)
 WHERE has_amount_discrepancy = TRUE;
 
 -- Create a view for easy querying of orders with discrepancies (COD only)
-CREATE OR REPLACE VIEW orders_with_amount_discrepancy AS
+-- Drop first to allow column changes
+DROP VIEW IF EXISTS orders_with_amount_discrepancy;
+CREATE VIEW orders_with_amount_discrepancy AS
 SELECT
     o.id,
     o.store_id,
@@ -66,6 +68,21 @@ WHERE o.has_amount_discrepancy = TRUE
 ORDER BY o.delivered_at DESC;
 
 COMMENT ON VIEW orders_with_amount_discrepancy IS 'View showing delivered COD orders where courier collected a different amount than expected. Prepaid orders are excluded as they should never have amount discrepancies.';
+
+-- ================================================================
+-- Add missing total_cod_expected column to daily_settlements
+-- This column is needed for manual reconciliation to track expected vs collected
+-- ================================================================
+ALTER TABLE daily_settlements ADD COLUMN IF NOT EXISTS total_cod_expected DECIMAL(12,2) DEFAULT 0;
+COMMENT ON COLUMN daily_settlements.total_cod_expected IS 'Total COD amount expected from delivered orders (before any discrepancies)';
+
+-- ================================================================
+-- Add missing shipped_at column to orders
+-- This column is needed for dispatch/settlement to track when order was shipped
+-- ================================================================
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMP;
+COMMENT ON COLUMN orders.shipped_at IS 'Timestamp when order was marked as shipped/dispatched to courier';
+CREATE INDEX IF NOT EXISTS idx_orders_shipped_at ON orders(shipped_at) WHERE shipped_at IS NOT NULL;
 
 -- ================================================================
 -- Success message

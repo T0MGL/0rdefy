@@ -13,6 +13,8 @@ import { motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { shopifyService } from '@/services/shopify.service';
 import { externalWebhookService } from '@/services/external-webhook.service';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { FeatureBlockedPage } from '@/components/FeatureGate';
 
 interface Integration {
   id: string;
@@ -51,6 +53,7 @@ const integrations: Integration[] = [
 ];
 
 export default function Integrations() {
+  const { hasFeature } = useSubscription();
   const { toast } = useToast();
   const [shopifyModalOpen, setShopifyModalOpen] = useState(false);
   const [shopifyMethodDialogOpen, setShopifyMethodDialogOpen] = useState(false);
@@ -61,8 +64,12 @@ export default function Integrations() {
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([]);
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
 
+  const hasShopifyImport = hasFeature('shopify_import');
+
   // Check for existing integrations on mount
   useEffect(() => {
+    if (!hasShopifyImport) return;
+
     const checkExistingIntegrations = async () => {
       setIsLoadingIntegrations(true);
       try {
@@ -89,7 +96,12 @@ export default function Integrations() {
     };
 
     checkExistingIntegrations();
-  }, []);
+  }, [hasShopifyImport]);
+
+  // Check shopify_import feature access - AFTER all hooks
+  if (!hasShopifyImport) {
+    return <FeatureBlockedPage feature="shopify_import" />;
+  }
 
   const handleShopifySuccess = () => {
     setConnectedIntegrations(prev =>

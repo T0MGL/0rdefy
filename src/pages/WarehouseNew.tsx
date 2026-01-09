@@ -43,11 +43,6 @@ export default function WarehouseNew() {
   const { currentStore } = useAuth();
   const { hasFeature } = useSubscription();
 
-  // Plan-based feature check - warehouse requires Starter+ plan
-  if (!hasFeature('warehouse')) {
-    return <FeatureBlockedPage feature="warehouse" />;
-  }
-
   // ==================== STATE ====================
 
   // Workflow state
@@ -543,6 +538,11 @@ export default function WarehouseNew() {
     if (packingData) return packingData.orders.length;
     return sessionOrders.length;
   }, [packingData, sessionOrders]);
+
+  // Plan-based feature check - warehouse requires Starter+ plan (AFTER all hooks)
+  if (!hasFeature('warehouse')) {
+    return <FeatureBlockedPage feature="warehouse" />;
+  }
 
   // ==================== RENDER ====================
 

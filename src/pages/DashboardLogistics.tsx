@@ -9,6 +9,8 @@ import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ConfirmationMetrics } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { formatCurrency } from '@/utils/currency';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { FeatureBlockedPage } from '@/components/FeatureGate';
 import {
   Truck,
   CheckCircle2,
@@ -36,9 +38,9 @@ import {
   YAxis,
   CartesianGrid,
 } from 'recharts';
-import { InfoTooltip } from '@/components/InfoTooltip';
 
 export default function DashboardLogistics() {
+  const { hasFeature } = useSubscription();
   const [isLoading, setIsLoading] = useState(true);
   const [showDetailedMetrics, setShowDetailedMetrics] = useState(false);
 
@@ -132,13 +134,19 @@ export default function DashboardLogistics() {
   }, [statusMap, dateRange]);
 
   useEffect(() => {
+    if (!hasFeature('warehouse')) return;
     const abortController = new AbortController();
     loadDashboardData(abortController.signal);
 
     return () => {
       abortController.abort();
     };
-  }, [loadDashboardData]);
+  }, [loadDashboardData, hasFeature]);
+
+  // Check warehouse feature access - AFTER all hooks
+  if (!hasFeature('warehouse')) {
+    return <FeatureBlockedPage feature="warehouse" />;
+  }
 
   if (isLoading) {
     return (

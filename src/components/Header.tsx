@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { formatTimeAgo } from '@/utils/timeUtils';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
@@ -14,7 +15,7 @@ import { adsService } from '@/services/ads.service';
 import { carriersService } from '@/services/carriers.service';
 import { analyticsService } from '@/services/analytics.service';
 import { notificationsService } from '@/services/notifications.service';
-import type { Order, Product, Ad, DashboardOverview } from '@/types';
+import type { Order, DashboardOverview } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 import type { Notification } from '@/types/notification';
 import {
@@ -45,30 +46,16 @@ const dateRanges = [
   { label: 'Personalizado', value: 'custom' },
 ];
 
-const breadcrumbMap: Record<string, string> = {
-  '/': 'Dashboard',
-  '/orders': 'Pedidos',
-  '/products': 'Productos',
-  '/ads': 'Anuncios',
-  '/additional-values': 'Valores Adicionales',
-  '/integrations': 'Integraciones',
-  '/suppliers': 'Proveedores',
-  '/carriers': 'Transportadoras',
-  '/billing': 'Suscripción',
-  '/support': 'Soporte',
-  '/settings': 'Configuración',
-};
-
 export function Header() {
-  const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
+  const { hasFeature } = useSubscription();
   const { selectedRange, setSelectedRange, customRange, setCustomRange } = useDateRange();
+
+  // Check if user has smart alerts feature (Growth+ plan)
+  const hasSmartAlerts = hasFeature('smart_alerts');
   const [notifOpen, setNotifOpen] = useState(false);
-  const [profileImage, setProfileImage] = useState('');
   const [orders, setOrders] = useState<Order[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [ads, setAds] = useState<Ad[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -76,8 +63,6 @@ export function Header() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
-
-  const currentPage = breadcrumbMap[location.pathname] || 'Dashboard';
 
   // Load data for notifications and alerts
   useEffect(() => {
@@ -91,22 +76,26 @@ export function Header() {
           analyticsService.getOverview(),
         ]);
         setOrders(ordersData);
-        setProducts(productsData);
-        setAds(adsData);
         setCarriers(carriersData);
         setOverview(overviewData);
 
-        // Update notifications service with new data
-        notificationsService.updateNotifications({
-          orders: ordersData,
-          products: productsData,
-          ads: adsData,
-          carriers: carriersData,
-        });
+        // Update notifications service with new data (only if user has smart_alerts feature)
+        if (hasSmartAlerts) {
+          notificationsService.updateNotifications({
+            orders: ordersData,
+            products: productsData,
+            ads: adsData,
+            carriers: carriersData,
+          });
 
-        // Get updated notifications
-        setNotifications(notificationsService.getAll());
-        setUnreadCount(notificationsService.getUnreadCount());
+          // Get updated notifications
+          setNotifications(notificationsService.getAll());
+          setUnreadCount(notificationsService.getUnreadCount());
+        } else {
+          // Clear notifications for users without smart_alerts
+          setNotifications([]);
+          setUnreadCount(0);
+        }
       } catch (error) {
         console.error('Error loading header data:', error);
       }
@@ -116,12 +105,13 @@ export function Header() {
     // Refresh data every 5 minutes (optimized from 30 seconds)
     const interval = setInterval(loadData, 300000);
     return () => clearInterval(interval);
-  }, []);
+  }, [hasSmartAlerts]);
 
-  const alerts = overview
+  // Only generate alerts if user has smart_alerts feature
+  const alerts = (hasSmartAlerts && overview)
     ? generateAlerts({ orders, overview, carriers })
     : [];
-  const criticalAlerts = alerts.filter(a => a.severity === 'critical').length;
+  const criticalAlerts = hasSmartAlerts ? alerts.filter(a => a.severity === 'critical').length : 0;
 
   const handleSignOut = async () => {
     await signOut();
@@ -221,85 +211,93 @@ export function Header() {
 
           {/* Date Selector */}
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 h-9 px-3 bg-card">
-                  <Calendar size={16} className="text-muted-foreground" />
-                  <span className="text-sm">
-                    {selectedRange === 'custom' && customRange
-                      ? getCustomLabel()
-                      : dateRanges.find((r) => r.value === selectedRange)?.label
-                    }
-                  </span>
-                  <ChevronDown size={14} className="text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                {dateRanges.map((range) => (
-                  <DropdownMenuItem
-                    key={range.value}
-                    onClick={() => handleDateRangeChange(range.value)}
-                    className={cn(
-                      'cursor-pointer',
-                      selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
-                    )}
-                  >
-                    {range.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Custom Date Picker Dialog */}
-            {selectedRange === 'custom' && (
-              <Popover open={showCalendar} onOpenChange={setShowCalendar}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9 bg-card border-border hover:bg-primary/10 hover:border-primary/50">
-                    {customRange ? getCustomLabel() : 'Seleccionar fechas'}
+            <Popover open={showCalendar} onOpenChange={setShowCalendar}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2 h-9 px-3 bg-card">
+                    <Calendar size={16} className="text-muted-foreground" />
+                    <span className="text-sm">
+                      {selectedRange === 'custom' && customRange
+                        ? getCustomLabel()
+                        : dateRanges.find((r) => r.value === selectedRange)?.label
+                      }
+                    </span>
+                    <ChevronDown size={14} className="text-muted-foreground" />
                   </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-4 bg-card border-border shadow-xl" align="end">
-                  <div className="space-y-4">
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  {dateRanges.filter(r => r.value !== 'custom').map((range) => (
+                    <DropdownMenuItem
+                      key={range.value}
+                      onClick={() => handleDateRangeChange(range.value)}
+                      className={cn(
+                        'cursor-pointer',
+                        selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
+                      )}
+                    >
+                      {range.label}
+                    </DropdownMenuItem>
+                  ))}
+                  <PopoverTrigger asChild>
+                    <DropdownMenuItem
+                      className={cn(
+                        'cursor-pointer',
+                        selectedRange === 'custom' && 'bg-primary/10 text-primary font-medium'
+                      )}
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setSelectedRange('custom');
+                        setShowCalendar(true);
+                      }}
+                    >
+                      Personalizado
+                    </DropdownMenuItem>
+                  </PopoverTrigger>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Custom Date Picker Popover */}
+              <PopoverContent className="w-auto p-4 bg-card border-border shadow-xl" align="end">
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium mb-2 text-foreground">Fecha de Inicio</p>
+                    <CalendarComponent
+                      mode="single"
+                      selected={startDate}
+                      onSelect={setStartDate}
+                      locale={es}
+                      initialFocus
+                      className="rounded-md border border-border bg-card"
+                    />
+                  </div>
+
+                  {startDate && (
                     <div>
-                      <p className="text-sm font-medium mb-2 text-foreground">Fecha de Inicio</p>
+                      <p className="text-sm font-medium mb-2 text-foreground">
+                        Fecha de Fin <span className="text-muted-foreground text-xs">(opcional)</span>
+                      </p>
                       <CalendarComponent
                         mode="single"
-                        selected={startDate}
-                        onSelect={setStartDate}
+                        selected={endDate}
+                        onSelect={setEndDate}
                         locale={es}
-                        initialFocus
+                        disabled={(date) => date < startDate}
                         className="rounded-md border border-border bg-card"
                       />
                     </div>
+                  )}
 
-                    {startDate && (
-                      <div>
-                        <p className="text-sm font-medium mb-2 text-foreground">
-                          Fecha de Fin <span className="text-muted-foreground text-xs">(opcional)</span>
-                        </p>
-                        <CalendarComponent
-                          mode="single"
-                          selected={endDate}
-                          onSelect={setEndDate}
-                          locale={es}
-                          disabled={(date) => date < startDate}
-                          className="rounded-md border border-border bg-card"
-                        />
-                      </div>
-                    )}
-
-                    <div className="flex gap-2 pt-2 border-t border-border">
-                      <Button onClick={handleApplyCustomDates} disabled={!startDate} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
-                        Aplicar
-                      </Button>
-                      <Button onClick={handleResetDates} variant="outline" className="border-border hover:bg-muted">
-                        Limpiar
-                      </Button>
-                    </div>
+                  <div className="flex gap-2 pt-2 border-t border-border">
+                    <Button onClick={handleApplyCustomDates} disabled={!startDate} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
+                      Aplicar
+                    </Button>
+                    <Button onClick={handleResetDates} variant="outline" className="border-border hover:bg-muted">
+                      Limpiar
+                    </Button>
                   </div>
-                </PopoverContent>
-              </Popover>
-            )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Notifications */}
@@ -321,7 +319,12 @@ export function Header() {
               <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <div className="max-h-96 overflow-y-auto">
-                {notifications.length === 0 ? (
+                {!hasSmartAlerts ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">
+                    <p className="font-medium mb-2">Alertas Inteligentes</p>
+                    <p>Disponible en plan Growth</p>
+                  </div>
+                ) : notifications.length === 0 ? (
                   <div className="p-8 text-center text-sm text-muted-foreground">
                     No hay notificaciones
                   </div>

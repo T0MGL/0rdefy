@@ -63,9 +63,9 @@ const USER_ERROR_CODES: Record<string, (ctx: ErrorContext) => FormattedError> = 
   }),
 
   INVALID_STATUS_TRANSITION: (ctx) => ({
-    title: 'Transición de estado inválida',
-    message: `No puedes cambiar de "${ctx.details?.from}" a "${ctx.details?.to}".`,
-    action: `El flujo correcto es: Pendiente → Confirmado → En Preparación → Listo para Enviar → Enviado → Entregado.`,
+    title: 'Cambio de estado no permitido',
+    message: ctx.details?.message || `No puedes cambiar de "${ctx.details?.fromLabel || ctx.details?.from}" a "${ctx.details?.toLabel || ctx.details?.to}".`,
+    action: ctx.details?.suggestion || `Flujo normal: Pendiente → Confirmado → En Preparación → Listo para Enviar → En Tránsito → Entregado.\n\nPuedes cancelar pedidos en cualquier momento antes de la entrega.`,
     severity: 'warning',
   }),
 
@@ -355,9 +355,12 @@ export function formatError(
 
   // If backend provides a helpful message, use it
   if (backendMessage && backendMessage.length > 10 && !backendMessage.includes('Error')) {
+    // Include suggestion from context if available
+    const suggestion = context.details?.suggestion;
     return {
       title: 'Error',
       message: backendMessage,
+      action: suggestion,
       severity: 'error',
     };
   }

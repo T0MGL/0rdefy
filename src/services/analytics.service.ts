@@ -260,6 +260,27 @@ export const analyticsService = {
       return null;
     }
   },
+
+  getShippingCosts: async (params?: { startDate?: string; endDate?: string }): Promise<ShippingCostsMetrics | null> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const url = `${API_BASE_URL}/analytics/shipping-costs${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await fetch(url, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result = await response.json();
+      return result.data || null;
+    } catch (error) {
+      console.error('Error loading shipping costs metrics:', error);
+      return null;
+    }
+  },
 };
 
 // Tipos para las nuevas métricas
@@ -327,4 +348,61 @@ export interface IncidentsMetrics {
   // Tasas
   successRate: number;
   avgRetries: number;
+}
+
+// Tipos para métricas de costos de envío
+export interface ShippingCostsMetrics {
+  costs: {
+    // Costos de pedidos entregados (A PAGAR a couriers)
+    toPayCarriers: number;
+    toPayCarriersOrders: number;
+    // Costos YA PAGADOS a couriers (liquidaciones pagadas)
+    paidToCarriers: number;
+    // Liquidaciones creadas pendientes de pago
+    pendingPayment: number;
+    // Costos de pedidos en tránsito (costos futuros)
+    inTransit: number;
+    inTransitOrders: number;
+    // Costos de pedidos listos para despachar
+    readyToShip: number;
+    readyToShipOrders: number;
+    // Total comprometido (entregados + en tránsito)
+    totalCommitted: number;
+    // Total general (entregados + en tránsito + listos)
+    grandTotal: number;
+  };
+  averages: {
+    costPerDelivery: number;
+    costPerSettledDelivery: number;
+    deliveryDays: number;
+  };
+  performance: {
+    successRate: number;
+    totalDispatched: number;
+    totalDelivered: number;
+  };
+  settlements: {
+    total: number;
+    paid: number;
+    pending: number;
+    partial: number;
+    totalFees: number;
+    totalPaid: number;
+    totalPending: number;
+  };
+  carrierBreakdown: Array<{
+    id: string;
+    name: string;
+    deliveredOrders: number;
+    deliveredCosts: number;
+    inTransitOrders: number;
+    inTransitCosts: number;
+    settledCosts: number;
+    paidCosts: number;
+    pendingPaymentCosts: number;
+  }>;
+  period: {
+    start: string;
+    end: string;
+  };
 }

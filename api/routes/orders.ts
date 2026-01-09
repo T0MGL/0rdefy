@@ -1132,6 +1132,220 @@ ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), asyn
 });
 
 // ================================================================
+// STATUS TRANSITION RULES - Define allowed transitions with helpful messages
+// ================================================================
+const STATUS_LABELS: Record<string, string> = {
+    pending: 'Pendiente',
+    confirmed: 'Confirmado',
+    in_preparation: 'En Preparación',
+    ready_to_ship: 'Listo para Enviar',
+    shipped: 'Despachado',
+    in_transit: 'En Tránsito',
+    delivered: 'Entregado',
+    returned: 'Devuelto',
+    cancelled: 'Cancelado',
+    rejected: 'Rechazado',
+    incident: 'Incidencia'
+};
+
+// Define which transitions are allowed from each status
+// Format: { fromStatus: { toStatus: { allowed: boolean, message?: string } } }
+// NOTE: Rules are permissive to allow manual control, especially for Free plan users without warehouse
+const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; message?: string; requiresStockRestore?: boolean }>> = {
+    pending: {
+        confirmed: { allowed: true },
+        in_preparation: { allowed: true }, // Allow skip for manual workflows (no warehouse)
+        ready_to_ship: { allowed: true },  // Allow skip for manual workflows
+        shipped: { allowed: true },        // Allow skip for manual workflows
+        in_transit: { allowed: true },     // Allow skip for manual workflows
+        delivered: { allowed: true },      // Allow marking directly as delivered
+        cancelled: { allowed: true },
+        rejected: { allowed: true },
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
+    confirmed: {
+        pending: { allowed: true },        // Revert to pending
+        in_preparation: { allowed: true },
+        ready_to_ship: { allowed: true },  // Allow skip for manual workflows
+        shipped: { allowed: true },        // Allow skip for manual workflows
+        in_transit: { allowed: true },     // Allow skip for manual workflows
+        delivered: { allowed: true },      // Allow marking directly as delivered
+        cancelled: { allowed: true },
+        rejected: { allowed: true },
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
+    in_preparation: {
+        pending: { allowed: true },        // Allow full revert
+        confirmed: { allowed: true },      // Revert one step
+        ready_to_ship: { allowed: true },
+        shipped: { allowed: true },        // Allow skip
+        in_transit: { allowed: true },     // Allow skip
+        delivered: { allowed: true },      // Allow skip
+        cancelled: { allowed: true },
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
+    ready_to_ship: {
+        pending: { allowed: true, requiresStockRestore: true },       // Allow revert (restores stock)
+        confirmed: { allowed: true, requiresStockRestore: true },     // Allow revert (restores stock)
+        in_preparation: { allowed: true, requiresStockRestore: true }, // Revert restores stock
+        shipped: { allowed: true },
+        in_transit: { allowed: true },
+        delivered: { allowed: true },      // Allow skip to delivered
+        cancelled: { allowed: true, requiresStockRestore: true },     // Cancel restores stock
+        returned: { allowed: true, requiresStockRestore: true },
+        incident: { allowed: true },
+    },
+    shipped: {
+        pending: { allowed: true, requiresStockRestore: true },       // Allow full revert
+        confirmed: { allowed: true, requiresStockRestore: true },     // Allow revert
+        in_preparation: { allowed: true, requiresStockRestore: true }, // Allow revert
+        ready_to_ship: { allowed: true },  // Can go back to ready
+        in_transit: { allowed: true },
+        delivered: { allowed: true },
+        cancelled: { allowed: true, requiresStockRestore: true },     // Can cancel
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
+    in_transit: {
+        pending: { allowed: true, requiresStockRestore: true },       // Allow full revert
+        confirmed: { allowed: true, requiresStockRestore: true },     // Allow revert
+        in_preparation: { allowed: true, requiresStockRestore: true }, // Allow revert
+        ready_to_ship: { allowed: true },  // Can go back
+        shipped: { allowed: true },        // Can go back
+        delivered: { allowed: true },
+        cancelled: { allowed: true, requiresStockRestore: true },     // Can cancel from in_transit
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
+    delivered: {
+        // Delivered is final for most actions, but allow some flexibility
+        returned: { allowed: true },
+        incident: { allowed: true },
+        // Disallow going back to earlier states (delivered is final)
+        pending: { allowed: false, message: 'Un pedido entregado no puede volver a pendiente. Usa "Devuelto" si el cliente lo devuelve.' },
+        confirmed: { allowed: false, message: 'Un pedido entregado no puede volver a confirmado. Usa "Devuelto" si es necesario.' },
+        in_preparation: { allowed: false, message: 'Un pedido entregado no puede volver a preparación.' },
+        ready_to_ship: { allowed: false, message: 'Un pedido entregado no puede volver a listo para enviar.' },
+        shipped: { allowed: false, message: 'Un pedido entregado no puede volver a despachado.' },
+        in_transit: { allowed: false, message: 'Un pedido entregado no puede volver a en tránsito.' },
+        cancelled: { allowed: false, message: 'Un pedido ya entregado no puede cancelarse. Usa "Devuelto" si el cliente lo devuelve.' },
+    },
+    cancelled: {
+        pending: { allowed: true },        // Reactivate
+        confirmed: { allowed: true },      // Reactivate directly to confirmed
+        in_preparation: { allowed: true }, // Allow reactivating further along
+        ready_to_ship: { allowed: true },  // Allow reactivating further along
+        shipped: { allowed: true },        // Allow reactivating further along
+        in_transit: { allowed: true },     // Allow reactivating further along
+        delivered: { allowed: true },      // Allow marking as delivered (if error)
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
+    rejected: {
+        // Same as cancelled - allow reactivation
+        pending: { allowed: true },
+        confirmed: { allowed: true },
+        in_preparation: { allowed: true },
+        ready_to_ship: { allowed: true },
+        shipped: { allowed: true },
+        in_transit: { allowed: true },
+        delivered: { allowed: true },
+        cancelled: { allowed: true },
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
+    returned: {
+        // Returned is usually final, but allow correcting errors
+        pending: { allowed: true },        // Allow if marked returned by mistake
+        confirmed: { allowed: true },
+        in_preparation: { allowed: true },
+        ready_to_ship: { allowed: true },
+        shipped: { allowed: true },
+        in_transit: { allowed: true },
+        delivered: { allowed: true },      // Allow if returned by mistake
+        cancelled: { allowed: true },
+        incident: { allowed: true },
+    },
+    incident: {
+        // From incident, can go to any state (incident needs resolution)
+        pending: { allowed: true },
+        confirmed: { allowed: true },
+        in_preparation: { allowed: true },
+        ready_to_ship: { allowed: true },
+        shipped: { allowed: true },
+        in_transit: { allowed: true },
+        delivered: { allowed: true },
+        cancelled: { allowed: true, requiresStockRestore: true },
+        returned: { allowed: true },
+    }
+};
+
+/**
+ * Provides a helpful suggestion for what to do instead of an invalid transition
+ */
+function getSuggestionForTransition(fromStatus: string, toStatus: string): string {
+    // Suggestions for common invalid transitions
+    const suggestions: Record<string, Record<string, string>> = {
+        in_transit: {
+            pending: 'Si el cliente canceló, usa "Cancelado". El stock se restaurará automáticamente.',
+            confirmed: 'Si el cliente canceló, usa "Cancelado". El stock se restaurará automáticamente.',
+        },
+        shipped: {
+            pending: 'Si el cliente canceló, usa "Cancelado". El stock se restaurará automáticamente.',
+            confirmed: 'Si el cliente canceló, usa "Cancelado". El stock se restaurará automáticamente.',
+        },
+        delivered: {
+            pending: 'Si el cliente devuelve el producto, usa "Devuelto".',
+            cancelled: 'Los pedidos entregados no se pueden cancelar. Usa "Devuelto" si el cliente devuelve el producto.',
+        },
+        ready_to_ship: {
+            pending: 'Si necesitas editar el pedido, primero cámbialo a "En Preparación", luego a "Confirmado".',
+        },
+    };
+
+    return suggestions[fromStatus]?.[toStatus] || '';
+}
+
+/**
+ * Validates if a status transition is allowed and returns helpful message if not
+ */
+function validateStatusTransition(fromStatus: string, toStatus: string): { allowed: boolean; message: string; requiresStockRestore?: boolean } {
+    // Same status - no change needed
+    if (fromStatus === toStatus) {
+        return { allowed: true, message: 'El pedido ya está en este estado.' };
+    }
+
+    // Get transition rules for current status
+    const fromRules = STATUS_TRANSITIONS[fromStatus];
+    if (!fromRules) {
+        // Unknown from status - allow any transition
+        return { allowed: true, message: '' };
+    }
+
+    // Check if specific transition is defined
+    const transition = fromRules[toStatus];
+    if (transition) {
+        return {
+            allowed: transition.allowed,
+            message: transition.message || '',
+            requiresStockRestore: transition.requiresStockRestore
+        };
+    }
+
+    // If no specific rule, check if it's a valid status
+    const validStatuses = Object.keys(STATUS_LABELS);
+    if (!validStatuses.includes(toStatus)) {
+        return { allowed: false, message: `Estado "${toStatus}" no es válido.` };
+    }
+
+    // Default: allow if not explicitly denied
+    return { allowed: true, message: '' };
+}
+
+// ================================================================
 // PATCH /api/orders/:id/status - Update order status
 // ================================================================
 ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
@@ -1141,29 +1355,61 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             sleeves_status,
             confirmed_by,
             confirmation_method,
-            rejection_reason
+            rejection_reason,
+            force = false // Allow forcing certain transitions (for admin override)
         } = req.body;
 
-        const validStatuses = ['pending', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped'];
+        const validStatuses = ['pending', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped', 'incident'];
         if (!validStatuses.includes(sleeves_status)) {
             return res.status(400).json({
                 error: 'Invalid status',
-                message: `Status must be one of: ${validStatuses.join(', ')}`
+                code: 'INVALID_STATUS',
+                message: `Estado inválido. Los estados válidos son: ${validStatuses.map(s => STATUS_LABELS[s] || s).join(', ')}`
             });
         }
 
         // Get current order status to check if reactivating from cancelled
         const { data: currentOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('sleeves_status, delivery_link_token')
+            .select('sleeves_status, delivery_link_token, line_items')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
 
         if (fetchError || !currentOrder) {
             return res.status(404).json({
-                error: 'Order not found'
+                error: 'Order not found',
+                code: 'ORDER_NOT_FOUND',
+                message: 'El pedido no existe o no pertenece a esta tienda.'
             });
+        }
+
+        const fromStatus = currentOrder.sleeves_status;
+        const toStatus = sleeves_status;
+
+        // Validate transition unless force is enabled (admin override)
+        if (!force) {
+            const validation = validateStatusTransition(fromStatus, toStatus);
+
+            if (!validation.allowed) {
+                const fromLabel = STATUS_LABELS[fromStatus] || fromStatus;
+                const toLabel = STATUS_LABELS[toStatus] || toStatus;
+
+                console.log(`⚠️ [ORDERS] Invalid transition from ${fromStatus} to ${toStatus}: ${validation.message}`);
+
+                return res.status(400).json({
+                    error: 'Invalid status transition',
+                    code: 'INVALID_STATUS_TRANSITION',
+                    message: validation.message || `No puedes cambiar de "${fromLabel}" a "${toLabel}".`,
+                    details: {
+                        from: fromStatus,
+                        fromLabel,
+                        to: toStatus,
+                        toLabel,
+                        suggestion: getSuggestionForTransition(fromStatus, toStatus)
+                    }
+                });
+            }
         }
 
         const updateData: any = {

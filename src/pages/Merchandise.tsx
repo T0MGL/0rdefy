@@ -20,11 +20,6 @@ import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShi
 export default function Merchandise() {
   const { toast } = useToast();
   const { hasFeature } = useSubscription();
-
-  // Plan-based feature check - merchandise requires Starter+ plan
-  if (!hasFeature('merchandise')) {
-    return <FeatureBlockedPage feature="merchandise" />;
-  }
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -41,10 +36,18 @@ export default function Merchandise() {
   const [selectedShipment, setSelectedShipment] = useState<InboundShipment | null>(null);
   const [receiveLoading, setReceiveLoading] = useState(false);
 
+  const hasMerchandiseFeature = hasFeature('merchandise');
+
   // Load initial data
   useEffect(() => {
+    if (!hasMerchandiseFeature) return;
     loadData();
-  }, [statusFilter]);
+  }, [statusFilter, hasMerchandiseFeature]);
+
+  // Plan-based feature check - merchandise requires Starter+ plan (AFTER all hooks)
+  if (!hasMerchandiseFeature) {
+    return <FeatureBlockedPage feature="merchandise" />;
+  }
 
   const loadData = async () => {
     setLoading(true);

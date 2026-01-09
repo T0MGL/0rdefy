@@ -6,6 +6,8 @@
 
 import { useState, useEffect } from 'react';
 import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download, FileSpreadsheet } from 'lucide-react';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -21,6 +23,7 @@ import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 
 export default function Shipping() {
+  const { hasFeature } = useSubscription();
   const { toast } = useToast();
   const [orders, setOrders] = useState<ReadyToShipOrder[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
@@ -33,9 +36,12 @@ export default function Shipping() {
   // Global View
   const [isGlobalView, setIsGlobalView] = useState(false);
 
+  const hasWarehouseFeature = hasFeature('warehouse');
+
   useEffect(() => {
+    if (!hasWarehouseFeature) return;
     loadOrders();
-  }, [isGlobalView]);
+  }, [isGlobalView, hasWarehouseFeature]);
 
   async function loadOrders() {
     setLoading(true);
@@ -65,6 +71,11 @@ export default function Shipping() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Check warehouse feature access - AFTER all hooks
+  if (!hasWarehouseFeature) {
+    return <FeatureBlockedPage feature="warehouse" />;
   }
 
   function toggleOrderSelection(orderId: string) {

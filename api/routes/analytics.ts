@@ -1907,3 +1907,288 @@ analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response
         });
     }
 });
+
+// ================================================================
+// GET /api/analytics/shipping-costs - Métricas de Costos de Envío
+// ================================================================
+// Métricas críticas para gestión de pagos a transportistas:
+// - Costos de pedidos entregados (A PAGAR a couriers)
+// - Costos de pedidos liquidados (YA PAGADOS a couriers)
+// - Costos pendientes (pedidos en tránsito)
+// - Desglose por carrier
+// ================================================================
+analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        // Build date filter
+        let dateFilter: { start: Date; end: Date };
+        if (startDate && endDate) {
+            dateFilter = {
+                start: new Date(startDate as string),
+                end: new Date(toEndOfDay(endDate as string))
+            };
+        } else {
+            // Default: last 30 days
+            const now = new Date();
+            dateFilter = {
+                end: now,
+                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+            };
+        }
+
+        // ===== 1. GET ORDERS DATA =====
+        // Use left join to handle orders without assigned courier
+        const { data: ordersData, error: ordersError } = await supabaseAdmin
+            .from('orders')
+            .select(`
+                id,
+                order_number,
+                sleeves_status,
+                shipping_cost,
+                total_price,
+                courier_id,
+                shipped_at,
+                delivered_at,
+                created_at,
+                carriers!left(id, name)
+            `)
+            .eq('store_id', req.storeId)
+            .gte('created_at', dateFilter.start.toISOString())
+            .lte('created_at', dateFilter.end.toISOString());
+
+        if (ordersError) throw ordersError;
+        const orders = ordersData || [];
+
+        // ===== 2. GET SETTLEMENTS DATA (actual payments to carriers) =====
+        // Use left join to handle settlements without carrier (edge case)
+        const { data: settlementsData, error: settlementsError } = await supabaseAdmin
+            .from('daily_settlements')
+            .select(`
+                id,
+                carrier_id,
+                total_carrier_fees,
+                amount_paid,
+                balance_due,
+                status,
+                settlement_date,
+                total_delivered,
+                carriers!left(id, name)
+            `)
+            .eq('store_id', req.storeId)
+            .gte('settlement_date', dateFilter.start.toISOString().split('T')[0])
+            .lte('settlement_date', dateFilter.end.toISOString().split('T')[0]);
+
+        if (settlementsError) throw settlementsError;
+        const settlements = settlementsData || [];
+
+        // ===== 3. CALCULATE SHIPPING COSTS BY ORDER STATUS =====
+
+        // Delivered orders - costs that MUST be paid to carriers
+        const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
+        const deliveredCosts = deliveredOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
+
+        // In-transit orders - future costs (pending delivery)
+        const inTransitOrders = orders.filter(o => o.sleeves_status === 'shipped');
+        const inTransitCosts = inTransitOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
+
+        // Ready to ship - orders about to incur shipping costs
+        const readyToShipOrders = orders.filter(o => o.sleeves_status === 'ready_to_ship');
+        const readyToShipCosts = readyToShipOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
+
+        // ===== 4. CALCULATE ACTUAL PAYMENTS FROM SETTLEMENTS =====
+
+        // Total carrier fees from settlements (what we owe/owed)
+        const totalSettlementFees = settlements.reduce((sum, s) => sum + (Number(s.total_carrier_fees) || 0), 0);
+
+        // Actually paid to carriers
+        const paidToCarriers = settlements
+            .filter(s => s.status === 'paid')
+            .reduce((sum, s) => sum + (Number(s.total_carrier_fees) || 0), 0);
+
+        // Pending payment (settlements created but not yet paid)
+        const pendingPayment = settlements
+            .filter(s => s.status === 'pending' || s.status === 'partial')
+            .reduce((sum, s) => sum + (Number(s.balance_due) || 0), 0);
+
+        // ===== 5. BREAKDOWN BY CARRIER =====
+        const carrierMap = new Map<string, {
+            id: string;
+            name: string;
+            deliveredOrders: number;
+            deliveredCosts: number;       // From delivered orders (shipping_cost)
+            inTransitOrders: number;
+            inTransitCosts: number;       // From in-transit orders
+            settledCosts: number;         // From settlements (total_carrier_fees)
+            paidCosts: number;            // Actually paid (from paid settlements)
+            pendingPaymentCosts: number;  // Settlements pending payment
+        }>();
+
+        // Process orders for delivery-based costs
+        orders.forEach((order: any) => {
+            const carrierId = order.courier_id || 'unknown';
+            const carrierName = order.carriers?.name || 'Sin Transportista';
+            const shippingCost = Number(order.shipping_cost) || 0;
+
+            if (!carrierMap.has(carrierId)) {
+                carrierMap.set(carrierId, {
+                    id: carrierId,
+                    name: carrierName,
+                    deliveredOrders: 0,
+                    deliveredCosts: 0,
+                    inTransitOrders: 0,
+                    inTransitCosts: 0,
+                    settledCosts: 0,
+                    paidCosts: 0,
+                    pendingPaymentCosts: 0,
+                });
+            }
+
+            const carrier = carrierMap.get(carrierId)!;
+
+            if (order.sleeves_status === 'delivered') {
+                carrier.deliveredOrders++;
+                carrier.deliveredCosts += shippingCost;
+            } else if (order.sleeves_status === 'shipped') {
+                carrier.inTransitOrders++;
+                carrier.inTransitCosts += shippingCost;
+            }
+        });
+
+        // Process settlements for actual payment tracking
+        settlements.forEach((settlement: any) => {
+            const carrierId = settlement.carrier_id || 'unknown';
+            const carrierName = settlement.carriers?.name || 'Sin Transportista';
+
+            if (!carrierMap.has(carrierId)) {
+                carrierMap.set(carrierId, {
+                    id: carrierId,
+                    name: carrierName,
+                    deliveredOrders: 0,
+                    deliveredCosts: 0,
+                    inTransitOrders: 0,
+                    inTransitCosts: 0,
+                    settledCosts: 0,
+                    paidCosts: 0,
+                    pendingPaymentCosts: 0,
+                });
+            }
+
+            const carrier = carrierMap.get(carrierId)!;
+            carrier.settledCosts += Number(settlement.total_carrier_fees) || 0;
+
+            if (settlement.status === 'paid') {
+                carrier.paidCosts += Number(settlement.total_carrier_fees) || 0;
+            } else if (settlement.status === 'pending' || settlement.status === 'partial') {
+                carrier.pendingPaymentCosts += Number(settlement.balance_due) || 0;
+            }
+        });
+
+        const carrierBreakdown = Array.from(carrierMap.values())
+            .filter(c => c.id !== 'unknown')
+            .sort((a, b) => b.deliveredCosts - a.deliveredCosts);
+
+        // ===== 6. CALCULATE AVERAGES =====
+        const avgCostPerDelivery = deliveredOrders.length > 0
+            ? Math.round(deliveredCosts / deliveredOrders.length)
+            : 0;
+
+        const totalDeliveredFromSettlements = settlements.reduce((sum, s) => sum + (s.total_delivered || 0), 0);
+        const avgCostPerSettledDelivery = totalDeliveredFromSettlements > 0
+            ? Math.round(totalSettlementFees / totalDeliveredFromSettlements)
+            : 0;
+
+        // ===== 7. SUCCESS RATE AND PERFORMANCE =====
+        const dispatchedOrders = orders.filter(o =>
+            ['shipped', 'delivered', 'returned'].includes(o.sleeves_status)
+        ).length;
+
+        const successRate = dispatchedOrders > 0
+            ? parseFloat(((deliveredOrders.length / dispatchedOrders) * 100).toFixed(1))
+            : 0;
+
+        // ===== 8. AVERAGE DELIVERY TIME =====
+        const deliveredWithDates = deliveredOrders.filter((o: any) => o.created_at && o.delivered_at);
+        let avgDeliveryDays = 0;
+        if (deliveredWithDates.length > 0) {
+            const totalDays = deliveredWithDates.reduce((sum: number, o: any) => {
+                const created = new Date(o.created_at).getTime();
+                const delivered = new Date(o.delivered_at).getTime();
+                return sum + (delivered - created) / (1000 * 60 * 60 * 24);
+            }, 0);
+            avgDeliveryDays = parseFloat((totalDays / deliveredWithDates.length).toFixed(1));
+        }
+
+        // ===== 9. RETURN RESPONSE =====
+        res.json({
+            data: {
+                // Main Cost Metrics
+                costs: {
+                    // Costs from delivered orders (MUST be paid to carriers)
+                    toPayCarriers: Math.round(deliveredCosts),
+                    toPayCarriersOrders: deliveredOrders.length,
+
+                    // Costs already settled and PAID to carriers
+                    paidToCarriers: Math.round(paidToCarriers),
+
+                    // Settlements created but payment pending
+                    pendingPayment: Math.round(pendingPayment),
+
+                    // In-transit costs (future obligations)
+                    inTransit: Math.round(inTransitCosts),
+                    inTransitOrders: inTransitOrders.length,
+
+                    // Ready to ship (about to incur costs)
+                    readyToShip: Math.round(readyToShipCosts),
+                    readyToShipOrders: readyToShipOrders.length,
+
+                    // Total costs (delivered + in-transit)
+                    totalCommitted: Math.round(deliveredCosts + inTransitCosts),
+
+                    // Grand total including ready to ship
+                    grandTotal: Math.round(deliveredCosts + inTransitCosts + readyToShipCosts),
+                },
+
+                // Averages
+                averages: {
+                    costPerDelivery: avgCostPerDelivery,
+                    costPerSettledDelivery: avgCostPerSettledDelivery,
+                    deliveryDays: avgDeliveryDays,
+                },
+
+                // Performance
+                performance: {
+                    successRate,
+                    totalDispatched: dispatchedOrders,
+                    totalDelivered: deliveredOrders.length,
+                },
+
+                // Settlements Summary
+                settlements: {
+                    total: settlements.length,
+                    paid: settlements.filter(s => s.status === 'paid').length,
+                    pending: settlements.filter(s => s.status === 'pending').length,
+                    partial: settlements.filter(s => s.status === 'partial').length,
+                    totalFees: Math.round(totalSettlementFees),
+                    totalPaid: Math.round(paidToCarriers),
+                    totalPending: Math.round(pendingPayment),
+                },
+
+                // Carrier Breakdown
+                carrierBreakdown,
+
+                // Period info
+                period: {
+                    start: dateFilter.start.toISOString().split('T')[0],
+                    end: dateFilter.end.toISOString().split('T')[0],
+                }
+            }
+        });
+    } catch (error: any) {
+        console.error('[GET /api/analytics/shipping-costs] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch shipping costs metrics',
+            message: error.message
+        });
+    }
+});

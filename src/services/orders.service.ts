@@ -333,49 +333,58 @@ export const ordersService = {
   },
 
   updateStatus: async (id: string, status: Order['status']): Promise<Order | undefined> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
-        method: 'PATCH',
-        headers: getHeaders(),
-        body: JSON.stringify({
-          sleeves_status: status,
-        }),
-      });
+    const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        sleeves_status: status,
+      }),
+    });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+    if (!response.ok) {
+      // Parse the error response to get detailed error message
+      const errorData = await response.json().catch(() => ({
+        error: 'Unknown error',
+        message: 'Error desconocido al actualizar el estado'
+      }));
 
-      const result = await response.json();
-
-      // Transform backend response to frontend format
-      const data = result.data;
-      const lineItems = data.line_items || [];
-      const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
-
-      return {
-        id: data.id,
-        customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
-        address: data.customer_address || '',
-        product: firstItem?.product_name || firstItem?.title || 'Producto',
-        quantity: firstItem?.quantity || 1,
-        total: data.total_price || 0,
-        status: data.sleeves_status,
-        payment_status: data.payment_status,
-        carrier: data.carriers?.name || data.shipping_address?.company || 'Sin transportadora',
-        carrier_id: data.carrier_id,
-        date: data.created_at,
-        phone: data.customer_phone || '',
-        confirmedByWhatsApp: data.sleeves_status === 'confirmed',
-        confirmationTimestamp: data.confirmed_at,
-        inTransitTimestamp: data.in_transit_at,
-        deliveredTimestamp: data.delivered_at,
-        cancelledTimestamp: data.cancelled_at,
+      // Create an error object that includes the response data
+      const error: any = new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      error.response = {
+        status: response.status,
+        data: errorData
       };
-    } catch (error) {
-      console.error('Error updating order status:', error);
-      return undefined;
+
+      console.error('Error updating order status:', error, errorData);
+      throw error;
     }
+
+    const result = await response.json();
+
+    // Transform backend response to frontend format
+    const data = result.data;
+    const lineItems = data.line_items || data.order_line_items || [];
+    const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+
+    return {
+      id: data.id,
+      customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
+      address: data.customer_address || '',
+      product: firstItem?.product_name || firstItem?.title || 'Producto',
+      quantity: firstItem?.quantity || 1,
+      total: data.total_price || 0,
+      status: data.sleeves_status,
+      payment_status: data.payment_status,
+      carrier: data.carriers?.name || data.shipping_address?.company || 'Sin transportadora',
+      carrier_id: data.carrier_id,
+      date: data.created_at,
+      phone: data.customer_phone || '',
+      confirmedByWhatsApp: data.sleeves_status === 'confirmed',
+      confirmationTimestamp: data.confirmed_at,
+      inTransitTimestamp: data.in_transit_at,
+      deliveredTimestamp: data.delivered_at,
+      cancelledTimestamp: data.cancelled_at,
+    };
   },
 
   markAsPrinted: async (id: string): Promise<Order | undefined> => {

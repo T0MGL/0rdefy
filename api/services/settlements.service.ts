@@ -1173,3 +1173,682 @@ export async function getPendingByCarrier(
     total_balance_due: data.balance
   }));
 }
+
+// ============================================================
+// MANUAL RECONCILIATION (NEW - Without CSV)
+// ============================================================
+
+export interface CourierDateGroup {
+  carrier_id: string;
+  carrier_name: string;
+  dispatch_date: string;
+  orders: Array<{
+    id: string;
+    order_number: string;
+    customer_name: string;
+    customer_phone: string;
+    customer_address: string;
+    customer_city: string;
+    total_price: number;
+    cod_amount: number;
+    payment_method: string;
+    is_cod: boolean;
+    shipped_at: string;
+  }>;
+  total_orders: number;
+  total_cod_expected: number;
+  total_prepaid: number;
+}
+
+/**
+ * Get shipped orders grouped by carrier and dispatch date
+ */
+export async function getShippedOrdersGrouped(
+  storeId: string
+): Promise<CourierDateGroup[]> {
+  const { data: orders, error } = await supabaseAdmin
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      shopify_order_number,
+      customer_first_name,
+      customer_last_name,
+      customer_phone,
+      shipping_address,
+      shipping_city,
+      shipping_reference,
+      total_price,
+      payment_method,
+      payment_status,
+      courier_id,
+      shipped_at,
+      created_at,
+      carriers:courier_id(id, name)
+    `)
+    .eq('store_id', storeId)
+    .eq('sleeves_status', 'shipped')
+    .not('courier_id', 'is', null)
+    .order('shipped_at', { ascending: false });
+
+  if (error) throw error;
+  if (!orders || orders.length === 0) return [];
+
+  const groupMap = new Map<string, CourierDateGroup>();
+
+  orders.forEach((order: any) => {
+    const dispatchDate = order.shipped_at
+      ? new Date(order.shipped_at).toISOString().split('T')[0]
+      : new Date(order.created_at).toISOString().split('T')[0];
+
+    const groupKey = `${order.courier_id}_${dispatchDate}`;
+    const carrierName = order.carriers?.name || 'Sin courier';
+    const isCod = isCodPayment(order.payment_method);
+    const codAmount = isCod ? (order.total_price || 0) : 0;
+
+    const orderData = {
+      id: order.id,
+      order_number: order.order_number || order.shopify_order_number || order.id.slice(0, 8),
+      customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+      customer_phone: order.customer_phone || '',
+      customer_address: [order.shipping_address, order.shipping_reference].filter(Boolean).join(', '),
+      customer_city: order.shipping_city || '',
+      total_price: order.total_price || 0,
+      cod_amount: codAmount,
+      payment_method: order.payment_method || '',
+      is_cod: isCod,
+      shipped_at: order.shipped_at || order.created_at,
+    };
+
+    if (groupMap.has(groupKey)) {
+      const group = groupMap.get(groupKey)!;
+      group.orders.push(orderData);
+      group.total_orders++;
+      if (isCod) {
+        group.total_cod_expected += codAmount;
+      } else {
+        group.total_prepaid++;
+      }
+    } else {
+      groupMap.set(groupKey, {
+        carrier_id: order.courier_id,
+        carrier_name: carrierName,
+        dispatch_date: dispatchDate,
+        orders: [orderData],
+        total_orders: 1,
+        total_cod_expected: isCod ? codAmount : 0,
+        total_prepaid: isCod ? 0 : 1,
+      });
+    }
+  });
+
+  return Array.from(groupMap.values()).sort((a, b) =>
+    new Date(b.dispatch_date).getTime() - new Date(a.dispatch_date).getTime()
+  );
+}
+
+export interface ManualReconciliationData {
+  carrier_id: string;
+  dispatch_date: string;
+  orders: Array<{
+    order_id: string;
+    delivered: boolean;
+    failure_reason?: string;
+    notes?: string;
+  }>;
+  total_amount_collected: number;
+  discrepancy_notes?: string;
+  confirm_discrepancy: boolean;
+}
+
+/**
+ * Process manual reconciliation without CSV
+ *
+ * CRITICAL FUNCTION - Handles money calculations
+ *
+ * Validations:
+ * 1. All orders must exist in database
+ * 2. All orders must be in 'shipped' status (not already delivered/cancelled)
+ * 3. All non-delivered orders must have failure_reason
+ * 4. total_amount_collected must be >= 0
+ * 5. carrier_id must be valid
+ *
+ * Process:
+ * 1. Validate all inputs
+ * 2. Calculate statistics (delivered, failed, COD expected, fees)
+ * 3. Update order statuses (delivered -> 'delivered', failed -> 'ready_to_ship')
+ * 4. Handle discrepancies if any
+ * 5. Create settlement record
+ */
+export async function processManualReconciliation(
+  storeId: string,
+  userId: string,
+  data: ManualReconciliationData
+): Promise<DailySettlement> {
+  const { carrier_id, dispatch_date, orders, total_amount_collected, discrepancy_notes, confirm_discrepancy } = data;
+
+  // ============================================================
+  // VALIDATION PHASE
+  // ============================================================
+
+  // Validate inputs
+  if (!carrier_id || typeof carrier_id !== 'string') {
+    throw new Error('carrier_id es requerido y debe ser un string válido');
+  }
+
+  if (!dispatch_date || typeof dispatch_date !== 'string') {
+    throw new Error('dispatch_date es requerido');
+  }
+
+  if (!orders || !Array.isArray(orders) || orders.length === 0) {
+    throw new Error('Debe haber al menos un pedido para conciliar');
+  }
+
+  if (typeof total_amount_collected !== 'number' || isNaN(total_amount_collected)) {
+    throw new Error('total_amount_collected debe ser un número válido');
+  }
+
+  if (total_amount_collected < 0) {
+    throw new Error('total_amount_collected no puede ser negativo');
+  }
+
+  // Validate carrier exists
+  const { data: carrier, error: carrierError } = await supabaseAdmin
+    .from('carriers')
+    .select('id, name')
+    .eq('id', carrier_id)
+    .single();
+
+  if (carrierError || !carrier) {
+    throw new Error(`Courier no encontrado: ${carrier_id}`);
+  }
+
+  // Validate all non-delivered orders have failure_reason
+  const invalidOrders = orders.filter(o => !o.delivered && !o.failure_reason);
+  if (invalidOrders.length > 0) {
+    const orderIds = invalidOrders.map(o => o.order_id.slice(0, 8)).join(', ');
+    throw new Error(`${invalidOrders.length} pedido(s) no entregados sin motivo de falla: ${orderIds}`);
+  }
+
+  // Get carrier zones for rate calculation
+  const { data: zones } = await supabaseAdmin
+    .from('carrier_zones')
+    .select('*')
+    .eq('carrier_id', carrier_id)
+    .eq('is_active', true);
+
+  const defaultRate = zones?.find(z => z.zone_name.toLowerCase() === 'default')?.rate || 25000;
+  const zoneMap = new Map<string, number>();
+  (zones || []).forEach(z => {
+    zoneMap.set(z.zone_name.toLowerCase(), z.rate);
+  });
+
+  // Get all orders from database and validate
+  const orderIds = orders.map(o => o.order_id);
+  const { data: dbOrders, error: ordersError } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .in('id', orderIds)
+    .eq('store_id', storeId);
+
+  if (ordersError) {
+    console.error('❌ [RECONCILIATION] Error fetching orders:', ordersError);
+    throw new Error('Error al obtener los pedidos de la base de datos');
+  }
+
+  if (!dbOrders || dbOrders.length === 0) {
+    throw new Error('No se encontraron los pedidos especificados en la base de datos');
+  }
+
+  // CRITICAL: Validate ALL orders were found
+  if (dbOrders.length !== orders.length) {
+    const foundIds = new Set(dbOrders.map(o => o.id));
+    const missingIds = orderIds.filter(id => !foundIds.has(id));
+    throw new Error(`${missingIds.length} pedido(s) no encontrados: ${missingIds.map(id => id.slice(0, 8)).join(', ')}`);
+  }
+
+  // CRITICAL: Validate all orders are in 'shipped' status (in transit)
+  // Only shipped orders can be reconciled - they're with the courier
+  // delivered orders are already completed, cancelled/returned are not valid
+  const invalidStatusOrders = dbOrders.filter(o => o.sleeves_status !== 'shipped');
+  if (invalidStatusOrders.length > 0) {
+    const details = invalidStatusOrders.map(o => `${o.order_number || o.id.slice(0, 8)} (${o.sleeves_status})`).join(', ');
+    throw new Error(`${invalidStatusOrders.length} pedido(s) no están en estado 'shipped' (en tránsito): ${details}. Solo se pueden conciliar pedidos despachados.`);
+  }
+
+  // CRITICAL: Validate all orders belong to the specified carrier
+  const wrongCarrierOrders = dbOrders.filter(o => o.courier_id !== carrier_id);
+  if (wrongCarrierOrders.length > 0) {
+    throw new Error(`${wrongCarrierOrders.length} pedido(s) no pertenecen al courier seleccionado`);
+  }
+
+  console.log(`📝 [RECONCILIATION] Starting reconciliation for ${orders.length} orders, carrier: ${carrier.name}`);
+
+  // ============================================================
+  // CALCULATION PHASE
+  // ============================================================
+
+  const stats = {
+    total_dispatched: orders.length,
+    total_delivered: 0,
+    total_not_delivered: 0,
+    total_cod_delivered: 0,
+    total_prepaid_delivered: 0,
+    total_cod_collected: 0,
+    total_cod_expected: 0,
+    total_carrier_fees: 0,
+    failed_attempt_fee: 0,
+  };
+
+  // Create a map for quick lookup
+  const orderInputMap = new Map(orders.map(o => [o.order_id, o]));
+  const updatesDelivered: Array<{ id: string; delivered_at: string }> = [];
+  const updatesFailed: Array<{ id: string; failure_reason: string; notes: string | null }> = [];
+  const codDeliveredOrders: Array<{ id: string; expected: number }> = [];
+
+  for (const dbOrder of dbOrders) {
+    const orderInput = orderInputMap.get(dbOrder.id);
+    if (!orderInput) {
+      // This should never happen due to validation above, but be safe
+      console.error(`❌ [RECONCILIATION] Order input not found for ${dbOrder.id}`);
+      continue;
+    }
+
+    const isCod = isCodPayment(dbOrder.payment_method);
+    const city = (dbOrder.shipping_city || '').toLowerCase().trim();
+    const carrierFee = zoneMap.get(city) || defaultRate;
+
+    if (orderInput.delivered) {
+      // Order was delivered successfully
+      stats.total_delivered++;
+      stats.total_carrier_fees += carrierFee;
+
+      if (isCod) {
+        stats.total_cod_delivered++;
+        const orderAmount = dbOrder.total_price || 0;
+        stats.total_cod_expected += orderAmount;
+        codDeliveredOrders.push({ id: dbOrder.id, expected: orderAmount });
+      } else {
+        stats.total_prepaid_delivered++;
+      }
+
+      // Update to delivered status (all orders here are 'shipped')
+      updatesDelivered.push({
+        id: dbOrder.id,
+        delivered_at: new Date().toISOString(),
+      });
+    } else {
+      // Order delivery failed - return to ready_to_ship for re-dispatch
+      stats.total_not_delivered++;
+      stats.failed_attempt_fee += carrierFee * 0.5;
+
+      updatesFailed.push({
+        id: dbOrder.id,
+        failure_reason: orderInput.failure_reason || 'other',
+        notes: orderInput.notes || null,
+      });
+    }
+  }
+
+  stats.total_cod_collected = total_amount_collected;
+
+  // Calculate discrepancy
+  const discrepancyAmount = total_amount_collected - stats.total_cod_expected;
+  const hasDiscrepancy = Math.abs(discrepancyAmount) > 0.01; // Use tolerance for floating point
+
+  // If there's discrepancy but not confirmed, throw error
+  if (hasDiscrepancy && !confirm_discrepancy) {
+    throw new Error(`Hay una discrepancia de ${discrepancyAmount.toLocaleString()} Gs que no ha sido confirmada`);
+  }
+
+  console.log(`📊 [RECONCILIATION] Stats calculated:`, {
+    delivered: stats.total_delivered,
+    not_delivered: stats.total_not_delivered,
+    cod_expected: stats.total_cod_expected,
+    cod_collected: stats.total_cod_collected,
+    discrepancy: discrepancyAmount,
+    carrier_fees: stats.total_carrier_fees,
+    failed_fees: stats.failed_attempt_fee,
+  });
+
+  // ============================================================
+  // UPDATE PHASE
+  // ============================================================
+
+  const errors: string[] = [];
+
+  // Update delivered orders
+  for (const update of updatesDelivered) {
+    const { error } = await supabaseAdmin
+      .from('orders')
+      .update({
+        sleeves_status: 'delivered',
+        delivered_at: update.delivered_at,
+      })
+      .eq('id', update.id)
+      .eq('store_id', storeId); // Extra safety
+
+    if (error) {
+      console.error(`❌ [RECONCILIATION] Error updating order ${update.id}:`, error);
+      errors.push(`Error actualizando pedido ${update.id}: ${error.message}`);
+    }
+  }
+
+  // Update failed orders
+  for (const update of updatesFailed) {
+    const { error } = await supabaseAdmin
+      .from('orders')
+      .update({
+        sleeves_status: 'ready_to_ship',
+        delivery_notes: update.notes,
+        // Store failure reason in delivery_notes or a specific field if available
+      })
+      .eq('id', update.id)
+      .eq('store_id', storeId);
+
+    if (error) {
+      console.error(`❌ [RECONCILIATION] Error updating failed order ${update.id}:`, error);
+      errors.push(`Error actualizando pedido fallido ${update.id}: ${error.message}`);
+    }
+  }
+
+  // Handle discrepancy - mark COD orders with amount_collected
+  if (hasDiscrepancy && codDeliveredOrders.length > 0) {
+    // Distribute discrepancy proportionally across COD orders
+    const discrepancyPerOrder = discrepancyAmount / codDeliveredOrders.length;
+
+    for (const codOrder of codDeliveredOrders) {
+      const collectedAmount = codOrder.expected + discrepancyPerOrder;
+
+      const { error } = await supabaseAdmin
+        .from('orders')
+        .update({
+          amount_collected: Math.round(collectedAmount * 100) / 100, // Round to 2 decimals
+          has_amount_discrepancy: true,
+        })
+        .eq('id', codOrder.id)
+        .eq('store_id', storeId);
+
+      if (error) {
+        console.error(`❌ [RECONCILIATION] Error updating discrepancy for ${codOrder.id}:`, error);
+        errors.push(`Error marcando discrepancia en pedido ${codOrder.id}`);
+      }
+    }
+  }
+
+  // If there were errors updating orders, throw
+  if (errors.length > 0) {
+    throw new Error(`Errores al actualizar pedidos: ${errors.join('; ')}`);
+  }
+
+  // ============================================================
+  // SETTLEMENT CREATION PHASE
+  // ============================================================
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('es-PY', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).replace(/\//g, '');
+
+  // Generate unique settlement code with retry for race conditions
+  let settlementCode: string = '';
+  let attempts = 0;
+  const maxAttempts = 5;
+  let codeGenerated = false;
+
+  while (attempts < maxAttempts) {
+    const { count } = await supabaseAdmin
+      .from('daily_settlements')
+      .select('*', { count: 'exact', head: true })
+      .eq('store_id', storeId)
+      .eq('settlement_date', today.toISOString().split('T')[0]);
+
+    const settlementNumber = ((count || 0) + 1 + attempts).toString().padStart(2, '0');
+    settlementCode = `LIQ-${dateStr}-${settlementNumber}`;
+
+    // Check if code already exists
+    const { data: existing } = await supabaseAdmin
+      .from('daily_settlements')
+      .select('id')
+      .eq('settlement_code', settlementCode)
+      .single();
+
+    if (!existing) {
+      codeGenerated = true;
+      break; // Code is unique
+    }
+
+    attempts++;
+  }
+
+  if (!codeGenerated) {
+    throw new Error('No se pudo generar un código único para la liquidación. Intente nuevamente.');
+  }
+
+  // Calculate net receivable
+  // Formula: COD collected - carrier fees for delivered - failed attempt fees
+  const netReceivable = stats.total_cod_collected - stats.total_carrier_fees - stats.failed_attempt_fee;
+
+  // Build notes with discrepancy info if applicable
+  let finalNotes = discrepancy_notes || '';
+  if (hasDiscrepancy) {
+    const discrepancyInfo = `Discrepancia: ${discrepancyAmount > 0 ? '+' : ''}${discrepancyAmount.toLocaleString()} Gs`;
+    finalNotes = finalNotes ? `${finalNotes} | ${discrepancyInfo}` : discrepancyInfo;
+  }
+
+  const { data: settlement, error: settlementError } = await supabaseAdmin
+    .from('daily_settlements')
+    .insert({
+      store_id: storeId,
+      carrier_id: carrier_id,
+      settlement_code: settlementCode!,
+      settlement_date: dispatch_date,
+      total_dispatched: stats.total_dispatched,
+      total_delivered: stats.total_delivered,
+      total_not_delivered: stats.total_not_delivered,
+      total_cod_delivered: stats.total_cod_delivered,
+      total_prepaid_delivered: stats.total_prepaid_delivered,
+      total_cod_collected: stats.total_cod_collected,
+      total_cod_expected: stats.total_cod_expected,
+      total_carrier_fees: stats.total_carrier_fees,
+      failed_attempt_fee: stats.failed_attempt_fee,
+      net_receivable: Math.round(netReceivable * 100) / 100,
+      balance_due: Math.round(netReceivable * 100) / 100,
+      amount_paid: 0,
+      status: 'pending',
+      notes: finalNotes || null,
+      created_by: userId
+    })
+    .select(`*, carriers!inner(name)`)
+    .single();
+
+  if (settlementError) {
+    console.error('❌ [RECONCILIATION] Error creating settlement:', settlementError);
+    throw new Error(`Error al crear la liquidación: ${settlementError.message}`);
+  }
+
+  console.log(`✅ [RECONCILIATION] Settlement created: ${settlementCode}`, {
+    delivered: stats.total_delivered,
+    failed: stats.total_not_delivered,
+    cod_collected: stats.total_cod_collected,
+    net_receivable: netReceivable,
+  });
+
+  return {
+    ...settlement,
+    carrier_name: settlement.carriers?.name,
+    carriers: undefined,
+  };
+}
+
+// ============================================================
+// EXCEL EXPORT WITH PROFESSIONAL STYLING
+// ============================================================
+
+import ExcelJS from 'exceljs';
+
+/**
+ * Export dispatch session as professional Excel file
+ */
+export async function exportDispatchExcel(
+  sessionId: string,
+  storeId: string
+): Promise<Buffer> {
+  const session = await getDispatchSessionById(sessionId, storeId);
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Ordefy';
+  workbook.created = new Date();
+
+  // SHEET 1: INSTRUCCIONES
+  const instructionsSheet = workbook.addWorksheet('Instrucciones', {
+    properties: { tabColor: { argb: '3B82F6' } }
+  });
+
+  instructionsSheet.mergeCells('A1:F1');
+  const titleCell = instructionsSheet.getCell('A1');
+  titleCell.value = 'ORDEFY';
+  titleCell.font = { size: 28, bold: true, color: { argb: '3B82F6' } };
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  instructionsSheet.getRow(1).height = 45;
+
+  instructionsSheet.mergeCells('A2:F2');
+  instructionsSheet.getCell('A2').value = 'Sistema de Gestión de Entregas';
+  instructionsSheet.getCell('A2').font = { size: 12, italic: true, color: { argb: '6B7280' } };
+  instructionsSheet.getCell('A2').alignment = { horizontal: 'center' };
+
+  instructionsSheet.mergeCells('A4:F4');
+  const instrHeader = instructionsSheet.getCell('A4');
+  instrHeader.value = 'INSTRUCCIONES PARA EL COURIER';
+  instrHeader.font = { size: 16, bold: true };
+  instrHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
+
+  const instructions = [
+    '',
+    '1. Complete la columna "ESTADO_ENTREGA" con:',
+    '   • ENTREGADO - Pedido entregado exitosamente',
+    '   • NO ENTREGADO - No se pudo entregar',
+    '   • RECHAZADO - El cliente rechazó el pedido',
+    '',
+    '2. Para pedidos COD: Complete "MONTO_COBRADO"',
+    '',
+    '3. Para NO ENTREGADOS: Complete "MOTIVO_NO_ENTREGA"',
+    '',
+    '4. TIPO_PAGO: COD = Cobrar, PREPAGO = Ya pagado',
+  ];
+
+  instructions.forEach((text, index) => {
+    instructionsSheet.getRow(5 + index).getCell(1).value = text;
+  });
+
+  instructionsSheet.getColumn(1).width = 60;
+
+  // SHEET 2: PEDIDOS
+  const ordersSheet = workbook.addWorksheet('Pedidos', {
+    properties: { tabColor: { argb: '10B981' } }
+  });
+
+  ordersSheet.mergeCells('A1:K1');
+  const headerCell = ordersSheet.getCell('A1');
+  headerCell.value = `DESPACHO: ${session.session_code}  •  ${session.carrier_name}`;
+  headerCell.font = { size: 14, bold: true, color: { argb: 'FFFFFF' } };
+  headerCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '3B82F6' } };
+  headerCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  ordersSheet.getRow(1).height = 35;
+
+  ordersSheet.mergeCells('A2:K2');
+  const summaryCell = ordersSheet.getCell('A2');
+  summaryCell.value = `Total: ${session.orders.length} pedidos  •  COD: ${formatCurrencyGs(session.total_cod_expected)}  •  Prepago: ${session.total_prepaid}`;
+  summaryCell.font = { size: 11, italic: true };
+  summaryCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EBF5FF' } };
+  summaryCell.alignment = { horizontal: 'center' };
+
+  const headers = ['N° PEDIDO', 'CLIENTE', 'TELÉFONO', 'DIRECCIÓN', 'CIUDAD', 'TIPO_PAGO', 'A_COBRAR', 'ESTADO_ENTREGA', 'MONTO_COBRADO', 'MOTIVO_NO_ENTREGA', 'OBSERVACIONES'];
+
+  const headerRow = ordersSheet.getRow(4);
+  headers.forEach((header, index) => {
+    const cell = headerRow.getCell(index + 1);
+    cell.value = header;
+    cell.font = { bold: true, color: { argb: 'FFFFFF' }, size: 10 };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1F2937' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = {
+      top: { style: 'thin' }, left: { style: 'thin' },
+      bottom: { style: 'thin' }, right: { style: 'thin' },
+    };
+  });
+  headerRow.height = 25;
+
+  session.orders.forEach((order, index) => {
+    const paymentType = order.is_cod ? 'COD' : 'PREPAGO';
+    const amountToCollect = getAmountToCollect(order.payment_method, order.total_price);
+
+    const row = ordersSheet.getRow(5 + index);
+    const rowData = [
+      order.order_number, order.customer_name, order.customer_phone,
+      order.delivery_address, order.delivery_city, paymentType,
+      amountToCollect, '', '', '', '',
+    ];
+
+    rowData.forEach((value, colIndex) => {
+      const cell = row.getCell(colIndex + 1);
+      cell.value = value;
+      cell.font = { size: 10 };
+      cell.alignment = { vertical: 'middle' };
+
+      const fillColor = order.is_cod ? { argb: 'DCFCE7' } : { argb: 'DBEAFE' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: fillColor };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'D1D5DB' } },
+        left: { style: 'thin', color: { argb: 'D1D5DB' } },
+        bottom: { style: 'thin', color: { argb: 'D1D5DB' } },
+        right: { style: 'thin', color: { argb: 'D1D5DB' } },
+      };
+    });
+
+    row.getCell(7).numFmt = '#,##0';
+    row.getCell(9).numFmt = '#,##0';
+  });
+
+  ordersSheet.columns = [
+    { width: 14 }, { width: 22 }, { width: 14 }, { width: 35 }, { width: 14 },
+    { width: 10 }, { width: 14 }, { width: 16 }, { width: 14 }, { width: 18 }, { width: 25 },
+  ];
+
+  const lastDataRow = 4 + session.orders.length;
+
+  // Add dropdown validation for ESTADO_ENTREGA column
+  for (let i = 5; i <= lastDataRow; i++) {
+    ordersSheet.getCell(`H${i}`).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"ENTREGADO,NO ENTREGADO,RECHAZADO"'],
+    };
+  }
+
+  // Add dropdown validation for MOTIVO_NO_ENTREGA column
+  for (let i = 5; i <= lastDataRow; i++) {
+    ordersSheet.getCell(`J${i}`).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"No contesta,Ausente,Dirección incorrecta,Sin fondos,Rechazado,Otro"'],
+    };
+  }
+
+  ordersSheet.headerFooter.oddFooter = '&C&"Calibri,Italic"&8Generado por Ordefy - ordefy.io&R&P de &N';
+
+  ordersSheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4, topLeftCell: 'A5', activeCell: 'H5' }];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+function formatCurrencyGs(amount: number): string {
+  return new Intl.NumberFormat('es-PY', {
+    style: 'decimal',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount) + ' Gs';
+}

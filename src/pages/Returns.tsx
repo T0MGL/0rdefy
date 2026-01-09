@@ -44,12 +44,6 @@ type View = 'sessions' | 'create' | 'process';
 export default function Returns() {
   const { toast } = useToast();
   const { hasFeature } = useSubscription();
-
-  // Plan-based feature check - returns requires Starter+ plan
-  if (!hasFeature('returns')) {
-    return <FeatureBlockedPage feature="returns" />;
-  }
-
   const [view, setView] = useState<View>('sessions');
   const [currentSession, setCurrentSession] = useState<ReturnSessionDetail | null>(null);
 
@@ -153,12 +147,18 @@ export default function Returns() {
   }, [toast]);
 
   useEffect(() => {
+    if (!hasFeature('returns')) return;
     if (view === 'sessions') {
       loadSessions();
     } else if (view === 'create') {
       loadEligibleOrders();
     }
-  }, [view, loadSessions, loadEligibleOrders]);
+  }, [view, loadSessions, loadEligibleOrders, hasFeature]);
+
+  // Plan-based feature check - returns requires Starter+ plan (AFTER all hooks)
+  if (!hasFeature('returns')) {
+    return <FeatureBlockedPage feature="returns" />;
+  }
 
   // Create new return session
   const handleCreateSession = async () => {
