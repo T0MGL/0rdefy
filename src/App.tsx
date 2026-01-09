@@ -38,7 +38,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const DashboardLogistics = lazy(() => import("./pages/DashboardLogistics"));
 const Logistics = lazy(() => import("./pages/Logistics"));
 const Orders = lazy(() => import("./pages/Orders"));
-const Warehouse = lazy(() => import("./pages/Warehouse"));
+const Warehouse = lazy(() => import("./pages/WarehouseNew"));
 const Shipping = lazy(() => import("./pages/Shipping"));
 const Returns = lazy(() => import("./pages/Returns"));
 const Incidents = lazy(() => import("./pages/Incidents"));

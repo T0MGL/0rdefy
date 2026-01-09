@@ -144,6 +144,9 @@ export interface Order {
       image_url: string;
     };
   }>;
+  // Amount discrepancy (when courier collects different amount)
+  amount_collected?: number;
+  has_amount_discrepancy?: boolean;
 }
 
 export interface CreateOrderInput {

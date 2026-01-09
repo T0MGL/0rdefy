@@ -1,50 +1,22 @@
 /**
- * Settlements Page
- * Complete dispatch, reconciliation and settlement workflow
- * Flujo: Despacho → Conciliación → Liquidación → Pago
+ * Settlements Page - Conciliaciones
+ * Simplified reconciliation workflow for courier deliveries
+ *
+ * Flow:
+ * 1. Shows all orders currently in transit (shipped status)
+ * 2. User imports CSV with delivery results from courier
+ * 3. System updates order statuses automatically
+ * 4. Failed deliveries return to ready_to_ship for re-dispatch
  *
  * @author Bright Idea
- * @date 2026-01-07
+ * @date 2026-01-09
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  settlementsService,
-  DispatchSession,
-  DispatchSessionOrder,
-  DispatchStatus,
-  DeliveryResult,
-  ReconciliationSummary,
-  formatCurrency,
-  getStatusColor,
-  getDeliveryResultColor,
-  translateStatus,
-  translateDeliveryResult,
-} from '@/services/settlements.service';
-import { carriersService } from '@/services/carriers.service';
 import { ordersService } from '@/services/orders.service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -53,166 +25,117 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Progress } from '@/components/ui/progress';
 import { EmptyState } from '@/components/EmptyState';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import {
   Loader2,
   Truck,
-  FileSpreadsheet,
   Upload,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
-  DollarSign,
-  TrendingUp,
   Package,
-  ChevronLeft,
-  Download,
   RefreshCw,
-  Eye,
-  Plus,
+  DollarSign,
+  AlertTriangle,
+  FileSpreadsheet,
   Clock,
-  Calendar,
-  Filter,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-type View = 'sessions' | 'create' | 'detail' | 'reconcile';
-
-interface Carrier {
+interface InTransitOrder {
   id: string;
-  name: string;
-}
-
-interface Order {
-  id: string;
-  order_number?: string;
-  customer_first_name?: string;
-  customer_last_name?: string;
-  customer_phone?: string;
-  customer_address?: string;
-  customer_city?: string;
+  order_number: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_address: string;
+  customer_city: string;
+  carrier_name: string;
+  carrier_id: string;
   total_price: number;
-  payment_status?: string;
-  sleeves_status?: string;
+  cod_amount: number;
+  shipped_at: string;
+  payment_status: string;
 }
+
+interface ImportResult {
+  order_number: string;
+  status: 'delivered' | 'failed' | 'rejected' | 'not_found';
+  collected_amount?: number;
+  failure_reason?: string;
+}
+
+interface ReconciliationSummary {
+  total: number;
+  delivered: number;
+  failed: number;
+  rejected: number;
+  notFound: number;
+  totalCollected: number;
+}
+
+// Format currency in Guaranies
+const formatCurrency = (amount: number): string => {
+  return new Intl.NumberFormat('es-PY', {
+    style: 'decimal',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount) + ' Gs';
+};
 
 export default function Settlements() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // View state
-  const [view, setView] = useState<View>('sessions');
+  // State
   const [loading, setLoading] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [orders, setOrders] = useState<InTransitOrder[]>([]);
 
-  // Sessions list
-  const [sessions, setSessions] = useState<DispatchSession[]>([]);
-  const [filterStatus, setFilterStatus] = useState<DispatchStatus | 'all'>('all');
-  const [filterCarrier, setFilterCarrier] = useState<string>('all');
+  // Import results
+  const [showResultsDialog, setShowResultsDialog] = useState(false);
+  const [importResults, setImportResults] = useState<ImportResult[]>([]);
+  const [summary, setSummary] = useState<ReconciliationSummary | null>(null);
 
-  // Create session
-  const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [selectedCarrier, setSelectedCarrier] = useState<string>('');
-  const [availableOrders, setAvailableOrders] = useState<Order[]>([]);
-  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
-  const [sessionNotes, setSessionNotes] = useState('');
-
-  // Session detail
-  const [currentSession, setCurrentSession] = useState<DispatchSession | null>(null);
-  const [sessionOrders, setSessionOrders] = useState<DispatchSessionOrder[]>([]);
-
-  // Reconciliation
-  const [reconciliationData, setReconciliationData] = useState<ReconciliationSummary | null>(null);
-  const [showSettlementDialog, setShowSettlementDialog] = useState(false);
-
-  // Summary stats
-  const [summary, setSummary] = useState<any>(null);
-  const [pendingByCarrier, setPendingByCarrier] = useState<any[]>([]);
-
-  // Load sessions
-  const loadSessions = useCallback(async () => {
+  // Load orders in transit
+  const loadOrders = useCallback(async () => {
     setLoading(true);
     try {
-      const params: any = { limit: 50 };
-      if (filterStatus !== 'all') params.status = filterStatus;
-      if (filterCarrier !== 'all') params.carrier_id = filterCarrier;
-
-      const [sessionsRes, summaryRes, pendingRes] = await Promise.all([
-        settlementsService.dispatch.getAll(params),
-        settlementsService.v2.getSummary(),
-        settlementsService.v2.getPendingByCarrier(),
-      ]);
-
-      setSessions(sessionsRes.data);
-      setSummary(summaryRes);
-      setPendingByCarrier(pendingRes);
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'No se pudieron cargar las sesiones',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [filterStatus, filterCarrier, toast]);
-
-  // Load carriers and ready orders for create view
-  const loadCreateData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const carriersRes = await carriersService.getAll();
-      setCarriers(carriersRes);
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'No se pudieron cargar los datos',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
-
-  // Load orders for selected carrier
-  const loadOrdersForCarrier = useCallback(async (carrierId: string) => {
-    if (!carrierId) {
-      setAvailableOrders([]);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Get orders that are ready_to_ship for this carrier
       const allOrders = await ordersService.getAll();
-      const readyOrders = allOrders.filter(
-        (o: any) =>
-          o.sleeves_status === 'ready_to_ship' &&
-          (o.carrier_id === carrierId || o.carriers?.id === carrierId)
-      );
-      setAvailableOrders(readyOrders);
-    } catch (error: any) {
-      console.error('Error loading orders:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
-  // Load session detail
-  const loadSessionDetail = useCallback(async (sessionId: string) => {
-    setLoading(true);
-    try {
-      const data = await settlementsService.dispatch.getById(sessionId);
-      setCurrentSession(data.session);
-      setSessionOrders(data.orders);
+      // Filter only shipped orders
+      const shippedOrders = allOrders
+        .filter((o: any) => o.sleeves_status === 'shipped')
+        .map((o: any) => ({
+          id: o.id,
+          order_number: o.order_number || o.id.slice(0, 8),
+          customer_name: `${o.customer_first_name || ''} ${o.customer_last_name || ''}`.trim() || 'Cliente',
+          customer_phone: o.customer_phone || '',
+          customer_address: o.customer_address || o.shipping_address?.address1 || '',
+          customer_city: o.customer_city || o.shipping_address?.city || '',
+          carrier_name: o.carriers?.name || 'Sin courier',
+          carrier_id: o.carrier_id,
+          total_price: o.total_price || 0,
+          cod_amount: o.payment_status !== 'collected' ? (o.total_price || 0) : 0,
+          shipped_at: o.in_transit_at || o.updated_at,
+          payment_status: o.payment_status,
+        }));
+
+      setOrders(shippedOrders);
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudo cargar la sesión',
+        description: error.message || 'No se pudieron cargar los pedidos',
       });
     } finally {
       setLoading(false);
@@ -220,295 +143,316 @@ export default function Settlements() {
   }, [toast]);
 
   useEffect(() => {
-    if (view === 'sessions') {
-      loadSessions();
-    } else if (view === 'create') {
-      loadCreateData();
+    loadOrders();
+  }, [loadOrders]);
+
+  // Parse CSV file
+  const parseCSV = (content: string): ImportResult[] => {
+    const lines = content.split('\n').filter(line => line.trim());
+    if (lines.length < 2) return [];
+
+    // Get headers (first line)
+    const headers = lines[0].split(',').map(h =>
+      h.trim().replace(/^["']|["']$/g, '').toUpperCase()
+    );
+
+    // Find column indexes
+    const orderIdx = headers.findIndex(h =>
+      h.includes('PEDIDO') || h.includes('ORDER') || h.includes('NUMERO')
+    );
+    const statusIdx = headers.findIndex(h =>
+      h.includes('ESTADO') || h.includes('STATUS') || h.includes('RESULTADO')
+    );
+    const amountIdx = headers.findIndex(h =>
+      h.includes('COBRADO') || h.includes('COLLECTED') || h.includes('MONTO_COBRADO')
+    );
+    const reasonIdx = headers.findIndex(h =>
+      h.includes('MOTIVO') || h.includes('REASON') || h.includes('FALLA')
+    );
+
+    if (orderIdx === -1) {
+      throw new Error('No se encontró la columna de número de pedido');
     }
-  }, [view, loadSessions, loadCreateData]);
 
-  useEffect(() => {
-    if (selectedCarrier) {
-      loadOrdersForCarrier(selectedCarrier);
-    }
-  }, [selectedCarrier, loadOrdersForCarrier]);
+    const results: ImportResult[] = [];
 
-  // Create dispatch session
-  const handleCreateSession = async () => {
-    if (!selectedCarrier || selectedOrders.size === 0) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Selecciona un courier y al menos un pedido',
-      });
-      return;
-    }
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v =>
+        v.trim().replace(/^["']|["']$/g, '')
+      );
 
-    setLoading(true);
-    try {
-      const session = await settlementsService.dispatch.create({
-        carrier_id: selectedCarrier,
-        dispatch_date: new Date().toISOString().split('T')[0],
-        order_ids: Array.from(selectedOrders),
-        notes: sessionNotes || undefined,
-      });
+      const orderNumber = values[orderIdx];
+      if (!orderNumber) continue;
 
-      toast({
-        title: 'Sesión creada',
-        description: `Sesión ${session.session_code} creada con ${selectedOrders.size} pedidos`,
-      });
+      const statusValue = statusIdx !== -1 ? values[statusIdx]?.toUpperCase() : '';
+      const collectedAmount = amountIdx !== -1 ? parseFloat(values[amountIdx]) || 0 : 0;
+      const failureReason = reasonIdx !== -1 ? values[reasonIdx] : '';
 
-      // Reset and go to detail
-      setSelectedOrders(new Set());
-      setSessionNotes('');
-      setSelectedCarrier('');
-      await loadSessionDetail(session.id);
-      setView('detail');
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'No se pudo crear la sesión',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+      // Determine status from CSV value
+      let status: ImportResult['status'] = 'not_found';
 
-  // Mark session as dispatched
-  const handleMarkDispatched = async () => {
-    if (!currentSession) return;
-
-    setLoading(true);
-    try {
-      const updated = await settlementsService.dispatch.markDispatched(currentSession.id);
-      setCurrentSession(updated);
-
-      toast({
-        title: 'Sesión despachada',
-        description: 'Los pedidos han sido marcados como en tránsito',
-      });
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'No se pudo marcar como despachado',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Export CSV
-  const handleExportCSV = async () => {
-    if (!currentSession) return;
-
-    try {
-      await settlementsService.dispatch.downloadCSV(currentSession.id, currentSession.session_code);
-      toast({
-        title: 'CSV exportado',
-        description: 'El archivo se ha descargado correctamente',
-      });
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'No se pudo exportar el CSV',
-      });
-    }
-  };
-
-  // Import CSV results
-  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !currentSession) return;
-
-    setLoading(true);
-    try {
-      const content = await file.text();
-      const results = settlementsService.dispatch.parseCSV(content);
-
-      if (results.length === 0) {
-        throw new Error('No se encontraron resultados válidos en el CSV');
+      if (statusValue.includes('ENTREG') || statusValue.includes('DELIVER') || statusValue === 'OK' || statusValue === 'SI') {
+        status = 'delivered';
+      } else if (statusValue.includes('RECHAZ') || statusValue.includes('REJECT')) {
+        status = 'rejected';
+      } else if (statusValue.includes('FALL') || statusValue.includes('FAIL') || statusValue.includes('NO') || statusValue.includes('PEND')) {
+        status = 'failed';
+      } else if (statusValue) {
+        // If there's any status value but we couldn't match it, treat as failed
+        status = 'failed';
       }
 
-      const reconciliation = await settlementsService.dispatch.importResults(
-        currentSession.id,
-        results
+      // Find matching order
+      const matchingOrder = orders.find(o =>
+        o.order_number === orderNumber ||
+        o.order_number.includes(orderNumber) ||
+        orderNumber.includes(o.order_number)
       );
 
-      setReconciliationData(reconciliation);
-      setView('reconcile');
+      if (!matchingOrder) {
+        status = 'not_found';
+      }
+
+      results.push({
+        order_number: orderNumber,
+        status,
+        collected_amount: status === 'delivered' ? (collectedAmount || matchingOrder?.cod_amount || 0) : 0,
+        failure_reason: failureReason || undefined,
+      });
+    }
+
+    return results;
+  };
+
+  // Process import results
+  const processResults = async (results: ImportResult[]) => {
+    setProcessing(true);
+
+    const summary: ReconciliationSummary = {
+      total: results.length,
+      delivered: 0,
+      failed: 0,
+      rejected: 0,
+      notFound: 0,
+      totalCollected: 0,
+    };
+
+    try {
+      for (const result of results) {
+        if (result.status === 'not_found') {
+          summary.notFound++;
+          continue;
+        }
+
+        // Find the order
+        const order = orders.find(o =>
+          o.order_number === result.order_number ||
+          o.order_number.includes(result.order_number) ||
+          result.order_number.includes(o.order_number)
+        );
+
+        if (!order) {
+          summary.notFound++;
+          continue;
+        }
+
+        try {
+          if (result.status === 'delivered') {
+            // Mark as delivered
+            await ordersService.updateStatus(order.id, 'delivered');
+            summary.delivered++;
+            summary.totalCollected += result.collected_amount || 0;
+          } else if (result.status === 'failed' || result.status === 'rejected') {
+            // Return to ready_to_ship for re-dispatch
+            await ordersService.updateStatus(order.id, 'ready_to_ship');
+            if (result.status === 'failed') {
+              summary.failed++;
+            } else {
+              summary.rejected++;
+            }
+          }
+        } catch (err) {
+          console.error(`Error updating order ${order.order_number}:`, err);
+        }
+      }
+
+      setSummary(summary);
+      setImportResults(results);
+      setShowResultsDialog(true);
+
+      // Reload orders
+      await loadOrders();
 
       toast({
-        title: 'CSV importado',
-        description: `Se procesaron ${results.length} registros`,
+        title: 'Conciliación completada',
+        description: `${summary.delivered} entregados, ${summary.failed + summary.rejected} para re-despacho`,
       });
-
-      // Reload session
-      await loadSessionDetail(currentSession.id);
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Error de importación',
+        title: 'Error',
+        description: error.message || 'Error al procesar la conciliación',
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Handle file import
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const results = parseCSV(content);
+
+      if (results.length === 0) {
+        throw new Error('No se encontraron datos válidos en el archivo');
+      }
+
+      // Show confirmation before processing
+      const delivered = results.filter(r => r.status === 'delivered').length;
+      const failed = results.filter(r => r.status === 'failed' || r.status === 'rejected').length;
+      const notFound = results.filter(r => r.status === 'not_found').length;
+
+      const confirmProcess = window.confirm(
+        `Se encontraron ${results.length} registros:\n\n` +
+        `- ${delivered} entregados\n` +
+        `- ${failed} no entregados (volverán a despacho)\n` +
+        `- ${notFound} no encontrados\n\n` +
+        `¿Desea procesar la conciliación?`
+      );
+
+      if (confirmProcess) {
+        await processResults(results);
+      }
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error al leer el archivo',
         description: error.message || 'No se pudo procesar el CSV',
       });
     } finally {
-      setLoading(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   };
 
-  // Process settlement
-  const handleProcessSettlement = async () => {
-    if (!currentSession) return;
+  // Calculate totals
+  const totalCOD = orders.reduce((sum, o) => sum + o.cod_amount, 0);
+  const ordersByCarrier = orders.reduce((acc, o) => {
+    const carrier = o.carrier_name || 'Sin courier';
+    if (!acc[carrier]) acc[carrier] = { count: 0, cod: 0 };
+    acc[carrier].count++;
+    acc[carrier].cod += o.cod_amount;
+    return acc;
+  }, {} as Record<string, { count: number; cod: number }>);
 
-    setLoading(true);
-    try {
-      const result = await settlementsService.dispatch.settle(currentSession.id);
-
-      toast({
-        title: 'Liquidación procesada',
-        description: `Monto neto a cobrar: ${formatCurrency(result.summary.net_receivable)}`,
-      });
-
-      setShowSettlementDialog(false);
-      setView('sessions');
-      loadSessions();
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'No se pudo procesar la liquidación',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Toggle order selection
-  const toggleOrderSelection = (orderId: string) => {
-    const newSelected = new Set(selectedOrders);
-    if (newSelected.has(orderId)) {
-      newSelected.delete(orderId);
-    } else {
-      newSelected.add(orderId);
-    }
-    setSelectedOrders(newSelected);
-  };
-
-  // Toggle all orders
-  const toggleAllOrders = () => {
-    if (selectedOrders.size === availableOrders.length) {
-      setSelectedOrders(new Set());
-    } else {
-      setSelectedOrders(new Set(availableOrders.map((o) => o.id)));
-    }
-  };
-
-  // Render sessions list
-  const renderSessionsList = () => (
-    <div className="space-y-6">
+  return (
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Despachos y Liquidaciones</h1>
+          <h1 className="text-3xl font-bold">Conciliaciones</h1>
           <p className="text-muted-foreground">
-            Gestiona entregas, conciliaciones y pagos a couriers
+            Importa los resultados de entrega del courier
           </p>
         </div>
-        <Button onClick={() => setView('create')}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nuevo Despacho
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={loadOrders} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Actualizar
+          </Button>
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading || processing || orders.length === 0}
+            size="lg"
+            className="gap-2"
+          >
+            {processing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            Importar CSV
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleImportCSV}
+            className="hidden"
+          />
+        </div>
       </div>
 
       {/* Summary Cards */}
-      {summary && (
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Tasa de Entrega</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                {summary.delivery_rate?.toFixed(1) || 0}%
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {summary.total_delivered || 0} de {summary.total_dispatched || 0} entregados
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">COD Cobrado</CardTitle>
-              <DollarSign className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {formatCurrency(summary.total_cod_collected || 0)}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                de {formatCurrency(summary.total_cod_expected || 0)} esperado
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Costo de Envío</CardTitle>
-              <Truck className="h-4 w-4 text-orange-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-orange-600">
-                {formatCurrency(summary.total_shipping_cost || 0)}
-              </div>
-              <p className="text-xs text-muted-foreground">Total tarifas de courier</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Neto a Cobrar</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-emerald-600">
-                {formatCurrency(summary.total_net_receivable || 0)}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Pendiente: {formatCurrency(summary.pending_payment || 0)}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Pending by Carrier */}
-      {pendingByCarrier.length > 0 && (
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Pendiente por Courier</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pedidos en Tránsito</CardTitle>
+            <Truck className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-3">
-              {pendingByCarrier.map((item) => (
+            <div className="text-2xl font-bold">{orders.length}</div>
+            <p className="text-xs text-muted-foreground">
+              Esperando resultado del courier
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">COD Pendiente</CardTitle>
+            <DollarSign className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {formatCurrency(totalCOD)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Monto a cobrar por entregas
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Couriers Activos</CardTitle>
+            <Package className="h-4 w-4 text-purple-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{Object.keys(ordersByCarrier).length}</div>
+            <p className="text-xs text-muted-foreground">
+              Con pedidos en tránsito
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Orders by Carrier */}
+      {Object.keys(ordersByCarrier).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Por Transportadora</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-3">
+              {Object.entries(ordersByCarrier).map(([carrier, data]) => (
                 <div
-                  key={item.carrier_id}
+                  key={carrier}
                   className="flex items-center justify-between p-3 border rounded-lg dark:border-gray-800"
                 >
                   <div>
-                    <p className="font-medium">{item.carrier_name}</p>
+                    <p className="font-medium">{carrier}</p>
                     <p className="text-sm text-muted-foreground">
-                      {item.pending_sessions} sesiones pendientes
+                      {data.count} pedido{data.count !== 1 ? 's' : ''}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-lg">{formatCurrency(item.pending_amount)}</p>
+                    <p className="font-bold text-green-600">{formatCurrency(data.cod)}</p>
                   </div>
                 </div>
               ))}
@@ -517,428 +461,44 @@ export default function Settlements() {
         </Card>
       )}
 
-      {/* Filters */}
-      <div className="flex gap-4 items-center">
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="open">Abierto</SelectItem>
-              <SelectItem value="dispatched">Despachado</SelectItem>
-              <SelectItem value="reconciled">Conciliado</SelectItem>
-              <SelectItem value="settled">Liquidado</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      {/* Instructions Card */}
+      {orders.length > 0 && (
+        <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+              <CardTitle className="text-base">Cómo importar resultados</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground space-y-2">
+            <p>1. Exporta el CSV desde la sección de <strong>Despacho</strong></p>
+            <p>2. El courier completa la columna <strong>ESTADO_ENTREGA</strong> con:</p>
+            <ul className="list-disc list-inside ml-4 space-y-1">
+              <li><Badge variant="outline" className="text-green-600">ENTREGADO</Badge> - Pedido entregado exitosamente</li>
+              <li><Badge variant="outline" className="text-red-600">NO ENTREGADO</Badge> - No se pudo entregar (volverá a despacho)</li>
+              <li><Badge variant="outline" className="text-orange-600">RECHAZADO</Badge> - Cliente rechazó (volverá a despacho)</li>
+            </ul>
+            <p>3. Importa el CSV completado y el sistema actualizará los estados automáticamente</p>
+          </CardContent>
+        </Card>
+      )}
 
-        <Button variant="outline" size="sm" onClick={loadSessions}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Actualizar
-        </Button>
-      </div>
-
-      {/* Sessions Table */}
+      {/* Orders Table */}
       {loading ? (
-        <TableSkeleton columns={7} rows={5} />
-      ) : sessions.length === 0 ? (
+        <TableSkeleton columns={6} rows={5} />
+      ) : orders.length === 0 ? (
         <EmptyState
           icon={Truck}
-          title="Sin sesiones de despacho"
-          description="Crea tu primera sesión para comenzar a gestionar entregas"
-          actionLabel="Nuevo Despacho"
-          onAction={() => setView('create')}
+          title="Sin pedidos en tránsito"
+          description="Los pedidos despachados aparecerán aquí para conciliar"
         />
       ) : (
         <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Código</TableHead>
-                  <TableHead>Courier</TableHead>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead className="text-center">Pedidos</TableHead>
-                  <TableHead className="text-center">Entregados</TableHead>
-                  <TableHead className="text-right">COD Cobrado</TableHead>
-                  <TableHead className="text-right">Neto</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sessions.map((session) => (
-                  <TableRow key={session.id}>
-                    <TableCell className="font-mono font-medium">
-                      {session.session_code}
-                    </TableCell>
-                    <TableCell>{session.carrier_name || 'Sin courier'}</TableCell>
-                    <TableCell>
-                      {format(new Date(session.dispatch_date), 'dd MMM yyyy', { locale: es })}
-                    </TableCell>
-                    <TableCell className="text-center">{session.total_orders}</TableCell>
-                    <TableCell className="text-center">
-                      <span className="text-green-600">{session.delivered_count}</span>
-                      {session.failed_count > 0 && (
-                        <span className="text-red-600 ml-1">/ {session.failed_count}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(session.total_cod_collected)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(session.net_receivable)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getStatusColor(session.status)}>
-                        {translateStatus(session.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          loadSessionDetail(session.id);
-                          setView('detail');
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-
-  // Render create session view
-  const renderCreateSession = () => (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => setView('sessions')}>
-          <ChevronLeft className="h-4 w-4 mr-1" />
-          Volver
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold">Nuevo Despacho</h1>
-          <p className="text-muted-foreground">
-            Selecciona el courier y los pedidos a despachar
-          </p>
-        </div>
-      </div>
-
-      {/* Carrier Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Seleccionar Courier</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Courier</Label>
-              <Select value={selectedCarrier} onValueChange={setSelectedCarrier}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona un courier..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {carriers.map((carrier) => (
-                    <SelectItem key={carrier.id} value={carrier.id}>
-                      {carrier.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Notas (opcional)</Label>
-              <Input
-                value={sessionNotes}
-                onChange={(e) => setSessionNotes(e.target.value)}
-                placeholder="Observaciones del despacho..."
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Orders Selection */}
-      {selectedCarrier && (
-        <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Pedidos Listos para Despacho</CardTitle>
-                <CardDescription>
-                  {availableOrders.length} pedidos disponibles • {selectedOrders.size} seleccionados
-                </CardDescription>
-              </div>
-              {availableOrders.length > 0 && (
-                <Button variant="outline" size="sm" onClick={toggleAllOrders}>
-                  {selectedOrders.size === availableOrders.length
-                    ? 'Deseleccionar todos'
-                    : 'Seleccionar todos'}
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <TableSkeleton columns={6} rows={5} />
-            ) : availableOrders.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No hay pedidos listos para despacho para este courier</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">
-                      <Checkbox
-                        checked={selectedOrders.size === availableOrders.length}
-                        onCheckedChange={toggleAllOrders}
-                      />
-                    </TableHead>
-                    <TableHead>Pedido</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Ciudad</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Pago</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {availableOrders.map((order) => (
-                    <TableRow
-                      key={order.id}
-                      className="cursor-pointer"
-                      onClick={() => toggleOrderSelection(order.id)}
-                    >
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedOrders.has(order.id)}
-                          onCheckedChange={() => toggleOrderSelection(order.id)}
-                        />
-                      </TableCell>
-                      <TableCell className="font-mono">
-                        {order.order_number || order.id.slice(0, 8)}
-                      </TableCell>
-                      <TableCell>
-                        {order.customer_first_name} {order.customer_last_name}
-                      </TableCell>
-                      <TableCell>{order.customer_city || '-'}</TableCell>
-                      <TableCell className="text-right">
-                        {formatCurrency(order.total_price)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={order.payment_status === 'collected' ? 'default' : 'outline'}>
-                          {order.payment_status === 'collected' ? 'Pagado' : 'COD'}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Create Button */}
-      {selectedOrders.size > 0 && (
-        <div className="flex justify-end gap-4">
-          <Button variant="outline" onClick={() => setView('sessions')}>
-            Cancelar
-          </Button>
-          <Button onClick={handleCreateSession} disabled={loading}>
-            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Crear Despacho ({selectedOrders.size} pedidos)
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-
-  // Render session detail view
-  const renderSessionDetail = () => {
-    if (!currentSession) return null;
-
-    const progress =
-      currentSession.total_orders > 0
-        ? ((currentSession.delivered_count + currentSession.failed_count + currentSession.rejected_count) /
-            currentSession.total_orders) *
-          100
-        : 0;
-
-    return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => setView('sessions')}>
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Volver
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold font-mono">{currentSession.session_code}</h1>
-              <p className="text-muted-foreground">
-                {currentSession.carrier_name} •{' '}
-                {format(new Date(currentSession.dispatch_date), "dd 'de' MMMM yyyy", {
-                  locale: es,
-                })}
-              </p>
-            </div>
-          </div>
-          <Badge className={getStatusColor(currentSession.status)}>
-            {translateStatus(currentSession.status)}
-          </Badge>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Pedidos</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{currentSession.total_orders}</div>
-              <Progress value={progress} className="mt-2" />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Entregados</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                {currentSession.delivered_count}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {currentSession.total_orders > 0
-                  ? ((currentSession.delivered_count / currentSession.total_orders) * 100).toFixed(1)
-                  : 0}
-                % de éxito
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">No Entregados</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">
-                {currentSession.failed_count + currentSession.rejected_count}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {currentSession.failed_count} fallidos, {currentSession.rejected_count} rechazados
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-600">{currentSession.pending_count}</div>
-              <p className="text-xs text-muted-foreground">Sin resultado reportado</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Financial Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Resumen Financiero</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-4">
-              <div>
-                <p className="text-sm text-muted-foreground">COD Esperado</p>
-                <p className="text-xl font-bold">
-                  {formatCurrency(currentSession.total_cod_expected)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">COD Cobrado</p>
-                <p className="text-xl font-bold text-green-600">
-                  {formatCurrency(currentSession.total_cod_collected)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Costo Envío</p>
-                <p className="text-xl font-bold text-orange-600">
-                  {formatCurrency(currentSession.total_shipping_cost)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Neto a Cobrar</p>
-                <p className="text-xl font-bold text-emerald-600">
-                  {formatCurrency(currentSession.net_receivable)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Action Buttons */}
-        <div className="flex gap-4">
-          {currentSession.status === 'open' && (
-            <>
-              <Button onClick={handleExportCSV}>
-                <Download className="mr-2 h-4 w-4" />
-                Exportar CSV
-              </Button>
-              <Button onClick={handleMarkDispatched} disabled={loading}>
-                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <Truck className="mr-2 h-4 w-4" />
-                Marcar Despachado
-              </Button>
-            </>
-          )}
-
-          {currentSession.status === 'dispatched' && (
-            <>
-              <Button onClick={handleExportCSV} variant="outline">
-                <Download className="mr-2 h-4 w-4" />
-                Exportar CSV
-              </Button>
-              <Button onClick={() => fileInputRef.current?.click()}>
-                <Upload className="mr-2 h-4 w-4" />
-                Importar Resultados
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleImportCSV}
-                className="hidden"
-              />
-            </>
-          )}
-
-          {currentSession.status === 'reconciled' && (
-            <Button onClick={() => setShowSettlementDialog(true)}>
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Procesar Liquidación
-            </Button>
-          )}
-        </div>
-
-        {/* Orders Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Pedidos del Despacho</CardTitle>
+            <CardTitle>Pedidos en Tránsito</CardTitle>
+            <CardDescription>
+              {orders.length} pedido{orders.length !== 1 ? 's' : ''} esperando resultado
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
@@ -947,36 +507,48 @@ export default function Settlements() {
                   <TableHead>Pedido</TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead>Dirección</TableHead>
+                  <TableHead>Courier</TableHead>
                   <TableHead className="text-right">COD</TableHead>
-                  <TableHead className="text-right">Cobrado</TableHead>
-                  <TableHead className="text-right">Envío</TableHead>
-                  <TableHead>Resultado</TableHead>
+                  <TableHead>Despachado</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sessionOrders.map((order) => (
+                {orders.map((order) => (
                   <TableRow key={order.id}>
-                    <TableCell className="font-mono">
-                      {order.order_number || order.order_id.slice(0, 8)}
-                    </TableCell>
-                    <TableCell>{order.customer_name || '-'}</TableCell>
-                    <TableCell className="max-w-xs truncate">
-                      {order.customer_address || '-'}
-                    </TableCell>
-                    <TableCell className="text-right">{formatCurrency(order.cod_amount)}</TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(order.collected_amount)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(order.shipping_cost)}
+                    <TableCell className="font-mono font-medium">
+                      {order.order_number}
                     </TableCell>
                     <TableCell>
-                      <Badge className={getDeliveryResultColor(order.delivery_result)}>
-                        {translateDeliveryResult(order.delivery_result)}
-                      </Badge>
-                      {order.failure_reason && (
-                        <p className="text-xs text-muted-foreground mt-1">{order.failure_reason}</p>
+                      <div>
+                        <p className="font-medium">{order.customer_name}</p>
+                        <p className="text-xs text-muted-foreground">{order.customer_phone}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-xs">
+                      <p className="truncate">{order.customer_address}</p>
+                      {order.customer_city && (
+                        <p className="text-xs text-muted-foreground">{order.customer_city}</p>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{order.carrier_name}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {order.cod_amount > 0 ? (
+                        <span className="font-medium text-green-600">
+                          {formatCurrency(order.cod_amount)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Pagado</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        <span className="text-xs">
+                          {format(new Date(order.shipped_at), 'dd MMM', { locale: es })}
+                        </span>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -984,215 +556,85 @@ export default function Settlements() {
             </Table>
           </CardContent>
         </Card>
+      )}
 
-        {/* Settlement Dialog */}
-        <Dialog open={showSettlementDialog} onOpenChange={setShowSettlementDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Procesar Liquidación</DialogTitle>
-              <DialogDescription>
-                Confirma los datos antes de crear la liquidación final
-              </DialogDescription>
-            </DialogHeader>
+      {/* Results Dialog */}
+      <Dialog open={showResultsDialog} onOpenChange={setShowResultsDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Conciliación Completada</DialogTitle>
+            <DialogDescription>
+              Resumen de los resultados importados
+            </DialogDescription>
+          </DialogHeader>
+
+          {summary && (
             <div className="space-y-4">
-              <div className="p-4 bg-muted rounded-lg dark:bg-gray-900 space-y-3">
-                <div className="flex justify-between">
-                  <span>COD Cobrado:</span>
-                  <span className="font-bold text-green-600">
-                    {formatCurrency(currentSession.total_cod_collected)}
-                  </span>
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <span className="text-sm font-medium">Entregados</span>
+                  </div>
+                  <p className="text-2xl font-bold text-green-600 mt-1">{summary.delivered}</p>
                 </div>
-                <div className="flex justify-between">
-                  <span>Costo de Envío:</span>
-                  <span className="font-bold text-orange-600">
-                    -{formatCurrency(currentSession.total_shipping_cost)}
-                  </span>
-                </div>
-                <hr className="dark:border-gray-700" />
-                <div className="flex justify-between text-lg">
-                  <span className="font-semibold">Neto a Cobrar:</span>
-                  <span className="font-bold text-emerald-600">
-                    {formatCurrency(currentSession.net_receivable)}
-                  </span>
+
+                <div className="p-3 bg-red-50 dark:bg-red-950/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <XCircle className="h-4 w-4 text-red-600" />
+                    <span className="text-sm font-medium">Para Re-despacho</span>
+                  </div>
+                  <p className="text-2xl font-bold text-red-600 mt-1">{summary.failed + summary.rejected}</p>
                 </div>
               </div>
+
+              {/* COD Collected */}
+              {summary.totalCollected > 0 && (
+                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 text-emerald-600" />
+                      <span className="font-medium">COD Cobrado</span>
+                    </div>
+                    <span className="text-xl font-bold text-emerald-600">
+                      {formatCurrency(summary.totalCollected)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Not Found Warning */}
+              {summary.notFound > 0 && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                      {summary.notFound} pedido{summary.notFound !== 1 ? 's' : ''} no encontrado{summary.notFound !== 1 ? 's' : ''}
+                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Verifica que los números de pedido coincidan
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Info about failed orders */}
+              {(summary.failed + summary.rejected) > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Los pedidos no entregados han vuelto a la sección de Despacho para ser re-despachados.
+                </p>
+              )}
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowSettlementDialog(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleProcessSettlement} disabled={loading}>
-                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Confirmar Liquidación
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    );
-  };
+          )}
 
-  // Render reconciliation view
-  const renderReconciliation = () => {
-    if (!reconciliationData || !currentSession) return null;
-
-    return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              loadSessionDetail(currentSession.id);
-              setView('detail');
-            }}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Volver al detalle
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold">Resultado de Conciliación</h1>
-            <p className="text-muted-foreground">
-              Sesión {reconciliationData.session_code} - {reconciliationData.carrier_name}
-            </p>
-          </div>
-        </div>
-
-        {/* Summary */}
-        <div className="grid gap-4 md:grid-cols-5">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{reconciliationData.total_orders}</div>
-              <p className="text-sm text-muted-foreground">Total</p>
-            </CardContent>
-          </Card>
-          <Card className="border-green-200 dark:border-green-900">
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-green-600">
-                {reconciliationData.delivered}
-              </div>
-              <p className="text-sm text-muted-foreground">Entregados</p>
-            </CardContent>
-          </Card>
-          <Card className="border-red-200 dark:border-red-900">
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-red-600">{reconciliationData.failed}</div>
-              <p className="text-sm text-muted-foreground">Fallidos</p>
-            </CardContent>
-          </Card>
-          <Card className="border-orange-200 dark:border-orange-900">
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-orange-600">
-                {reconciliationData.rejected}
-              </div>
-              <p className="text-sm text-muted-foreground">Rechazados</p>
-            </CardContent>
-          </Card>
-          <Card className="border-amber-200 dark:border-amber-900">
-            <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-amber-600">{reconciliationData.pending}</div>
-              <p className="text-sm text-muted-foreground">Pendientes</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Financial Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Resumen Financiero</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-4">
-              <div>
-                <p className="text-sm text-muted-foreground">COD Esperado</p>
-                <p className="text-xl font-bold">
-                  {formatCurrency(reconciliationData.total_cod_expected)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">COD Cobrado</p>
-                <p className="text-xl font-bold text-green-600">
-                  {formatCurrency(reconciliationData.total_cod_collected)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Costo de Envío</p>
-                <p className="text-xl font-bold text-orange-600">
-                  {formatCurrency(reconciliationData.total_shipping_cost)}
-                </p>
-              </div>
-              <div className="p-3 bg-emerald-50 rounded-lg dark:bg-emerald-900/20">
-                <p className="text-sm text-muted-foreground">Neto a Cobrar</p>
-                <p className="text-2xl font-bold text-emerald-600">
-                  {formatCurrency(reconciliationData.net_receivable)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Discrepancies */}
-        {reconciliationData.discrepancies && reconciliationData.discrepancies.length > 0 && (
-          <Card className="border-amber-200 dark:border-amber-900">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
-                <CardTitle>Discrepancias Detectadas</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Pedido</TableHead>
-                    <TableHead>Problema</TableHead>
-                    <TableHead className="text-right">Esperado</TableHead>
-                    <TableHead className="text-right">Reportado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {reconciliationData.discrepancies.map((d, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-mono">{d.order_number}</TableCell>
-                      <TableCell>{d.issue}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(d.expected)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(d.actual)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-4">
-          <Button
-            variant="outline"
-            onClick={() => {
-              loadSessionDetail(currentSession.id);
-              setView('detail');
-            }}
-          >
-            Ver Detalle
-          </Button>
-          <Button onClick={() => setShowSettlementDialog(true)}>
-            <CheckCircle2 className="mr-2 h-4 w-4" />
-            Procesar Liquidación
-          </Button>
-        </div>
-      </div>
-    );
-  };
-
-  // Main render
-  return (
-    <div className="p-6">
-      {view === 'sessions' && renderSessionsList()}
-      {view === 'create' && renderCreateSession()}
-      {view === 'detail' && renderSessionDetail()}
-      {view === 'reconcile' && renderReconciliation()}
+          <DialogFooter>
+            <Button onClick={() => setShowResultsDialog(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

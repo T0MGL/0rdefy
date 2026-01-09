@@ -230,6 +230,32 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   </span>
                 </div>
               )}
+              {order.has_amount_discrepancy && order.amount_collected !== undefined && (
+                <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg className="h-4 w-4 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">Monto Diferente Cobrado</span>
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Esperado:</span>
+                      <span>Gs. {(order.cod_amount ?? order.total ?? 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Cobrado:</span>
+                      <span className="font-semibold text-orange-700 dark:text-orange-400">Gs. {order.amount_collected.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between pt-1 border-t border-orange-200 dark:border-orange-700">
+                      <span className="text-muted-foreground">Diferencia:</span>
+                      <span className={`font-bold ${order.amount_collected - (order.cod_amount ?? order.total ?? 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {order.amount_collected - (order.cod_amount ?? order.total ?? 0) > 0 ? '+' : ''}Gs. {(order.amount_collected - (order.cod_amount ?? order.total ?? 0)).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
               {order.payment_status && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Estado de Pago:</span>

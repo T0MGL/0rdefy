@@ -84,7 +84,7 @@ export interface ConfirmedOrder {
   customer_name: string;
   customer_phone: string;
   created_at: string;
-  carrier: { name: string } | null;
+  carrier_name?: string;
   total_items: number;
 }
 

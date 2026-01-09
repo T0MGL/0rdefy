@@ -382,6 +382,8 @@ CREATE TABLE IF NOT EXISTS orders (
     delivery_rating_comment TEXT,
     rated_at TIMESTAMP,
     cod_amount DECIMAL(10,2) DEFAULT 0.00,
+    amount_collected NUMERIC(12,2),
+    has_amount_discrepancy BOOLEAN DEFAULT FALSE,
     printed BOOLEAN DEFAULT FALSE,
     printed_at TIMESTAMP,
     printed_by VARCHAR(100),
@@ -418,6 +420,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_zone ON orders(delivery_zone) WHERE delive
 CREATE INDEX IF NOT EXISTS idx_orders_carrier_settlement ON orders(carrier_settlement_id) WHERE carrier_settlement_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_active_incident ON orders(store_id, has_active_incident) WHERE has_active_incident = TRUE;
 CREATE INDEX IF NOT EXISTS idx_orders_incident_status ON orders(sleeves_status) WHERE sleeves_status = 'incident';
+CREATE INDEX IF NOT EXISTS idx_orders_amount_discrepancy ON orders(store_id, has_amount_discrepancy) WHERE has_amount_discrepancy = TRUE;
 CREATE INDEX IF NOT EXISTS idx_orders_courier_notes ON orders(courier_notes) WHERE courier_notes IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_order_status_url ON orders(order_status_url) WHERE order_status_url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_shopify_order_name ON orders(shopify_order_name) WHERE shopify_order_name IS NOT NULL;

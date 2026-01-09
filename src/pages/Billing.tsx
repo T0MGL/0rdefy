@@ -269,42 +269,54 @@ ${link}`;
             </Alert>
           )}
 
-          {/* Billing Toggle */}
-          <div className="flex items-center justify-center gap-4 py-4">
-            <span className={!isAnnual ? 'font-medium' : 'text-muted-foreground'}>
-              Mensual
-            </span>
-            <Switch checked={isAnnual} onCheckedChange={setIsAnnual} />
-            <span className={isAnnual ? 'font-medium' : 'text-muted-foreground'}>
-              Anual
-            </span>
-            {isAnnual && (
-              <Badge variant="secondary" className="bg-green-100 text-green-700">
-                Ahorra 15%
-              </Badge>
-            )}
-          </div>
+          {/* Billing Toggle & Codes Section */}
+          <div className="flex flex-col items-center gap-6 py-6">
+            {/* Toggle */}
+            <div className="flex items-center gap-3 p-1 bg-muted/50 rounded-full">
+              <button
+                onClick={() => setIsAnnual(false)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                  !isAnnual
+                    ? 'bg-background shadow-sm text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Mensual
+              </button>
+              <button
+                onClick={() => setIsAnnual(true)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
+                  isAnnual
+                    ? 'bg-background shadow-sm text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Anual
+                <Badge variant="secondary" className="bg-green-500/10 text-green-600 dark:text-green-400 text-xs px-2 py-0">
+                  Ahorra 15%
+                </Badge>
+              </button>
+            </div>
 
-          {/* Discount Code */}
-          <div className="flex items-center justify-center gap-4">
-            <div className="flex items-center gap-2">
+            {/* Discount Codes */}
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <Input
                 placeholder="Codigo de descuento"
                 value={discountCode}
                 onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
-                className="w-48"
+                className="w-44 h-9 text-sm bg-muted/30 border-muted-foreground/20"
               />
               <Input
                 placeholder="Codigo de referido"
                 value={referralCode}
                 onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                className="w-48"
+                className="w-44 h-9 text-sm bg-muted/30 border-muted-foreground/20"
               />
             </div>
           </div>
 
           {/* Plans Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6">
             {allPlans.map((plan: Plan) => {
               const isCurrentPlan = currentPlan === plan.plan;
               const isGrowth = plan.plan === 'growth';
@@ -314,77 +326,92 @@ ${link}`;
               const monthlyPrice = plan.priceMonthly;
               const annualMonthlyPrice = plan.priceAnnual / 12; // Monthly equivalent of annual price
               const displayPrice = isAnnual ? annualMonthlyPrice : monthlyPrice;
+              const annualSavings = isAnnual ? Math.round((monthlyPrice - annualMonthlyPrice) * 12) : 0;
 
               return (
                 <Card
                   key={plan.plan}
-                  className={`relative ${
-                    isGrowth ? 'border-primary shadow-lg' : ''
-                  } ${isCurrentPlan ? 'border-green-500' : ''}`}
+                  className={`relative flex flex-col transition-all duration-200 hover:shadow-lg ${
+                    isGrowth
+                      ? 'border-primary/50 shadow-md shadow-primary/5 dark:shadow-primary/10 ring-1 ring-primary/20'
+                      : 'hover:border-muted-foreground/30'
+                  } ${isCurrentPlan ? 'border-green-500/50 ring-1 ring-green-500/20' : ''}`}
                 >
-                  {isGrowth && (
-                    <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary">
-                      Mas Popular
-                    </Badge>
-                  )}
-                  {isCurrentPlan && (
-                    <Badge className="absolute -top-3 right-4 bg-green-500">
-                      Plan Actual
-                    </Badge>
-                  )}
+                  {/* Badges */}
+                  <div className="absolute -top-3 inset-x-0 flex justify-center gap-2">
+                    {isGrowth && !isCurrentPlan && (
+                      <Badge className="bg-primary hover:bg-primary text-primary-foreground shadow-sm">
+                        Mas Popular
+                      </Badge>
+                    )}
+                    {isCurrentPlan && (
+                      <Badge className="bg-green-500 hover:bg-green-500 text-white shadow-sm">
+                        Plan Actual
+                      </Badge>
+                    )}
+                  </div>
 
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      {plan.plan === 'free' && <Zap className="h-5 w-5" />}
-                      {plan.plan === 'starter' && <Sparkles className="h-5 w-5" />}
-                      {plan.plan === 'growth' && <TrendingUp className="h-5 w-5" />}
-                      {plan.plan === 'professional' && <Crown className="h-5 w-5" />}
-                      {getPlanDisplayName(plan.plan)}
-                    </CardTitle>
-                    <CardDescription>
-                      {getPlanDescription(plan.plan)}
-                    </CardDescription>
+                  <CardHeader className="pb-4 pt-6">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`p-2 rounded-lg ${
+                        plan.plan === 'free' ? 'bg-slate-100 dark:bg-slate-800' :
+                        plan.plan === 'starter' ? 'bg-blue-100 dark:bg-blue-900/30' :
+                        plan.plan === 'growth' ? 'bg-primary/10' :
+                        'bg-amber-100 dark:bg-amber-900/30'
+                      }`}>
+                        {plan.plan === 'free' && <Zap className="h-5 w-5 text-slate-600 dark:text-slate-400" />}
+                        {plan.plan === 'starter' && <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+                        {plan.plan === 'growth' && <TrendingUp className="h-5 w-5 text-primary" />}
+                        {plan.plan === 'professional' && <Crown className="h-5 w-5 text-amber-600 dark:text-amber-400" />}
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg">{getPlanDisplayName(plan.plan)}</CardTitle>
+                        <CardDescription className="text-xs mt-0.5">
+                          {getPlanDescription(plan.plan)}
+                        </CardDescription>
+                      </div>
+                    </div>
                   </CardHeader>
 
-                  <CardContent className="space-y-4">
-                    {/* Price */}
-                    <div className="text-center">
+                  <CardContent className="flex-1 space-y-5">
+                    {/* Price Section */}
+                    <div className="space-y-1">
                       {isAnnual && plan.plan !== 'free' && (
-                        <div className="text-sm text-muted-foreground line-through mb-1">
+                        <div className="text-sm text-muted-foreground line-through">
                           ${monthlyPrice.toFixed(0)}/mes
                         </div>
                       )}
-                      <span className="text-4xl font-bold">
-                        ${displayPrice.toFixed(0)}
-                      </span>
-                      <span className="text-muted-foreground">/mes</span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-bold tracking-tight">
+                          ${displayPrice.toFixed(0)}
+                        </span>
+                        <span className="text-muted-foreground text-sm">/mes</span>
+                      </div>
                       {isAnnual && plan.plan !== 'free' && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          ${(plan.priceAnnual / 100).toFixed(0)} facturado anualmente
+                        <p className="text-xs text-muted-foreground">
+                          ${Math.round(annualMonthlyPrice * 12)} facturado anualmente
                         </p>
                       )}
                     </div>
 
                     {/* Trial Badge */}
                     {plan.has_trial && plan.plan !== 'free' && (
-                      <Badge variant="outline" className="w-full justify-center">
-                        <Gift className="h-3 w-3 mr-1" />
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 text-sm font-medium">
+                        <Gift className="h-3.5 w-3.5" />
                         14 dias gratis
-                      </Badge>
+                      </div>
                     )}
 
-                    <Separator />
-
                     {/* Limits */}
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        <span>
+                    <div className="space-y-2.5 pt-2">
+                      <div className="flex items-center gap-2.5 text-sm">
+                        <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-medium">
                           {plan.max_users === -1 ? 'Ilimitados' : plan.max_users} usuarios
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex items-center gap-2.5 text-sm">
+                        <ShoppingCart className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span>
                           {plan.max_orders_per_month === -1
                             ? 'Ilimitados'
@@ -392,8 +419,8 @@ ${link}`;
                           pedidos/mes
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex items-center gap-2.5 text-sm">
+                        <Package className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span>
                           {plan.max_products === -1
                             ? 'Ilimitados'
@@ -403,10 +430,10 @@ ${link}`;
                       </div>
                     </div>
 
-                    <Separator />
+                    <Separator className="my-4" />
 
                     {/* Features */}
-                    <div className="space-y-2 text-sm">
+                    <div className="space-y-2">
                       {renderFeature('Warehouse', plan.has_warehouse)}
                       {renderFeature('Devoluciones', plan.has_returns)}
                       {renderFeature('Mercaderia', plan.has_merchandise)}
@@ -418,19 +445,23 @@ ${link}`;
                     </div>
                   </CardContent>
 
-                  <CardFooter>
+                  <CardFooter className="pt-4">
                     {isCurrentPlan ? (
                       <Button className="w-full" disabled variant="outline">
                         Plan Actual
                       </Button>
                     ) : canUpgrade ? (
                       <Button
-                        className="w-full"
+                        className={`w-full ${isGrowth ? 'shadow-sm' : ''}`}
+                        variant={isGrowth ? 'default' : 'outline'}
                         onClick={() => handleUpgrade(plan.plan)}
                         disabled={checkoutMutation.isPending && selectedPlan === plan.plan}
                       >
                         {checkoutMutation.isPending && selectedPlan === plan.plan ? (
-                          'Cargando...'
+                          <span className="flex items-center gap-2">
+                            <span className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            Cargando...
+                          </span>
                         ) : (
                           <>
                             {plan.has_trial ? 'Probar Gratis' : 'Upgrade'}
@@ -439,11 +470,11 @@ ${link}`;
                         )}
                       </Button>
                     ) : canDowngrade ? (
-                      <Button className="w-full" variant="outline" disabled>
+                      <Button className="w-full" variant="ghost" disabled>
                         Contactar para Downgrade
                       </Button>
                     ) : (
-                      <Button className="w-full" variant="outline" disabled>
+                      <Button className="w-full" variant="ghost" disabled>
                         No disponible
                       </Button>
                     )}
@@ -756,13 +787,17 @@ function getProgressColor(percentage: number): string {
 
 function renderFeature(name: string, enabled: boolean) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5 text-sm">
       {enabled ? (
-        <Check className="h-4 w-4 text-green-500" />
+        <div className="h-4 w-4 rounded-full bg-green-500/10 flex items-center justify-center">
+          <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+        </div>
       ) : (
-        <X className="h-4 w-4 text-muted-foreground" />
+        <div className="h-4 w-4 rounded-full bg-muted flex items-center justify-center">
+          <X className="h-3 w-3 text-muted-foreground/50" />
+        </div>
       )}
-      <span className={!enabled ? 'text-muted-foreground' : ''}>{name}</span>
+      <span className={!enabled ? 'text-muted-foreground/60' : 'text-foreground/90'}>{name}</span>
     </div>
   );
 }

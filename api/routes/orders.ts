@@ -136,14 +136,14 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
 ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Response) => {
     try {
         const { token } = req.params;
-        const { proof_photo_url, payment_method, notes } = req.body;
+        const { proof_photo_url, payment_method, notes, amount_collected, has_amount_discrepancy } = req.body;
 
         console.log(`✅ [ORDERS] Courier confirming delivery via token`);
 
         // SECURITY: Look up order by token - only valid tokens can access
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, store_id, sleeves_status, courier_id, has_active_incident')
+            .select('id, store_id, sleeves_status, courier_id, has_active_incident, cod_amount')
             .eq('delivery_link_token', token)
             .single();
 
@@ -159,7 +159,9 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         console.log(`✅ [ORDERS] Token validated for order ${id}`, {
             payment_method,
             has_notes: !!notes,
-            has_photo: !!proof_photo_url
+            has_photo: !!proof_photo_url,
+            has_amount_discrepancy: !!has_amount_discrepancy,
+            amount_collected: amount_collected || null
         });
 
         // Check if order has an active incident
@@ -190,6 +192,13 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
 
         if (notes) {
             updateData.courier_notes = notes;
+        }
+
+        // Handle amount discrepancy (courier collected different amount than expected)
+        if (has_amount_discrepancy && amount_collected !== undefined) {
+            updateData.amount_collected = amount_collected;
+            updateData.has_amount_discrepancy = true;
+            console.log(`⚠️ [ORDERS] Amount discrepancy for order: expected ${existingOrder.cod_amount || 0}, collected ${amount_collected}`);
         }
 
         const { data, error } = await supabaseAdmin
@@ -233,6 +242,14 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 photo_url: proof_photo_url || null
             });
 
+        // Build notes for status history
+        let historyNotes = `Delivery confirmed by courier`;
+        if (payment_method) historyNotes += ` - Payment: ${payment_method}`;
+        if (has_amount_discrepancy && amount_collected !== undefined) {
+            historyNotes += ` - MONTO DIFERENTE COBRADO: ₲${amount_collected.toLocaleString()} (esperado: ₲${(existingOrder.cod_amount || 0).toLocaleString()})`;
+        }
+        if (notes) historyNotes += ` - Notes: ${notes}`;
+
         // Log status change
         await supabaseAdmin
             .from('order_status_history')
@@ -243,10 +260,10 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 new_status: 'delivered',
                 changed_by: 'courier',
                 change_source: 'delivery_app',
-                notes: `Delivery confirmed by courier${payment_method ? ` - Payment: ${payment_method}` : ''}${notes ? ` - Notes: ${notes}` : ''}`
+                notes: historyNotes
             });
 
-        console.log(`✅ [ORDERS] Order ${id} marked as delivered with full data sync`);
+        console.log(`✅ [ORDERS] Order ${id} marked as delivered with full data sync${has_amount_discrepancy ? ' (AMOUNT DISCREPANCY)' : ''}`);
 
         res.json({
             message: 'Delivery confirmed successfully',
@@ -739,7 +756,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 printed_by: order.printed_by,
                 deleted_at: order.deleted_at,  // For soft delete opacity in UI
                 deleted_by: order.deleted_by,
-                deletion_type: order.deletion_type
+                deletion_type: order.deletion_type,
+                // Amount discrepancy fields
+                cod_amount: order.cod_amount,
+                amount_collected: order.amount_collected,
+                has_amount_discrepancy: order.has_amount_discrepancy
             };
         }) || [];
 

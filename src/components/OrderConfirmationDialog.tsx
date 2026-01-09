@@ -319,7 +319,8 @@ export function OrderConfirmationDialog({
         addressReference: confirmedOrder.address_reference || order?.address_reference,
         carrierName: getCarrierById(courierId)?.name,
         codAmount: confirmedOrder.cod_amount || order?.cod_amount,
-        paymentMethod: confirmedOrder.payment_gateway || 'cash',
+        paymentMethod: confirmedOrder.payment_method,
+        paymentGateway: confirmedOrder.payment_gateway, // Most reliable COD indicator
         financialStatus: confirmedOrder.financial_status,
         deliveryToken: confirmedOrder.delivery_link_token || '',
         items: confirmedOrder.line_items && confirmedOrder.line_items.length > 0

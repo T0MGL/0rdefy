@@ -785,7 +785,8 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         addressReference: (order as any).address_reference,
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
-        paymentMethod: (order as any).payment_method || 'cash',
+        paymentMethod: (order as any).payment_method,
+        paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
         financialStatus: (order as any).financial_status,
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
@@ -845,8 +846,9 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         addressReference: (order as any).address_reference,
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
-        paymentMethod: (order as any).payment_method || 'cash', // Use payment_method instead of payment_gateway
-        financialStatus: (order as any).financial_status, // Shopify payment status
+        paymentMethod: (order as any).payment_method,
+        paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
+        financialStatus: (order as any).financial_status,
         deliveryToken: order.delivery_link_token || '',
         items: [
           {
@@ -1401,7 +1403,36 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                         )}
                       </td>
                       <td className="py-4 px-6 text-right text-sm font-semibold">
-                        {formatCurrency(order.total ?? 0)}
+                        <div className="flex flex-col items-end gap-1">
+                          <span>{formatCurrency(order.total ?? 0)}</span>
+                          {order.has_amount_discrepancy && order.amount_collected !== undefined && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-700 text-[10px] px-1.5 py-0 cursor-help"
+                                  >
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Cobró: {formatCurrency(order.amount_collected)}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent side="left" className="max-w-xs">
+                                  <p className="font-medium">Monto Diferente Cobrado</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Esperado: {formatCurrency(order.cod_amount ?? order.total ?? 0)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Cobrado: {formatCurrency(order.amount_collected)}
+                                  </p>
+                                  <p className="text-xs mt-1 text-orange-600 dark:text-orange-400">
+                                    Diferencia: {formatCurrency(order.amount_collected - (order.cod_amount ?? order.total ?? 0))}
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-6">
                         <div className="flex items-center justify-center gap-1">

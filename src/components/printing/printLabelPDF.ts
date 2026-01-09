@@ -19,6 +19,7 @@ interface LabelData {
   carrierName?: string;
   codAmount?: number;
   paymentMethod?: string;
+  paymentGateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided'; // From Shopify
   deliveryToken: string;
   items: Array<{
@@ -26,6 +27,23 @@ interface LabelData {
     quantity: number;
     price?: number; // Unit price for display
   }>;
+}
+
+/**
+ * Strips emojis and special Unicode characters from text for PDF rendering
+ * jsPDF doesn't support emoji characters well
+ */
+function stripEmojis(text: string): string {
+  return text
+    // Remove emojis and symbols
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+    .replace(/[\u{2700}-\u{27BF}]/gu, '')
+    .replace(/[\u{1F000}-\u{1F02F}]/gu, '')
+    .replace(/[\u{1F0A0}-\u{1F0FF}]/gu, '')
+    // Clean up multiple spaces
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -53,10 +71,17 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   });
 
   // Determine payment status
-  // Priority: Check COD first (if codAmount > 0, it's COD regardless of payment_method)
-  // This handles cases where payment_method might be incorrect but codAmount is set
+  // Priority: Check payment_gateway first (most reliable from Shopify)
+  // Then check codAmount, then payment_method as fallback
   const hasCODAmount = data.codAmount && data.codAmount > 0;
   const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
+
+  // Check payment_gateway (Shopify) - this is the most reliable indicator
+  const isCODGateway = data.paymentGateway === 'cash_on_delivery' ||
+                       data.paymentGateway === 'cod' ||
+                       data.paymentGateway === 'manual'; // Manual often means COD
+
+  // Fallback to payment_method
   const isCODMethod = data.paymentMethod === 'cash' ||
                       data.paymentMethod === 'efectivo' ||
                       data.paymentMethod === 'cod' ||
@@ -64,16 +89,18 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
 
   // Debug logging
   console.log('🔍 [PDF DEBUG] Payment data:', {
+    paymentGateway: data.paymentGateway,
     paymentMethod: data.paymentMethod,
     codAmount: data.codAmount,
     financialStatus: data.financialStatus,
     hasCODAmount,
     isPaidByShopify,
+    isCODGateway,
     isCODMethod,
   });
 
-  // Logic: If has COD amount OR COD payment method (and not paid by Shopify), show COBRAR
-  const isCOD = !isPaidByShopify && (hasCODAmount || isCODMethod);
+  // Logic: If payment_gateway is COD, OR has COD amount, OR COD method (and not already paid), show COBRAR
+  const isCOD = !isPaidByShopify && (isCODGateway || hasCODAmount || isCODMethod);
 
   // Set default font
   pdf.setFont('helvetica', 'normal');
@@ -130,28 +157,39 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   pdf.setFont('helvetica', 'bold');
   pdf.text('ENTREGAR A / SHIP TO:', 0.12, addressY + 0.15);
 
-  // Customer name
-  pdf.setFontSize(22);
+  // Customer name - clean emojis and calculate dynamic spacing
+  const cleanCustomerName = stripEmojis(data.customerName).toUpperCase();
+  pdf.setFontSize(20); // Slightly smaller to fit long names better
   pdf.setFont('helvetica', 'bold');
-  const nameLines = pdf.splitTextToSize(data.customerName.toUpperCase(), 3.7);
-  pdf.text(nameLines.slice(0, 2), 0.12, addressY + 0.45);
+  const nameLines = pdf.splitTextToSize(cleanCustomerName, 3.7);
+  const displayNameLines = nameLines.slice(0, 2); // Max 2 lines
+  pdf.text(displayNameLines, 0.12, addressY + 0.4);
 
-  // Customer address
-  pdf.setFontSize(16);
+  // Calculate dynamic Y position based on number of name lines
+  // Each line at font size 20 is approximately 0.25 inches
+  const nameEndY = addressY + 0.4 + (displayNameLines.length * 0.25);
+
+  // Customer address - starts after name with small gap
+  pdf.setFontSize(14); // Slightly smaller for address
   pdf.setFont('helvetica', 'normal');
   const addressText = [
     data.customerAddress || '',
     data.neighborhood ? `, ${data.neighborhood}` : ''
   ].join('');
 
+  let currentY = nameEndY + 0.1; // Small gap after name
+
   if (addressText) {
-    const addressLines = pdf.splitTextToSize(addressText, 3.7);
-    pdf.text(addressLines, 0.12, addressY + 0.95);
+    const cleanAddressText = stripEmojis(addressText);
+    const addressLines = pdf.splitTextToSize(cleanAddressText, 3.7);
+    const displayAddressLines = addressLines.slice(0, 2); // Max 2 lines for address
+    pdf.text(displayAddressLines, 0.12, currentY);
+    currentY += displayAddressLines.length * 0.18; // Adjust based on lines used
   }
 
   // City and reference
-  let detailsY = addressY + 1.4;
-  pdf.setFontSize(12);
+  currentY += 0.1; // Small gap
+  pdf.setFontSize(11);
   pdf.setFont('helvetica', 'normal');
 
   if (data.city || data.addressReference) {
@@ -160,9 +198,12 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
     if (data.addressReference) {
       cityRefText += cityRefText ? `  REF: ${data.addressReference}` : `REF: ${data.addressReference}`;
     }
-    pdf.text(cityRefText, 0.12, detailsY);
-    detailsY += 0.2;
+    pdf.text(stripEmojis(cityRefText), 0.12, currentY);
+    currentY += 0.18;
   }
+
+  // Ensure we don't overflow - set minimum position for phone
+  const detailsY = Math.max(currentY, addressY + 1.5);
 
   // Phone number with border
   pdf.setFontSize(14);
@@ -271,8 +312,8 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   displayItems.forEach((item) => {
     pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
 
-    // Item name with price (if available)
-    let itemText = item.name;
+    // Item name with price (if available) - strip emojis for PDF compatibility
+    let itemText = stripEmojis(item.name);
     if (item.price && item.price > 0) {
       itemText += ` @ Gs. ${item.price.toLocaleString()}`;
     }
@@ -391,24 +432,38 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
   pdf.setFont('helvetica', 'bold');
   pdf.text('ENTREGAR A / SHIP TO:', 0.12, addressY + 0.15);
 
-  pdf.setFontSize(22);
-  const nameLines = pdf.splitTextToSize(data.customerName.toUpperCase(), 3.7);
-  pdf.text(nameLines.slice(0, 2), 0.12, addressY + 0.45);
+  // Customer name - clean emojis and calculate dynamic spacing
+  const cleanCustomerName = stripEmojis(data.customerName).toUpperCase();
+  pdf.setFontSize(20); // Slightly smaller to fit long names better
+  pdf.setFont('helvetica', 'bold');
+  const nameLines = pdf.splitTextToSize(cleanCustomerName, 3.7);
+  const displayNameLines = nameLines.slice(0, 2); // Max 2 lines
+  pdf.text(displayNameLines, 0.12, addressY + 0.4);
 
-  pdf.setFontSize(16);
+  // Calculate dynamic Y position based on number of name lines
+  const nameEndY = addressY + 0.4 + (displayNameLines.length * 0.25);
+
+  // Customer address - starts after name with small gap
+  pdf.setFontSize(14); // Slightly smaller for address
   pdf.setFont('helvetica', 'normal');
   const addressText = [
     data.customerAddress || '',
     data.neighborhood ? `, ${data.neighborhood}` : ''
   ].join('');
 
+  let currentY = nameEndY + 0.1; // Small gap after name
+
   if (addressText) {
-    const addressLines = pdf.splitTextToSize(addressText, 3.7);
-    pdf.text(addressLines, 0.12, addressY + 0.95);
+    const cleanAddressText = stripEmojis(addressText);
+    const addressLines = pdf.splitTextToSize(cleanAddressText, 3.7);
+    const displayAddressLines = addressLines.slice(0, 2); // Max 2 lines for address
+    pdf.text(displayAddressLines, 0.12, currentY);
+    currentY += displayAddressLines.length * 0.18;
   }
 
-  let detailsY = addressY + 1.4;
-  pdf.setFontSize(12);
+  // City and reference
+  currentY += 0.1; // Small gap
+  pdf.setFontSize(11);
 
   if (data.city || data.addressReference) {
     let cityRefText = '';
@@ -416,16 +471,19 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
     if (data.addressReference) {
       cityRefText += cityRefText ? `  REF: ${data.addressReference}` : `REF: ${data.addressReference}`;
     }
-    pdf.text(cityRefText, 0.12, detailsY);
-    detailsY += 0.2;
+    pdf.text(stripEmojis(cityRefText), 0.12, currentY);
+    currentY += 0.18;
   }
+
+  // Ensure we don't overflow - set minimum position for phone
+  const detailsY = Math.max(currentY, addressY + 1.5);
 
   pdf.setFontSize(14);
   pdf.setFont('courier', 'bold');
   pdf.setLineWidth(0.02);
   const phoneText = `TEL: ${data.customerPhone}`;
   const phoneWidth = pdf.getTextWidth(phoneText) + 0.1;
-  const phoneBoxY = detailsY + 0.05; // Moved down to avoid overlap with address zone border
+  const phoneBoxY = detailsY + 0.05;
   pdf.rect(0.12, phoneBoxY - 0.12, phoneWidth, 0.2);
   pdf.text(phoneText, 0.17, phoneBoxY);
 
@@ -512,8 +570,8 @@ function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: 
   displayItems.forEach((item) => {
     pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
 
-    // Item name with price (if available)
-    let itemText = item.name;
+    // Item name with price (if available) - strip emojis for PDF compatibility
+    let itemText = stripEmojis(item.name);
     if (item.price && item.price > 0) {
       itemText += ` @ Gs. ${item.price.toLocaleString()}`;
     }
