@@ -732,7 +732,7 @@ export default function Settings() {
 
         {/* Preferences Tab */}
         <TabsContent value="preferences" className="space-y-6">
-          <Card className="p-6">
+          <Card className="p-6 bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent">
             <h2 className="text-xl font-semibold mb-6">Preferencias de Notificaciones</h2>
 
             <div className="space-y-6">
