@@ -364,8 +364,8 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 pl-1 pr-3 h-9">
                 <Avatar className="h-7 w-7">
-                  {profileImage ? (
-                    <AvatarImage src={profileImage} alt="Profile" />
+                  {(user as any)?.avatar_url ? (
+                    <AvatarImage src={(user as any).avatar_url} alt="Profile" />
                   ) : (
                     <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
                       {user?.user_metadata?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
