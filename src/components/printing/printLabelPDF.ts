@@ -18,30 +18,31 @@ interface LabelData {
   addressReference?: string;
   carrierName?: string;
   codAmount?: number;
+  totalPrice?: number; // Fallback when codAmount is 0
   paymentMethod?: string;
   paymentGateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
-  financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided'; // From Shopify
+  financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
   deliveryToken: string;
   items: Array<{
     name: string;
     quantity: number;
-    price?: number; // Unit price for display
+    price?: number;
   }>;
 }
 
 /**
  * Strips emojis and special Unicode characters from text for PDF rendering
- * jsPDF doesn't support emoji characters well
  */
 function stripEmojis(text: string): string {
+  if (!text) return '';
   return text
-    // Remove emojis and symbols
     .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
     .replace(/[\u{2600}-\u{26FF}]/gu, '')
     .replace(/[\u{2700}-\u{27BF}]/gu, '')
     .replace(/[\u{1F000}-\u{1F02F}]/gu, '')
     .replace(/[\u{1F0A0}-\u{1F0FF}]/gu, '')
-    // Clean up multiple spaces
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, '') // Variation selectors
+    .replace(/[\u{200D}]/gu, '') // Zero width joiner
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -50,293 +51,291 @@ function stripEmojis(text: string): string {
  * Generates a single 4x6 shipping label as PDF
  */
 export async function generateLabelPDF(data: LabelData): Promise<Blob> {
-  // Create PDF with exact 4x6 inch dimensions
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'in',
-    format: [4, 6], // Width x Height in inches
+    format: [4, 6],
     compress: true
   });
 
-  // Generate QR code as base64 data URL
+  // Generate QR code
   const deliveryUrl = `${window.location.origin}/delivery/${data.deliveryToken}`;
   const qrDataUrl = await QRCode.toDataURL(deliveryUrl, {
     width: 400,
     margin: 0,
-    color: {
-      dark: '#000000',
-      light: '#FFFFFF'
-    },
+    color: { dark: '#000000', light: '#FFFFFF' },
     errorCorrectionLevel: 'M'
   });
 
   // Determine payment status
-  // Priority: Check payment_gateway first (most reliable from Shopify)
-  // Then check codAmount, then payment_method as fallback
-  const hasCODAmount = data.codAmount && data.codAmount > 0;
   const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
-
-  // Check payment_gateway (Shopify) - this is the most reliable indicator
   const isCODGateway = data.paymentGateway === 'cash_on_delivery' ||
                        data.paymentGateway === 'cod' ||
-                       data.paymentGateway === 'manual'; // Manual often means COD
-
-  // Fallback to payment_method
+                       data.paymentGateway === 'manual';
   const isCODMethod = data.paymentMethod === 'cash' ||
                       data.paymentMethod === 'efectivo' ||
                       data.paymentMethod === 'cod' ||
                       data.paymentMethod === 'cash_on_delivery';
 
-  // Debug logging
-  console.log('🔍 [PDF DEBUG] Payment data:', {
+  // Get amount to collect - use codAmount if available, otherwise totalPrice
+  const amountToCollect = (data.codAmount && data.codAmount > 0) ? data.codAmount : (data.totalPrice || 0);
+  const hasAmountToCollect = amountToCollect > 0;
+
+  // COD logic: gateway says COD, OR has amount AND not paid online
+  const isCOD = !isPaidByShopify && (isCODGateway || isCODMethod || hasAmountToCollect);
+
+  console.log('🔍 [PDF] Payment check:', {
     paymentGateway: data.paymentGateway,
-    paymentMethod: data.paymentMethod,
-    codAmount: data.codAmount,
     financialStatus: data.financialStatus,
-    hasCODAmount,
-    isPaidByShopify,
-    isCODGateway,
-    isCODMethod,
+    codAmount: data.codAmount,
+    totalPrice: data.totalPrice,
+    amountToCollect,
+    isCOD,
+    isPaidByShopify
   });
 
-  // Logic: If payment_gateway is COD, OR has COD amount, OR COD method (and not already paid), show COBRAR
-  const isCOD = !isPaidByShopify && (isCODGateway || hasCODAmount || isCODMethod);
+  // Draw label
+  drawLabel(pdf, data, qrDataUrl, isCOD, amountToCollect);
 
-  // Set default font
-  pdf.setFont('helvetica', 'normal');
+  return pdf.output('blob');
+}
 
-  // === WATERMARK - Very subtle ORDEFY branding ===
-  const pageWidth = 4;
-  const pageHeight = 6;
-  const centerX = pageWidth / 2;
-  const centerY = pageHeight / 2;
+/**
+ * Core label drawing function - used by both single and batch
+ */
+function drawLabel(
+  pdf: jsPDF,
+  data: LabelData,
+  qrDataUrl: string,
+  isCOD: boolean,
+  amountToCollect: number
+) {
+  const PAGE_WIDTH = 4;
+  const PAGE_HEIGHT = 6;
+  const MARGIN = 0.1;
+  const CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2);
 
+  // Clean text data
+  const customerName = stripEmojis(data.customerName).toUpperCase();
+  const customerAddress = stripEmojis(data.customerAddress || '');
+  const neighborhood = stripEmojis(data.neighborhood || '');
+  const city = stripEmojis(data.city || '');
+  const addressRef = stripEmojis(data.addressReference || '');
+
+  // === WATERMARK (draw first, behind everything) ===
   pdf.saveGraphicsState();
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(100);
-  pdf.setTextColor(245, 245, 245); // Very light gray - almost imperceptible
-
-  // Draw diagonal watermark in center
-  pdf.text('ORDEFY', centerX, centerY, {
+  pdf.setFontSize(80);
+  pdf.setTextColor(230, 230, 230); // More visible gray
+  pdf.text('ORDEFY', PAGE_WIDTH / 2, PAGE_HEIGHT / 2, {
     align: 'center',
     angle: -45
   });
-
   pdf.restoreGraphicsState();
-  pdf.setTextColor(0, 0, 0); // Reset to black
+  pdf.setTextColor(0, 0, 0);
 
   // === OUTER BORDER ===
-  pdf.setLineWidth(0.04);
-  pdf.rect(0.04, 0.04, 3.92, 5.92);
+  pdf.setLineWidth(0.03);
+  pdf.setDrawColor(0, 0, 0);
+  pdf.rect(MARGIN, MARGIN, CONTENT_WIDTH, PAGE_HEIGHT - (MARGIN * 2));
 
-  // === ZONE A: HEADER (10% = 0.6in) ===
-  const headerY = 0.04;
-  const headerHeight = 0.6;
+  // === ZONE A: HEADER (0.5in) ===
+  const headerY = MARGIN;
+  const headerHeight = 0.5;
 
-  // Store name (left)
-  pdf.setFontSize(14);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text(data.storeName.toUpperCase(), 0.12, headerY + 0.35, {
-    maxWidth: 2.4
-  });
-
-  // Order number (right)
-  pdf.setFontSize(24);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text(`#${data.orderNumber}`, 3.88, headerY + 0.4, { align: 'right' });
-
-  // Header bottom border
-  pdf.line(0.04, headerY + headerHeight, 3.96, headerY + headerHeight);
-
-  // === ZONE B: ADDRESS (35% = 2.1in) ===
-  const addressY = headerY + headerHeight;
-  const addressHeight = 2.1;
-
-  // Zone label
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('ENTREGAR A / SHIP TO:', 0.12, addressY + 0.15);
-
-  // Customer name - clean emojis and calculate dynamic spacing
-  const cleanCustomerName = stripEmojis(data.customerName).toUpperCase();
-  pdf.setFontSize(20); // Slightly smaller to fit long names better
-  pdf.setFont('helvetica', 'bold');
-  const nameLines = pdf.splitTextToSize(cleanCustomerName, 3.7);
-  const displayNameLines = nameLines.slice(0, 2); // Max 2 lines
-  pdf.text(displayNameLines, 0.12, addressY + 0.4);
-
-  // Calculate dynamic Y position based on number of name lines
-  // Each line at font size 20 is approximately 0.25 inches
-  const nameEndY = addressY + 0.4 + (displayNameLines.length * 0.25);
-
-  // Customer address - starts after name with small gap
-  pdf.setFontSize(14); // Slightly smaller for address
-  pdf.setFont('helvetica', 'normal');
-  const addressText = [
-    data.customerAddress || '',
-    data.neighborhood ? `, ${data.neighborhood}` : ''
-  ].join('');
-
-  let currentY = nameEndY + 0.1; // Small gap after name
-
-  if (addressText) {
-    const cleanAddressText = stripEmojis(addressText);
-    const addressLines = pdf.splitTextToSize(cleanAddressText, 3.7);
-    const displayAddressLines = addressLines.slice(0, 2); // Max 2 lines for address
-    pdf.text(displayAddressLines, 0.12, currentY);
-    currentY += displayAddressLines.length * 0.18; // Adjust based on lines used
-  }
-
-  // City and reference
-  currentY += 0.1; // Small gap
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'normal');
-
-  if (data.city || data.addressReference) {
-    let cityRefText = '';
-    if (data.city) cityRefText += data.city;
-    if (data.addressReference) {
-      cityRefText += cityRefText ? `  REF: ${data.addressReference}` : `REF: ${data.addressReference}`;
-    }
-    pdf.text(stripEmojis(cityRefText), 0.12, currentY);
-    currentY += 0.18;
-  }
-
-  // Ensure we don't overflow - set minimum position for phone
-  const detailsY = Math.max(currentY, addressY + 1.5);
-
-  // Phone number with border
-  pdf.setFontSize(14);
-  pdf.setFont('courier', 'bold');
-  pdf.setLineWidth(0.02);
-  const phoneText = `TEL: ${data.customerPhone}`;
-  const phoneWidth = pdf.getTextWidth(phoneText) + 0.1;
-  const phoneBoxY = detailsY + 0.05; // Moved down to avoid overlap with address zone border
-  pdf.rect(0.12, phoneBoxY - 0.12, phoneWidth, 0.2);
-  pdf.text(phoneText, 0.17, phoneBoxY);
-
-  // Address bottom border
-  pdf.setLineWidth(0.04);
-  pdf.line(0.04, addressY + addressHeight, 3.96, addressY + addressHeight);
-
-  // === ZONE C: ACTION (30% = 1.8in) ===
-  const actionY = addressY + addressHeight;
-  const actionHeight = 1.8;
-
-  // QR Container (left 45%)
-  const qrX = 0.04;
-  const qrWidth = 1.8;
-
-  // Add QR code image first
-  pdf.addImage(qrDataUrl, 'PNG', qrX + 0.2, actionY + 0.15, 1.4, 1.4);
-
-  // Vertical separator line will be drawn AFTER payment box (below) to avoid overlay
-
-  // Action details (right 55%)
-  const actionDetailsX = qrX + qrWidth + 0.1;
-  const actionDetailsWidth = 2.06;
-
-  if (isCOD) {
-    // COD Box (black background)
-    const codBoxY = actionY + 0.2;
-    const codBoxHeight = 0.6;
-    pdf.setFillColor(0, 0, 0);
-    pdf.rect(actionDetailsX, codBoxY, actionDetailsWidth, codBoxHeight, 'F');
-
-    // COD label (white text)
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(16);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('COBRAR', actionDetailsX + actionDetailsWidth / 2, codBoxY + 0.25, { align: 'center' });
-
-    // COD amount (white text)
-    pdf.setFontSize(18);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(`Gs. ${data.codAmount?.toLocaleString()}`, actionDetailsX + actionDetailsWidth / 2, codBoxY + 0.48, { align: 'center' });
-
-    // Reset text color
-    pdf.setTextColor(0, 0, 0);
-  } else {
-    // PAID Box (border only)
-    const paidBoxY = actionY + 0.2;
-    const paidBoxHeight = 0.6;
-    pdf.setLineWidth(0.04);
-    pdf.rect(actionDetailsX, paidBoxY, actionDetailsWidth, paidBoxHeight);
-
-    // PAID text
-    pdf.setFontSize(20);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('PAGADO', actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.3, { align: 'center' });
-
-    // Payment status text from Shopify
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'normal');
-    const statusText = data.financialStatus === 'authorized' ? 'AUTORIZADO' :
-                       data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD';
-    pdf.text(statusText, actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
-  }
-
-  // Draw vertical separator line AFTER payment box to avoid overlay
-  pdf.setLineWidth(0.02);
-  pdf.setDrawColor(200, 200, 200); // Light gray line
-  pdf.line(qrX + qrWidth, actionY, qrX + qrWidth, actionY + actionHeight);
-  pdf.setDrawColor(0, 0, 0); // Reset to black
-
-  // Carrier info
+  // Store name
   pdf.setFontSize(12);
   pdf.setFont('helvetica', 'bold');
-  pdf.text(`SERVICIOS: ${data.carrierName || 'PROPIO'}`, actionDetailsX + actionDetailsWidth / 2, actionY + 1.5, { align: 'center' });
+  pdf.text(stripEmojis(data.storeName).toUpperCase(), MARGIN + 0.08, headerY + 0.32, { maxWidth: 2.2 });
 
-  // Action bottom border
-  pdf.setLineWidth(0.04);
-  pdf.line(0.04, actionY + actionHeight, 3.96, actionY + actionHeight);
-
-  // === ZONE D: PACKING LIST (25% = 1.5in) ===
-  const packingY = actionY + actionHeight;
-
-  // Table headers
-  pdf.setFontSize(11);
+  // Order number - large and prominent
+  pdf.setFontSize(22);
   pdf.setFont('helvetica', 'bold');
-  pdf.text('QTY', 0.25, packingY + 0.2, { align: 'center' });
-  pdf.text('ITEM', 0.6, packingY + 0.2);
+  const orderText = `##${data.orderNumber}`;
+  pdf.text(orderText, PAGE_WIDTH - MARGIN - 0.08, headerY + 0.35, { align: 'right' });
 
-  // Header underline
+  // Header separator
   pdf.setLineWidth(0.02);
-  pdf.line(0.12, packingY + 0.25, 3.88, packingY + 0.25);
+  pdf.line(MARGIN, headerY + headerHeight, PAGE_WIDTH - MARGIN, headerY + headerHeight);
 
-  // Table rows
-  pdf.setFont('helvetica', 'normal');
-  let rowY = packingY + 0.45;
-  const displayItems = data.items.slice(0, 4);
+  // === ZONE B: ADDRESS (1.9in fixed height) ===
+  const addressZoneY = headerY + headerHeight;
+  const addressZoneHeight = 1.9;
 
-  displayItems.forEach((item) => {
-    pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
+  // "ENTREGAR A" label
+  pdf.setFontSize(9);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('ENTREGAR A / SHIP TO:', MARGIN + 0.08, addressZoneY + 0.18);
 
-    // Item name with price (if available) - strip emojis for PDF compatibility
-    let itemText = stripEmojis(item.name);
-    if (item.price && item.price > 0) {
-      itemText += ` @ Gs. ${item.price.toLocaleString()}`;
-    }
+  // Customer name - max 2 lines, font size adapts
+  let nameFontSize = 18;
+  pdf.setFontSize(nameFontSize);
+  pdf.setFont('helvetica', 'bold');
+  let nameLines = pdf.splitTextToSize(customerName, CONTENT_WIDTH - 0.16);
 
-    // Truncate long item names
-    const itemLines = pdf.splitTextToSize(itemText, 3.2);
-    pdf.text(itemLines[0], 0.6, rowY);
-
-    // Light separator line
-    pdf.setDrawColor(200, 200, 200);
-    pdf.setLineWidth(0.01);
-    pdf.line(0.12, rowY + 0.05, 3.88, rowY + 0.05);
-
-    rowY += 0.25;
-  });
-
-  // More items indicator
-  if (data.items.length > 4) {
-    pdf.text('+', 0.25, rowY, { align: 'center' });
-    pdf.text(`...y ${data.items.length - 4} items más`, 0.6, rowY);
+  // If name is too long, reduce font
+  if (nameLines.length > 2) {
+    nameFontSize = 15;
+    pdf.setFontSize(nameFontSize);
+    nameLines = pdf.splitTextToSize(customerName, CONTENT_WIDTH - 0.16);
   }
 
-  return pdf.output('blob');
+  const displayNameLines = nameLines.slice(0, 2);
+  const nameY = addressZoneY + 0.4;
+  const lineHeight = nameFontSize * 0.018; // Approximate line height in inches
+
+  pdf.text(displayNameLines, MARGIN + 0.08, nameY);
+
+  // Address section - positioned after name
+  const addressStartY = nameY + (displayNameLines.length * lineHeight) + 0.12;
+
+  // Build address text
+  let fullAddress = customerAddress;
+  if (neighborhood) {
+    fullAddress += fullAddress ? `, ${neighborhood}` : neighborhood;
+  }
+
+  if (fullAddress) {
+    pdf.setFontSize(12);
+    pdf.setFont('helvetica', 'normal');
+    const addrLines = pdf.splitTextToSize(fullAddress, CONTENT_WIDTH - 0.16);
+    pdf.text(addrLines.slice(0, 2), MARGIN + 0.08, addressStartY);
+  }
+
+  // City / Reference - smaller text
+  const detailsY = addressStartY + 0.35;
+  if (city || addressRef) {
+    pdf.setFontSize(10);
+    let detailText = city || '';
+    if (addressRef) {
+      detailText += detailText ? ` | REF: ${addressRef}` : `REF: ${addressRef}`;
+    }
+    const detailLines = pdf.splitTextToSize(detailText, CONTENT_WIDTH - 0.16);
+    pdf.text(detailLines[0] || '', MARGIN + 0.08, detailsY);
+  }
+
+  // Phone - always at fixed position near bottom of address zone
+  const phoneY = addressZoneY + addressZoneHeight - 0.25;
+  pdf.setFontSize(13);
+  pdf.setFont('courier', 'bold');
+  const phoneText = `TEL: ${data.customerPhone}`;
+  const phoneWidth = pdf.getTextWidth(phoneText) + 0.12;
+
+  pdf.setLineWidth(0.02);
+  pdf.rect(MARGIN + 0.08, phoneY - 0.12, phoneWidth, 0.22);
+  pdf.text(phoneText, MARGIN + 0.14, phoneY);
+
+  // Address zone separator
+  pdf.setLineWidth(0.02);
+  pdf.line(MARGIN, addressZoneY + addressZoneHeight, PAGE_WIDTH - MARGIN, addressZoneY + addressZoneHeight);
+
+  // === ZONE C: QR + PAYMENT (1.8in) ===
+  const actionZoneY = addressZoneY + addressZoneHeight;
+  const actionZoneHeight = 1.8;
+
+  // QR Code (left side)
+  const qrSize = 1.4;
+  const qrX = MARGIN + 0.15;
+  const qrY = actionZoneY + 0.2;
+  pdf.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+
+  // Vertical separator
+  const separatorX = MARGIN + 1.7;
+  pdf.setLineWidth(0.01);
+  pdf.setDrawColor(180, 180, 180);
+  pdf.line(separatorX, actionZoneY + 0.05, separatorX, actionZoneY + actionZoneHeight - 0.05);
+  pdf.setDrawColor(0, 0, 0);
+
+  // Payment box (right side)
+  const paymentBoxX = separatorX + 0.12;
+  const paymentBoxWidth = PAGE_WIDTH - MARGIN - paymentBoxX - 0.08;
+  const paymentBoxY = actionZoneY + 0.15;
+  const paymentBoxHeight = 0.7;
+
+  if (isCOD) {
+    // COD - Black filled box
+    pdf.setFillColor(0, 0, 0);
+    pdf.rect(paymentBoxX, paymentBoxY, paymentBoxWidth, paymentBoxHeight, 'F');
+
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(14);
+    pdf.text('COBRAR', paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.25, { align: 'center' });
+
+    pdf.setFontSize(16);
+    pdf.text(`Gs. ${amountToCollect.toLocaleString('es-PY')}`, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.52, { align: 'center' });
+
+    pdf.setTextColor(0, 0, 0);
+  } else {
+    // PAID - Outlined box
+    pdf.setLineWidth(0.03);
+    pdf.rect(paymentBoxX, paymentBoxY, paymentBoxWidth, paymentBoxHeight);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(18);
+    pdf.text('PAGADO', paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.35, { align: 'center' });
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    const statusText = data.financialStatus === 'authorized' ? 'AUTORIZADO' :
+                       data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD';
+    pdf.text(statusText, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.55, { align: 'center' });
+  }
+
+  // Carrier info
+  pdf.setFontSize(11);
+  pdf.setFont('helvetica', 'bold');
+  const carrierText = `DELIVERY: ${data.carrierName || 'PROPIO'}`;
+  pdf.text(carrierText, paymentBoxX + paymentBoxWidth / 2, actionZoneY + 1.45, { align: 'center' });
+
+  // Action zone separator
+  pdf.setLineWidth(0.02);
+  pdf.line(MARGIN, actionZoneY + actionZoneHeight, PAGE_WIDTH - MARGIN, actionZoneY + actionZoneHeight);
+
+  // === ZONE D: PACKING LIST (remaining space ~1.7in) ===
+  const packingY = actionZoneY + actionZoneHeight;
+
+  // Table header
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('QTY', MARGIN + 0.25, packingY + 0.18, { align: 'center' });
+  pdf.text('ITEM', MARGIN + 0.55, packingY + 0.18);
+
+  pdf.setLineWidth(0.01);
+  pdf.line(MARGIN + 0.08, packingY + 0.22, PAGE_WIDTH - MARGIN - 0.08, packingY + 0.22);
+
+  // Items
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  let itemY = packingY + 0.4;
+  const maxItems = 4;
+  const itemsToShow = data.items.slice(0, maxItems);
+
+  itemsToShow.forEach((item) => {
+    pdf.text(item.quantity.toString(), MARGIN + 0.25, itemY, { align: 'center' });
+
+    let itemName = stripEmojis(item.name);
+    // Truncate if too long
+    const maxNameWidth = CONTENT_WIDTH - 0.7;
+    while (pdf.getTextWidth(itemName) > maxNameWidth && itemName.length > 10) {
+      itemName = itemName.slice(0, -4) + '...';
+    }
+    pdf.text(itemName, MARGIN + 0.55, itemY);
+
+    // Light separator
+    pdf.setDrawColor(220, 220, 220);
+    pdf.line(MARGIN + 0.08, itemY + 0.06, PAGE_WIDTH - MARGIN - 0.08, itemY + 0.06);
+    pdf.setDrawColor(0, 0, 0);
+
+    itemY += 0.28;
+  });
+
+  // Show more items indicator
+  if (data.items.length > maxItems) {
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(9);
+    pdf.text(`+${data.items.length - maxItems} items más`, MARGIN + 0.55, itemY);
+  }
 }
 
 /**
@@ -355,258 +354,41 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
       pdf.addPage([4, 6], 'portrait');
     }
 
-    // For batch, we need to draw on current page
-    // This is a simplified version - we'll regenerate the content directly
-    const deliveryUrl = `${window.location.origin}/delivery/${labels[i].deliveryToken}`;
+    const data = labels[i];
+    const deliveryUrl = `${window.location.origin}/delivery/${data.deliveryToken}`;
     const qrDataUrl = await QRCode.toDataURL(deliveryUrl, {
       width: 400,
       margin: 0,
       errorCorrectionLevel: 'M'
     });
 
-    // Determine payment status for this label
-    const hasCODAmount = labels[i].codAmount && labels[i].codAmount > 0;
-    const isPaidByShopify = labels[i].financialStatus === 'paid' || labels[i].financialStatus === 'authorized';
-    const isCODMethod = labels[i].paymentMethod === 'cash' ||
-                        labels[i].paymentMethod === 'efectivo' ||
-                        labels[i].paymentMethod === 'cod' ||
-                        labels[i].paymentMethod === 'cash_on_delivery';
-    const isCOD = !isPaidByShopify && (hasCODAmount || isCODMethod);
+    const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
+    const isCODGateway = data.paymentGateway === 'cash_on_delivery' ||
+                         data.paymentGateway === 'cod' ||
+                         data.paymentGateway === 'manual';
+    const isCODMethod = data.paymentMethod === 'cash' ||
+                        data.paymentMethod === 'efectivo' ||
+                        data.paymentMethod === 'cod' ||
+                        data.paymentMethod === 'cash_on_delivery';
 
-    // Draw the label
-    drawLabelOnPage(pdf, labels[i], qrDataUrl, isCOD);
+    const amountToCollect = (data.codAmount && data.codAmount > 0) ? data.codAmount : (data.totalPrice || 0);
+    const hasAmountToCollect = amountToCollect > 0;
+    const isCOD = !isPaidByShopify && (isCODGateway || isCODMethod || hasAmountToCollect);
+
+    drawLabel(pdf, data, qrDataUrl, isCOD, amountToCollect);
   }
 
   return pdf.output('blob');
 }
 
 /**
- * Helper function to draw label content on current PDF page
- */
-function drawLabelOnPage(pdf: jsPDF, data: LabelData, qrDataUrl: string, isCOD: boolean) {
-  // Set default font
-  pdf.setFont('helvetica', 'normal');
-
-  // === WATERMARK - Very subtle ORDEFY branding ===
-  const pageWidth = 4;
-  const pageHeight = 6;
-  const centerX = pageWidth / 2;
-  const centerY = pageHeight / 2;
-
-  pdf.saveGraphicsState();
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(100);
-  pdf.setTextColor(245, 245, 245); // Very light gray - almost imperceptible
-
-  // Draw diagonal watermark in center
-  pdf.text('ORDEFY', centerX, centerY, {
-    align: 'center',
-    angle: -45
-  });
-
-  pdf.restoreGraphicsState();
-  pdf.setTextColor(0, 0, 0); // Reset to black
-
-  // === OUTER BORDER ===
-  pdf.setLineWidth(0.04);
-  pdf.rect(0.04, 0.04, 3.92, 5.92);
-
-  // === ZONE A: HEADER ===
-  const headerY = 0.04;
-  const headerHeight = 0.6;
-
-  pdf.setFontSize(14);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text(data.storeName.toUpperCase(), 0.12, headerY + 0.35, { maxWidth: 2.4 });
-
-  pdf.setFontSize(24);
-  pdf.text(`#${data.orderNumber}`, 3.88, headerY + 0.4, { align: 'right' });
-
-  pdf.line(0.04, headerY + headerHeight, 3.96, headerY + headerHeight);
-
-  // === ZONE B: ADDRESS ===
-  const addressY = headerY + headerHeight;
-  const addressHeight = 2.1;
-
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('ENTREGAR A / SHIP TO:', 0.12, addressY + 0.15);
-
-  // Customer name - clean emojis and calculate dynamic spacing
-  const cleanCustomerName = stripEmojis(data.customerName).toUpperCase();
-  pdf.setFontSize(20); // Slightly smaller to fit long names better
-  pdf.setFont('helvetica', 'bold');
-  const nameLines = pdf.splitTextToSize(cleanCustomerName, 3.7);
-  const displayNameLines = nameLines.slice(0, 2); // Max 2 lines
-  pdf.text(displayNameLines, 0.12, addressY + 0.4);
-
-  // Calculate dynamic Y position based on number of name lines
-  const nameEndY = addressY + 0.4 + (displayNameLines.length * 0.25);
-
-  // Customer address - starts after name with small gap
-  pdf.setFontSize(14); // Slightly smaller for address
-  pdf.setFont('helvetica', 'normal');
-  const addressText = [
-    data.customerAddress || '',
-    data.neighborhood ? `, ${data.neighborhood}` : ''
-  ].join('');
-
-  let currentY = nameEndY + 0.1; // Small gap after name
-
-  if (addressText) {
-    const cleanAddressText = stripEmojis(addressText);
-    const addressLines = pdf.splitTextToSize(cleanAddressText, 3.7);
-    const displayAddressLines = addressLines.slice(0, 2); // Max 2 lines for address
-    pdf.text(displayAddressLines, 0.12, currentY);
-    currentY += displayAddressLines.length * 0.18;
-  }
-
-  // City and reference
-  currentY += 0.1; // Small gap
-  pdf.setFontSize(11);
-
-  if (data.city || data.addressReference) {
-    let cityRefText = '';
-    if (data.city) cityRefText += data.city;
-    if (data.addressReference) {
-      cityRefText += cityRefText ? `  REF: ${data.addressReference}` : `REF: ${data.addressReference}`;
-    }
-    pdf.text(stripEmojis(cityRefText), 0.12, currentY);
-    currentY += 0.18;
-  }
-
-  // Ensure we don't overflow - set minimum position for phone
-  const detailsY = Math.max(currentY, addressY + 1.5);
-
-  pdf.setFontSize(14);
-  pdf.setFont('courier', 'bold');
-  pdf.setLineWidth(0.02);
-  const phoneText = `TEL: ${data.customerPhone}`;
-  const phoneWidth = pdf.getTextWidth(phoneText) + 0.1;
-  const phoneBoxY = detailsY + 0.05;
-  pdf.rect(0.12, phoneBoxY - 0.12, phoneWidth, 0.2);
-  pdf.text(phoneText, 0.17, phoneBoxY);
-
-  pdf.setLineWidth(0.04);
-  pdf.line(0.04, addressY + addressHeight, 3.96, addressY + addressHeight);
-
-  // === ZONE C: ACTION ===
-  const actionY = addressY + addressHeight;
-  const actionHeight = 1.8;
-
-  const qrX = 0.04;
-  const qrWidth = 1.8;
-
-  // Draw QR code first
-  pdf.addImage(qrDataUrl, 'PNG', qrX + 0.2, actionY + 0.15, 1.4, 1.4);
-
-  // Draw vertical separator line AFTER payment box (below) to avoid overlay
-  // This will be drawn later after the payment box
-
-  const actionDetailsX = qrX + qrWidth + 0.1;
-  const actionDetailsWidth = 2.06;
-
-  if (isCOD) {
-    const codBoxY = actionY + 0.2;
-    const codBoxHeight = 0.6;
-    pdf.setFillColor(0, 0, 0);
-    pdf.rect(actionDetailsX, codBoxY, actionDetailsWidth, codBoxHeight, 'F');
-
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(16);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('COBRAR', actionDetailsX + actionDetailsWidth / 2, codBoxY + 0.25, { align: 'center' });
-
-    pdf.setFontSize(18);
-    pdf.text(`Gs. ${data.codAmount?.toLocaleString()}`, actionDetailsX + actionDetailsWidth / 2, codBoxY + 0.48, { align: 'center' });
-
-    pdf.setTextColor(0, 0, 0);
-  } else {
-    const paidBoxY = actionY + 0.2;
-    const paidBoxHeight = 0.6;
-    pdf.setLineWidth(0.04);
-    pdf.rect(actionDetailsX, paidBoxY, actionDetailsWidth, paidBoxHeight);
-
-    pdf.setFontSize(20);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('PAGADO', actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.3, { align: 'center' });
-
-    // Payment status text from Shopify
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'normal');
-    const statusText = data.financialStatus === 'authorized' ? 'AUTORIZADO' :
-                       data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD';
-    pdf.text(statusText, actionDetailsX + actionDetailsWidth / 2, paidBoxY + 0.5, { align: 'center' });
-  }
-
-  // Draw vertical separator line AFTER payment box to avoid overlay
-  pdf.setLineWidth(0.02);
-  pdf.setDrawColor(200, 200, 200); // Light gray line
-  pdf.line(qrX + qrWidth, actionY, qrX + qrWidth, actionY + actionHeight);
-  pdf.setDrawColor(0, 0, 0); // Reset to black
-
-  pdf.setFontSize(12);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text(`SERVICIOS: ${data.carrierName || 'PROPIO'}`, actionDetailsX + actionDetailsWidth / 2, actionY + 1.5, { align: 'center' });
-
-  pdf.setLineWidth(0.04);
-  pdf.line(0.04, actionY + actionHeight, 3.96, actionY + actionHeight);
-
-  // === ZONE D: PACKING LIST ===
-  const packingY = actionY + actionHeight;
-
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('QTY', 0.25, packingY + 0.2, { align: 'center' });
-  pdf.text('ITEM', 0.6, packingY + 0.2);
-
-  pdf.setLineWidth(0.02);
-  pdf.line(0.12, packingY + 0.25, 3.88, packingY + 0.25);
-
-  pdf.setFont('helvetica', 'normal');
-  let rowY = packingY + 0.45;
-  const displayItems = data.items.slice(0, 4);
-
-  displayItems.forEach((item) => {
-    pdf.text(item.quantity.toString(), 0.25, rowY, { align: 'center' });
-
-    // Item name with price (if available) - strip emojis for PDF compatibility
-    let itemText = stripEmojis(item.name);
-    if (item.price && item.price > 0) {
-      itemText += ` @ Gs. ${item.price.toLocaleString()}`;
-    }
-
-    const itemLines = pdf.splitTextToSize(itemText, 3.2);
-    pdf.text(itemLines[0], 0.6, rowY);
-
-    pdf.setDrawColor(200, 200, 200);
-    pdf.setLineWidth(0.01);
-    pdf.line(0.12, rowY + 0.05, 3.88, rowY + 0.05);
-
-    rowY += 0.25;
-  });
-
-  if (data.items.length > 4) {
-    pdf.text('+', 0.25, rowY, { align: 'center' });
-    pdf.text(`...y ${data.items.length - 4} items más`, 0.6, rowY);
-  }
-}
-
-/**
  * Opens the PDF in a new window/tab for printing
- * This is the most reliable method because:
- * 1. The PDF viewer handles the 4x6 page size correctly
- * 2. User can verify the label before printing
- * 3. Works consistently across all browsers
  */
 export async function triggerDirectPrint(blob: Blob): Promise<void> {
   const url = URL.createObjectURL(blob);
-
-  // Open PDF in new window - let the native PDF viewer handle printing
   const printWindow = window.open(url, '_blank');
 
   if (!printWindow) {
-    // If popup was blocked, fall back to download
     const a = document.createElement('a');
     a.href = url;
     a.download = 'etiqueta-envio.pdf';
@@ -615,15 +397,12 @@ export async function triggerDirectPrint(blob: Blob): Promise<void> {
     return;
   }
 
-  // Clean up URL after window loads
   printWindow.onload = () => {
-    // Give PDF time to render, then trigger print
     setTimeout(() => {
       printWindow.print();
     }, 1000);
   };
 
-  // Cleanup URL after 30 seconds
   setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 30000);
@@ -631,7 +410,6 @@ export async function triggerDirectPrint(blob: Blob): Promise<void> {
 
 /**
  * Main function to print a single label
- * Generates PDF and triggers direct print dialog
  */
 export async function printLabelPDF(data: LabelData): Promise<boolean> {
   try {
@@ -646,7 +424,6 @@ export async function printLabelPDF(data: LabelData): Promise<boolean> {
 
 /**
  * Main function to print multiple labels in batch
- * Generates multi-page PDF and triggers direct print dialog
  */
 export async function printBatchLabelsPDF(labels: LabelData[]): Promise<boolean> {
   try {

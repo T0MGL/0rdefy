@@ -319,6 +319,7 @@ export function OrderConfirmationDialog({
         addressReference: confirmedOrder.address_reference || order?.address_reference,
         carrierName: getCarrierById(courierId)?.name,
         codAmount: confirmedOrder.cod_amount || order?.cod_amount,
+        totalPrice: confirmedOrder.total_price || order?.total || order?.total_price, // Fallback for COD amount
         paymentMethod: confirmedOrder.payment_method,
         paymentGateway: confirmedOrder.payment_gateway, // Most reliable COD indicator
         financialStatus: confirmedOrder.financial_status,

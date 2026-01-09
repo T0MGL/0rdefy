@@ -785,6 +785,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         addressReference: (order as any).address_reference,
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
+        totalPrice: order.total || (order as any).total_price, // Fallback for COD amount
         paymentMethod: (order as any).payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
         financialStatus: (order as any).financial_status,
@@ -846,17 +847,22 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         addressReference: (order as any).address_reference,
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
+        totalPrice: order.total || (order as any).total_price, // Fallback for COD amount
         paymentMethod: (order as any).payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
         financialStatus: (order as any).financial_status,
         deliveryToken: order.delivery_link_token || '',
-        items: [
-          {
-            name: order.product,
-            quantity: order.quantity,
-            price: (order as any).total_price ? (order as any).total_price / order.quantity : 0
-          },
-        ],
+        items: order.order_line_items && order.order_line_items.length > 0
+          ? order.order_line_items.map((item: any) => ({
+            name: item.product_name || item.title,
+            quantity: item.quantity,
+            price: item.price || item.unit_price,
+          }))
+          : [{
+              name: order.product,
+              quantity: order.quantity,
+              price: (order as any).total_price ? (order as any).total_price / order.quantity : 0
+            }],
       }));
 
       console.log('🏷️ [ORDERS] Label data for batch print:', labelsData);
