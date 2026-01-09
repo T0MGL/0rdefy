@@ -9,6 +9,7 @@
 import express from 'express';
 import { verifyToken, extractStoreId } from '../middleware/auth.js';
 import { extractUserRole, requireModule, requirePermission } from '../middleware/permissions.js';
+import { requireFeature } from '../middleware/planLimits.js';
 import { Module, Permission } from '../permissions.js';
 import * as returnsService from '../services/returns.service.js';
 
@@ -21,6 +22,9 @@ router.use(extractUserRole);
 
 // Apply module-level access check for all routes
 router.use(requireModule(Module.RETURNS));
+
+// Apply plan feature check - returns requires Starter+ plan
+router.use(requireFeature('returns'));
 
 /**
  * GET /api/returns/eligible-orders

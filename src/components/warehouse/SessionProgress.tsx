@@ -5,7 +5,8 @@
 
 import { Check, Package, PackageCheck, ClipboardCheck, Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { WorkflowStep } from '@/contexts/WarehouseContext';
+
+export type WorkflowStep = 'selection' | 'picking' | 'packing' | 'verification';
 
 interface SessionProgressProps {
   currentStep: WorkflowStep;

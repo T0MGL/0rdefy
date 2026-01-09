@@ -233,7 +233,7 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-64px)] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl"
           style={{
             top: '50%',
             left: '50%',
@@ -323,7 +323,7 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-64px)] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl"
           style={{
             top: '50%',
             left: '50%',
@@ -385,9 +385,9 @@ export function DemoTourTooltip() {
           mass: 0.8,
         }}
         className={cn(
-          'fixed z-[10002] w-[400px] max-w-[calc(100vw-32px)]',
+          'fixed z-[10002] w-[400px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-100px)]',
           'bg-card border border-border rounded-2xl shadow-2xl',
-          'overflow-hidden'
+          'overflow-y-auto'
         )}
         style={tooltipPosition}
       >

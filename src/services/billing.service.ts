@@ -71,6 +71,7 @@ export interface CheckoutParams {
   billingCycle: 'monthly' | 'annual';
   discountCode?: string;
   referralCode?: string;
+  fromOnboarding?: boolean; // Flag to indicate checkout is from onboarding flow
 }
 
 export const billingService = {

@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, Role } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users, Loader2 } from 'lucide-react';
@@ -68,7 +69,11 @@ export default function Settings() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user, currentStore, stores, updateProfile, changePassword, deleteAccount, deleteStore, signOut, permissions } = useAuth();
+  const { hasFeature } = useSubscription();
   const { theme, toggleTheme } = useTheme();
+
+  // Check if user has team management feature (Starter+ plan)
+  const hasTeamManagement = hasFeature('team_management');
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
   const [profileImage, setProfileImage] = useState<string>((user as any)?.avatar_url || '');

@@ -21,6 +21,7 @@ import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useHighlight } from '@/hooks/useHighlight';
 import * as warehouseService from '@/services/warehouse.service';
 import { Order } from '@/types';
@@ -154,7 +155,11 @@ export default function Orders() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { currentStore, user } = useAuth();
+  const { hasFeature } = useSubscription();
   const userRole = user?.role || 'viewer'; // Default to viewer if no role
+
+  // Plan-based feature checks
+  const hasWarehouseFeature = hasFeature('warehouse');
   const { getDateRange } = useDateRange();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1337,7 +1342,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                             </Button>
                           </div>
                         )}
-                        {order.status === 'confirmed' && (
+                        {order.status === 'confirmed' && hasWarehouseFeature && (
                           <div className="flex gap-1 justify-center">
                             <Button
                               size="sm"
@@ -1350,13 +1355,19 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                             </Button>
                           </div>
                         )}
+                        {order.status === 'confirmed' && !hasWarehouseFeature && (
+                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                            <CheckCircle size={14} className="mr-1" />
+                            Confirmado
+                          </Badge>
+                        )}
                         {order.status === 'in_preparation' && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                             <PackageOpen size={14} className="mr-1" />
                             En Preparación
                           </Badge>
                         )}
-                        {order.status === 'ready_to_ship' && (
+                        {order.status === 'ready_to_ship' && hasWarehouseFeature && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -1366,6 +1377,12 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                             <Truck size={14} className="mr-1" />
                             Despachar
                           </Button>
+                        )}
+                        {order.status === 'ready_to_ship' && !hasWarehouseFeature && (
+                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                            <Package size={14} className="mr-1" />
+                            Preparado
+                          </Badge>
                         )}
                         {(order.status === 'shipped' || order.status === 'in_transit') && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>

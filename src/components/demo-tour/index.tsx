@@ -13,8 +13,12 @@ import { DemoTourOverlay } from './DemoTourOverlay';
 import { DemoTourProgress } from './DemoTourProgress';
 import { DemoTourTooltip } from './DemoTourTooltip';
 import { useDemoTour } from './DemoTourProvider';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuth, Role } from '@/contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
+
+// Storage key for tracking if we need to start tour (set after onboarding/invitation)
+const TOUR_PENDING_KEY = 'ordefy_demo_tour_pending';
 
 interface DemoTourProps {
   autoStart?: boolean;
@@ -22,36 +26,83 @@ interface DemoTourProps {
 
 export function DemoTour({ autoStart = true }: DemoTourProps) {
   const { isActive, hasCompletedTour, startTour } = useDemoTour();
-  const { permissions, currentStore } = useAuth();
-  const [hasTriggeredStart, setHasTriggeredStart] = useState(false);
+  const { permissions, currentStore, loading: authLoading } = useAuth();
+  const location = useLocation();
+  const hasTriggeredRef = useRef(false);
 
-  // Auto-start tour for new users (owners after onboarding, collaborators after accepting invitation)
+  // Auto-start tour for new users
+  // Only triggers when:
+  // 1. autoStart is enabled
+  // 2. User hasn't already completed the tour
+  // 3. Tour is not currently active
+  // 4. Store is loaded
+  // 5. Auth is not loading
+  // 6. We're on a dashboard route (not during onboarding flow)
+  // 7. There's a pending tour flag set after onboarding/invitation
   useEffect(() => {
-    if (!autoStart || hasTriggeredStart || hasCompletedTour || isActive) return;
-    if (!currentStore) return;
-
-    // Check if onboarding was just completed (for owners) or collaborator just joined
-    const onboardingCompleted = localStorage.getItem('onboarding_completed');
-    const collaboratorJoined = localStorage.getItem('collaborator_joined');
-    const tourStarted = localStorage.getItem('ordefy_demo_tour_id');
-
-    const shouldStartTour = (onboardingCompleted === 'true' || collaboratorJoined === 'true') && !tourStarted;
-
-    if (shouldStartTour) {
-      // Clear the collaborator_joined flag so tour doesn't restart
-      if (collaboratorJoined === 'true') {
-        localStorage.removeItem('collaborator_joined');
-      }
-
-      // Delay to let dashboard render
-      const timer = setTimeout(() => {
-        const tourId = permissions.currentRole === Role.OWNER ? 'owner-tour' : `${permissions.currentRole}-tour`;
-        startTour(tourId, true); // true = auto-started after registration/invitation
-        setHasTriggeredStart(true);
-      }, 800);
-      return () => clearTimeout(timer);
+    // Don't run while auth is still loading
+    if (authLoading) {
+      console.log('[DemoTour] Skipping - auth still loading');
+      return;
     }
-  }, [autoStart, hasTriggeredStart, hasCompletedTour, isActive, currentStore, permissions.currentRole, startTour]);
+
+    // Early returns for conditions that prevent starting
+    if (!autoStart) {
+      console.log('[DemoTour] Skipping - autoStart disabled');
+      return;
+    }
+    if (hasCompletedTour) {
+      console.log('[DemoTour] Skipping - tour already completed');
+      return;
+    }
+    if (isActive) {
+      console.log('[DemoTour] Skipping - tour already active');
+      return;
+    }
+    if (!currentStore) {
+      console.log('[DemoTour] Skipping - no store loaded');
+      return;
+    }
+    if (hasTriggeredRef.current) {
+      console.log('[DemoTour] Skipping - already triggered in this session');
+      return;
+    }
+
+    // Don't start tour during onboarding flow
+    const onboardingPaths = ['/onboarding', '/onboarding/plan', '/login', '/signup'];
+    if (onboardingPaths.some(path => location.pathname.startsWith(path))) {
+      console.log('[DemoTour] Skipping - on onboarding/auth path:', location.pathname);
+      return;
+    }
+
+    // Check if there's a pending tour to start
+    // This flag is set by:
+    // 1. OnboardingPlan page after selecting free plan or skipping
+    // 2. AcceptInvitation page after collaborator joins
+    // 3. Billing page after returning from Stripe (for new users from onboarding)
+    const tourPending = localStorage.getItem(TOUR_PENDING_KEY);
+
+    if (tourPending !== 'true') {
+      console.log('[DemoTour] Skipping - no pending tour flag');
+      return;
+    }
+
+    // Clear the pending flag immediately to prevent re-triggering
+    console.log('[DemoTour] Pending tour flag found, clearing and starting tour...');
+    localStorage.removeItem(TOUR_PENDING_KEY);
+    hasTriggeredRef.current = true;
+
+    // Small delay to ensure dashboard is fully rendered
+    const timer = setTimeout(() => {
+      const tourId = permissions.currentRole === Role.OWNER || permissions.currentRole === Role.ADMIN
+        ? 'owner-tour'
+        : `${permissions.currentRole}-tour`;
+      console.log('[DemoTour] Starting tour:', tourId, 'for role:', permissions.currentRole);
+      startTour(tourId, true);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [autoStart, hasCompletedTour, isActive, currentStore, permissions.currentRole, startTour, location.pathname, authLoading]);
 
   if (!isActive) return null;
 
@@ -62,4 +113,10 @@ export function DemoTour({ autoStart = true }: DemoTourProps) {
       <DemoTourTooltip />
     </>
   );
+}
+
+// Export function to trigger tour pending state
+// Call this from Onboarding page or AcceptInvitation page
+export function setTourPending() {
+  localStorage.setItem(TOUR_PENDING_KEY, 'true');
 }

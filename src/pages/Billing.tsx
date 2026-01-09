@@ -5,7 +5,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { setTourPending } from '@/components/demo-tour';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   CreditCard,
@@ -43,7 +44,8 @@ interface BillingProps {
 }
 
 export default function Billing({ embedded = false }: BillingProps) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isAnnual, setIsAnnual] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
@@ -55,11 +57,27 @@ export default function Billing({ embedded = false }: BillingProps) {
     if (searchParams.get('success') === 'true') {
       toast.success('Subscription activada exitosamente!');
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
+
+      // Check if this is a new user coming from onboarding (first payment)
+      // We detect this by checking if they came from onboarding flow
+      const fromOnboarding = searchParams.get('from_onboarding') === 'true';
+      const tourCompleted = localStorage.getItem('ordefy_demo_tour_completed') === 'true';
+
+      if (fromOnboarding && !tourCompleted) {
+        // New user just completed their first payment - trigger tour and go to dashboard
+        console.log('[Billing] New user from onboarding, triggering tour');
+        setTourPending();
+        // Clear the search params and redirect to dashboard
+        setTimeout(() => {
+          navigate('/', { replace: true });
+        }, 500);
+        return;
+      }
     }
     if (searchParams.get('canceled') === 'true') {
       toast.info('Checkout cancelado');
     }
-  }, [searchParams, queryClient]);
+  }, [searchParams, queryClient, navigate]);
 
   // Fetch subscription data
   const { data: subscriptionData, isLoading } = useQuery({

@@ -4,6 +4,7 @@
 import { Router, Request, Response } from 'express';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { requireFeature } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
 import { ShopifyClientService } from '../services/shopify-client.service';
@@ -289,7 +290,8 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
 
 // POST /api/shopify/manual-sync
 // Iniciar sincronizacion manual (SOLO productos y clientes, NUNCA ordenes historicas)
-shopifyRouter.post('/manual-sync', async (req: AuthRequest, res: Response) => {
+// Requires Growth+ plan (shopify_bidirectional feature)
+shopifyRouter.post('/manual-sync', requireFeature('shopify_bidirectional'), async (req: AuthRequest, res: Response) => {
   try {
     const storeId = req.storeId;
     const { sync_type } = req.body;
@@ -354,7 +356,8 @@ shopifyRouter.post('/manual-sync', async (req: AuthRequest, res: Response) => {
 
 // POST /api/shopify/sync-orders
 // Sincronizar pedidos desde Shopify manualmente
-shopifyRouter.post('/sync-orders', async (req: AuthRequest, res: Response) => {
+// Requires Growth+ plan (shopify_bidirectional feature)
+shopifyRouter.post('/sync-orders', requireFeature('shopify_bidirectional'), async (req: AuthRequest, res: Response) => {
   try {
     const storeId = req.storeId;
 

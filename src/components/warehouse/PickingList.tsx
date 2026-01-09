@@ -10,8 +10,6 @@ import {
   Plus,
   Minus,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
   ArrowRight,
   Loader2,
   MapPin
@@ -20,7 +18,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -32,8 +29,6 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type { PickingSessionItem } from '@/services/warehouse.service';
-
-type ViewMode = 'by-product' | 'by-order';
 
 interface PickingListProps {
   items: PickingSessionItem[];
@@ -54,8 +49,6 @@ export function PickingList({
   onFinishPicking,
   loading,
 }: PickingListProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('by-product');
-  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set(orders.map(o => o.id)));
   const [outOfStockDialog, setOutOfStockDialog] = useState<{ productId: string; productName: string } | null>(null);
   const [outOfStockReason, setOutOfStockReason] = useState('');
   const [updatingProduct, setUpdatingProduct] = useState<string | null>(null);
@@ -73,7 +66,7 @@ export function PickingList({
     };
   }, [items]);
 
-  const allPicked = progress.itemsComplete === progress.totalItems;
+  const allPicked = progress.itemsComplete === progress.totalItems && items.length > 0;
 
   // Handle quantity update with loading state
   const handleUpdateQuantity = useCallback(async (productId: string, quantity: number) => {
@@ -89,18 +82,6 @@ export function PickingList({
   const handleCompleteProduct = useCallback(async (item: PickingSessionItem) => {
     await handleUpdateQuantity(item.product_id, item.total_quantity_needed);
   }, [handleUpdateQuantity]);
-
-  const toggleOrderExpanded = (orderId: string) => {
-    setExpandedOrders(prev => {
-      const next = new Set(prev);
-      if (next.has(orderId)) {
-        next.delete(orderId);
-      } else {
-        next.add(orderId);
-      }
-      return next;
-    });
-  };
 
   return (
     <div className="space-y-4">
@@ -152,30 +133,7 @@ export function PickingList({
         )}
       </Card>
 
-      {/* View Mode Toggle */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Vista:</span>
-        <div className="flex rounded-lg border p-1">
-          <Button
-            variant={viewMode === 'by-product' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setViewMode('by-product')}
-            className="h-8"
-          >
-            Por Producto
-          </Button>
-          <Button
-            variant={viewMode === 'by-order' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setViewMode('by-order')}
-            className="h-8"
-          >
-            Por Pedido
-          </Button>
-        </div>
-      </div>
-
-      {/* Orders Info (collapsed) */}
+      {/* Orders Info */}
       <Card className="p-3 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
         <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
           Pedidos en esta sesión ({orders.length})

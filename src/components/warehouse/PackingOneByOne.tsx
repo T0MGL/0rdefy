@@ -12,12 +12,10 @@ import {
   ChevronRight,
   Printer,
   AlertTriangle,
-  MessageSquare,
   Loader2,
   User,
   Phone,
   MapPin,
-  FileText,
   Truck
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -68,8 +66,6 @@ export function PackingOneByOne({
   const [printingOrder, setPrintingOrder] = useState(false);
   const [reportDialog, setReportDialog] = useState(false);
   const [reportReason, setReportReason] = useState('');
-  const [addingNote, setAddingNote] = useState(false);
-  const [noteText, setNoteText] = useState('');
 
   // Progress calculation
   const progress = useMemo(() => {
@@ -503,44 +499,6 @@ export function PackingOneByOne({
         </DialogContent>
       </Dialog>
 
-      {/* Add Note Dialog */}
-      <Dialog open={addingNote} onOpenChange={setAddingNote}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Agregar Nota
-            </DialogTitle>
-            <DialogDescription>
-              Pedido #{currentOrder.order_number}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4">
-            <Textarea
-              placeholder="Escribe una nota para este pedido..."
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              rows={4}
-            />
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddingNote(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => {
-                // TODO: Implement add note logic
-                setAddingNote(false);
-                setNoteText('');
-              }}
-            >
-              Guardar Nota
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+      </div>
   );
 }

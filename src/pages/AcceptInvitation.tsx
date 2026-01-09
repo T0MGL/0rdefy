@@ -15,6 +15,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, Users, Building2 } from 'lucide-react';
 import { config } from '@/config';
+import { setTourPending } from '@/components/demo-tour';
 
 interface InvitationData {
   name: string;
@@ -98,8 +99,11 @@ export default function AcceptInvitation() {
         localStorage.setItem('user', JSON.stringify(data.user));
       }
 
-      // Mark as new collaborator to trigger demo tour (similar to onboarding_completed for owners)
-      localStorage.setItem('collaborator_joined', 'true');
+      // Mark onboarding as completed for collaborators (they skip the onboarding flow)
+      localStorage.setItem('onboarding_completed', 'true');
+
+      // Trigger demo tour for new collaborators
+      setTourPending();
 
       // Redirect to dashboard with full page reload to initialize auth context
       window.location.href = '/';

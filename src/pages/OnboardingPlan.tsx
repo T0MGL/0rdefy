@@ -23,6 +23,7 @@ import {
   ShoppingCart,
   Loader2,
 } from 'lucide-react';
+import { setTourPending } from '@/components/demo-tour';
 
 // Plan icons mapping
 const planIcons: Record<string, React.ReactNode> = {
@@ -128,6 +129,8 @@ export default function OnboardingPlan() {
     if (planName === 'free') {
       // Free plan - just go to dashboard
       localStorage.removeItem('pending_referral_code');
+      // Trigger demo tour for new users
+      setTourPending();
       toast({
         title: "Plan Free activado",
         description: "Puedes mejorar tu plan en cualquier momento desde Configuracion.",
@@ -144,6 +147,7 @@ export default function OnboardingPlan() {
         plan: planName,
         billingCycle,
         referralCode: referralCode || undefined,
+        fromOnboarding: true, // Flag for new user coming from onboarding
       });
 
       if (url) {
@@ -168,6 +172,8 @@ export default function OnboardingPlan() {
 
   const handleSkip = () => {
     localStorage.removeItem('pending_referral_code');
+    // Trigger demo tour for new users
+    setTourPending();
     toast({
       title: "Bienvenido a Ordefy",
       description: "Puedes mejorar tu plan en cualquier momento desde Configuracion.",

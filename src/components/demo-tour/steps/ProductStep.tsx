@@ -62,14 +62,14 @@ export function ProductStep({ onComplete }: ProductStepProps) {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      className="fixed z-[10002] w-[500px] max-w-[calc(100vw-32px)]"
+      className="fixed z-[10002] w-[500px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-64px)]"
       style={{
         top: '50%',
         left: '50%',
         transform: 'translate(-50%, -50%)',
       }}
     >
-      <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-y-auto max-h-[calc(100vh-64px)]">
         {/* Header */}
         <div className="bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-6">
           <div className="flex items-center gap-3 mb-4">

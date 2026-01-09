@@ -36,6 +36,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { EmptyState } from '@/components/EmptyState';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { FeatureBlockedPage } from '@/components/FeatureGate';
 import {
   Loader2,
   Truck,
@@ -94,7 +96,13 @@ const formatCurrency = (amount: number): string => {
 
 export default function Settlements() {
   const { toast } = useToast();
+  const { hasFeature } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Plan-based feature check - settlements requires warehouse feature (Starter+ plan)
+  if (!hasFeature('warehouse')) {
+    return <FeatureBlockedPage feature="warehouse" />;
+  }
 
   // State
   const [loading, setLoading] = useState(false);

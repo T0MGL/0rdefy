@@ -11,6 +11,13 @@
  */
 
 import { supabaseAdmin } from '../db/connection';
+import {
+  isCodPayment,
+  normalizePaymentMethod,
+  getPaymentTypeLabel,
+  getAmountToCollect,
+  validateAmountCollected
+} from '../utils/payment';
 
 // ============================================================
 // TYPES
@@ -345,16 +352,21 @@ export async function createDispatchSession(
   // Prepare session orders
   let totalCodExpected = 0;
   let totalPrepaid = 0;
+  let totalPrepaidCarrierFees = 0;
 
   const sessionOrders = orders.map(order => {
     const city = order.shipping_city || order.delivery_zone || '';
     const rate = zoneMap.get(city.toLowerCase()) || zoneMap.get('default') || 0;
-    const isCod = (order.payment_method || 'CONTRA ENTREGA') === 'CONTRA ENTREGA';
+
+    // Use centralized payment utilities for COD determination
+    const isCod = isCodPayment(order.payment_method);
+    const normalizedMethod = normalizePaymentMethod(order.payment_method);
 
     if (isCod) {
       totalCodExpected += order.total_price || 0;
     } else {
       totalPrepaid++;
+      totalPrepaidCarrierFees += rate;
     }
 
     return {
@@ -367,11 +379,18 @@ export async function createDispatchSession(
       delivery_city: order.shipping_city || '',
       delivery_zone: order.delivery_zone || order.shipping_city || '',
       total_price: order.total_price || 0,
-      payment_method: order.payment_method || 'CONTRA ENTREGA',
+      payment_method: normalizedMethod,
       is_cod: isCod,
       carrier_fee: rate,
       delivery_status: 'pending'
     };
+  });
+
+  console.log(`📦 [DISPATCH] Creating session with ${orders.length} orders:`, {
+    total_cod_orders: sessionOrders.filter(o => o.is_cod).length,
+    total_prepaid_orders: totalPrepaid,
+    total_cod_expected: totalCodExpected,
+    total_prepaid_carrier_fees: totalPrepaidCarrierFees
   });
 
   // Insert session orders
@@ -405,6 +424,16 @@ export async function createDispatchSession(
 
 /**
  * Export dispatch session as CSV for courier
+ *
+ * CSV Format explanation:
+ * - TIPO_PAGO: "COD" means courier must collect, "PREPAGO" means already paid
+ * - A_COBRAR: Amount courier should collect (0 for prepaid)
+ * - MONTO_COBRADO: Courier fills with actual collected amount
+ *
+ * For PREPAID orders:
+ * - A_COBRAR = 0 (nothing to collect)
+ * - MONTO_COBRADO should remain 0
+ * - Courier still earns their carrier_fee (store pays them)
  */
 export async function exportDispatchCSV(
   sessionId: string,
@@ -413,35 +442,44 @@ export async function exportDispatchCSV(
   const session = await getDispatchSessionById(sessionId, storeId);
 
   // CSV headers matching the format the courier expects
+  // Added TIPO_PAGO and A_COBRAR for clarity
   const headers = [
     'NroReferencia',
     'Telefono',
     'NOMBRE Y APELLIDO',
     'Direccion',
     'CIUDAD',
-    'METODO DE PAGO',
-    'IMPORTE',
-    'Tarifa Envio',
+    'TIPO_PAGO',             // NEW: "COD" or "PREPAGO" - clear indicator
+    'A_COBRAR',              // NEW: Amount to collect (0 for prepaid)
+    'IMPORTE_TOTAL',         // Total order value (for reference)
+    'Tarifa_Envio',
     'ESTADO_ENTREGA',        // Courier fills: ENTREGADO, NO ENTREGADO, RECHAZADO
     'MONTO_COBRADO',         // Courier fills: actual amount collected
     'MOTIVO_NO_ENTREGA',     // Courier fills: reason if not delivered
     'OBSERVACIONES'          // Courier fills: notes
   ];
 
-  const rows = session.orders.map(order => [
-    order.order_number,
-    order.customer_phone,
-    order.customer_name,
-    order.delivery_address,
-    order.delivery_city,
-    order.payment_method,
-    order.total_price.toString(),
-    order.carrier_fee.toString(),
-    '',  // ESTADO_ENTREGA - courier fills
-    order.is_cod ? '' : order.total_price.toString(),  // MONTO_COBRADO - prepaid shows amount
-    '',  // MOTIVO_NO_ENTREGA - courier fills
-    ''   // OBSERVACIONES - courier fills
-  ]);
+  const rows = session.orders.map(order => {
+    // Use centralized utilities for payment type determination
+    const paymentType = order.is_cod ? 'COD' : 'PREPAGO';
+    const amountToCollect = getAmountToCollect(order.payment_method, order.total_price);
+
+    return [
+      order.order_number,
+      order.customer_phone,
+      order.customer_name,
+      order.delivery_address,
+      order.delivery_city,
+      paymentType,                           // TIPO_PAGO
+      amountToCollect.toString(),            // A_COBRAR
+      order.total_price.toString(),          // IMPORTE_TOTAL (for reference)
+      order.carrier_fee.toString(),
+      '',                                    // ESTADO_ENTREGA - courier fills
+      '',                                    // MONTO_COBRADO - courier fills (should be 0 for prepaid)
+      '',                                    // MOTIVO_NO_ENTREGA - courier fills
+      ''                                     // OBSERVACIONES - courier fills
+    ];
+  });
 
   // Build CSV
   const csvContent = [
@@ -454,12 +492,20 @@ export async function exportDispatchCSV(
 
 /**
  * Import delivery results from CSV
+ *
+ * IMPORTANT: Handles COD vs PREPAID correctly:
+ * - COD orders: amount_collected = what courier actually collected
+ * - PREPAID orders: amount_collected = 0 (validates this)
+ *
+ * Warnings are generated for:
+ * - PREPAID orders where courier reported collecting money (data inconsistency)
+ * - COD orders where amount differs from expected (discrepancy)
  */
 export async function importDispatchResults(
   sessionId: string,
   storeId: string,
   results: ImportRow[]
-): Promise<{ processed: number; errors: string[] }> {
+): Promise<{ processed: number; errors: string[]; warnings: string[] }> {
   const session = await getDispatchSessionById(sessionId, storeId);
 
   if (session.status === 'settled') {
@@ -468,6 +514,7 @@ export async function importDispatchResults(
 
   let processed = 0;
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   // Map order numbers to session orders
   const orderMap = new Map<string, DispatchSessionOrder>();
@@ -511,11 +558,39 @@ export async function importDispatchResults(
       else failureReason = 'other';
     }
 
-    // Calculate amount collected
-    let amountCollected = row.amount_collected;
-    if (amountCollected === undefined && deliveryStatus === 'delivered') {
-      // If delivered and COD, assume full amount unless specified
-      amountCollected = sessionOrder.is_cod ? sessionOrder.total_price : 0;
+    // Calculate amount collected based on payment type
+    let amountCollected: number;
+
+    if (deliveryStatus === 'delivered') {
+      if (sessionOrder.is_cod) {
+        // COD order: use reported amount or default to full price
+        if (row.amount_collected !== undefined && row.amount_collected !== null) {
+          amountCollected = row.amount_collected;
+
+          // Check for discrepancy
+          if (amountCollected !== sessionOrder.total_price) {
+            warnings.push(
+              `⚠️ Pedido ${row.order_number}: Discrepancia de monto - Esperado: ${sessionOrder.total_price}, Cobrado: ${amountCollected}`
+            );
+          }
+        } else {
+          // Default: assume full amount collected
+          amountCollected = sessionOrder.total_price;
+        }
+      } else {
+        // PREPAID order: should NOT collect any money
+        amountCollected = 0;
+
+        // Warn if courier reported collecting money for a prepaid order
+        if (row.amount_collected !== undefined && row.amount_collected !== null && row.amount_collected > 0) {
+          warnings.push(
+            `⚠️ Pedido ${row.order_number}: Es PREPAGO pero el courier reportó cobrar ${row.amount_collected}. Se registrará como 0.`
+          );
+        }
+      }
+    } else {
+      // Not delivered - no amount collected
+      amountCollected = 0;
     }
 
     // Update session order
@@ -536,6 +611,18 @@ export async function importDispatchResults(
     } else {
       processed++;
     }
+
+    // Also update the main orders table with amount_collected and discrepancy flag
+    if (deliveryStatus === 'delivered' && sessionOrder.is_cod) {
+      const hasDiscrepancy = amountCollected !== sessionOrder.total_price;
+      await supabaseAdmin
+        .from('orders')
+        .update({
+          amount_collected: amountCollected,
+          has_amount_discrepancy: hasDiscrepancy
+        })
+        .eq('id', sessionOrder.order_id);
+    }
   }
 
   // Update session status
@@ -547,7 +634,7 @@ export async function importDispatchResults(
     })
     .eq('id', sessionId);
 
-  return { processed, errors };
+  return { processed, errors, warnings };
 }
 
 // ============================================================
@@ -556,6 +643,24 @@ export async function importDispatchResults(
 
 /**
  * Process dispatch session and create settlement
+ *
+ * IMPORTANT: Settlement calculation logic
+ *
+ * For COD orders (cash on delivery):
+ *   - Courier collects money from customer (amount_collected)
+ *   - Courier keeps their fee (carrier_fee)
+ *   - Store receives: amount_collected - carrier_fee
+ *
+ * For PREPAID orders (card, QR, transfer):
+ *   - Payment already received by store (amount_collected = 0)
+ *   - Store must PAY the courier their fee (carrier_fee)
+ *   - Net result: store owes courier the carrier_fee
+ *
+ * Net Receivable Formula:
+ *   net_receivable = total_cod_collected - total_carrier_fees_cod - total_carrier_fees_prepaid - failed_attempt_fees
+ *
+ * If net_receivable > 0: Courier owes store money
+ * If net_receivable < 0: Store owes courier money (common when mostly prepaid orders)
  */
 export async function processSettlement(
   sessionId: string,
@@ -568,28 +673,58 @@ export async function processSettlement(
     throw new Error('Session already settled');
   }
 
-  // Calculate statistics
+  // Calculate statistics with proper COD vs PREPAID separation
   const stats = {
     total_dispatched: session.orders.length,
     total_delivered: 0,
     total_not_delivered: 0,
     total_cod_delivered: 0,
     total_prepaid_delivered: 0,
+    // COD specific - money courier collected from customers
     total_cod_collected: 0,
-    total_carrier_fees: 0,
-    failed_attempt_fee: 0
+    // Carrier fees separated by payment type for clarity
+    total_carrier_fees: 0,           // Total fees (COD + prepaid)
+    total_carrier_fees_cod: 0,       // Fees for COD orders (deducted from collected)
+    total_carrier_fees_prepaid: 0,   // Fees for prepaid orders (store must pay)
+    failed_attempt_fee: 0,
+    // Discrepancy tracking
+    total_discrepancies: 0,
+    discrepancy_details: [] as Array<{order_number: string, expected: number, collected: number, difference: number}>
   };
 
   for (const order of session.orders) {
     if (order.delivery_status === 'delivered') {
       stats.total_delivered++;
-      stats.total_cod_collected += order.amount_collected || 0;
       stats.total_carrier_fees += order.carrier_fee || 0;
 
       if (order.is_cod) {
+        // COD order: courier collected money from customer
         stats.total_cod_delivered++;
+        stats.total_cod_collected += order.amount_collected || 0;
+        stats.total_carrier_fees_cod += order.carrier_fee || 0;
+
+        // Track discrepancies for COD orders
+        const expectedAmount = order.total_price || 0;
+        const collectedAmount = order.amount_collected || 0;
+        if (collectedAmount !== expectedAmount && collectedAmount > 0) {
+          stats.total_discrepancies++;
+          stats.discrepancy_details.push({
+            order_number: order.order_number,
+            expected: expectedAmount,
+            collected: collectedAmount,
+            difference: collectedAmount - expectedAmount
+          });
+        }
       } else {
+        // PREPAID order: payment already in store's account
+        // Courier didn't collect anything, but store owes them the carrier fee
         stats.total_prepaid_delivered++;
+        stats.total_carrier_fees_prepaid += order.carrier_fee || 0;
+
+        // Validate: prepaid orders should have amount_collected = 0
+        if ((order.amount_collected || 0) > 0) {
+          console.warn(`⚠️ [SETTLEMENT] Prepaid order ${order.order_number} has amount_collected=${order.amount_collected}. This should be 0.`);
+        }
       }
     } else if (['not_delivered', 'rejected', 'returned'].includes(order.delivery_status)) {
       stats.total_not_delivered++;
@@ -615,9 +750,29 @@ export async function processSettlement(
   const settlementNumber = ((count || 0) + 1).toString().padStart(2, '0');
   const settlementCode = `LIQ-${dateStr}-${settlementNumber}`;
 
-  // Calculate net receivable and balance due
+  // Calculate net receivable
+  // CORRECT FORMULA:
+  // - Courier collected COD money: +total_cod_collected
+  // - Courier keeps fees for COD orders: -total_carrier_fees_cod
+  // - Store must pay courier for prepaid deliveries: -total_carrier_fees_prepaid
+  // - Fees for failed attempts (usually 50%): -failed_attempt_fee
+  //
+  // net_receivable = what courier owes store (positive) or what store owes courier (negative)
   const netReceivable = stats.total_cod_collected - stats.total_carrier_fees - stats.failed_attempt_fee;
   const balanceDue = netReceivable; // Initially balance_due equals net_receivable
+
+  // Log settlement calculation for debugging
+  console.log(`📊 [SETTLEMENT] Session ${session.session_code}:`, {
+    total_cod_delivered: stats.total_cod_delivered,
+    total_prepaid_delivered: stats.total_prepaid_delivered,
+    total_cod_collected: stats.total_cod_collected,
+    total_carrier_fees_cod: stats.total_carrier_fees_cod,
+    total_carrier_fees_prepaid: stats.total_carrier_fees_prepaid,
+    total_carrier_fees: stats.total_carrier_fees,
+    failed_attempt_fee: stats.failed_attempt_fee,
+    net_receivable: netReceivable,
+    discrepancies: stats.total_discrepancies
+  });
 
   // Create settlement
   const { data: settlement, error: settlementError } = await supabaseAdmin

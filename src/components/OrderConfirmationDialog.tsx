@@ -34,6 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCarriers } from '@/hooks/useCarriers';
 import { Loader2, CheckCircle2, Printer, Check, ChevronsUpDown } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 import { printLabelPDF } from '@/components/printing/printLabelPDF';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import { cn } from '@/lib/utils';
@@ -54,6 +55,11 @@ export function OrderConfirmationDialog({
 }: OrderConfirmationDialogProps) {
   const { toast } = useToast();
   const { currentStore } = useAuth();
+  const { hasFeature } = useSubscription();
+
+  // In Free plan (no warehouse), show print option directly after confirmation
+  // In paid plans with warehouse, they'll print from warehouse/dispatch flow
+  const showPrintAfterConfirm = !hasFeature('warehouse');
   const [loading, setLoading] = useState(false);
 
   // Use centralized carriers hook with caching (active carriers only)
@@ -372,7 +378,9 @@ export function OrderConfirmationDialog({
           </DialogTitle>
           <DialogDescription>
             {isConfirmed
-              ? 'El pedido ha sido confirmado exitosamente. Imprime la etiqueta para pegar en el paquete.'
+              ? showPrintAfterConfirm
+                ? 'El pedido ha sido confirmado exitosamente. Imprime la etiqueta para pegar en el paquete.'
+                : 'El pedido ha sido confirmado exitosamente y está listo para preparación.'
               : 'Revisa y confirma los detalles del pedido antes de asignarlo a un repartidor'
             }
           </DialogDescription>
@@ -389,7 +397,9 @@ export function OrderConfirmationDialog({
                     Pedido confirmado exitosamente
                   </p>
                   <p className="text-sm text-green-700 dark:text-green-300">
-                    El repartidor ha sido asignado. Imprime la etiqueta y pégala en el paquete.
+                    {showPrintAfterConfirm
+                      ? 'El repartidor ha sido asignado. Imprime la etiqueta y pégala en el paquete.'
+                      : 'El pedido pasará a preparación en el módulo de Almacén.'}
                   </p>
                 </div>
               </div>
@@ -409,30 +419,33 @@ export function OrderConfirmationDialog({
                 />
               </div>
 
-              <div className="flex flex-col items-center justify-center py-8 gap-6 border rounded-xl bg-muted/30">
-                <Printer className="h-16 w-16 text-blue-500 opacity-20" />
-                <Button
-                  size="lg"
-                  onClick={handlePrint}
-                  disabled={isPrinting}
-                  className="gap-2 px-8 h-14 text-lg bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all"
-                >
-                  {isPrinting ? (
-                    <>
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                      Preparando...
-                    </>
-                  ) : (
-                    <>
-                      <Printer size={24} />
-                      Imprimir Etiqueta (4x6)
-                    </>
-                  )}
-                </Button>
-                <p className="text-sm text-muted-foreground">
-                  Se abrirá el diálogo de impresión directamente
-                </p>
-              </div>
+              {/* Print section - Only show in Free plan (no warehouse flow) */}
+              {showPrintAfterConfirm && (
+                <div className="flex flex-col items-center justify-center py-8 gap-6 border rounded-xl bg-muted/30">
+                  <Printer className="h-16 w-16 text-blue-500 opacity-20" />
+                  <Button
+                    size="lg"
+                    onClick={handlePrint}
+                    disabled={isPrinting}
+                    className="gap-2 px-8 h-14 text-lg bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all"
+                  >
+                    {isPrinting ? (
+                      <>
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                        Preparando...
+                      </>
+                    ) : (
+                      <>
+                        <Printer size={24} />
+                        Imprimir Etiqueta (4x6)
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-sm text-muted-foreground">
+                    Se abrirá el diálogo de impresión directamente
+                  </p>
+                </div>
+              )}
 
               <div className="flex justify-end pt-4">
                 <Button variant="outline" onClick={handleClose}>

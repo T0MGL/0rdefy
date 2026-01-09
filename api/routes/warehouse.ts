@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission } from '../middleware/permissions';
+import { requireFeature } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import * as warehouseService from '../services/warehouse.service';
 import { noOrdersSelected, serverError, missingRequiredFields } from '../utils/errorResponses';
@@ -19,6 +20,9 @@ router.use(extractUserRole);
 
 // Apply module-level access check for all routes
 router.use(requireModule(Module.WAREHOUSE));
+
+// Apply plan feature check - warehouse requires Starter+ plan
+router.use(requireFeature('warehouse'));
 
 /**
  * GET /api/warehouse/orders/confirmed

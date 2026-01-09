@@ -9,6 +9,8 @@ import { ArrowLeft, Package, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { FeatureBlockedPage } from '@/components/FeatureGate';
 
 // New warehouse components
 import {
@@ -39,6 +41,12 @@ type WorkflowStep = 'selection' | 'picking' | 'packing' | 'verification';
 export default function WarehouseNew() {
   const { toast } = useToast();
   const { currentStore } = useAuth();
+  const { hasFeature } = useSubscription();
+
+  // Plan-based feature check - warehouse requires Starter+ plan
+  if (!hasFeature('warehouse')) {
+    return <FeatureBlockedPage feature="warehouse" />;
+  }
 
   // ==================== STATE ====================
 

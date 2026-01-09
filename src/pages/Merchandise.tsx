@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { merchandiseService } from '@/services/merchandise.service';
 import { productsService } from '@/services/products.service';
 import { suppliersService } from '@/services/suppliers.service';
@@ -17,6 +19,12 @@ import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShi
 
 export default function Merchandise() {
   const { toast } = useToast();
+  const { hasFeature } = useSubscription();
+
+  // Plan-based feature check - merchandise requires Starter+ plan
+  if (!hasFeature('merchandise')) {
+    return <FeatureBlockedPage feature="merchandise" />;
+  }
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);

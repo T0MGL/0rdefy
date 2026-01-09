@@ -133,6 +133,12 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
 
 // POST /api/orders/token/:token/delivery-confirm - Courier confirms delivery (public)
 // SECURITY: Uses delivery_link_token from URL - courier scans QR code
+//
+// PAYMENT TYPE LOGIC:
+// - COD (efectivo): Courier collects money -> amount_collected = what they collected
+// - PREPAID (tarjeta, qr, transferencia): Payment already received -> amount_collected = 0
+//
+// amount_collected is ONLY relevant for COD orders where courier physically collects cash
 ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Response) => {
     try {
         const { token } = req.params;
@@ -143,7 +149,7 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         // SECURITY: Look up order by token - only valid tokens can access
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, store_id, sleeves_status, courier_id, has_active_incident, cod_amount')
+            .select('id, store_id, sleeves_status, courier_id, has_active_incident, cod_amount, total_price, payment_method')
             .eq('delivery_link_token', token)
             .single();
 
@@ -158,6 +164,7 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         const id = existingOrder.id;
         console.log(`✅ [ORDERS] Token validated for order ${id}`, {
             payment_method,
+            original_payment_method: existingOrder.payment_method,
             has_notes: !!notes,
             has_photo: !!proof_photo_url,
             has_amount_discrepancy: !!has_amount_discrepancy,
@@ -172,6 +179,11 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 message: 'Este pedido tiene una incidencia activa. Debes completar uno de los intentos programados en lugar de confirmar directamente.'
             });
         }
+
+        // Determine if this is a COD payment based on what courier selected
+        const paymentMethodLower = (payment_method || '').toLowerCase().trim();
+        const codPaymentMethods = ['efectivo', 'cash', 'contra entrega', 'cod'];
+        const isCodPayment = codPaymentMethods.includes(paymentMethodLower);
 
         const updateData: any = {
             sleeves_status: 'delivered',
@@ -194,11 +206,27 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
             updateData.courier_notes = notes;
         }
 
-        // Handle amount discrepancy (courier collected different amount than expected)
-        if (has_amount_discrepancy && amount_collected !== undefined) {
-            updateData.amount_collected = amount_collected;
-            updateData.has_amount_discrepancy = true;
-            console.log(`⚠️ [ORDERS] Amount discrepancy for order: expected ${existingOrder.cod_amount || 0}, collected ${amount_collected}`);
+        // Handle amount_collected based on payment type
+        if (isCodPayment) {
+            // COD payment: courier collected cash
+            if (has_amount_discrepancy && amount_collected !== undefined) {
+                // Courier explicitly reported a different amount
+                updateData.amount_collected = amount_collected;
+                updateData.has_amount_discrepancy = true;
+                console.log(`⚠️ [ORDERS] COD discrepancy for order ${id}: expected ${existingOrder.cod_amount || existingOrder.total_price}, collected ${amount_collected}`);
+            } else {
+                // No discrepancy reported - assume full amount collected
+                const expectedAmount = existingOrder.cod_amount || existingOrder.total_price || 0;
+                updateData.amount_collected = expectedAmount;
+                updateData.has_amount_discrepancy = false;
+                console.log(`💰 [ORDERS] COD payment for order ${id}: collected ${expectedAmount}`);
+            }
+        } else {
+            // PREPAID payment (tarjeta, qr, transferencia): no cash collected
+            // The payment already went directly to the store
+            updateData.amount_collected = 0;
+            updateData.has_amount_discrepancy = false;
+            console.log(`💳 [ORDERS] Prepaid delivery for order ${id}: payment method = ${payment_method}, no cash collected`);
         }
 
         const { data, error } = await supabaseAdmin
@@ -245,8 +273,10 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         // Build notes for status history
         let historyNotes = `Delivery confirmed by courier`;
         if (payment_method) historyNotes += ` - Payment: ${payment_method}`;
-        if (has_amount_discrepancy && amount_collected !== undefined) {
-            historyNotes += ` - MONTO DIFERENTE COBRADO: ₲${amount_collected.toLocaleString()} (esperado: ₲${(existingOrder.cod_amount || 0).toLocaleString()})`;
+        if (isCodPayment && updateData.has_amount_discrepancy) {
+            historyNotes += ` - MONTO DIFERENTE COBRADO: ₲${amount_collected?.toLocaleString()} (esperado: ₲${(existingOrder.cod_amount || existingOrder.total_price || 0).toLocaleString()})`;
+        } else if (!isCodPayment) {
+            historyNotes += ` - Pago prepago (no se cobró efectivo)`;
         }
         if (notes) historyNotes += ` - Notes: ${notes}`;
 
@@ -263,11 +293,16 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 notes: historyNotes
             });
 
-        console.log(`✅ [ORDERS] Order ${id} marked as delivered with full data sync${has_amount_discrepancy ? ' (AMOUNT DISCREPANCY)' : ''}`);
+        console.log(`✅ [ORDERS] Order ${id} marked as delivered - Payment: ${payment_method}, COD: ${isCodPayment}, Amount collected: ${updateData.amount_collected}`);
 
         res.json({
             message: 'Delivery confirmed successfully',
-            data
+            data,
+            payment_info: {
+                is_cod: isCodPayment,
+                amount_collected: updateData.amount_collected,
+                has_discrepancy: updateData.has_amount_discrepancy
+            }
         });
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/delivery-confirm] Error:`, error);

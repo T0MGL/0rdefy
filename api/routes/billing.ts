@@ -310,9 +310,9 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
     const storeId = (req as any).storeId;
     const userId = (req as any).user?.id || (req as any).userId;
     const userEmail = (req as any).user?.email;
-    const { plan, billingCycle, referralCode, discountCode } = req.body;
+    const { plan, billingCycle, referralCode, discountCode, fromOnboarding } = req.body;
 
-    console.log('[Billing] Checkout request:', { storeId, userId, userEmail, plan, billingCycle, referralCode, discountCode });
+    console.log('[Billing] Checkout request:', { storeId, userId, userEmail, plan, billingCycle, referralCode, discountCode, fromOnboarding });
 
     if (!plan || !billingCycle) {
       return res.status(400).json({ error: 'Plan and billing cycle are required' });
@@ -330,6 +330,15 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
 
     const appUrl = process.env.APP_URL || 'https://app.ordefy.io';
 
+    // Build success URL with optional from_onboarding param for new users
+    const successParams = new URLSearchParams({
+      tab: 'subscription',
+      success: 'true',
+    });
+    if (fromOnboarding) {
+      successParams.set('from_onboarding', 'true');
+    }
+
     console.log('[Billing] Creating checkout session...');
     const session = await stripeService.createCheckoutSession({
       storeId,
@@ -337,7 +346,7 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
       email: userEmail,
       plan: plan as PlanType,
       billingCycle: billingCycle as BillingCycle,
-      successUrl: `${appUrl}/settings?tab=subscription&success=true`,
+      successUrl: `${appUrl}/settings?${successParams.toString()}`,
       cancelUrl: `${appUrl}/settings?tab=subscription&canceled=true`,
       referralCode,
       discountCode,

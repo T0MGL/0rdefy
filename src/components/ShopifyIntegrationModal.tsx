@@ -3,8 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Store, RefreshCw, Package, Users, ShoppingCart, CheckCircle2, Bug } from 'lucide-react';
+import { Store, RefreshCw, Package, Users, ShoppingCart, CheckCircle2, Bug, Lock } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useSubscription, FEATURE_MIN_PLAN } from '@/contexts/SubscriptionContext';
 import { config } from '@/config';
 
 interface ShopifyIntegration {
@@ -27,11 +28,15 @@ interface ShopifyIntegrationModalProps {
 
 export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisconnect }: ShopifyIntegrationModalProps) {
   const { toast } = useToast();
+  const { hasFeature, canUpgrade } = useSubscription();
   const [integration, setIntegration] = useState<ShopifyIntegration | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const [debugInfo, setDebugInfo] = useState<any>(null);
+
+  // Check if user has bidirectional sync feature (Growth+ plan)
+  const hasBidirectionalSync = hasFeature('shopify_bidirectional');
 
   // Load Shopify integration when modal opens
   useEffect(() => {
@@ -278,25 +283,39 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              {/* Sync All (only products + customers, never orders) */}
-              <Button
-                variant="default"
-                className="col-span-2 gap-2"
-                onClick={() => handleManualSync('all')}
-                disabled={isSyncing || isLoading}
-              >
-                {isSyncing ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" />
-                    Sincronizando...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={16} />
-                    Sincronizar Todo (Productos y Clientes)
-                  </>
-                )}
-              </Button>
+              {/* Sync All (only products + customers, never orders) - Requires Growth+ plan */}
+              {hasBidirectionalSync ? (
+                <Button
+                  variant="default"
+                  className="col-span-2 gap-2"
+                  onClick={() => handleManualSync('all')}
+                  disabled={isSyncing || isLoading}
+                >
+                  {isSyncing ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Sincronizando...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={16} />
+                      Sincronizar Todo (Productos y Clientes)
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div className="col-span-2 p-4 rounded-lg border bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+                  <div className="flex items-center gap-3">
+                    <Lock className="h-5 w-5 text-purple-600" />
+                    <div className="flex-1">
+                      <p className="font-medium text-sm text-purple-900 dark:text-purple-100">Sincronización Bidireccional</p>
+                      <p className="text-xs text-purple-700 dark:text-purple-300">
+                        Disponible en plan Growth. {canUpgrade && <a href="/billing" className="underline hover:no-underline">Ver planes</a>}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Debug Button */}
               <Button

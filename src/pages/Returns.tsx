@@ -29,6 +29,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { FeatureBlockedPage } from '@/components/FeatureGate';
 import * as returnsService from '@/services/returns.service';
 import type {
   ReturnSession,
@@ -41,6 +43,13 @@ type View = 'sessions' | 'create' | 'process';
 
 export default function Returns() {
   const { toast } = useToast();
+  const { hasFeature } = useSubscription();
+
+  // Plan-based feature check - returns requires Starter+ plan
+  if (!hasFeature('returns')) {
+    return <FeatureBlockedPage feature="returns" />;
+  }
+
   const [view, setView] = useState<View>('sessions');
   const [currentSession, setCurrentSession] = useState<ReturnSessionDetail | null>(null);
 

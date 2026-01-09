@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';
+import { requireFeature } from '../middleware/planLimits';
 import { Module } from '../permissions';
 import * as settlementsService from '../services/settlements.service';
 
@@ -13,6 +14,9 @@ settlementsRouter.use(extractStoreId);
 settlementsRouter.use(extractUserRole);
 // Settlements are related to carriers module
 settlementsRouter.use(requireModule(Module.CARRIERS));
+
+// Apply plan feature check - settlements requires warehouse feature (Starter+ plan)
+settlementsRouter.use(requireFeature('warehouse'));
 
 // ================================================================
 // GET /api/settlements - List all settlements

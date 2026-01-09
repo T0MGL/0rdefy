@@ -11,7 +11,7 @@ import { AuthProvider, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
-import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
+// OnboardingTourProvider removed - using DemoTourProvider only
 import { DemoTourProvider } from "@/components/demo-tour/DemoTourProvider";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { PermissionRoute } from "@/components/PermissionRoute";
@@ -144,7 +144,6 @@ const App = () => {
                   <SubscriptionProvider>
                     <PlanLimitHandler />
                     <DateRangeProvider>
-                      <OnboardingTourProvider>
                         <DemoTourProvider>
                         <ErrorBoundary>
                           <OnboardingGuard>
@@ -224,7 +223,6 @@ const App = () => {
                         </OnboardingGuard>
                         </ErrorBoundary>
                         </DemoTourProvider>
-                      </OnboardingTourProvider>
                     </DateRangeProvider>
                   </SubscriptionProvider>
                 </AuthProvider>

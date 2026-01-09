@@ -4,6 +4,7 @@
  */
 
 export { SessionProgress } from './SessionProgress';
+export type { WorkflowStep } from './SessionProgress';
 export { OrderSelector } from './OrderSelector';
 export { PickingList } from './PickingList';
 export { PackingOneByOne } from './PackingOneByOne';
