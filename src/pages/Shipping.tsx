@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download } from 'lucide-react';
+import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download, FileSpreadsheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import * as shippingService from '@/services/shipping.service';
+import { generateDispatchCSV } from '@/services/shipping.service';
 import { unifiedService } from '@/services/unified.service';
 import { GlobalViewToggle } from '@/components/GlobalViewToggle';
 import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
@@ -135,6 +136,27 @@ export default function Shipping() {
     });
   }
 
+  function handleExportCSV() {
+    if (selectedOrders.size === 0) {
+      toast({
+        title: 'Error',
+        description: 'Por favor selecciona al menos un pedido',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const selectedOrdersList = orders.filter(o => selectedOrders.has(o.id));
+    const carrierName = selectedOrdersList[0]?.carrier_name || 'Transportadora';
+
+    generateDispatchCSV(selectedOrdersList, carrierName);
+
+    toast({
+      title: 'CSV exportado',
+      description: `Planilla descargada con ${selectedOrdersList.length} pedido(s) para el courier`,
+    });
+  }
+
   async function handleDispatch() {
     if (selectedOrders.size === 0) return;
 
@@ -252,6 +274,16 @@ export default function Shipping() {
             </span>
             <div className="flex-1" />
             <Button
+              onClick={handleExportCSV}
+              disabled={selectedOrders.size === 0 || loading}
+              variant="outline"
+              size="lg"
+              className="gap-2"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Exportar CSV
+            </Button>
+            <Button
               onClick={handleGenerateManifest}
               disabled={selectedOrders.size === 0 || loading}
               variant="outline"
@@ -259,7 +291,7 @@ export default function Shipping() {
               className="gap-2"
             >
               <FileText className="h-4 w-4" />
-              Generar Orden de Entrega
+              Orden de Entrega
             </Button>
             <Button
               onClick={handleOpenDispatchDialog}

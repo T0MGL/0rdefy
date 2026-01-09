@@ -57,7 +57,7 @@ export function OrderConfirmationDialog({
   const [loading, setLoading] = useState(false);
 
   // Use centralized carriers hook with caching (active carriers only)
-  const { carriers, isLoading: loadingCarriers, getCarrierById } = useCarriers({ activeOnly: true });
+  const { carriers, isLoading: loadingCarriers, isError: carriersError, refetch: refetchCarriers, getCarrierById } = useCarriers({ activeOnly: true });
 
   // Confirmation state
   const [isConfirmed, setIsConfirmed] = useState(false);
@@ -156,16 +156,21 @@ export function OrderConfirmationDialog({
         setGoogleMapsLink(order.google_maps_link);
       }
 
-      // Check if no carriers available
-      if (carriers.length === 0 && !loadingCarriers) {
-        toast({
-          title: 'Sin repartidores',
-          description: 'No hay repartidores activos disponibles. Crea uno primero.',
-          variant: 'destructive',
-        });
-      }
+      // Refetch carriers when dialog opens to ensure fresh data
+      refetchCarriers();
     }
-  }, [open, order, carriers.length, loadingCarriers, toast]);
+  }, [open, order, refetchCarriers]);
+
+  // Show toast when carriers finish loading with no results
+  useEffect(() => {
+    if (open && !loadingCarriers && carriers.length === 0 && !carriersError) {
+      toast({
+        title: 'Sin repartidores',
+        description: 'No hay repartidores activos disponibles. Crea uno primero.',
+        variant: 'destructive',
+      });
+    }
+  }, [open, loadingCarriers, carriers.length, carriersError, toast]);
 
   // Auto-save upsell when changed after confirmation
   useEffect(() => {
@@ -469,6 +474,19 @@ export function OrderConfirmationDialog({
                   <div className="flex items-center justify-center p-4">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span className="ml-2 text-sm text-muted-foreground">Cargando repartidores...</span>
+                  </div>
+                ) : carriersError ? (
+                  <div className="flex items-center justify-between p-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20">
+                    <span className="text-sm text-red-800 dark:text-red-200">
+                      Error al cargar repartidores
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => refetchCarriers()}
+                    >
+                      Reintentar
+                    </Button>
                   </div>
                 ) : (
                   <Select value={courierId} onValueChange={setCourierId}>

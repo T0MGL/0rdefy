@@ -121,20 +121,16 @@ export default function Delivery() {
 
     try {
       setSubmitting(true);
-      const authToken = localStorage.getItem('auth_token');
-      const storeId = state.data.store_id;
 
       const payload: any = {
         payment_method: paymentMethod,
       };
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data.id}/delivery-confirm`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/token/${token}/delivery-confirm`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'X-Store-ID': storeId,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -179,8 +175,6 @@ export default function Delivery() {
 
     try {
       setSubmitting(true);
-      const authToken = localStorage.getItem('auth_token');
-      const storeId = state.data.store_id;
 
       const payload: any = {
         delivery_failure_reason: failureReason,
@@ -192,12 +186,10 @@ export default function Delivery() {
       }
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data.id}/delivery-fail`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/token/${token}/delivery-fail`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'X-Store-ID': storeId,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),

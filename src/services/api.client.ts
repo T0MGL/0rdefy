@@ -8,36 +8,71 @@ const apiClient = axios.create({
   },
 });
 
+// Helper to safely get Shopify session token without dynamic imports that can fail
+let cachedGetSessionToken: ((app: any) => Promise<string>) | null = null;
+
+async function safeGetShopifyToken(shopifyApp: any): Promise<string | null> {
+  try {
+    // Only attempt to load Shopify utilities if we haven't tried before
+    if (!cachedGetSessionToken) {
+      // Check if the module is available before importing
+      const utilities = await import('@shopify/app-bridge/utilities').catch(() => null);
+      if (utilities?.getSessionToken) {
+        cachedGetSessionToken = utilities.getSessionToken;
+      } else {
+        // Module not available, don't try again
+        cachedGetSessionToken = () => Promise.resolve('');
+        return null;
+      }
+    }
+
+    const token = await cachedGetSessionToken(shopifyApp);
+    return token || null;
+  } catch {
+    // Silently fail - we're not in a Shopify context
+    return null;
+  }
+}
+
+// Check if we're truly in Shopify embedded mode
+function isShopifyEmbedded(): boolean {
+  try {
+    // Must be in an iframe
+    if (window.top === window.self) return false;
+
+    // Must have Shopify app bridge initialized
+    const shopify = (window as any).shopify;
+    if (!shopify) return false;
+
+    // Verify it looks like a real Shopify app bridge instance
+    if (typeof shopify.idToken !== 'function' && typeof shopify.toast !== 'function') {
+      return false;
+    }
+
+    return true;
+  } catch {
+    // Cross-origin iframe check can throw
+    return false;
+  }
+}
+
 // Request interceptor - Get fresh tokens for each request
 // Priority: Shopify App Bridge token > Regular auth token
 apiClient.interceptors.request.use(async (config) => {
   const authToken = localStorage.getItem('auth_token');
   const storeId = localStorage.getItem('current_store_id');
 
-  // Check if we're in Shopify embedded mode
-  const isEmbedded = window.top !== window.self;
+  // Check if we're truly in Shopify embedded mode
+  if (isShopifyEmbedded()) {
+    const shopifyApp = (window as any).shopify;
+    const freshToken = await safeGetShopifyToken(shopifyApp);
 
-  // If in embedded mode and window.shopify is available, get a FRESH token
-  if (isEmbedded && (window as any).shopify) {
-    try {
-      console.log('🔑 [API] Getting fresh Shopify session token...');
-
-      // Import getSessionToken dynamically to avoid circular dependencies
-      const { getSessionToken } = await import('@shopify/app-bridge/utilities');
-      const freshToken = await getSessionToken((window as any).shopify);
-
-      if (freshToken) {
-        console.log('✅ [API] Fresh token obtained for request');
-        config.headers.Authorization = `Bearer ${freshToken}`;
-        config.headers['X-Shopify-Session'] = 'true'; // Flag for backend
-
-        // Update localStorage with fresh token
-        localStorage.setItem('shopify_session_token', freshToken);
-      }
-    } catch (error) {
-      console.error('❌ [API] Failed to get fresh Shopify token:', error);
-
-      // Fallback to stored token
+    if (freshToken) {
+      config.headers.Authorization = `Bearer ${freshToken}`;
+      config.headers['X-Shopify-Session'] = 'true';
+      localStorage.setItem('shopify_session_token', freshToken);
+    } else {
+      // Fallback to stored Shopify token
       const shopifySessionToken = localStorage.getItem('shopify_session_token');
       if (shopifySessionToken) {
         config.headers.Authorization = `Bearer ${shopifySessionToken}`;
@@ -68,40 +103,25 @@ apiClient.interceptors.response.use(
       if (status === 401) {
         console.warn('⚠️ [API] 401 Unauthorized - Session invalid');
 
-        // Check if we're in Shopify embedded mode
-        const isEmbedded = window.top !== window.self;
-
-        if (isEmbedded && (window as any).shopify) {
+        if (isShopifyEmbedded()) {
           // IN EMBEDDED MODE: Do NOT redirect, try to refresh token
-          console.log('🔄 [API] Embedded mode - Attempting token refresh...');
+          const shopifyApp = (window as any).shopify;
+          const freshToken = await safeGetShopifyToken(shopifyApp);
 
-          try {
-            // Try to get a fresh token from Shopify
-            const { getSessionToken } = await import('@shopify/app-bridge/utilities');
-            const freshToken = await getSessionToken((window as any).shopify);
+          if (freshToken) {
+            localStorage.setItem('shopify_session_token', freshToken);
 
-            if (freshToken) {
-              console.log('✅ [API] Token refreshed, retrying request...');
-              localStorage.setItem('shopify_session_token', freshToken);
+            // Retry the original request with the fresh token
+            const originalRequest = error.config;
+            originalRequest.headers.Authorization = `Bearer ${freshToken}`;
+            originalRequest.headers['X-Shopify-Session'] = 'true';
 
-              // Retry the original request with the fresh token
-              const originalRequest = error.config;
-              originalRequest.headers.Authorization = `Bearer ${freshToken}`;
-              originalRequest.headers['X-Shopify-Session'] = 'true';
-
-              return apiClient(originalRequest);
-            }
-          } catch (refreshError) {
-            console.error('❌ [API] Failed to refresh token in embedded mode:', refreshError);
-            // Show error message but don't redirect (would be blocked in iframe)
-            console.error('⚠️ [API] Session expired. Please refresh the Shopify admin page.');
+            return apiClient(originalRequest);
           }
+          // If we couldn't get a token, user needs to refresh the page
+          console.warn('⚠️ [API] Session expired. Please refresh the Shopify admin page.');
         } else {
           // IN STANDALONE MODE: Dispatch event for AuthContext to handle
-          console.log('🏠 [API] Standalone mode - Dispatching session expired event');
-
-          // Dispatch custom event that AuthContext will listen to
-          // This allows React to clear state gracefully before redirecting
           const event = new CustomEvent('auth:session-expired');
           window.dispatchEvent(event);
         }

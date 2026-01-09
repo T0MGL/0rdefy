@@ -104,3 +104,71 @@ export async function getShipmentHistory(
   );
   return response.data;
 }
+
+/**
+ * Generates a CSV file for courier delivery tracking
+ * This CSV can be shared with the courier and later imported for reconciliation
+ */
+export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: string): void {
+  // CSV Headers in Spanish for courier compatibility
+  const headers = [
+    'PEDIDO',
+    'CLIENTE',
+    'TELEFONO',
+    'DIRECCION',
+    'CIUDAD',
+    'MONTO_COD',
+    'TRANSPORTADORA',
+    'ESTADO_ENTREGA',
+    'MONTO_COBRADO',
+    'MOTIVO_FALLA',
+    'NOTAS'
+  ];
+
+  // Build CSV rows
+  const rows = orders.map(order => {
+    // Extract city from address if available (common format: "Address, City")
+    const addressParts = order.customer_address?.split(',') || [];
+    const city = addressParts.length > 1 ? addressParts[addressParts.length - 1].trim() : '';
+
+    return [
+      order.order_number || order.id.slice(0, 8),
+      order.customer_name || '',
+      order.customer_phone || '',
+      order.customer_address || '',
+      city,
+      order.cod_amount?.toString() || '0',
+      order.carrier_name || carrierName,
+      '', // ESTADO_ENTREGA - to be filled by courier
+      '', // MONTO_COBRADO - to be filled by courier
+      '', // MOTIVO_FALLA - to be filled by courier
+      ''  // NOTAS - to be filled by courier
+    ];
+  });
+
+  // Convert to CSV string
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+
+  // Generate filename with date
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('es-PY', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).replace(/\//g, '');
+  const filename = `DESPACHO-${carrierName.toUpperCase().replace(/\s+/g, '_')}-${dateStr}.csv`;
+
+  // Download the file
+  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}

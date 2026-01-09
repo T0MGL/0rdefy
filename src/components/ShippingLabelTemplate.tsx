@@ -334,15 +334,23 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
 
         @media print {
             @page {
-                size: landscape; /* Auto-detects 4x6 or similiar in landscape */
+                size: 6in 4in; /* 4x6 landscape = 6 wide x 4 tall */
                 margin: 0;
             }
-            
+
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 6in !important;
+                height: 4in !important;
+                overflow: hidden !important;
+            }
+
             body * {
                 visibility: hidden;
             }
 
-            .shipping-label-container, 
+            .shipping-label-container,
             .shipping-label-container * {
                 visibility: visible;
             }
@@ -351,8 +359,8 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
                 position: fixed;
                 left: 0;
                 top: 0;
-                width: 100vw;
-                height: 100vh;
+                width: 6in !important;
+                height: 4in !important;
                 margin: 0;
                 padding: 0;
                 border: none;
@@ -360,13 +368,20 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
                 align-items: center;
                 justify-content: center;
             }
-            
+
             .shipping-label {
-                 /* In print, maximize usage of the page */
-                 width: 100%;
-                 height: 100%;
-                 border: none; /* Remove border for actual print? or keep for definition? */
-                 /* padding: 0.1in; Safe margin */
+                width: 6in !important;
+                height: 4in !important;
+                max-width: 6in !important;
+                max-height: 4in !important;
+                border: none;
+                padding: 0.1in;
+                box-sizing: border-box;
+                font-size: 11px;
+            }
+
+            .qr-code {
+                max-width: 1.2in !important;
             }
         }
       `}</style>
