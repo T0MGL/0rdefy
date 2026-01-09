@@ -854,57 +854,55 @@ export default function Delivery() {
                 </Select>
               </div>
 
-              {/* Opción de monto diferente cobrado */}
-              {orderData.cod_amount > 0 && (
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="different-amount"
-                      checked={differentAmountCollected}
-                      onCheckedChange={(checked) => {
-                        setDifferentAmountCollected(checked === true);
-                        if (!checked) setAmountCollected('');
-                      }}
-                    />
-                    <Label
-                      htmlFor="different-amount"
-                      className="text-sm font-medium cursor-pointer flex items-center gap-2"
-                    >
-                      <DollarSign className="h-4 w-4 text-orange-500" />
-                      Cobré un monto diferente
-                    </Label>
-                  </div>
-
-                  {differentAmountCollected && (
-                    <div className="space-y-2 pl-6 animate-in slide-in-from-top-2 duration-200">
-                      <Label htmlFor="amount-collected" className="text-sm font-medium">
-                        Monto cobrado (₲) *
-                      </Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">₲</span>
-                        <Input
-                          id="amount-collected"
-                          type="text"
-                          inputMode="numeric"
-                          value={amountCollected}
-                          onChange={(e) => {
-                            // Solo permitir números
-                            const value = e.target.value.replace(/[^0-9]/g, '');
-                            // Formatear con separador de miles
-                            const formatted = value ? parseInt(value).toLocaleString('es-PY') : '';
-                            setAmountCollected(formatted);
-                          }}
-                          placeholder="Ej: 150.000"
-                          className="pl-8"
-                        />
-                      </div>
-                      <p className="text-xs text-orange-600 dark:text-orange-400">
-                        Monto esperado: ₲{orderData.cod_amount?.toLocaleString()}
-                      </p>
-                    </div>
-                  )}
+              {/* Opción de monto diferente cobrado - siempre visible */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="different-amount"
+                    checked={differentAmountCollected}
+                    onCheckedChange={(checked) => {
+                      setDifferentAmountCollected(checked === true);
+                      if (!checked) setAmountCollected('');
+                    }}
+                  />
+                  <Label
+                    htmlFor="different-amount"
+                    className="text-sm font-medium cursor-pointer flex items-center gap-2"
+                  >
+                    <DollarSign className="h-4 w-4 text-orange-500" />
+                    Cobré un monto diferente
+                  </Label>
                 </div>
-              )}
+
+                {differentAmountCollected && (
+                  <div className="space-y-2 pl-6 animate-in slide-in-from-top-2 duration-200">
+                    <Label htmlFor="amount-collected" className="text-sm font-medium">
+                      Monto cobrado (₲) *
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">₲</span>
+                      <Input
+                        id="amount-collected"
+                        type="text"
+                        inputMode="numeric"
+                        value={amountCollected}
+                        onChange={(e) => {
+                          // Solo permitir números
+                          const value = e.target.value.replace(/[^0-9]/g, '');
+                          // Formatear con separador de miles
+                          const formatted = value ? parseInt(value).toLocaleString('es-PY') : '';
+                          setAmountCollected(formatted);
+                        }}
+                        placeholder="Ej: 150.000"
+                        className="pl-8"
+                      />
+                    </div>
+                    <p className="text-xs text-orange-600 dark:text-orange-400">
+                      Monto esperado: ₲{(orderData.cod_amount || orderData.total_price || 0)?.toLocaleString()}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               <Button
                 className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold"

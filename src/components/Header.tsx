@@ -167,6 +167,8 @@ export function Header() {
     if (value !== 'custom') {
       setSelectedRange(value as any);
     } else {
+      // Set to custom mode and open calendar
+      setSelectedRange('custom');
       setShowCalendar(true);
     }
   };
@@ -252,26 +254,27 @@ export function Header() {
             {selectedRange === 'custom' && (
               <Popover open={showCalendar} onOpenChange={setShowCalendar}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9">
+                  <Button variant="outline" size="sm" className="h-9 bg-card border-border hover:bg-primary/10 hover:border-primary/50">
                     {customRange ? getCustomLabel() : 'Seleccionar fechas'}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-4" align="end">
+                <PopoverContent className="w-auto p-4 bg-card border-border shadow-xl" align="end">
                   <div className="space-y-4">
                     <div>
-                      <p className="text-sm font-medium mb-2">Fecha de Inicio</p>
+                      <p className="text-sm font-medium mb-2 text-foreground">Fecha de Inicio</p>
                       <CalendarComponent
                         mode="single"
                         selected={startDate}
                         onSelect={setStartDate}
                         locale={es}
                         initialFocus
+                        className="rounded-md border border-border bg-card"
                       />
                     </div>
 
                     {startDate && (
                       <div>
-                        <p className="text-sm font-medium mb-2">
+                        <p className="text-sm font-medium mb-2 text-foreground">
                           Fecha de Fin <span className="text-muted-foreground text-xs">(opcional)</span>
                         </p>
                         <CalendarComponent
@@ -280,16 +283,17 @@ export function Header() {
                           onSelect={setEndDate}
                           locale={es}
                           disabled={(date) => date < startDate}
+                          className="rounded-md border border-border bg-card"
                         />
                       </div>
                     )}
 
-                    <div className="flex gap-2">
-                      <Button onClick={handleApplyCustomDates} disabled={!startDate} className="flex-1">
+                    <div className="flex gap-2 pt-2 border-t border-border">
+                      <Button onClick={handleApplyCustomDates} disabled={!startDate} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
                         Aplicar
                       </Button>
-                      <Button onClick={handleResetDates} variant="outline">
-                        Reset
+                      <Button onClick={handleResetDates} variant="outline" className="border-border hover:bg-muted">
+                        Limpiar
                       </Button>
                     </div>
                   </div>

@@ -269,187 +269,237 @@ ${link}`;
             </Alert>
           )}
 
-          {/* Billing Toggle */}
-          <div className="flex items-center justify-center gap-4 py-4">
-            <span className={!isAnnual ? 'font-medium' : 'text-muted-foreground'}>
-              Mensual
-            </span>
-            <Switch checked={isAnnual} onCheckedChange={setIsAnnual} />
-            <span className={isAnnual ? 'font-medium' : 'text-muted-foreground'}>
-              Anual
-            </span>
-            {isAnnual && (
-              <Badge variant="secondary" className="bg-green-100 text-green-700">
-                Ahorra 15%
-              </Badge>
-            )}
-          </div>
+          {/* Billing Toggle - Glassmorphic */}
+          <div className="flex flex-col items-center gap-6 py-8">
+            <div className="inline-flex items-center gap-1 p-1.5 rounded-full bg-white/5 dark:bg-white/5 backdrop-blur-xl border border-white/10">
+              <button
+                onClick={() => setIsAnnual(false)}
+                className={`px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+                  !isAnnual
+                    ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/25'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Mensual
+              </button>
+              <button
+                onClick={() => setIsAnnual(true)}
+                className={`px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+                  isAnnual
+                    ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/25'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Anual
+              </button>
+              {isAnnual && (
+                <span className="ml-2 mr-3 px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-green-500 to-emerald-500 text-white">
+                  -15%
+                </span>
+              )}
+            </div>
 
-          {/* Discount Code */}
-          <div className="flex items-center justify-center gap-4">
-            <div className="flex items-center gap-2">
+            {/* Discount Codes - Glassmorphic */}
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <Input
                 placeholder="Codigo de descuento"
                 value={discountCode}
                 onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
-                className="w-48"
+                className="w-48 bg-white/5 dark:bg-white/5 backdrop-blur-sm border-white/10 focus:border-primary/50 transition-colors"
               />
               <Input
                 placeholder="Codigo de referido"
                 value={referralCode}
                 onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                className="w-48"
+                className="w-48 bg-white/5 dark:bg-white/5 backdrop-blur-sm border-white/10 focus:border-primary/50 transition-colors"
               />
             </div>
           </div>
 
-          {/* Plans Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Plans Grid - Premium Glassmorphic */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             {allPlans.map((plan: Plan) => {
               const isCurrentPlan = currentPlan === plan.plan;
               const isGrowth = plan.plan === 'growth';
               const canUpgrade = getPlanOrder(plan.plan) > getPlanOrder(currentPlan);
               const canDowngrade = getPlanOrder(plan.plan) < getPlanOrder(currentPlan);
-              // API already returns prices in dollars (converted from cents in api/routes/billing.ts)
               const monthlyPrice = plan.priceMonthly;
-              const annualMonthlyPrice = plan.priceAnnual / 12; // Monthly equivalent of annual price
+              const annualMonthlyPrice = plan.priceAnnual / 12;
               const displayPrice = isAnnual ? annualMonthlyPrice : monthlyPrice;
-              const annualSavings = isAnnual ? Math.round((monthlyPrice - annualMonthlyPrice) * 12) : 0;
 
               return (
-                <Card
+                <div
                   key={plan.plan}
-                  className={`relative ${
-                    isGrowth ? 'border-primary shadow-lg' : ''
-                  } ${isCurrentPlan ? 'border-green-500' : ''}`}
+                  className={`relative group rounded-2xl transition-all duration-500 ${
+                    isGrowth
+                      ? 'bg-gradient-to-b from-primary/20 via-primary/10 to-transparent scale-[1.02] z-10'
+                      : 'hover:scale-[1.01]'
+                  }`}
                 >
+                  {/* Glow effect for Growth */}
                   {isGrowth && (
-                    <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary">
-                      Mas Popular
-                    </Badge>
-                  )}
-                  {isCurrentPlan && (
-                    <Badge className="absolute -top-3 right-4 bg-green-500">
-                      Plan Actual
-                    </Badge>
+                    <div className="absolute -inset-[1px] bg-gradient-to-b from-primary via-primary/50 to-primary/20 rounded-2xl opacity-75 blur-[1px]" />
                   )}
 
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      {plan.plan === 'free' && <Zap className="h-5 w-5" />}
-                      {plan.plan === 'starter' && <Sparkles className="h-5 w-5" />}
-                      {plan.plan === 'growth' && <TrendingUp className="h-5 w-5" />}
-                      {plan.plan === 'professional' && <Crown className="h-5 w-5" />}
-                      {getPlanDisplayName(plan.plan)}
-                    </CardTitle>
-                    <CardDescription>
-                      {getPlanDescription(plan.plan)}
-                    </CardDescription>
-                  </CardHeader>
+                  {/* Card content */}
+                  <div className={`relative h-full rounded-2xl backdrop-blur-xl border transition-all duration-300 ${
+                    isGrowth
+                      ? 'bg-card/95 border-primary/30'
+                      : isCurrentPlan
+                        ? 'bg-card/80 border-green-500/50'
+                        : 'bg-card/60 border-white/10 hover:border-white/20 hover:bg-card/70'
+                  }`}>
 
-                  <CardContent className="flex-1 space-y-4">
-                    {/* Price */}
-                    <div className="text-center">
-                      {isAnnual && plan.plan !== 'free' && (
-                        <div className="text-sm text-muted-foreground line-through mb-1">
-                          ${monthlyPrice.toFixed(0)}/mes
+                    {/* Badges */}
+                    {isGrowth && !isCurrentPlan && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                        <span className="px-4 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/30">
+                          Mas Popular
+                        </span>
+                      </div>
+                    )}
+                    {isCurrentPlan && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                        <span className="px-4 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/30">
+                          Plan Actual
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="p-6 pt-8">
+                      {/* Header */}
+                      <div className="mb-6">
+                        <h3 className="text-xl font-bold text-foreground">
+                          {getPlanDisplayName(plan.plan)}
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {getPlanDescription(plan.plan)}
+                        </p>
+                      </div>
+
+                      {/* Price */}
+                      <div className="mb-6">
+                        {isAnnual && plan.plan !== 'free' && (
+                          <div className="text-sm text-muted-foreground/60 line-through mb-1">
+                            ${monthlyPrice.toFixed(0)}/mes
+                          </div>
+                        )}
+                        <div className="flex items-baseline gap-1">
+                          <span className={`text-5xl font-bold tracking-tight ${
+                            isGrowth ? 'text-primary' : 'text-foreground'
+                          }`}>
+                            ${displayPrice.toFixed(0)}
+                          </span>
+                          <span className="text-muted-foreground text-lg">/mes</span>
+                        </div>
+                        {isAnnual && plan.plan !== 'free' && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            ${Math.round(annualMonthlyPrice * 12)} facturado anualmente
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Trial Badge */}
+                      {plan.has_trial && plan.plan !== 'free' && (
+                        <div className="mb-6">
+                          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-green-500/10 to-emerald-500/10 text-green-500 border border-green-500/20">
+                            <Gift className="h-4 w-4" />
+                            14 dias gratis
+                          </span>
                         </div>
                       )}
-                      <span className="text-4xl font-bold">
-                        ${displayPrice.toFixed(0)}
-                      </span>
-                      <span className="text-muted-foreground">/mes</span>
-                      {isAnnual && plan.plan !== 'free' && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          ${Math.round(annualMonthlyPrice * 12)} facturado anualmente
-                        </p>
+
+                      {/* Divider */}
+                      <div className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent mb-6" />
+
+                      {/* Limits */}
+                      <div className="space-y-3 mb-6">
+                        <div className="flex items-center gap-3 text-sm">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-foreground">
+                            {plan.max_users === -1 ? 'Ilimitados' : plan.max_users} usuarios
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm">
+                          <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-foreground">
+                            {plan.max_orders_per_month === -1
+                              ? 'Ilimitados'
+                              : plan.max_orders_per_month.toLocaleString()}{' '}
+                            pedidos/mes
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm">
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-foreground">
+                            {plan.max_products === -1
+                              ? 'Ilimitados'
+                              : plan.max_products.toLocaleString()}{' '}
+                            productos
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Divider */}
+                      <div className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent mb-6" />
+
+                      {/* Features */}
+                      <div className="space-y-3 mb-8">
+                        {renderFeature('Warehouse', plan.has_warehouse)}
+                        {renderFeature('Devoluciones', plan.has_returns)}
+                        {renderFeature('Mercaderia', plan.has_merchandise)}
+                        {renderFeature('Etiquetas de envio', plan.has_shipping_labels)}
+                        {renderFeature('Shopify Import', plan.has_shopify_import)}
+                        {renderFeature('Shopify Sync', plan.has_shopify_bidirectional)}
+                        {renderFeature('Smart Alerts', plan.has_smart_alerts)}
+                        {renderFeature('API Access', plan.has_api_read || plan.has_api_write)}
+                      </div>
+
+                      {/* CTA Button */}
+                      {isCurrentPlan ? (
+                        <button
+                          disabled
+                          className="w-full py-3 px-4 rounded-xl text-sm font-medium bg-white/5 text-muted-foreground border border-white/10 cursor-not-allowed"
+                        >
+                          Plan Actual
+                        </button>
+                      ) : canUpgrade ? (
+                        <button
+                          onClick={() => handleUpgrade(plan.plan)}
+                          disabled={checkoutMutation.isPending && selectedPlan === plan.plan}
+                          className={`w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 ${
+                            isGrowth
+                              ? 'bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:scale-[1.02]'
+                              : 'bg-white/10 text-foreground border border-white/20 hover:bg-white/20 hover:border-white/30'
+                          }`}
+                        >
+                          {checkoutMutation.isPending && selectedPlan === plan.plan ? (
+                            'Cargando...'
+                          ) : (
+                            <span className="flex items-center justify-center gap-2">
+                              {plan.has_trial ? 'Comenzar Prueba Gratis' : 'Upgrade'}
+                              <ArrowRight className="h-4 w-4" />
+                            </span>
+                          )}
+                        </button>
+                      ) : canDowngrade ? (
+                        <button
+                          disabled
+                          className="w-full py-3 px-4 rounded-xl text-sm font-medium bg-white/5 text-muted-foreground border border-white/10 cursor-not-allowed"
+                        >
+                          Contactar para Downgrade
+                        </button>
+                      ) : (
+                        <button
+                          disabled
+                          className="w-full py-3 px-4 rounded-xl text-sm font-medium bg-white/5 text-muted-foreground border border-white/10 cursor-not-allowed"
+                        >
+                          No disponible
+                        </button>
                       )}
                     </div>
-
-                    {/* Trial Badge */}
-                    {plan.has_trial && plan.plan !== 'free' && (
-                      <Badge variant="outline" className="w-full justify-center">
-                        <Gift className="h-3 w-3 mr-1" />
-                        14 dias gratis
-                      </Badge>
-                    )}
-
-                    <Separator />
-
-                    {/* Limits */}
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {plan.max_users === -1 ? 'Ilimitados' : plan.max_users} usuarios
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {plan.max_orders_per_month === -1
-                            ? 'Ilimitados'
-                            : plan.max_orders_per_month.toLocaleString()}{' '}
-                          pedidos/mes
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {plan.max_products === -1
-                            ? 'Ilimitados'
-                            : plan.max_products.toLocaleString()}{' '}
-                          productos
-                        </span>
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    {/* Features */}
-                    <div className="space-y-2 text-sm">
-                      {renderFeature('Warehouse', plan.has_warehouse)}
-                      {renderFeature('Devoluciones', plan.has_returns)}
-                      {renderFeature('Mercaderia', plan.has_merchandise)}
-                      {renderFeature('Etiquetas de envio', plan.has_shipping_labels)}
-                      {renderFeature('Shopify Import', plan.has_shopify_import)}
-                      {renderFeature('Shopify Sync', plan.has_shopify_bidirectional)}
-                      {renderFeature('Smart Alerts', plan.has_smart_alerts)}
-                      {renderFeature('API Access', plan.has_api_read || plan.has_api_write)}
-                    </div>
-                  </CardContent>
-
-                  <CardFooter>
-                    {isCurrentPlan ? (
-                      <Button className="w-full" disabled variant="outline">
-                        Plan Actual
-                      </Button>
-                    ) : canUpgrade ? (
-                      <Button
-                        className="w-full"
-                        onClick={() => handleUpgrade(plan.plan)}
-                        disabled={checkoutMutation.isPending && selectedPlan === plan.plan}
-                      >
-                        {checkoutMutation.isPending && selectedPlan === plan.plan ? (
-                          'Cargando...'
-                        ) : (
-                          <>
-                            {plan.has_trial ? 'Probar Gratis' : 'Upgrade'}
-                            <ArrowRight className="h-4 w-4 ml-2" />
-                          </>
-                        )}
-                      </Button>
-                    ) : canDowngrade ? (
-                      <Button className="w-full" variant="outline" disabled>
-                        Contactar para Downgrade
-                      </Button>
-                    ) : (
-                      <Button className="w-full" variant="outline" disabled>
-                        No disponible
-                      </Button>
-                    )}
-                  </CardFooter>
-                </Card>
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -757,13 +807,13 @@ function getProgressColor(percentage: number): string {
 
 function renderFeature(name: string, enabled: boolean) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3 text-sm">
       {enabled ? (
         <Check className="h-4 w-4 text-green-500" />
       ) : (
-        <X className="h-4 w-4 text-muted-foreground" />
+        <X className="h-4 w-4 text-muted-foreground/40" />
       )}
-      <span className={!enabled ? 'text-muted-foreground' : ''}>{name}</span>
+      <span className={enabled ? 'text-foreground' : 'text-muted-foreground/50'}>{name}</span>
     </div>
   );
 }
