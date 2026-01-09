@@ -151,7 +151,9 @@ function drawLabel(
   // Order number - large and prominent
   pdf.setFontSize(22);
   pdf.setFont('helvetica', 'bold');
-  const orderText = `#${data.orderNumber}`;
+  // Remove leading # if already present in orderNumber
+  const cleanOrderNumber = data.orderNumber.replace(/^#/, '');
+  const orderText = `#${cleanOrderNumber}`;
   pdf.text(orderText, PAGE_WIDTH - MARGIN - 0.08, headerY + 0.35, { align: 'right' });
 
   // Header separator
@@ -218,15 +220,17 @@ function drawLabel(
   }
 
   // Phone - always at fixed position near bottom of address zone (with clearance from separator)
-  const phoneY = addressZoneY + addressZoneHeight - 0.32;
-  pdf.setFontSize(13);
+  const phoneBoxY = addressZoneY + addressZoneHeight - 0.38;
+  pdf.setFontSize(12);
   pdf.setFont('courier', 'bold');
   const phoneText = `TEL: ${data.customerPhone}`;
-  const phoneWidth = pdf.getTextWidth(phoneText) + 0.12;
+  const phoneWidth = pdf.getTextWidth(phoneText) + 0.16;
+  const phoneBoxHeight = 0.24;
 
   pdf.setLineWidth(0.02);
-  pdf.rect(MARGIN + 0.08, phoneY - 0.12, phoneWidth, 0.22);
-  pdf.text(phoneText, MARGIN + 0.14, phoneY);
+  pdf.rect(MARGIN + 0.08, phoneBoxY, phoneWidth, phoneBoxHeight);
+  // Center text vertically in box
+  pdf.text(phoneText, MARGIN + 0.16, phoneBoxY + 0.17);
 
   // Address zone separator
   pdf.setLineWidth(0.02);
