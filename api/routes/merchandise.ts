@@ -352,6 +352,19 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
       });
     }
 
+    // Get shipment items to validate quantities
+    const { data: shipmentItems, error: itemsError } = await supabaseAdmin
+      .from('inbound_shipment_items')
+      .select('id, qty_ordered, qty_received, qty_rejected')
+      .eq('shipment_id', id);
+
+    if (itemsError) {
+      throw itemsError;
+    }
+
+    // Create a map of shipment items for validation
+    const itemsMap = new Map(shipmentItems?.map(i => [i.id, i]) || []);
+
     // Validate items
     for (const item of items) {
       if (!item.item_id || item.qty_received === undefined) {
@@ -365,6 +378,35 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
         return res.status(400).json({
           error: 'Validation failed',
           message: 'Received quantity cannot be negative'
+        });
+      }
+
+      // Validate qty_received doesn't exceed qty_ordered
+      const shipmentItem = itemsMap.get(item.item_id);
+      if (!shipmentItem) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          message: `Item ${item.item_id} not found in shipment`
+        });
+      }
+
+      const qtyRejected = item.qty_rejected || 0;
+      const totalProcessed = item.qty_received + qtyRejected;
+      const maxAllowed = shipmentItem.qty_ordered - (shipmentItem.qty_received || 0) - (shipmentItem.qty_rejected || 0);
+
+      if (totalProcessed > maxAllowed) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          message: `Total processed (${totalProcessed}) exceeds remaining quantity (${maxAllowed}) for item`,
+          details: {
+            item_id: item.item_id,
+            qty_ordered: shipmentItem.qty_ordered,
+            already_received: shipmentItem.qty_received || 0,
+            already_rejected: shipmentItem.qty_rejected || 0,
+            max_remaining: maxAllowed,
+            attempted_received: item.qty_received,
+            attempted_rejected: qtyRejected
+          }
         });
       }
     }

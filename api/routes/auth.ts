@@ -167,7 +167,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('💥 [REGISTER] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Registration failed',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
@@ -208,7 +208,7 @@ authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) 
         });
     } catch (error: any) {
         console.error('💥 [LOGOUT] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: 'Logout failed'
         });
@@ -385,7 +385,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('💥 [LOGIN] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Login failed',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
@@ -560,7 +560,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
         });
     } catch (error: any) {
         console.error('💥 [ONBOARDING] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Onboarding failed',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
@@ -683,7 +683,7 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
         });
     } catch (error: any) {
         console.error('💥 [PROFILE] Error:', error);
-        res.status(500).json({ error: 'Profile update failed', message: error.message });
+        return res.status(500).json({ error: 'Profile update failed', message: error.message });
     }
 };
 
@@ -783,7 +783,7 @@ authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: R
         });
     } catch (error: any) {
         console.error('💥 [CHANGE-PASSWORD] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to change password',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
@@ -869,7 +869,7 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
         });
     } catch (error: any) {
         console.error('💥 [DELETE-ACCOUNT] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to delete account',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
@@ -939,7 +939,7 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
         });
     } catch (error: any) {
         console.error('💥 [GET-STORES] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to fetch stores',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
@@ -1007,7 +1007,7 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
         });
     } catch (error: any) {
         console.error('💥 [UPDATE-TIMEZONE] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update timezone',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message
@@ -1084,7 +1084,7 @@ authRouter.put('/stores/:storeId/currency', verifyToken, async (req: AuthRequest
         });
     } catch (error: any) {
         console.error('💥 [UPDATE-CURRENCY] Unexpected error:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update currency',
             details: process.env.NODE_ENV === 'production' ? undefined : error.message

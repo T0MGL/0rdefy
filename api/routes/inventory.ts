@@ -304,68 +304,97 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
 
         console.log(`📝 [INVENTORY] Manual adjustment for product ${product_id}: ${quantity_change}`);
 
-        // Get current product stock
-        const { data: product, error: productError } = await supabaseAdmin
-            .from('products')
-            .select('id, name, stock')
-            .eq('id', product_id)
-            .eq('store_id', req.storeId)
-            .single();
+        // Use atomic RPC function with row-level locking to prevent race conditions
+        const { data: rpcResult, error: rpcError } = await supabaseAdmin
+            .rpc('adjust_inventory_atomic', {
+                p_store_id: req.storeId,
+                p_product_id: product_id,
+                p_quantity_change: quantity_change,
+                p_notes: notes || 'Ajuste manual de inventario'
+            });
 
-        if (productError || !product) {
-            console.error('❌ [INVENTORY] Product not found:', productError);
-            return productNotFound(res, undefined, product_id);
+        if (rpcError) {
+            console.error('❌ [INVENTORY] RPC error:', rpcError);
+
+            // Fallback to non-atomic approach if RPC not available (migration not run yet)
+            if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+                console.warn('⚠️ [INVENTORY] RPC not available, using fallback (run migration 049)');
+
+                // Get current product stock
+                const { data: product, error: productError } = await supabaseAdmin
+                    .from('products')
+                    .select('id, name, stock')
+                    .eq('id', product_id)
+                    .eq('store_id', req.storeId)
+                    .single();
+
+                if (productError || !product) {
+                    console.error('❌ [INVENTORY] Product not found:', productError);
+                    return productNotFound(res, undefined, product_id);
+                }
+
+                const stock_before = product.stock;
+                const stock_after = Math.max(0, stock_before + quantity_change);
+
+                // Update stock
+                const { error: updateError } = await supabaseAdmin
+                    .from('products')
+                    .update({
+                        stock: stock_after,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', product_id)
+                    .eq('store_id', req.storeId);
+
+                if (updateError) {
+                    console.error('❌ [INVENTORY] Error updating stock:', updateError);
+                    return databaseError(res, updateError);
+                }
+
+                // Log the movement
+                const { data: movement, error: movementError } = await supabaseAdmin
+                    .from('inventory_movements')
+                    .insert({
+                        store_id: req.storeId,
+                        product_id,
+                        quantity_change,
+                        stock_before,
+                        stock_after,
+                        movement_type: 'manual_adjustment',
+                        notes: notes || 'Ajuste manual de inventario'
+                    })
+                    .select()
+                    .single();
+
+                if (movementError) {
+                    console.error('❌ [INVENTORY] Error logging movement:', movementError);
+                }
+
+                console.log(`✓ [INVENTORY] Stock adjusted (fallback): ${stock_before} → ${stock_after}`);
+
+                return res.json({
+                    success: true,
+                    product_id,
+                    product_name: product.name,
+                    stock_before,
+                    stock_after,
+                    quantity_change,
+                    movement,
+                    warning: 'Used non-atomic fallback. Run migration 049 for race-condition safety.'
+                });
+            }
+
+            // Check if it's a product not found error
+            if (rpcError.message?.includes('Product not found')) {
+                return productNotFound(res, undefined, product_id);
+            }
+
+            return databaseError(res, rpcError);
         }
 
-        const stock_before = product.stock;
-        const stock_after = Math.max(0, stock_before + quantity_change);
+        console.log(`✓ [INVENTORY] Stock adjusted atomically:`, rpcResult);
 
-        // Update stock
-        const { error: updateError } = await supabaseAdmin
-            .from('products')
-            .update({
-                stock: stock_after,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', product_id)
-            .eq('store_id', req.storeId);
-
-        if (updateError) {
-            console.error('❌ [INVENTORY] Error updating stock:', updateError);
-            return databaseError(res, updateError);
-        }
-
-        // Log the movement
-        const { data: movement, error: movementError } = await supabaseAdmin
-            .from('inventory_movements')
-            .insert({
-                store_id: req.storeId,
-                product_id,
-                quantity_change,
-                stock_before,
-                stock_after,
-                movement_type: 'manual_adjustment',
-                notes: notes || 'Ajuste manual de inventario'
-            })
-            .select()
-            .single();
-
-        if (movementError) {
-            console.error('❌ [INVENTORY] Error logging movement:', movementError);
-            // Don't fail the request, stock was updated successfully
-        }
-
-        console.log(`✓ [INVENTORY] Stock adjusted: ${stock_before} → ${stock_after}`);
-
-        return res.json({
-            success: true,
-            product_id,
-            product_name: product.name,
-            stock_before,
-            stock_after,
-            quantity_change,
-            movement
-        });
+        return res.json(rpcResult);
     } catch (error) {
         console.error('❌ [INVENTORY] Unexpected error:', error);
         return serverError(res, error);

@@ -94,9 +94,9 @@ export const ROLE_PERMISSIONS: RolePermissions = {
   },
 
   [Role.LOGISTICS]: {
-    // Logística: Warehouse, Returns, Carriers, Orders (solo vista)
+    // Logística: Warehouse, Returns, Carriers, Orders (vista + edición de estado), Analytics (solo vista para métricas logísticas)
     [Module.DASHBOARD]: [Permission.VIEW],
-    [Module.ORDERS]: [Permission.VIEW], // Solo lectura
+    [Module.ORDERS]: [Permission.VIEW, Permission.EDIT], // Vista + edición (para marcar impreso, cambiar estado desde warehouse)
     [Module.PRODUCTS]: [], // Sin acceso
     [Module.WAREHOUSE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
     [Module.RETURNS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
@@ -105,7 +105,7 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     [Module.SUPPLIERS]: [], // Sin acceso
     [Module.CARRIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
     [Module.CAMPAIGNS]: [], // Sin acceso
-    [Module.ANALYTICS]: [], // Sin acceso
+    [Module.ANALYTICS]: [Permission.VIEW], // Solo lectura para métricas de logística (delivery rate, etc.)
     [Module.SETTINGS]: [], // Sin acceso
     [Module.TEAM]: [], // Sin acceso
     [Module.BILLING]: [], // Sin acceso
@@ -113,10 +113,10 @@ export const ROLE_PERMISSIONS: RolePermissions = {
   },
 
   [Role.CONFIRMADOR]: {
-    // Confirmadores: Orders, Customers
+    // Confirmadores: Orders, Customers, Products (vista para crear órdenes)
     [Module.DASHBOARD]: [Permission.VIEW],
     [Module.ORDERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT], // No delete
-    [Module.PRODUCTS]: [], // Sin acceso
+    [Module.PRODUCTS]: [Permission.VIEW], // Solo vista para seleccionar productos en órdenes
     [Module.WAREHOUSE]: [], // Sin acceso
     [Module.RETURNS]: [], // Sin acceso
     [Module.MERCHANDISE]: [], // Sin acceso
@@ -188,8 +188,8 @@ export const ROLE_LABELS: Record<Role, string> = {
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   [Role.OWNER]: 'Acceso total a todos los módulos, team management y billing',
   [Role.ADMIN]: 'Acceso completo excepto team management y billing',
-  [Role.LOGISTICS]: 'Gestión de warehouse, returns, carriers y vista de orders',
-  [Role.CONFIRMADOR]: 'Confirmación de órdenes y gestión de customers',
+  [Role.LOGISTICS]: 'Gestión de warehouse, returns, carriers, edición de estado de orders y métricas de logística',
+  [Role.CONFIRMADOR]: 'Confirmación de órdenes, gestión de customers y vista de productos',
   [Role.CONTADOR]: 'Acceso a analytics, reportes y vista de campaigns',
   [Role.INVENTARIO]: 'Gestión de products, merchandise y suppliers'
 };

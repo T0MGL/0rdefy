@@ -8,6 +8,7 @@ import { DailySummary } from '@/components/DailySummary';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { UsageLimitsIndicator } from '@/components/UsageLimitsIndicator';
+import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -150,6 +151,9 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Onboarding Checklist - Shows for new users */}
+      <OnboardingChecklist />
+
       {/* Daily Summary */}
       <DailySummary />
 

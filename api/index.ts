@@ -45,6 +45,7 @@ import { externalWebhooksRouter } from './routes/external-webhooks';
 // import phoneVerificationRouter from './routes/phone-verification'; // TODO: Enable when WhatsApp number is ready
 import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
+import onboardingRouter from './routes/onboarding';
 
 // Load environment variables
 dotenv.config();
@@ -481,6 +482,9 @@ app.use('/api/billing', billingRouter);
 
 // Upload routes (Image uploads to Supabase Storage)
 app.use('/api/upload', uploadRouter);
+
+// Onboarding routes (Setup progress & first-time user experience)
+app.use('/api/onboarding', onboardingRouter);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

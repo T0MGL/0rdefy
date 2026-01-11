@@ -9,6 +9,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { ShopifyWebhookService } from './shopify-webhook.service';
 
 interface WebhookPayload {
   id: string | number;
@@ -57,7 +58,81 @@ export class ShopifyWebhookManager {
   }
 
   /**
+   * Try to acquire idempotency lock atomically (INSERT-first approach)
+   * This prevents race conditions where two webhooks pass the check before either records.
+   * Returns true if lock acquired (proceed with processing), false if duplicate.
+   */
+  async tryAcquireIdempotencyLock(
+    integrationId: string,
+    idempotencyKey: string,
+    eventId: string,
+    topic: string
+  ): Promise<{
+    acquired: boolean;
+    is_duplicate: boolean;
+    original_event_id?: string;
+    processed_at?: string;
+  }> {
+    try {
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour TTL
+
+      // Try to INSERT first - if it fails with unique constraint, it's a duplicate
+      const { data: inserted, error: insertError } = await this.supabase
+        .from('shopify_webhook_idempotency')
+        .insert({
+          integration_id: integrationId,
+          idempotency_key: idempotencyKey,
+          shopify_event_id: eventId,
+          shopify_topic: topic,
+          processed: false, // Mark as not processed yet
+          processed_at: null,
+          response_status: null,
+          response_body: 'processing',
+          expires_at: expiresAt.toISOString(),
+        })
+        .select('id')
+        .single();
+
+      if (!insertError && inserted) {
+        // Successfully acquired lock
+        console.log(`🔒 Idempotency lock acquired: ${idempotencyKey}`);
+        return { acquired: true, is_duplicate: false };
+      }
+
+      // Insert failed - check if it's a duplicate (unique constraint violation)
+      // Error code 23505 is PostgreSQL unique_violation
+      if (insertError && (insertError.code === '23505' || insertError.message?.includes('duplicate'))) {
+        // It's a duplicate, fetch the original
+        const { data: existing } = await this.supabase
+          .from('shopify_webhook_idempotency')
+          .select('id, processed, processed_at')
+          .eq('integration_id', integrationId)
+          .eq('idempotency_key', idempotencyKey)
+          .single();
+
+        console.warn(`⚠️ Duplicate webhook detected (atomic): ${idempotencyKey}`);
+        return {
+          acquired: false,
+          is_duplicate: true,
+          original_event_id: existing?.id,
+          processed_at: existing?.processed_at,
+        };
+      }
+
+      // Other error - log and allow processing (fail-open for availability)
+      console.error('❌ Error acquiring idempotency lock:', insertError);
+      return { acquired: true, is_duplicate: false };
+    } catch (error) {
+      console.error('❌ Error in tryAcquireIdempotencyLock:', error);
+      // Fail-open: allow processing on error to avoid blocking legitimate webhooks
+      return { acquired: true, is_duplicate: false };
+    }
+  }
+
+  /**
    * Check if webhook has already been processed (idempotency check)
+   * @deprecated Use tryAcquireIdempotencyLock for race-condition-safe idempotency
    */
   async checkIdempotency(
     integrationId: string,
@@ -100,7 +175,37 @@ export class ShopifyWebhookManager {
   }
 
   /**
+   * Update idempotency record after processing completes
+   * Use this after tryAcquireIdempotencyLock to mark the webhook as processed
+   */
+  async completeIdempotencyRecord(
+    integrationId: string,
+    idempotencyKey: string,
+    success: boolean,
+    responseStatus: number = 200,
+    responseBody?: string
+  ): Promise<void> {
+    try {
+      await this.supabase
+        .from('shopify_webhook_idempotency')
+        .update({
+          processed: true,
+          processed_at: new Date().toISOString(),
+          response_status: responseStatus,
+          response_body: responseBody?.substring(0, 1000),
+        })
+        .eq('integration_id', integrationId)
+        .eq('idempotency_key', idempotencyKey);
+
+      console.log(`✅ Idempotency record completed: ${idempotencyKey} (success: ${success})`);
+    } catch (error) {
+      console.error('❌ Error completing idempotency record:', error);
+    }
+  }
+
+  /**
    * Record idempotency key (prevent future duplicates)
+   * @deprecated Use tryAcquireIdempotencyLock + completeIdempotencyRecord for race-safe idempotency
    */
   async recordIdempotency(
     integrationId: string,
@@ -115,7 +220,7 @@ export class ShopifyWebhookManager {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour TTL
 
-      await this.supabase.from('shopify_webhook_idempotency').insert({
+      await this.supabase.from('shopify_webhook_idempotency').upsert({
         integration_id: integrationId,
         idempotency_key: idempotencyKey,
         shopify_event_id: eventId,
@@ -125,6 +230,8 @@ export class ShopifyWebhookManager {
         response_status: responseStatus,
         response_body: responseBody?.substring(0, 1000), // Limit size
         expires_at: expiresAt.toISOString(),
+      }, {
+        onConflict: 'integration_id,idempotency_key'
       });
 
       console.log(`✅ Idempotency key recorded: ${idempotencyKey}`);
@@ -351,27 +458,85 @@ export class ShopifyWebhookManager {
 
   /**
    * Reprocess a webhook from the retry queue
+   * Calls the actual webhook processing logic based on the topic
    */
   private async reprocessWebhook(retry: any): Promise<WebhookProcessingResult> {
     try {
-      // This is a placeholder - in production, this would call the actual
-      // webhook processing logic based on the topic
-      // For now, we'll simulate success after 2 retries
+      const topic = retry.shopify_topic || retry.topic;
+      const payload = typeof retry.payload === 'string' ? JSON.parse(retry.payload) : retry.payload;
 
-      if (retry.retry_count >= 2) {
-        return { success: true };
+      if (!topic || !payload) {
+        return {
+          success: false,
+          error: 'Missing topic or payload in retry record',
+          error_code: 'INVALID_RETRY',
+          should_retry: false,
+        };
       }
 
-      return {
-        success: false,
-        error: 'Simulated failure for testing',
-        error_code: '500',
-        should_retry: true,
-      };
+      console.log(`🔄 Reprocessing webhook: ${topic} (attempt ${retry.retry_count + 1})`);
+
+      const webhookService = new ShopifyWebhookService(this.supabase);
+
+      // Process based on topic
+      switch (topic) {
+        case 'orders/create': {
+          const result = await webhookService.processOrderCreatedWebhook(
+            payload,
+            retry.store_id,
+            retry.integration_id,
+            null // Integration object not available in retry
+          );
+          return {
+            success: result.success,
+            error: result.error,
+            error_code: result.success ? undefined : '500',
+            should_retry: !result.success,
+          };
+        }
+
+        case 'orders/updated': {
+          const result = await webhookService.processOrderUpdatedWebhook(
+            payload,
+            retry.store_id,
+            retry.integration_id
+          );
+          return {
+            success: result.success,
+            error: result.error,
+            error_code: result.success ? undefined : '500',
+            should_retry: !result.success,
+          };
+        }
+
+        case 'products/delete': {
+          const result = await webhookService.processProductDeletedWebhook(
+            payload,
+            retry.store_id,
+            retry.integration_id
+          );
+          return {
+            success: result.success,
+            error: result.error,
+            error_code: result.success ? undefined : '500',
+            should_retry: !result.success,
+          };
+        }
+
+        default:
+          console.warn(`⚠️ Unknown webhook topic for retry: ${topic}`);
+          return {
+            success: false,
+            error: `Unknown webhook topic: ${topic}`,
+            error_code: 'UNKNOWN_TOPIC',
+            should_retry: false, // Don't retry unknown topics
+          };
+      }
     } catch (error: any) {
+      console.error('❌ Error reprocessing webhook:', error);
       return {
         success: false,
-        error: error.message,
+        error: error.message || 'Unknown error during reprocessing',
         error_code: '500',
         should_retry: true,
       };

@@ -30,6 +30,7 @@ import type {
 import { unifiedService } from '@/services/unified.service';
 import { showErrorToast } from '@/utils/errorMessages';
 import { GlobalViewToggle } from '@/components/GlobalViewToggle';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 
 type View = 'dashboard' | 'picking' | 'packing';
 
@@ -208,6 +209,29 @@ export default function Warehouse() {
       setView('picking');
     } else if (session.status === 'packing') {
       setView('packing');
+    }
+  }
+
+  async function handleQuickPrepare(order: ConfirmedOrder) {
+    setLoading(true);
+    try {
+      const session = await warehouseService.createSession([order.id]);
+      setCurrentSession(session);
+      setView('picking');
+      toast({
+        title: 'Sesión creada',
+        description: `Preparando pedido #${order.order_number}`,
+      });
+    } catch (error: any) {
+      console.error('Error creating session:', error);
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'quick_prepare',
+        entity: 'sesión de picking',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -559,6 +583,7 @@ export default function Warehouse() {
           onToggleOrder={toggleOrderSelection}
           onCreateSession={handleCreateSession}
           onResumeSession={handleResumeSession}
+          onQuickPrepare={handleQuickPrepare}
           isGlobalView={isGlobalView}
           onToggleGlobalView={setIsGlobalView}
         />
@@ -613,6 +638,7 @@ interface DashboardViewProps {
   onToggleOrder: (orderId: string) => void;
   onCreateSession: () => void;
   onResumeSession: (session: PickingSession) => void;
+  onQuickPrepare: (order: ConfirmedOrder) => void;
   isGlobalView: boolean;
   onToggleGlobalView: (enabled: boolean) => void;
 }
@@ -625,11 +651,20 @@ function DashboardView({
   onToggleOrder,
   onCreateSession,
   onResumeSession,
+  onQuickPrepare,
   isGlobalView,
   onToggleGlobalView
 }: DashboardViewProps) {
   return (
     <div className="p-6 space-y-6">
+      {/* First-time Welcome Banner */}
+      <FirstTimeWelcomeBanner
+        moduleId="warehouse"
+        title="¡Bienvenido al Almacén!"
+        description="Aquí preparas pedidos para envío mediante Picking (recolección) y Packing (empaque)."
+        tips={['Selecciona pedidos confirmados', 'Crea sesión de picking', 'Empaca y genera etiquetas']}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -759,24 +794,9 @@ function DashboardView({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={async (e) => {
+                        onClick={(e) => {
                           e.stopPropagation();
-                          try {
-                            const session = await warehouseService.createSession([order.id]);
-                            setCurrentSession(session);
-                            setView('picking');
-                            toast({
-                              title: '📦 Sesión creada',
-                              description: `Preparando pedido #${order.order_number}`,
-                            });
-                          } catch (error: any) {
-                            console.error('Error creating session:', error);
-                            toast({
-                              title: 'Error',
-                              description: error.response?.data?.details || 'No se pudo crear la sesión',
-                              variant: 'destructive',
-                            });
-                          }
+                          onQuickPrepare(order);
                         }}
                         className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20 flex-shrink-0"
                         title="Preparar este pedido ahora"

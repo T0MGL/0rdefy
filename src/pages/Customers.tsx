@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { EmptyState } from '@/components/EmptyState';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ExportButton } from '@/components/ExportButton';
 import { Input } from '@/components/ui/input';
 import { customersService } from '@/services/customers.service';
@@ -290,6 +291,14 @@ export default function Customers() {
 
   return (
     <div className="space-y-6">
+      {/* First-time Welcome Banner */}
+      <FirstTimeWelcomeBanner
+        moduleId="customers"
+        title="¡Bienvenido a Clientes!"
+        description="Aquí gestionas tu base de clientes con datos de contacto e historial de compras."
+        tips={['Guarda direcciones completas', 'Ve historial de pedidos', 'Confirma por WhatsApp']}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

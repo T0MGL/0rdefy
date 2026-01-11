@@ -21,6 +21,23 @@ const getHeaders = () => {
   return headers;
 };
 
+/**
+ * Safely calculate profitability percentage
+ * Returns "0.0" if price is 0 or invalid to prevent division by zero
+ */
+const calculateProfitability = (price: number, cost: number): string => {
+  // Guard against division by zero and invalid numbers
+  if (!price || price <= 0 || !Number.isFinite(price)) {
+    return '0.0';
+  }
+  const profitMargin = ((price - (cost || 0)) / price) * 100;
+  // Guard against NaN or Infinity results
+  if (!Number.isFinite(profitMargin)) {
+    return '0.0';
+  }
+  return profitMargin.toFixed(1);
+};
+
 export const productsService = {
   getAll: async (source?: 'local' | 'shopify'): Promise<Product[]> => {
     try {
@@ -51,7 +68,7 @@ export const productsService = {
         cost: p.cost,
         packaging_cost: p.packaging_cost || 0,
         additional_costs: p.additional_costs || 0,
-        profitability: p.profitability || ((p.price - p.cost) / p.price * 100).toFixed(1),
+        profitability: p.profitability || calculateProfitability(p.price, p.cost),
         sales: p.sales || 0,
         shopify_product_id: p.shopify_product_id || null,
         shopify_variant_id: p.shopify_variant_id || null,
@@ -85,7 +102,7 @@ export const productsService = {
         cost: data.cost,
         packaging_cost: data.packaging_cost || 0,
         additional_costs: data.additional_costs || 0,
-        profitability: data.profitability || ((data.price - data.cost) / data.price * 100).toFixed(1),
+        profitability: data.profitability || calculateProfitability(data.price, data.cost),
         sales: data.sales || 0,
         shopify_product_id: data.shopify_product_id || null,
         shopify_variant_id: data.shopify_variant_id || null,

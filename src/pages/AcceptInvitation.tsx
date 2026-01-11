@@ -3,6 +3,9 @@
  *
  * Página para que los colaboradores invitados acepten su invitación.
  * Solo requieren crear una contraseña para completar el proceso.
+ *
+ * IMPORTANTE: Detecta si hay una sesión activa y advierte al usuario
+ * antes de proceder, evitando conflictos de autenticación.
  */
 
 import { useState, useEffect } from 'react';
@@ -13,7 +16,15 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, Users, Building2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, Users, Building2, AlertTriangle, LogOut } from 'lucide-react';
 import { config } from '@/config';
 import { setTourPending } from '@/components/demo-tour';
 
@@ -23,6 +34,12 @@ interface InvitationData {
   role: string;
   storeName: string;
   expiresAt: string;
+}
+
+interface ActiveSessionData {
+  userName: string;
+  userEmail: string;
+  storeName: string;
 }
 
 export default function AcceptInvitation() {
@@ -38,9 +55,63 @@ export default function AcceptInvitation() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [accepting, setAccepting] = useState(false);
 
+  // Active session detection
+  const [activeSession, setActiveSession] = useState<ActiveSessionData | null>(null);
+  const [showSessionWarning, setShowSessionWarning] = useState(false);
+  const [sessionAcknowledged, setSessionAcknowledged] = useState(false);
+
   useEffect(() => {
+    checkActiveSession();
     validateToken();
   }, [token]);
+
+  /**
+   * Check if there's an active session in localStorage
+   * This prevents session conflicts when accepting invitations
+   */
+  const checkActiveSession = () => {
+    const authToken = localStorage.getItem('auth_token');
+    const savedUser = localStorage.getItem('user');
+
+    if (authToken && savedUser) {
+      try {
+        const userData = JSON.parse(savedUser);
+        const currentStoreId = localStorage.getItem('current_store_id');
+        const currentStore = userData.stores?.find((s: any) => s.id === currentStoreId) || userData.stores?.[0];
+
+        setActiveSession({
+          userName: userData.name || 'Usuario',
+          userEmail: userData.email || '',
+          storeName: currentStore?.name || 'Tienda'
+        });
+        setShowSessionWarning(true);
+      } catch (e) {
+        // Invalid user data, clear it
+        console.warn('Invalid session data found, will be cleared on accept');
+      }
+    }
+  };
+
+  /**
+   * Clear the active session to prevent conflicts
+   */
+  const clearActiveSession = () => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('current_store_id');
+    localStorage.removeItem('onboarding_completed');
+    setActiveSession(null);
+    setShowSessionWarning(false);
+    setSessionAcknowledged(true);
+  };
+
+  /**
+   * Handle user choosing to continue with current session
+   * Redirects them to the dashboard
+   */
+  const keepCurrentSession = () => {
+    navigate('/');
+  };
 
   const validateToken = async () => {
     try {
@@ -164,6 +235,63 @@ export default function AcceptInvitation() {
   // Success state - Show form to accept invitation
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
+      {/* Active Session Warning Dialog */}
+      <Dialog open={showSessionWarning} onOpenChange={setShowSessionWarning}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="mx-auto w-12 h-12 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-2">
+              <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            </div>
+            <DialogTitle className="text-center">Sesión Activa Detectada</DialogTitle>
+            <DialogDescription className="text-center">
+              Ya tienes una sesión iniciada en este navegador. Para aceptar esta invitación, debes cerrar la sesión actual.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+            <p className="text-sm font-medium text-muted-foreground">Sesión actual:</p>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Usuario</span>
+                <span className="font-medium">{activeSession?.userName}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Email</span>
+                <span className="font-medium">{activeSession?.userEmail}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Tienda</span>
+                <span className="font-medium">{activeSession?.storeName}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <p className="text-sm text-blue-700 dark:text-blue-300">
+              <strong>Tip:</strong> Para probar múltiples cuentas sin cerrar sesión, usa una ventana de incógnito o un navegador diferente.
+            </p>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={keepCurrentSession}
+              className="w-full sm:w-auto"
+            >
+              Mantener sesión actual
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={clearActiveSession}
+              className="w-full sm:w-auto"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Cerrar sesión y continuar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card className="max-w-lg w-full">
         <CardHeader className="text-center space-y-4">
           <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
@@ -184,6 +312,16 @@ export default function AcceptInvitation() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleAccept} className="space-y-4">
+            {/* Session cleared confirmation */}
+            {sessionAcknowledged && (
+              <Alert className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20">
+                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                <AlertDescription className="text-green-700 dark:text-green-300">
+                  Sesión anterior cerrada correctamente. Puedes continuar con la invitación.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Pre-filled Information */}
             <div className="bg-muted/50 rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">

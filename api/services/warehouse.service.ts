@@ -250,10 +250,12 @@ export async function createSession(
     }
 
     // STOCK VALIDATION: Check if there's enough stock for all products
+    // SECURITY: Filter by store_id to prevent cross-store product access
     const productIds = Array.from(productQuantities.keys());
     const { data: stockData, error: stockError } = await supabaseAdmin
       .from('products')
       .select('id, name, stock, sku')
+      .eq('store_id', storeId)
       .in('id', productIds);
 
     if (stockError) throw stockError;
@@ -508,37 +510,10 @@ export async function finishPicking(
       throw new Error('All items must be picked before finishing');
     }
 
-    // Deduct stock for picked items
-    console.log('📦 Deducting stock for picked items...');
-    for (const item of items || []) {
-      // Get current stock
-      const { data: product, error: fetchError } = await supabaseAdmin
-        .from('products')
-        .select('stock')
-        .eq('id', item.product_id)
-        .single();
-
-      if (fetchError) {
-        console.error(`❌ Error fetching stock for product ${item.product_id}:`, fetchError);
-        continue;
-      }
-
-      // Calculate new stock (ensure it doesn't go below 0)
-      const currentStock = product?.stock || 0;
-      const newStock = Math.max(0, currentStock - item.quantity_picked);
-
-      // Update stock
-      const { error: stockError } = await supabaseAdmin
-        .from('products')
-        .update({ stock: newStock })
-        .eq('id', item.product_id);
-
-      if (stockError) {
-        console.error(`❌ Error updating stock for product ${item.product_id}:`, stockError);
-      } else {
-        console.log(`✅ Stock updated for product ${item.product_id}: ${currentStock} → ${newStock} (-${item.quantity_picked})`);
-      }
-    }
+    // NOTE: Stock deduction is handled by the database trigger 'trigger_update_stock_on_order_status'
+    // when orders transition to 'ready_to_ship' status in completeSession().
+    // DO NOT deduct stock here to avoid double deduction.
+    // See: db/migrations/019_inventory_management.sql
 
     // Initialize packing progress for each order item
     // Support both Shopify (order_line_items) and manual (JSONB line_items) orders
@@ -968,7 +943,15 @@ export async function getActiveSessions(storeId: string): Promise<PickingSession
 
     if (error) throw error;
 
-    return data || [];
+    // Transform order_count from [{count: N}] to N
+    const sessions = (data || []).map((session: any) => ({
+      ...session,
+      order_count: Array.isArray(session.order_count) && session.order_count[0]
+        ? session.order_count[0].count
+        : 0
+    }));
+
+    return sessions;
   } catch (error) {
     console.error('Error getting active sessions:', error);
     throw error;
@@ -1067,49 +1050,78 @@ export async function completeSession(
       throw new Error('All orders must be packed before completing session');
     }
 
-    // Get all orders in this session
-    const { data: sessionOrders, error: ordersError } = await supabaseAdmin
-      .from('picking_session_orders')
-      .select('order_id')
-      .eq('picking_session_id', sessionId);
+    // Use atomic RPC function to complete session
+    // This ensures all operations (order updates + session update) happen in a single transaction
+    // with row-level locking to prevent race conditions
+    const { data: rpcResult, error: rpcError } = await supabaseAdmin
+      .rpc('complete_warehouse_session', {
+        p_session_id: sessionId,
+        p_store_id: storeId
+      });
 
-    if (ordersError) throw ordersError;
+    if (rpcError) {
+      console.error('Error completing session via RPC:', rpcError);
 
-    const orderIds = sessionOrders?.map(so => so.order_id) || [];
+      // Fallback to non-transactional approach if RPC not available (migration not run yet)
+      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+        console.warn('⚠️ RPC not available, using fallback (run migration 048)');
 
-    // Update all orders to ready_to_ship
-    // This triggers the automatic stock decrement via trigger_update_stock_on_order_status
-    if (orderIds.length > 0) {
-      const { error: orderUpdateError } = await supabaseAdmin
-        .from('orders')
-        .update({
-          sleeves_status: 'ready_to_ship',
-          updated_at: new Date().toISOString()
-        })
-        .in('id', orderIds)
-        .eq('sleeves_status', 'in_preparation'); // Only update orders still in_preparation
+        // Get all orders in this session
+        const { data: sessionOrders, error: ordersError } = await supabaseAdmin
+          .from('picking_session_orders')
+          .select('order_id')
+          .eq('picking_session_id', sessionId);
 
-      if (orderUpdateError) {
-        console.error('Error updating orders to ready_to_ship:', orderUpdateError);
-        throw new Error('Failed to update orders status');
+        if (ordersError) throw ordersError;
+
+        const orderIds = sessionOrders?.map(so => so.order_id) || [];
+
+        // Update all orders to ready_to_ship
+        if (orderIds.length > 0) {
+          const { error: orderUpdateError } = await supabaseAdmin
+            .from('orders')
+            .update({
+              sleeves_status: 'ready_to_ship',
+              updated_at: new Date().toISOString()
+            })
+            .in('id', orderIds)
+            .eq('sleeves_status', 'in_preparation');
+
+          if (orderUpdateError) {
+            console.error('Error updating orders to ready_to_ship:', orderUpdateError);
+            throw new Error('Failed to update orders status');
+          }
+        }
+
+        // Update session status
+        const { data: updated, error: updateError } = await supabaseAdmin
+          .from('picking_sessions')
+          .update({
+            status: 'completed',
+            packing_completed_at: new Date().toISOString(),
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', sessionId)
+          .select()
+          .single();
+
+        if (updateError) throw updateError;
+        return updated;
       }
 
-      console.log(`✅ Updated ${orderIds.length} orders to ready_to_ship (stock will be automatically decremented)`);
+      throw new Error(`Failed to complete session: ${rpcError.message}`);
     }
 
-    // Update session status
-    const { data: updated, error: updateError } = await supabaseAdmin
+    console.log(`✅ Session completed atomically:`, rpcResult);
+
+    // Fetch updated session data
+    const { data: updated, error: fetchError } = await supabaseAdmin
       .from('picking_sessions')
-      .update({
-        status: 'completed',
-        packing_completed_at: new Date().toISOString(),
-        completed_at: new Date().toISOString()
-      })
+      .select('*')
       .eq('id', sessionId)
-      .select()
       .single();
 
-    if (updateError) throw updateError;
+    if (fetchError) throw fetchError;
 
     return updated;
   } catch (error) {

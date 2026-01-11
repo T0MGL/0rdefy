@@ -543,14 +543,17 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       webhookTimestamp
     );
 
-    // Check for duplicate
-    const idempotencyCheck = await webhookManager.checkIdempotency(
+    // Atomic idempotency check using INSERT-first approach
+    // This prevents race conditions where two webhooks pass the check before either records
+    const lockResult = await webhookManager.tryAcquireIdempotencyLock(
       integrationId!,
-      idempotencyKey
+      idempotencyKey,
+      orderId,
+      'orders/create'
     );
 
-    if (idempotencyCheck.is_duplicate) {
-      console.warn(`⚠️ Duplicate webhook: ${idempotencyKey}`);
+    if (lockResult.is_duplicate) {
+      console.warn(`⚠️ Duplicate webhook (atomic check): ${idempotencyKey}`);
       await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
       return res.status(200).json({
         success: true,
@@ -577,12 +580,10 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
         idempotency_key: idempotencyKey,
       });
 
-      // Record idempotency immediately (processing will happen async)
-      await webhookManager.recordIdempotency(
+      // Complete idempotency record (lock was already acquired above)
+      await webhookManager.completeIdempotencyRecord(
         integrationId!,
         idempotencyKey,
-        orderId,
-        'orders/create',
         true,
         200,
         'queued'
@@ -612,12 +613,10 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
         integration // Pass full integration to detect Custom App
       );
 
-      // Record idempotency
-      await webhookManager.recordIdempotency(
+      // Complete idempotency record (lock was already acquired above)
+      await webhookManager.completeIdempotencyRecord(
         integrationId!,
         idempotencyKey,
-        orderId,
-        'orders/create',
         result.success,
         result.success ? 200 : 500,
         result.success ? 'processed' : result.error || 'failed'

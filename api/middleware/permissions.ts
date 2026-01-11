@@ -7,7 +7,7 @@
 
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
-import { Role, Module, Permission, hasPermission, canAccessModule } from '../permissions';
+import { Role, Module, Permission, hasPermission, canAccessModule, isValidRole } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
 
 /**
@@ -55,11 +55,20 @@ export async function extractUserRole(
       });
     }
 
+    // Validate that the role is a valid Role enum value (security: prevents accepting invalid roles from DB)
+    if (!isValidRole(userStore.role)) {
+      console.error(`[extractUserRole] Invalid role '${userStore.role}' for user ${userId} in store ${storeId}`);
+      return res.status(403).json({
+        error: 'Invalid role configuration',
+        message: 'Your role is not properly configured. Please contact the store owner.'
+      });
+    }
+
     req.userRole = userStore.role as Role;
     next();
   } catch (error) {
     console.error('[extractUserRole] Error extracting user role:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to determine user permissions'
     });

@@ -15,6 +15,25 @@ import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
 
+/**
+ * Safely parse a number, returning 0 for invalid values.
+ * Unlike parseFloat(x) || 0, this correctly handles:
+ * - NaN values (parseFloat('invalid'))
+ * - Infinity values
+ * - Null/undefined
+ * - Empty strings
+ */
+const safeNumber = (value: any, defaultValue: number = 0): number => {
+    if (value === null || value === undefined || value === '') {
+        return defaultValue;
+    }
+    const num = typeof value === 'number' ? value : parseFloat(value);
+    if (Number.isNaN(num) || !Number.isFinite(num)) {
+        return defaultValue;
+    }
+    return num;
+};
+
 export const ordersRouter = Router();
 
 // ================================================================
@@ -744,8 +763,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 lineItems = jsonbItems.map((item: any) => ({
                     product_name: item.name || item.title || 'Producto',
                     quantity: item.quantity || 1,
-                    unit_price: parseFloat(item.price) || 0,
-                    total_price: (item.quantity || 1) * parseFloat(item.price || 0)
+                    unit_price: safeNumber(item.price),
+                    total_price: (item.quantity || 1) * safeNumber(item.price)
                 }));
             }
 
@@ -883,8 +902,8 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
                 variant_title: item.variant_title,
                 sku: item.sku,
                 quantity: item.quantity || 1,
-                unit_price: parseFloat(item.price) || 0,
-                total_price: (item.quantity || 1) * parseFloat(item.price || 0),
+                unit_price: safeNumber(item.price),
+                total_price: (item.quantity || 1) * safeNumber(item.price),
                 shopify_product_id: item.product_id,
                 shopify_variant_id: item.variant_id
             }));
@@ -981,10 +1000,120 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             line_items
         });
 
+        // ================================================================
+        // Find or create customer (same logic as Shopify webhook)
+        // ================================================================
+        let customerId: string | null = null;
+
+        try {
+            // 1. Search by phone first (priority)
+            if (customer_phone) {
+                const { data: existingByPhone } = await supabaseAdmin
+                    .from('customers')
+                    .select('id, first_name, last_name, email, phone')
+                    .eq('store_id', req.storeId)
+                    .eq('phone', customer_phone)
+                    .maybeSingle();
+
+                if (existingByPhone) {
+                    customerId = existingByPhone.id;
+                    console.log(`📞 [ORDERS] Found existing customer by phone: ${customerId}`);
+
+                    // Update customer info if changed
+                    const updateData: any = { updated_at: new Date().toISOString() };
+                    if (customer_first_name && customer_first_name !== existingByPhone.first_name) {
+                        updateData.first_name = customer_first_name;
+                    }
+                    if (customer_last_name && customer_last_name !== existingByPhone.last_name) {
+                        updateData.last_name = customer_last_name;
+                    }
+                    if (customer_email && customer_email !== existingByPhone.email) {
+                        updateData.email = customer_email;
+                    }
+
+                    if (Object.keys(updateData).length > 1) {
+                        await supabaseAdmin
+                            .from('customers')
+                            .update(updateData)
+                            .eq('id', customerId);
+                        console.log(`🔄 [ORDERS] Updated customer info for: ${customerId}`);
+                    }
+                }
+            }
+
+            // 2. If not found by phone, search by email
+            if (!customerId && customer_email) {
+                const { data: existingByEmail } = await supabaseAdmin
+                    .from('customers')
+                    .select('id, first_name, last_name, email, phone')
+                    .eq('store_id', req.storeId)
+                    .eq('email', customer_email)
+                    .maybeSingle();
+
+                if (existingByEmail) {
+                    customerId = existingByEmail.id;
+                    console.log(`📧 [ORDERS] Found existing customer by email: ${customerId}`);
+
+                    // Update customer info if changed
+                    const updateData: any = { updated_at: new Date().toISOString() };
+                    if (customer_first_name && customer_first_name !== existingByEmail.first_name) {
+                        updateData.first_name = customer_first_name;
+                    }
+                    if (customer_last_name && customer_last_name !== existingByEmail.last_name) {
+                        updateData.last_name = customer_last_name;
+                    }
+                    if (customer_phone && customer_phone !== existingByEmail.phone) {
+                        updateData.phone = customer_phone;
+                    }
+
+                    if (Object.keys(updateData).length > 1) {
+                        await supabaseAdmin
+                            .from('customers')
+                            .update(updateData)
+                            .eq('id', customerId);
+                        console.log(`🔄 [ORDERS] Updated customer info for: ${customerId}`);
+                    }
+                }
+            }
+
+            // 3. If customer doesn't exist, create new one
+            if (!customerId) {
+                const newCustomerData = {
+                    store_id: req.storeId,
+                    first_name: customer_first_name || null,
+                    last_name: customer_last_name || null,
+                    email: customer_email || null,
+                    phone: customer_phone || null,
+                    total_orders: 0,
+                    total_spent: 0,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+
+                const { data: newCustomer, error: customerError } = await supabaseAdmin
+                    .from('customers')
+                    .insert(newCustomerData)
+                    .select('id')
+                    .single();
+
+                if (customerError) {
+                    console.error('⚠️ [ORDERS] Failed to create customer:', customerError);
+                    // Non-blocking: continue with order creation even if customer creation fails
+                } else {
+                    customerId = newCustomer.id;
+                    console.log(`✅ [ORDERS] Created new customer: ${customerId}`);
+                }
+            }
+        } catch (customerErr) {
+            console.error('⚠️ [ORDERS] Error in find/create customer:', customerErr);
+            // Non-blocking: continue with order creation
+        }
+
         const { data, error } = await supabaseAdmin
             .from('orders')
             .insert([{
                 store_id: req.storeId,
+                customer_id: customerId,
                 shopify_order_id,
                 shopify_order_number,
                 customer_email,
@@ -1388,7 +1517,19 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         const toStatus = sleeves_status;
 
         // Validate transition unless force is enabled (admin override)
-        if (!force) {
+        // SECURITY: force flag only allowed for owner/admin roles
+        const canForce = force && (req.userRole === 'owner' || req.userRole === 'admin');
+
+        if (force && !canForce) {
+            console.warn(`⚠️ [ORDERS] Force flag rejected for user ${req.userId} with role ${req.userRole}`);
+            return res.status(403).json({
+                error: 'Forbidden',
+                code: 'FORCE_NOT_ALLOWED',
+                message: 'Solo los propietarios y administradores pueden forzar cambios de estado.'
+            });
+        }
+
+        if (!canForce) {
             const validation = validateStatusTransition(fromStatus, toStatus);
 
             if (!validation.allowed) {
@@ -1410,6 +1551,11 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                     }
                 });
             }
+        }
+
+        // Log force usage for audit trail
+        if (canForce) {
+            console.log(`⚠️ [ORDERS] Force transition by ${req.userRole} (user ${req.userId}): ${fromStatus} → ${toStatus}`);
         }
 
         const updateData: any = {

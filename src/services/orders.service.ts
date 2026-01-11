@@ -430,13 +430,18 @@ export const ordersService = {
       // NOTE: If backend has a bulk endpoint, use it. For now, we loop.
       const reconciledAt = new Date().toISOString();
 
-      const promises = ids.map(id =>
-        fetch(`${API_BASE_URL}/orders/${id}`, {
+      const promises = ids.map(async (id) => {
+        const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
           method: 'PUT',
           headers: getHeaders(),
           body: JSON.stringify({ reconciled_at: reconciledAt })
-        })
-      );
+        });
+        // Validate response - fetch only rejects on network errors, not HTTP errors
+        if (!response.ok) {
+          throw new Error(`Failed to reconcile order ${id}: HTTP ${response.status}`);
+        }
+        return response;
+      });
 
       await Promise.all(promises);
       return true;

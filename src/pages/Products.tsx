@@ -13,6 +13,7 @@ import { ProductForm } from '@/components/forms/ProductForm';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { EmptyState } from '@/components/EmptyState';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ExportButton } from '@/components/ExportButton';
 import { productsService } from '@/services/products.service';
 import { useToast } from '@/hooks/use-toast';
@@ -345,6 +346,14 @@ export default function Products() {
 
   return (
     <div className="space-y-6">
+      {/* First-time Welcome Banner */}
+      <FirstTimeWelcomeBanner
+        moduleId="products"
+        title="¡Bienvenido a Productos!"
+        description="Aquí gestionas tu catálogo completo. Define precios, costos y controla el stock de cada producto."
+        tips={['Define costos para ver márgenes', 'Sincroniza con Shopify', 'Ajusta stock manualmente']}
+      />
+
       {/* Profitability Calculator */}
       {showCalculator && (
         <ProfitabilityCalculator />

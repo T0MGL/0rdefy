@@ -327,6 +327,7 @@ export async function getReturnSessions(storeId: string): Promise<ReturnSession[
 
 /**
  * Update return session item (accept/reject quantities)
+ * Only items in 'in_progress' sessions can be updated
  */
 export async function updateReturnItem(
   itemId: string,
@@ -339,14 +340,14 @@ export async function updateReturnItem(
   },
   storeId: string
 ): Promise<ReturnSessionItem> {
-  // First, get current item with session info to validate quantities AND store ownership
+  // First, get current item with session info to validate quantities, store ownership, AND session status
   const { data: currentItem, error: fetchError } = await supabaseAdmin
     .from('return_session_items')
     .select(`
       quantity_expected,
       quantity_accepted,
       quantity_rejected,
-      session:return_sessions!inner(store_id)
+      session:return_sessions!inner(store_id, status)
     `)
     .eq('id', itemId)
     .single();
@@ -360,6 +361,14 @@ export async function updateReturnItem(
   if (itemStoreId !== storeId) {
     console.warn(`[Returns] Unauthorized item update attempt: store ${storeId} tried to update item from store ${itemStoreId}`);
     throw new Error('Return item not found');
+  }
+
+  // SECURITY: Only allow updates to items in 'in_progress' sessions
+  const sessionStatus = (currentItem.session as any)?.status;
+  if (sessionStatus !== 'in_progress') {
+    throw new Error(
+      `Cannot update items in '${sessionStatus}' session. Only 'in_progress' sessions can be modified.`
+    );
   }
 
   // Calculate final values (use updates or current values)
@@ -408,12 +417,32 @@ export async function completeReturnSession(sessionId: string): Promise<any> {
 
 /**
  * Cancel return session
+ * Only sessions in 'in_progress' status can be cancelled
  */
 export async function cancelReturnSession(sessionId: string): Promise<void> {
+  // SECURITY: First verify the session exists and is in correct state
+  const { data: session, error: fetchError } = await supabaseAdmin
+    .from('return_sessions')
+    .select('id, status')
+    .eq('id', sessionId)
+    .single();
+
+  if (fetchError || !session) {
+    throw new Error('Return session not found');
+  }
+
+  // Only allow cancelling sessions that are 'in_progress'
+  if (session.status !== 'in_progress') {
+    throw new Error(
+      `Cannot cancel session in '${session.status}' status. Only 'in_progress' sessions can be cancelled.`
+    );
+  }
+
   const { error } = await supabaseAdmin
     .from('return_sessions')
     .update({ status: 'cancelled' })
-    .eq('id', sessionId);
+    .eq('id', sessionId)
+    .eq('status', 'in_progress'); // Double-check with WHERE clause for race condition safety
 
   if (error) {
     console.error('Error cancelling session:', error);

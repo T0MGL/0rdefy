@@ -27,10 +27,12 @@ DECLARE
   v_stock_after INT;
   v_store_id UUID;
 BEGIN
-  -- Get session details
+  -- Get session details with row lock to prevent race conditions
+  -- FOR UPDATE ensures no other transaction can modify this session until we commit
   SELECT * INTO v_session
   FROM return_sessions
-  WHERE id = p_session_id AND status = 'in_progress';
+  WHERE id = p_session_id AND status = 'in_progress'
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Return session not found or already completed';

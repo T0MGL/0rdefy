@@ -324,8 +324,8 @@ Net Receivable = COD Collected - Shipping Costs - Failed Attempt Fees
 **Roles & Permissions:**
 - **owner**: Full access to all modules
 - **admin**: All except Team and Billing
-- **logistics**: Warehouse, Returns, Carriers, Orders (view only)
-- **confirmador**: Orders (no delete), Customers
+- **logistics**: Warehouse, Returns, Carriers, Orders (view + edit status), Analytics (view only for logistics metrics)
+- **confirmador**: Orders (no delete), Customers, Products (view only for order creation)
 - **contador**: Analytics, Campaigns (view), Orders/Products (view)
 - **inventario**: Products, Merchandise, Suppliers
 
@@ -462,6 +462,44 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 
 **Tables:** subscriptions, subscription_history, subscription_trials, plan_limits, referral_codes, referrals, referral_credits, discount_codes, discount_redemptions, usage_tracking, stripe_billing_events
 
+### Onboarding & Activation System (User Experience)
+**Files:** `src/components/OnboardingChecklist.tsx`, `src/components/FirstTimeTooltip.tsx`, `src/components/EnhancedEmptyState.tsx`, `src/services/onboarding.service.ts`, `api/routes/onboarding.ts`, `db/migrations/050_onboarding_progress_tracking.sql`
+
+**Features:**
+- Visual setup checklist on Dashboard showing completion progress
+- First-time welcome banners for each module (Orders, Products, Customers, Warehouse)
+- Contextual empty states with tips and clear actions
+- Progress tracking: computed dynamically from store data (carriers, products, customers, orders)
+- Dismissible checklist that remembers user preference
+- LocalStorage + Database persistence for first-visit tracking
+
+**Checklist Steps:**
+1. Agregar transportadora (create carrier)
+2. Agregar primer producto (create product)
+3. Agregar cliente (create customer)
+4. Crear primer pedido (create order)
+
+**Components:**
+- `OnboardingChecklist` - Main visual checklist with animated progress bar
+- `FirstTimeWelcomeBanner` - Page-level welcome banner with tips (auto-hides after first visit)
+- `FirstTimeTooltip` - Multi-step tooltips for element-level guidance
+- `EnhancedEmptyState` - Improved empty states with tips, actions, and onboarding hints
+
+**API Endpoints:**
+- `GET /api/onboarding/progress` - Get computed onboarding progress
+- `POST /api/onboarding/dismiss` - Dismiss checklist
+- `POST /api/onboarding/visit-module` - Mark module as visited
+- `GET /api/onboarding/is-first-visit/:moduleId` - Check first visit status
+- `POST /api/onboarding/reset` - Reset progress (dev/testing)
+
+**Tables:** onboarding_progress
+**Functions:** get_onboarding_progress, dismiss_onboarding_checklist, mark_module_visited, is_first_module_visit
+
+**Integration Points:**
+- Dashboard: OnboardingChecklist component at top
+- Orders/Products/Customers/Warehouse: FirstTimeWelcomeBanner at page top
+- Empty states: EnhancedEmptyState with contextual tips
+
 ## Database Schema
 
 **Master Migration:** `000_MASTER_MIGRATION.sql` (idempotent, all-in-one)
@@ -480,6 +518,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - Team: collaborator_invitations
 - Verification: phone_verification_codes (WhatsApp verification codes)
 - Billing: subscriptions, subscription_history, subscription_trials, plan_limits, referral_codes, referrals, referral_credits, discount_codes, discount_redemptions, usage_tracking, stripe_billing_events
+- Onboarding: onboarding_progress (user preferences, visited modules, tour completion)
 - Shopify: shopify_integrations, shopify_oauth_states, shopify_import_jobs, shopify_webhook_events, shopify_sync_conflicts, shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
 
 **Key Functions:**
@@ -505,6 +544,10 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - can_start_trial (validate trial eligibility)
 - get_store_usage (orders, products, users vs plan limits)
 - has_feature_access (check feature access by plan)
+- get_onboarding_progress (compute onboarding status from store data)
+- dismiss_onboarding_checklist (user preference to hide checklist)
+- mark_module_visited (track first-time module visits)
+- is_first_module_visit (check if module has been visited)
 
 **Triggers:**
 - Auto-update: customer stats, carrier stats, order status history, delivery tokens, COD calculation, warehouse timestamps
@@ -574,6 +617,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 
 - ✅ **NEW: Stripe Billing System** (subscriptions, trials, referrals, discount codes)
 - ✅ **NEW: Dispatch & Settlements** (courier reconciliation, CSV export/import, zone-based rates)
+- ✅ **NEW: Onboarding & Activation System** (setup checklist, first-time tooltips, contextual empty states)
 
 **Coming Soon:**
 - 2FA authentication
@@ -625,3 +669,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 036: **NEW:** Billing & Subscriptions system (Stripe, referrals, discount codes)
 - 039: **NEW:** Hard delete with cascading cleanup (owner only, no soft delete, complete data cleanup)
 - 045: **NEW:** Dispatch & Settlements system (courier reconciliation, zone rates, CSV import/export)
+- 050: **NEW:** Onboarding progress tracking (setup checklist, first-time module visits)

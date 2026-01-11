@@ -321,12 +321,12 @@ export default function Delivery() {
   // Loading state - Premium spinner
   if (state.type === 'loading') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10">
         <div className="relative">
-          <div className="w-20 h-20 border-4 border-emerald-500/20 rounded-full"></div>
-          <div className="absolute top-0 left-0 w-20 h-20 border-4 border-emerald-500 rounded-full border-t-transparent animate-spin"></div>
+          <div className="w-20 h-20 border-4 border-primary/20 rounded-full"></div>
+          <div className="absolute top-0 left-0 w-20 h-20 border-4 border-primary rounded-full border-t-transparent animate-spin"></div>
         </div>
-        <p className="mt-6 text-slate-400 text-sm font-medium tracking-wide">Cargando pedido...</p>
+        <p className="mt-6 text-muted-foreground text-sm font-medium tracking-wide">Cargando pedido...</p>
       </div>
     );
   }
@@ -335,14 +335,14 @@ export default function Delivery() {
   if (state.type === 'delivered') {
     if (state.alreadyRated) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-4">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
           <div className="max-w-md w-full">
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 mb-6 shadow-lg shadow-emerald-500/30">
-                <CheckCircle className="h-12 w-12 text-white" />
+              <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-primary to-primary/80 mb-6 shadow-lg shadow-primary/30">
+                <CheckCircle className="h-12 w-12 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl font-bold text-white mb-2">{state.message}</h1>
-              <p className="text-slate-400">
+              <h1 className="text-2xl font-bold text-foreground mb-2">{state.message}</h1>
+              <p className="text-muted-foreground">
                 Entregado el {new Date(state.deliveredAt).toLocaleString('es-ES', {
                   dateStyle: 'long',
                   timeStyle: 'short',
@@ -350,21 +350,23 @@ export default function Delivery() {
               </p>
             </div>
 
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50">
-              <p className="text-sm font-medium text-slate-300 mb-4 text-center">Ya calificaste esta entrega</p>
-              <div className="flex items-center justify-center gap-1 mb-3">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <span key={star} className="text-3xl">
-                    {star <= (state.rating || 0) ? '⭐' : '☆'}
-                  </span>
-                ))}
-              </div>
-              {state.ratingComment && (
-                <p className="text-sm text-slate-400 italic text-center">"{state.ratingComment}"</p>
-              )}
-            </div>
+            <Card className="border-border/50">
+              <CardContent className="p-6">
+                <p className="text-sm font-medium text-muted-foreground mb-4 text-center">Ya calificaste esta entrega</p>
+                <div className="flex items-center justify-center gap-1 mb-3">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <span key={star} className="text-3xl">
+                      {star <= (state.rating || 0) ? '⭐' : '☆'}
+                    </span>
+                  ))}
+                </div>
+                {state.ratingComment && (
+                  <p className="text-sm text-muted-foreground italic text-center">"{state.ratingComment}"</p>
+                )}
+              </CardContent>
+            </Card>
 
-            <p className="text-center text-slate-500 text-sm mt-6">
+            <p className="text-center text-muted-foreground text-sm mt-6">
               ¡Gracias por tu opinión!
             </p>
           </div>
@@ -374,14 +376,14 @@ export default function Delivery() {
 
     // Not rated yet - Rating form
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <div className="max-w-md w-full">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 mb-6 shadow-lg shadow-emerald-500/30">
-              <CheckCircle className="h-10 w-10 text-white" />
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-primary to-primary/80 mb-6 shadow-lg shadow-primary/30">
+              <CheckCircle className="h-10 w-10 text-primary-foreground" />
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">{state.message}</h1>
-            <p className="text-slate-400 text-sm">
+            <h1 className="text-2xl font-bold text-foreground mb-2">{state.message}</h1>
+            <p className="text-muted-foreground text-sm">
               Entregado el {new Date(state.deliveredAt).toLocaleString('es-ES', {
                 dateStyle: 'long',
                 timeStyle: 'short',
@@ -389,68 +391,71 @@ export default function Delivery() {
             </p>
           </div>
 
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50 space-y-6">
-            <div className="text-center">
-              <Label className="text-base font-semibold text-white">
-                ¿Cómo calificas la entrega?
-              </Label>
-              <p className="text-sm text-slate-400 mt-1">Tu opinión nos ayuda a mejorar</p>
-            </div>
+          <Card className="border-border/50">
+            <CardContent className="p-6 space-y-6">
+              <div className="text-center">
+                <Label className="text-base font-semibold text-foreground">
+                  ¿Cómo calificas la entrega?
+                </Label>
+                <p className="text-sm text-muted-foreground mt-1">Tu opinión nos ayuda a mejorar</p>
+              </div>
 
-            <div className="flex items-center justify-center gap-3">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setRating(star)}
-                  className={`text-4xl transition-all duration-200 hover:scale-125 focus:outline-none ${
-                    star <= rating ? 'scale-110' : 'opacity-40 hover:opacity-70'
-                  }`}
-                >
-                  {star <= rating ? '⭐' : '☆'}
-                </button>
-              ))}
-            </div>
+              <div className="flex items-center justify-center gap-3">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(star)}
+                    className={`text-4xl transition-all duration-200 hover:scale-125 focus:outline-none ${
+                      star <= rating ? 'scale-110' : 'opacity-40 hover:opacity-70'
+                    }`}
+                  >
+                    {star <= rating ? '⭐' : '☆'}
+                  </button>
+                ))}
+              </div>
 
-            {rating > 0 && (
-              <p className="text-sm text-center font-medium text-emerald-400">
-                {rating === 5 && '¡Excelente!'}
-                {rating === 4 && '¡Muy bueno!'}
-                {rating === 3 && 'Bueno'}
-                {rating === 2 && 'Regular'}
-                {rating === 1 && 'Necesita mejorar'}
-              </p>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="comment" className="text-sm font-medium text-slate-300">
-                Comentario (opcional)
-              </Label>
-              <Textarea
-                id="comment"
-                value={ratingComment}
-                onChange={(e) => setRatingComment(e.target.value)}
-                placeholder="Cuéntanos sobre tu experiencia..."
-                rows={3}
-                className="resize-none bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500 focus:border-emerald-500 focus:ring-emerald-500/20"
-              />
-            </div>
-
-            <Button
-              onClick={handleSubmitRating}
-              disabled={submitting || rating === 0}
-              className="w-full h-12 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-500/25 transition-all duration-200 disabled:opacity-50 disabled:shadow-none"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Enviando...
-                </>
-              ) : (
-                'Enviar Calificación'
+              {rating > 0 && (
+                <p className="text-sm text-center font-medium text-primary">
+                  {rating === 5 && '¡Excelente!'}
+                  {rating === 4 && '¡Muy bueno!'}
+                  {rating === 3 && 'Bueno'}
+                  {rating === 2 && 'Regular'}
+                  {rating === 1 && 'Necesita mejorar'}
+                </p>
               )}
-            </Button>
-          </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="comment" className="text-sm font-medium text-muted-foreground">
+                  Comentario (opcional)
+                </Label>
+                <Textarea
+                  id="comment"
+                  value={ratingComment}
+                  onChange={(e) => setRatingComment(e.target.value)}
+                  placeholder="Cuéntanos sobre tu experiencia..."
+                  rows={3}
+                  className="resize-none"
+                />
+              </div>
+
+              <Button
+                onClick={handleSubmitRating}
+                disabled={submitting || rating === 0}
+                className="w-full h-12"
+                size="lg"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  'Enviar Calificación'
+                )}
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -459,13 +464,13 @@ export default function Delivery() {
   // Rated thanks state
   if (state.type === 'rated_thanks') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <div className="max-w-md w-full text-center">
-          <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 mb-6 shadow-lg shadow-emerald-500/30">
-            <Sparkles className="h-12 w-12 text-white" />
+          <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-primary to-primary/80 mb-6 shadow-lg shadow-primary/30">
+            <Sparkles className="h-12 w-12 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-3">¡Gracias!</h1>
-          <p className="text-slate-400">{state.message}</p>
+          <h1 className="text-2xl font-bold text-foreground mb-3">¡Gracias!</h1>
+          <p className="text-muted-foreground">{state.message}</p>
         </div>
       </div>
     );
@@ -474,117 +479,121 @@ export default function Delivery() {
   // Failed state
   if (state.type === 'failed') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <div className="max-w-md w-full">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-red-400 to-red-600 mb-6 shadow-lg shadow-red-500/30">
-              <XCircle className="h-10 w-10 text-white" />
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-destructive to-destructive/80 mb-6 shadow-lg shadow-destructive/30">
+              <XCircle className="h-10 w-10 text-destructive-foreground" />
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">{state.message}</h1>
+            <h1 className="text-2xl font-bold text-foreground mb-2">{state.message}</h1>
             {state.reason && (
-              <p className="text-slate-400">
+              <p className="text-muted-foreground">
                 <span className="font-medium">Motivo:</span> {state.reason}
               </p>
             )}
           </div>
 
-          <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50 space-y-4">
-            <p className="text-sm font-medium text-slate-300 text-center">
-              ¿Qué deseas hacer con este pedido?
-            </p>
+          <Card className="border-border/50">
+            <CardContent className="p-6 space-y-4">
+              <p className="text-sm font-medium text-muted-foreground text-center">
+                ¿Qué deseas hacer con este pedido?
+              </p>
 
-            <Button
-              className="w-full h-12 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-xl"
-              onClick={async () => {
-                try {
-                  const authToken = localStorage.getItem('auth_token');
-                  const storeId = state.data?.store_id;
-
-                  const response = await fetch(
-                    `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data?.id}/status`,
-                    {
-                      method: 'PATCH',
-                      headers: {
-                        'Authorization': `Bearer ${authToken}`,
-                        'X-Store-ID': storeId,
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({
-                        sleeves_status: 'confirmed',
-                      }),
-                    }
-                  );
-
-                  if (response.ok) {
-                    toast({
-                      title: 'Pedido reactivado',
-                      description: 'El pedido ha sido programado para un nuevo intento de entrega',
-                    });
-                    fetchOrderByToken(token!);
-                  } else {
-                    throw new Error('Failed to reactivate order');
-                  }
-                } catch (error) {
-                  console.error('Error reactivating order:', error);
-                  toast({
-                    title: 'Error',
-                    description: 'No se pudo reagendar el pedido',
-                    variant: 'destructive',
-                  });
-                }
-              }}
-            >
-              <Clock className="mr-2 h-5 w-5" />
-              Programar Reintento
-            </Button>
-
-            <Button
-              variant="outline"
-              className="w-full h-12 border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold rounded-xl"
-              onClick={async () => {
-                if (confirm('¿Estás seguro de que deseas cancelar este pedido?')) {
+              <Button
+                className="w-full h-12"
+                size="lg"
+                onClick={async () => {
                   try {
                     const authToken = localStorage.getItem('auth_token');
+                    const storeId = state.data?.store_id;
+
                     const response = await fetch(
-                      `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data?.id}/cancel`,
+                      `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data?.id}/status`,
                       {
-                        method: 'POST',
+                        method: 'PATCH',
                         headers: {
                           'Authorization': `Bearer ${authToken}`,
+                          'X-Store-ID': storeId,
                           'Content-Type': 'application/json',
                         },
+                        body: JSON.stringify({
+                          sleeves_status: 'confirmed',
+                        }),
                       }
                     );
 
                     if (response.ok) {
                       toast({
-                        title: 'Pedido cancelado',
-                        description: 'El pedido ha sido cancelado permanentemente',
+                        title: 'Pedido reactivado',
+                        description: 'El pedido ha sido programado para un nuevo intento de entrega',
                       });
-                      setState({
-                        type: 'not_found',
-                        message: 'Este pedido ha sido cancelado',
-                      });
+                      fetchOrderByToken(token!);
                     } else {
-                      throw new Error('Failed to cancel order');
+                      throw new Error('Failed to reactivate order');
                     }
                   } catch (error) {
-                    console.error('Error cancelling order:', error);
+                    console.error('Error reactivating order:', error);
                     toast({
                       title: 'Error',
-                      description: 'No se pudo cancelar el pedido',
+                      description: 'No se pudo reagendar el pedido',
                       variant: 'destructive',
                     });
                   }
-                }
-              }}
-            >
-              <XCircle className="mr-2 h-5 w-5" />
-              Cancelar Pedido
-            </Button>
-          </div>
+                }}
+              >
+                <Clock className="mr-2 h-5 w-5" />
+                Programar Reintento
+              </Button>
 
-          <p className="text-xs text-center text-slate-500 mt-6">
+              <Button
+                variant="outline"
+                className="w-full h-12 border-destructive/50 text-destructive hover:bg-destructive/10"
+                size="lg"
+                onClick={async () => {
+                  if (confirm('¿Estás seguro de que deseas cancelar este pedido?')) {
+                    try {
+                      const authToken = localStorage.getItem('auth_token');
+                      const response = await fetch(
+                        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${state.data?.id}/cancel`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${authToken}`,
+                            'Content-Type': 'application/json',
+                          },
+                        }
+                      );
+
+                      if (response.ok) {
+                        toast({
+                          title: 'Pedido cancelado',
+                          description: 'El pedido ha sido cancelado permanentemente',
+                        });
+                        setState({
+                          type: 'not_found',
+                          message: 'Este pedido ha sido cancelado',
+                        });
+                      } else {
+                        throw new Error('Failed to cancel order');
+                      }
+                    } catch (error) {
+                      console.error('Error cancelling order:', error);
+                      toast({
+                        title: 'Error',
+                        description: 'No se pudo cancelar el pedido',
+                        variant: 'destructive',
+                      });
+                    }
+                  }
+                }}
+              >
+                <XCircle className="mr-2 h-5 w-5" />
+                Cancelar Pedido
+              </Button>
+            </CardContent>
+          </Card>
+
+          <p className="text-xs text-center text-muted-foreground mt-6">
             Si tienes dudas, contacta al vendedor antes de tomar una decisión
           </p>
         </div>
@@ -595,13 +604,13 @@ export default function Delivery() {
   // Not found state
   if (state.type === 'not_found') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
         <div className="max-w-md w-full text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 mb-6 shadow-lg shadow-amber-500/30">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 mb-6 shadow-lg shadow-amber-500/30">
             <AlertCircle className="h-10 w-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2">Pedido no encontrado</h1>
-          <p className="text-slate-400">{state.message}</p>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Pedido no encontrado</h1>
+          <p className="text-muted-foreground">{state.message}</p>
         </div>
       </div>
     );
@@ -611,23 +620,23 @@ export default function Delivery() {
   const orderData = state.data;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-primary/10">
       {/* Premium Header */}
-      <div className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 px-4 pt-6 pb-8">
+      <div className="bg-gradient-to-r from-primary via-primary/90 to-primary/80 px-4 pt-6 pb-8">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <Package className="h-5 w-5 text-white" />
+              <div className="w-10 h-10 rounded-xl bg-primary-foreground/20 backdrop-blur-sm flex items-center justify-center">
+                <Package className="h-5 w-5 text-primary-foreground" />
               </div>
               <div>
-                <h1 className="text-white font-bold text-lg">Ordefy</h1>
-                <p className="text-emerald-100 text-xs">Sistema de Entregas</p>
+                <h1 className="text-primary-foreground font-bold text-lg">Ordefy</h1>
+                <p className="text-primary-foreground/80 text-xs">Sistema de Entregas</p>
               </div>
             </div>
             <div className="text-right">
-              <p className="text-emerald-100 text-xs">Transportista</p>
-              <p className="text-white font-semibold text-sm">{orderData.carrier_name || 'No asignado'}</p>
+              <p className="text-primary-foreground/80 text-xs">Transportista</p>
+              <p className="text-primary-foreground font-semibold text-sm">{orderData.carrier_name || 'No asignado'}</p>
             </div>
           </div>
         </div>
@@ -637,44 +646,44 @@ export default function Delivery() {
       <div className="max-w-lg mx-auto px-4 -mt-4 pb-8 space-y-4">
 
         {/* Customer Card */}
-        <div className="bg-slate-800/90 backdrop-blur-sm rounded-2xl border border-slate-700/50 overflow-hidden shadow-xl">
-          <div className="p-5">
+        <Card className="border-border/50 shadow-xl">
+          <CardContent className="p-5">
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/25">
                 <User className="h-6 w-6 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <h2 className="text-white font-bold text-lg truncate">{orderData.customer_name}</h2>
+                <h2 className="text-foreground font-bold text-lg truncate">{orderData.customer_name}</h2>
                 {orderData.customer_phone && (
                   <a
                     href={`tel:${orderData.customer_phone}`}
-                    className="inline-flex items-center gap-2 mt-2 px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-2 mt-2 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors"
                   >
-                    <Phone className="h-4 w-4 text-blue-400" />
-                    <span className="text-blue-400 font-medium text-sm">{orderData.customer_phone}</span>
+                    <Phone className="h-4 w-4 text-primary" />
+                    <span className="text-primary font-medium text-sm">{orderData.customer_phone}</span>
                   </a>
                 )}
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Address & Navigation Card */}
         {orderData.customer_address && (
-          <div className="bg-slate-800/90 backdrop-blur-sm rounded-2xl border border-slate-700/50 overflow-hidden shadow-xl">
-            <div className="p-5">
+          <Card className="border-border/50 shadow-xl">
+            <CardContent className="p-5">
               <div className="flex items-start gap-4 mb-4">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-rose-500/25">
                   <MapPin className="h-6 w-6 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-white font-semibold mb-1">Dirección de Entrega</h3>
-                  <p className="text-slate-300 text-sm">{orderData.customer_address}</p>
+                  <h3 className="text-foreground font-semibold mb-1">Dirección de Entrega</h3>
+                  <p className="text-muted-foreground text-sm">{orderData.customer_address}</p>
                   {orderData.neighborhood && (
-                    <p className="text-slate-400 text-xs mt-1">{orderData.neighborhood}</p>
+                    <p className="text-muted-foreground/70 text-xs mt-1">{orderData.neighborhood}</p>
                   )}
                   {orderData.address_reference && (
-                    <p className="text-amber-400 text-xs mt-2 font-medium">
+                    <p className="text-amber-500 dark:text-amber-400 text-xs mt-2 font-medium">
                       📍 Ref: {orderData.address_reference}
                     </p>
                   )}
@@ -691,25 +700,26 @@ export default function Delivery() {
                       window.open(google_maps_link, '_blank');
                     }
                   }}
-                  className="w-full h-14 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/25 text-base"
+                  className="w-full h-14"
+                  size="lg"
                 >
                   <Navigation className="mr-3 h-5 w-5" />
                   Iniciar Navegación
                   <ArrowRight className="ml-auto h-5 w-5" />
                 </Button>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Products Card */}
-        <div className="bg-slate-800/90 backdrop-blur-sm rounded-2xl border border-slate-700/50 overflow-hidden shadow-xl">
-          <div className="p-5">
+        <Card className="border-border/50 shadow-xl">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center shadow-lg shadow-purple-500/25">
                 <ShoppingBag className="h-5 w-5 text-white" />
               </div>
-              <h3 className="text-white font-semibold">Productos</h3>
+              <h3 className="text-foreground font-semibold">Productos</h3>
             </div>
 
             {orderData.line_items && orderData.line_items.length > 0 ? (
@@ -717,56 +727,56 @@ export default function Delivery() {
                 {orderData.line_items.map((item: any, index: number) => (
                   <div
                     key={index}
-                    className="flex justify-between items-center py-3 border-b border-slate-700/50 last:border-0"
+                    className="flex justify-between items-center py-3 border-b border-border/50 last:border-0"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium truncate">{item.title || item.product_name}</p>
-                      <p className="text-slate-400 text-sm">Cantidad: {item.quantity}</p>
+                      <p className="text-foreground font-medium truncate">{item.title || item.product_name}</p>
+                      <p className="text-muted-foreground text-sm">Cantidad: {item.quantity}</p>
                     </div>
-                    <p className="text-white font-semibold ml-4">
+                    <p className="text-foreground font-semibold ml-4">
                       ₲{((item.price || 0) * (item.quantity || 1)).toLocaleString()}
                     </p>
                   </div>
                 ))}
-                <div className="flex justify-between items-center pt-3 mt-3 border-t border-slate-600">
-                  <span className="text-slate-300 font-semibold">Total</span>
-                  <span className="text-2xl font-bold text-white">₲{orderData.total_price?.toLocaleString()}</span>
+                <div className="flex justify-between items-center pt-3 mt-3 border-t border-border">
+                  <span className="text-muted-foreground font-semibold">Total</span>
+                  <span className="text-2xl font-bold text-foreground">₲{orderData.total_price?.toLocaleString()}</span>
                 </div>
               </div>
             ) : (
-              <p className="text-slate-400 text-sm">No hay productos para mostrar</p>
+              <p className="text-muted-foreground text-sm">No hay productos para mostrar</p>
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* COD Alert Card */}
         {orderData.cod_amount > 0 && (
-          <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 rounded-2xl border border-amber-500/30 overflow-hidden">
-            <div className="p-5">
+          <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10">
+            <CardContent className="p-5">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
                   <Banknote className="h-7 w-7 text-white" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-amber-300 font-semibold text-sm uppercase tracking-wide">Cobro en Efectivo</p>
-                  <p className="text-3xl font-bold text-white mt-1">₲{orderData.cod_amount?.toLocaleString()}</p>
+                  <p className="text-amber-600 dark:text-amber-400 font-semibold text-sm uppercase tracking-wide">Cobro en Efectivo</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">₲{orderData.cod_amount?.toLocaleString()}</p>
                 </div>
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Incident Retry Checklist */}
         {state.hasIncident && state.incident && (
-          <div className="bg-slate-800/90 backdrop-blur-sm rounded-2xl border border-amber-500/50 overflow-hidden shadow-xl">
-            <div className="p-5">
+          <Card className="border-amber-500/50 shadow-xl">
+            <CardContent className="p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
                   <AlertCircle className="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-white font-semibold">Incidencia de Entrega</h3>
-                  <p className="text-slate-400 text-xs">Completa uno de los intentos programados</p>
+                  <h3 className="text-foreground font-semibold">Incidencia de Entrega</h3>
+                  <p className="text-muted-foreground text-xs">Completa uno de los intentos programados</p>
                 </div>
               </div>
               <IncidentRetryChecklist
@@ -783,39 +793,33 @@ export default function Delivery() {
                   fetchOrderByToken(token!);
                 }}
               />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Actions Card - Only if no incident */}
         {!state.hasIncident && (
-          <div className="bg-slate-800/90 backdrop-blur-sm rounded-2xl border border-slate-700/50 overflow-hidden shadow-xl">
-            <div className="p-5 space-y-5">
+          <Card className="border-border/50 shadow-xl">
+            <CardContent className="p-5 space-y-5">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
-                  <CheckCircle className="h-5 w-5 text-white" />
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/25">
+                  <CheckCircle className="h-5 w-5 text-primary-foreground" />
                 </div>
-                <h3 className="text-white font-semibold">Confirmar Entrega</h3>
+                <h3 className="text-foreground font-semibold">Confirmar Entrega</h3>
               </div>
 
               {/* Payment Method Selection - Premium Buttons */}
               <div className="space-y-3">
-                <Label className="text-slate-300 text-sm font-medium">Método de pago del cliente</Label>
+                <Label className="text-muted-foreground text-sm font-medium">Método de pago del cliente</Label>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { value: 'efectivo', label: 'Efectivo', icon: Banknote, color: 'emerald' },
-                    { value: 'tarjeta', label: 'Tarjeta', icon: CreditCard, color: 'blue' },
-                    { value: 'qr', label: 'QR', icon: Smartphone, color: 'purple' },
-                    { value: 'transferencia', label: 'Transfer.', icon: ArrowRight, color: 'indigo' },
+                    { value: 'efectivo', label: 'Efectivo', icon: Banknote },
+                    { value: 'tarjeta', label: 'Tarjeta', icon: CreditCard },
+                    { value: 'qr', label: 'QR', icon: Smartphone },
+                    { value: 'transferencia', label: 'Transfer.', icon: ArrowRight },
                   ].map((method) => {
                     const Icon = method.icon;
                     const isSelected = paymentMethod === method.value;
-                    const colorClasses = {
-                      emerald: isSelected ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-slate-600 text-slate-400 hover:border-slate-500',
-                      blue: isSelected ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'border-slate-600 text-slate-400 hover:border-slate-500',
-                      purple: isSelected ? 'bg-purple-500/20 border-purple-500 text-purple-400' : 'border-slate-600 text-slate-400 hover:border-slate-500',
-                      indigo: isSelected ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400' : 'border-slate-600 text-slate-400 hover:border-slate-500',
-                    };
 
                     return (
                       <button
@@ -827,7 +831,11 @@ export default function Delivery() {
                             setAmountCollected('');
                           }
                         }}
-                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 ${colorClasses[method.color as keyof typeof colorClasses]}`}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 ${
+                          isSelected
+                            ? 'bg-primary/10 border-primary text-primary'
+                            : 'border-border text-muted-foreground hover:border-muted-foreground/50'
+                        }`}
                       >
                         <Icon className="h-6 w-6" />
                         <span className="text-sm font-medium">{method.label}</span>
@@ -839,7 +847,7 @@ export default function Delivery() {
 
               {/* Different Amount Checkbox - Only for Cash */}
               {paymentMethod === 'efectivo' && (
-                <div className="bg-slate-900/50 rounded-xl p-4 space-y-3">
+                <div className="bg-muted/50 rounded-xl p-4 space-y-3">
                   <div className="flex items-center space-x-3">
                     <Checkbox
                       id="different-amount"
@@ -848,11 +856,10 @@ export default function Delivery() {
                         setDifferentAmountCollected(checked === true);
                         if (!checked) setAmountCollected('');
                       }}
-                      className="border-amber-500 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
                     />
                     <Label
                       htmlFor="different-amount"
-                      className="text-sm font-medium cursor-pointer flex items-center gap-2 text-slate-300"
+                      className="text-sm font-medium cursor-pointer flex items-center gap-2 text-muted-foreground"
                     >
                       <DollarSign className="h-4 w-4 text-amber-500" />
                       Cobré un monto diferente
@@ -861,11 +868,11 @@ export default function Delivery() {
 
                   {differentAmountCollected && (
                     <div className="space-y-2 pl-7 animate-in slide-in-from-top-2 duration-200">
-                      <Label htmlFor="amount-collected" className="text-sm font-medium text-slate-400">
+                      <Label htmlFor="amount-collected" className="text-sm font-medium text-muted-foreground">
                         Monto cobrado (₲)
                       </Label>
                       <div className="relative">
-                        <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-500 font-semibold">₲</span>
+                        <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground font-semibold">₲</span>
                         <Input
                           id="amount-collected"
                           type="text"
@@ -877,10 +884,10 @@ export default function Delivery() {
                             setAmountCollected(formatted);
                           }}
                           placeholder="150.000"
-                          className="pl-10 h-12 bg-slate-800 border-slate-600 text-white text-lg font-semibold rounded-xl focus:border-amber-500 focus:ring-amber-500/20"
+                          className="pl-10 h-12 text-lg font-semibold"
                         />
                       </div>
-                      <p className="text-xs text-amber-500">
+                      <p className="text-xs text-amber-500 dark:text-amber-400">
                         Monto esperado: ₲{(orderData.cod_amount || orderData.total_price || 0)?.toLocaleString()}
                       </p>
                     </div>
@@ -890,8 +897,8 @@ export default function Delivery() {
 
               {/* Prepaid Info Message */}
               {paymentMethod && paymentMethod !== 'efectivo' && (
-                <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/30">
-                  <p className="text-sm text-blue-400 flex items-center gap-2">
+                <div className="bg-primary/10 rounded-xl p-4 border border-primary/30">
+                  <p className="text-sm text-primary flex items-center gap-2">
                     <CreditCard className="h-4 w-4" />
                     <span className="font-medium">Pago prepago - No debes cobrar nada al cliente</span>
                   </p>
@@ -902,7 +909,8 @@ export default function Delivery() {
               <Button
                 onClick={handleConfirmDelivery}
                 disabled={submitting || !paymentMethod}
-                className="w-full h-14 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 text-base disabled:opacity-50 disabled:shadow-none transition-all duration-200"
+                className="w-full h-14"
+                size="lg"
               >
                 {submitting ? (
                   <>
@@ -921,7 +929,7 @@ export default function Delivery() {
               <div className="pt-2">
                 <button
                   onClick={() => setShowFailureSection(!showFailureSection)}
-                  className="w-full text-center text-slate-500 hover:text-slate-400 text-sm font-medium transition-colors"
+                  className="w-full text-center text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
                 >
                   {showFailureSection ? '▲ Ocultar opciones de falla' : '▼ ¿No pudiste entregar?'}
                 </button>
@@ -929,17 +937,17 @@ export default function Delivery() {
 
               {/* Failure Section - Collapsible */}
               {showFailureSection && (
-                <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/30 space-y-4 animate-in slide-in-from-top-2 duration-200">
-                  <div className="flex items-center gap-2 text-red-400">
+                <div className="bg-destructive/10 rounded-xl p-4 border border-destructive/30 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center gap-2 text-destructive">
                     <XCircle className="h-5 w-5" />
                     <span className="font-semibold">Reportar problema</span>
                   </div>
 
                   <Select value={failureReason} onValueChange={setFailureReason}>
-                    <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white h-12 rounded-xl">
+                    <SelectTrigger className="h-12">
                       <SelectValue placeholder="Selecciona un motivo" />
                     </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-slate-700">
+                    <SelectContent>
                       <SelectItem value="Cliente ausente">Cliente ausente</SelectItem>
                       <SelectItem value="Dirección incorrecta">Dirección incorrecta</SelectItem>
                       <SelectItem value="Cliente rechazó el pedido">Cliente rechazó el pedido</SelectItem>
@@ -955,14 +963,15 @@ export default function Delivery() {
                     onChange={(e) => setFailureNotes(e.target.value)}
                     placeholder="Describe con más detalle (opcional)..."
                     rows={2}
-                    className="resize-none bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500 rounded-xl"
+                    className="resize-none"
                   />
 
                   <Button
                     variant="destructive"
                     onClick={handleReportFailure}
                     disabled={submitting || !failureReason}
-                    className="w-full h-12 bg-red-500 hover:bg-red-600 font-semibold rounded-xl"
+                    className="w-full h-12"
+                    size="lg"
                   >
                     {submitting ? (
                       <>
@@ -978,14 +987,14 @@ export default function Delivery() {
                   </Button>
                 </div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Footer */}
         <div className="text-center py-4">
-          <p className="text-slate-600 text-xs">
-            Powered by <span className="text-emerald-500 font-semibold">Ordefy</span>
+          <p className="text-muted-foreground text-xs">
+            Powered by <span className="text-primary font-semibold">Ordefy</span>
           </p>
         </div>
       </div>

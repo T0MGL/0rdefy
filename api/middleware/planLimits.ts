@@ -95,9 +95,12 @@ export async function checkOrderLimit(
 
     const usage = await getStoreUsage(storeId);
     if (!usage) {
-      // If we can't get usage, allow the action (fail open for UX)
-      console.warn('[PlanLimits] Could not get usage, allowing action');
-      return next();
+      // SECURITY: Fail closed - if we can't verify limits, deny the action
+      console.error('[PlanLimits] Could not get usage, denying action (fail-closed)');
+      return res.status(503).json({
+        error: 'SERVICE_UNAVAILABLE',
+        message: 'No se pudo verificar los límites de tu plan. Por favor, intenta de nuevo.',
+      });
     }
 
     // Check if at order limit (-1 means unlimited)
@@ -136,8 +139,11 @@ export async function checkOrderLimit(
     next();
   } catch (error: any) {
     console.error('[PlanLimits] checkOrderLimit error:', error.message);
-    // Fail open - allow the action
-    next();
+    // SECURITY: Fail closed - deny action on error
+    return res.status(503).json({
+      error: 'SERVICE_UNAVAILABLE',
+      message: 'Error verificando límites de plan. Por favor, intenta de nuevo.',
+    });
   }
 }
 
@@ -158,9 +164,12 @@ export async function checkProductLimit(
 
     const usage = await getStoreUsage(storeId);
     if (!usage) {
-      // If we can't get usage, allow the action (fail open for UX)
-      console.warn('[PlanLimits] Could not get usage, allowing action');
-      return next();
+      // SECURITY: Fail closed - if we can't verify limits, deny the action
+      console.error('[PlanLimits] Could not get usage, denying action (fail-closed)');
+      return res.status(503).json({
+        error: 'SERVICE_UNAVAILABLE',
+        message: 'No se pudo verificar los límites de tu plan. Por favor, intenta de nuevo.',
+      });
     }
 
     // Check if at product limit (-1 means unlimited)
@@ -199,8 +208,11 @@ export async function checkProductLimit(
     next();
   } catch (error: any) {
     console.error('[PlanLimits] checkProductLimit error:', error.message);
-    // Fail open - allow the action
-    next();
+    // SECURITY: Fail closed - deny action on error
+    return res.status(503).json({
+      error: 'SERVICE_UNAVAILABLE',
+      message: 'Error verificando límites de plan. Por favor, intenta de nuevo.',
+    });
   }
 }
 
@@ -230,8 +242,11 @@ export function requireFeature(feature: string) {
 
       if (error) {
         console.error('[PlanLimits] Feature check error:', error.message);
-        // Fail open - allow the action
-        return next();
+        // SECURITY: Fail closed - deny access on error
+        return res.status(503).json({
+          error: 'SERVICE_UNAVAILABLE',
+          message: 'No se pudo verificar el acceso a esta función. Por favor, intenta de nuevo.',
+        });
       }
 
       if (!hasAccess) {
@@ -263,8 +278,11 @@ export function requireFeature(feature: string) {
       next();
     } catch (error: any) {
       console.error('[PlanLimits] requireFeature error:', error.message);
-      // Fail open - allow the action
-      next();
+      // SECURITY: Fail closed - deny access on error
+      return res.status(503).json({
+        error: 'SERVICE_UNAVAILABLE',
+        message: 'Error verificando acceso a función. Por favor, intenta de nuevo.',
+      });
     }
   };
 }

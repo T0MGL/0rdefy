@@ -9,6 +9,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { OrderConfirmationDialog } from '@/components/OrderConfirmationDialog';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FilterChips } from '@/components/FilterChips';
 import { ordersService } from '@/services/orders.service';
@@ -973,6 +974,14 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
   return (
     <div className="space-y-4">
+      {/* First-time Welcome Banner */}
+      <FirstTimeWelcomeBanner
+        moduleId="orders"
+        title="¡Bienvenido a Pedidos!"
+        description="Aquí gestionas todas tus ventas. Puedes crear, confirmar, preparar y dar seguimiento a cada pedido."
+        tips={['Usa filtros para encontrar pedidos', 'Imprime etiquetas en lote', 'Confirma por WhatsApp']}
+      />
+
       {/* Header with Actions */}
       <div className="flex items-center justify-between">
         <div>

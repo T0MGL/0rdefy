@@ -47,24 +47,29 @@ router.post(
       return res.status(400).json({ error: `Webhook Error: ${err.message}` });
     }
 
-    // Check for idempotency
-    const { data: existingEvent } = await supabaseAdmin
+    // SECURITY: Atomic idempotency check using INSERT-first approach
+    // This prevents race conditions where two concurrent requests both pass SELECT check
+    const { data: insertedEvent, error: insertError } = await supabaseAdmin
       .from('stripe_billing_events')
+      .insert({
+        stripe_event_id: event.id,
+        event_type: event.type,
+        payload: event.data,
+      })
       .select('id')
-      .eq('stripe_event_id', event.id)
       .single();
 
-    if (existingEvent) {
-      console.log('[Billing Webhook] Duplicate event, skipping:', event.id);
-      return res.json({ received: true, duplicate: true });
+    // If insert failed with unique constraint violation, this is a duplicate
+    if (insertError) {
+      if (insertError.code === '23505') { // PostgreSQL unique violation
+        console.log('[Billing Webhook] Duplicate event detected (race-safe), skipping:', event.id);
+        return res.json({ received: true, duplicate: true });
+      }
+      // Other insert errors - log but continue (event might still need processing)
+      console.error('[Billing Webhook] Idempotency insert error:', insertError);
     }
 
-    // Store event for idempotency
-    await supabaseAdmin.from('stripe_billing_events').insert({
-      stripe_event_id: event.id,
-      event_type: event.type,
-      payload: event.data,
-    });
+    // If we get here, we successfully acquired the lock (inserted first)
 
     console.log('[Billing Webhook] Processing event:', event.type);
 
