@@ -160,7 +160,11 @@ router.post('/sessions/:sessionId/picking-progress', async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('Error updating picking progress:', error);
-    res.status(500).json({
+    // Use 400 for validation errors (stock), 500 for technical errors
+    const isValidationError = error.message?.includes('Stock') ||
+                              error.message?.includes('stock') ||
+                              error.message?.includes('Cantidad');
+    res.status(isValidationError ? 400 : 500).json({
       error: 'Failed to update picking progress',
       details: error.message
     });
@@ -185,7 +189,11 @@ router.post('/sessions/:sessionId/finish-picking', async (req, res) => {
     res.json(session);
   } catch (error) {
     console.error('Error finishing picking:', error);
-    res.status(500).json({
+    // Use 400 for validation errors (stock, incomplete picking), 500 for technical errors
+    const isValidationError = error.message?.includes('Stock') ||
+                              error.message?.includes('stock') ||
+                              error.message?.includes('productos deben ser recogidos');
+    res.status(isValidationError ? 400 : 500).json({
       error: 'Failed to finish picking',
       details: error.message
     });
@@ -276,7 +284,11 @@ router.post('/sessions/:sessionId/complete', async (req, res) => {
     res.json(session);
   } catch (error) {
     console.error('Error completing session:', error);
-    res.status(500).json({
+    // Use 400 for validation errors (stock, incomplete packing), 500 for technical errors
+    const isValidationError = error.message?.includes('Stock') ||
+                              error.message?.includes('empacar') ||
+                              error.message?.includes('completar');
+    res.status(isValidationError ? 400 : 500).json({
       error: 'Failed to complete session',
       details: error.message
     });

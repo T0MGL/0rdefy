@@ -438,19 +438,45 @@ export async function updatePickingProgress(
       throw new Error('Session is not in picking status');
     }
 
-    // Get current item
-    const { data: item, error: itemError } = await supabaseAdmin
-      .from('picking_session_items')
-      .select('*')
-      .eq('picking_session_id', sessionId)
-      .eq('product_id', productId)
-      .single();
+    // Get current item and product stock in parallel
+    const [itemResult, productResult] = await Promise.all([
+      supabaseAdmin
+        .from('picking_session_items')
+        .select('*')
+        .eq('picking_session_id', sessionId)
+        .eq('product_id', productId)
+        .single(),
+      supabaseAdmin
+        .from('products')
+        .select('id, name, stock, sku')
+        .eq('id', productId)
+        .eq('store_id', storeId)
+        .single()
+    ]);
 
-    if (itemError) throw itemError;
+    if (itemResult.error) throw itemResult.error;
+    if (productResult.error) throw productResult.error;
 
-    // Validate quantity
+    const item = itemResult.data;
+    const product = productResult.data;
+
+    // Validate quantity against what's needed
     if (quantityPicked < 0 || quantityPicked > item.total_quantity_needed) {
-      throw new Error(`Invalid quantity. Must be between 0 and ${item.total_quantity_needed}`);
+      throw new Error(`Cantidad inválida. Debe estar entre 0 y ${item.total_quantity_needed}`);
+    }
+
+    // Validate against available stock
+    const availableStock = product?.stock || 0;
+    if (quantityPicked > availableStock) {
+      throw new Error(
+        `⚠️ Stock insuficiente para "${product?.name || 'este producto'}"\n\n` +
+        `• SKU: ${product?.sku || 'N/A'}\n` +
+        `• Intentas recoger: ${quantityPicked} unidades\n` +
+        `• Stock disponible: ${availableStock} unidades\n\n` +
+        `💡 Opciones:\n` +
+        `1. Recibe mercadería para aumentar el stock\n` +
+        `2. Reduce la cantidad a recoger a ${availableStock} o menos`
+      );
     }
 
     // Update quantity
@@ -507,7 +533,48 @@ export async function finishPicking(
     );
 
     if (unpickedItems && unpickedItems.length > 0) {
-      throw new Error('All items must be picked before finishing');
+      throw new Error('Todos los productos deben ser recogidos antes de continuar');
+    }
+
+    // Re-validate stock before transitioning to packing phase
+    // This catches cases where stock changed after session was created
+    const productIds = items?.map(i => i.product_id) || [];
+    const { data: stockData, error: stockError } = await supabaseAdmin
+      .from('products')
+      .select('id, name, stock, sku')
+      .eq('store_id', storeId)
+      .in('id', productIds);
+
+    if (stockError) throw stockError;
+
+    const stockMap = new Map(stockData?.map(p => [p.id, { name: p.name, stock: p.stock || 0, sku: p.sku }]) || []);
+    const insufficientStock: Array<{ name: string; sku: string; picked: number; available: number }> = [];
+
+    items?.forEach(item => {
+      const product = stockMap.get(item.product_id);
+      if (product && product.stock < item.quantity_picked) {
+        insufficientStock.push({
+          name: product.name || 'Producto sin nombre',
+          sku: product.sku || 'N/A',
+          picked: item.quantity_picked,
+          available: product.stock
+        });
+      }
+    });
+
+    if (insufficientStock.length > 0) {
+      const stockList = insufficientStock
+        .map(p => `• ${p.name} (SKU: ${p.sku}) - Recogido: ${p.picked}, Disponible: ${p.available}`)
+        .join('\n');
+
+      throw new Error(
+        `⚠️ Stock insuficiente detectado\n\n` +
+        `El stock cambió mientras preparabas los pedidos:\n\n` +
+        `${stockList}\n\n` +
+        `💡 Opciones:\n` +
+        `1. Cancela esta sesión y crea una nueva\n` +
+        `2. Recibe mercadería para reponer el stock`
+      );
     }
 
     // NOTE: Stock deduction is handled by the database trigger 'trigger_update_stock_on_order_status'
@@ -1033,10 +1100,14 @@ export async function completeSession(
       throw new Error('Session does not belong to this store');
     }
 
-    // Get all packing progress for this session
+    // Get all packing progress for this session with product details
     const { data: packingProgress, error: progressError } = await supabaseAdmin
       .from('packing_progress')
-      .select('*')
+      .select(`
+        *,
+        products:product_id (name, sku),
+        orders:order_id (shopify_order_number)
+      `)
       .eq('picking_session_id', sessionId);
 
     if (progressError) throw progressError;
@@ -1047,7 +1118,22 @@ export async function completeSession(
     );
 
     if (notPacked && notPacked.length > 0) {
-      throw new Error('All orders must be packed before completing session');
+      // Build detailed error message
+      const itemsList = notPacked.slice(0, 5).map((p: any) => {
+        const productName = p.products?.name || 'Producto desconocido';
+        const sku = p.products?.sku || 'N/A';
+        const orderNumber = p.orders?.shopify_order_number || p.order_id?.slice(0, 8);
+        return `• ${productName} (SKU: ${sku}) - Pedido: ${orderNumber} - Empacado: ${p.quantity_packed}/${p.quantity_needed}`;
+      }).join('\n');
+
+      const moreItems = notPacked.length > 5 ? `\n... y ${notPacked.length - 5} items más` : '';
+
+      throw new Error(
+        `⚠️ No se puede completar la sesión\n\n` +
+        `Hay ${notPacked.length} item(s) pendientes de empacar:\n\n` +
+        `${itemsList}${moreItems}\n\n` +
+        `💡 Asegúrate de empacar todos los productos antes de finalizar.`
+      );
     }
 
     // Use atomic RPC function to complete session

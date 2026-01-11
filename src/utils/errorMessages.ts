@@ -112,6 +112,29 @@ const USER_ERROR_CODES: Record<string, (ctx: ErrorContext) => FormattedError> = 
     severity: 'warning',
   }),
 
+  PACKING_INCOMPLETE: (ctx) => ({
+    title: 'Empaque incompleto',
+    message: `Hay ${ctx.details?.count || 0} items pendientes de empacar.`,
+    action: 'Asegúrate de empacar todos los productos de cada pedido antes de finalizar la sesión.',
+    severity: 'warning',
+  }),
+
+  WAREHOUSE_STOCK_INSUFFICIENT: (ctx) => ({
+    title: 'Stock insuficiente',
+    message: ctx.details?.productName
+      ? `No hay suficiente stock de "${ctx.details.productName}".`
+      : 'Uno o más productos no tienen stock suficiente.',
+    action: 'Ve a Mercadería → Crea una recepción de inventario, o ajusta el stock en Productos.',
+    severity: 'warning',
+  }),
+
+  WAREHOUSE_STOCK_CHANGED: (ctx) => ({
+    title: 'Stock modificado',
+    message: 'El stock cambió mientras preparabas los pedidos.',
+    action: 'Cancela esta sesión y crea una nueva con los pedidos actualizados, o recibe mercadería para reponer el stock.',
+    severity: 'warning',
+  }),
+
   // Shopify Integration
   SHOPIFY_NOT_CONNECTED: (ctx) => ({
     title: 'Shopify no conectado',
@@ -351,18 +374,42 @@ export function formatError(
   const backendMessage =
     error?.response?.data?.message ||
     error?.response?.data?.error ||
+    error?.response?.data?.details ||
     error?.message;
 
-  // If backend provides a helpful message, use it
-  if (backendMessage && backendMessage.length > 10 && !backendMessage.includes('Error')) {
-    // Include suggestion from context if available
-    const suggestion = context.details?.suggestion;
-    return {
-      title: 'Error',
-      message: backendMessage,
-      action: suggestion,
-      severity: 'error',
-    };
+  // Detect specific backend error patterns and provide appropriate titles
+  if (backendMessage) {
+    // Stock-related errors from warehouse service
+    if (backendMessage.includes('Stock insuficiente') || backendMessage.includes('stock')) {
+      return {
+        title: 'Stock insuficiente',
+        message: backendMessage.replace(/^⚠️\s*/, ''),
+        severity: 'warning',
+      };
+    }
+
+    // Packing/picking errors
+    if (backendMessage.includes('pendientes de empacar') || backendMessage.includes('No se puede completar la sesión')) {
+      return {
+        title: 'Sesión incompleta',
+        message: backendMessage.replace(/^⚠️\s*/, ''),
+        severity: 'warning',
+      };
+    }
+
+    // If backend provides a helpful message (longer than 10 chars and not just "Error"), use it
+    if (backendMessage.length > 10 && !backendMessage.match(/^Error$/i)) {
+      // Include suggestion from context if available
+      const suggestion = context.details?.suggestion;
+      // Clean up emoji prefixes for cleaner display but preserve the rest
+      const cleanMessage = backendMessage.replace(/^⚠️\s*/, '');
+      return {
+        title: cleanMessage.includes('\n') ? cleanMessage.split('\n')[0].substring(0, 50) : 'Error',
+        message: cleanMessage,
+        action: suggestion,
+        severity: 'error',
+      };
+    }
   }
 
   // Default fallback (last resort)

@@ -254,10 +254,10 @@ export default function Warehouse() {
       console.error('Error updating picking progress:', error);
       // Revert optimistic update on error
       setPickingList(previousPickingList);
-      toast({
-        title: 'Error',
-        description: error.response?.data?.details || 'No se pudo actualizar el progreso',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'update_picking',
+        entity: 'progreso de picking',
       });
     }
   }
@@ -272,7 +272,7 @@ export default function Warehouse() {
 
     if (!allPicked) {
       toast({
-        title: 'Error',
+        title: 'Picking incompleto',
         description: 'Todos los productos deben estar recolectados antes de continuar',
         variant: 'destructive',
       });
@@ -290,10 +290,10 @@ export default function Warehouse() {
       });
     } catch (error: any) {
       console.error('Error finishing picking:', error);
-      toast({
-        title: 'Error',
-        description: error.response?.data?.details || 'No se pudo completar el picking',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'finish_picking',
+        entity: 'picking',
       });
     } finally {
       setLoading(false);
@@ -359,10 +359,10 @@ export default function Warehouse() {
         setPackingData(previousPackingData);
       }
 
-      toast({
-        title: 'Error',
-        description: error.response?.data?.details || 'No se pudo empacar el producto',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'pack_item',
+        entity: 'producto',
       });
     } finally {
       setPackingInProgress(false);
@@ -542,10 +542,10 @@ export default function Warehouse() {
       handleBackToDashboard();
     } catch (error: any) {
       console.error('Error completing session:', error);
-      toast({
-        title: 'Error',
-        description: error.response?.data?.details || 'No se pudo completar la sesión',
-        variant: 'destructive',
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'complete_session',
+        entity: 'sesión de picking',
       });
     } finally {
       setLoading(false);
