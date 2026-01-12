@@ -25,6 +25,7 @@ import { couriersRouter } from './routes/couriers';
 import { merchandiseRouter } from './routes/merchandise';
 import { shopifyRouter } from './routes/shopify';
 import { shopifyOAuthRouter } from './routes/shopify-oauth';
+import { shopifyManualOAuthRouter } from './routes/shopify-manual-oauth';
 import { shopifySyncRouter } from './routes/shopify-sync';
 import shopifyWebhooksRouter from './routes/shopify-webhooks';
 import { shopifyMandatoryWebhooksRouter } from './routes/shopify-mandatory-webhooks';
@@ -433,9 +434,12 @@ app.use('/api/campaigns', campaignsRouter);
 app.use('/api/carriers', carriersRouter);
 app.use('/api/couriers', couriersRouter); // Repartidores (delivery personnel)
 app.use('/api/merchandise', merchandiseRouter); // Inbound shipments / supplier purchases
-app.use('/api/shopify', shopifyRouter);
+
+// Shopify routes - ORDER MATTERS! More specific routes must come first
+app.use('/api/shopify/manual-oauth', shopifyManualOAuthRouter); // Custom app OAuth for Dev Dashboard 2026
 app.use('/api/shopify-oauth', shopifyOAuthRouter);
 app.use('/api/shopify-sync', shopifySyncRouter);
+app.use('/api/shopify', shopifyRouter); // General shopify routes (must be after more specific ones)
 // Support both /webhook/ (singular) and /webhooks/ (plural) for backwards compatibility
 app.use('/api/shopify/webhook', shopifyWebhooksRouter); // Singular (legacy URLs from Shopify)
 app.use('/api/shopify/webhooks', shopifyWebhooksRouter); // Plural (new standard)
