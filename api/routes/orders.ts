@@ -1284,13 +1284,17 @@ ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), asyn
         // Transform response to match frontend format
         const lineItems = data.line_items || [];
         const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+        // Calculate total quantity from all line items
+        const totalQuantity = Array.isArray(lineItems)
+            ? lineItems.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+            : 1;
 
         const transformedData = {
             id: data.id,
             customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
             address: data.customer_address || '',
             product: firstItem?.product_name || firstItem?.title || 'Producto',
-            quantity: firstItem?.quantity || 1,
+            quantity: totalQuantity || 1,
             total: data.total_price || 0,
             status: mapStatus(data.sleeves_status),
             payment_status: data.payment_status,
@@ -1958,7 +1962,7 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
 // ================================================================
 // PUT /api/orders/:id/payment-status - Update payment status
 // ================================================================
-ordersRouter.put('/:id/payment-status', async (req: AuthRequest, res: Response) => {
+ordersRouter.put('/:id/payment-status', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { payment_status } = req.body;
@@ -2004,7 +2008,7 @@ ordersRouter.put('/:id/payment-status', async (req: AuthRequest, res: Response) 
 // ================================================================
 // POST /api/orders/:id/mark-preparing - Mark as preparing
 // ================================================================
-ordersRouter.post('/:id/mark-preparing', async (req: AuthRequest, res: Response) => {
+ordersRouter.post('/:id/mark-preparing', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -2043,7 +2047,7 @@ ordersRouter.post('/:id/mark-preparing', async (req: AuthRequest, res: Response)
 // ================================================================
 // POST /api/orders/:id/mark-out-for-delivery - Mark as out for delivery
 // ================================================================
-ordersRouter.post('/:id/mark-out-for-delivery', async (req: AuthRequest, res: Response) => {
+ordersRouter.post('/:id/mark-out-for-delivery', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { carrier_id, delivery_notes } = req.body;
@@ -2088,7 +2092,7 @@ ordersRouter.post('/:id/mark-out-for-delivery', async (req: AuthRequest, res: Re
 // ================================================================
 // POST /api/orders/:id/mark-delivered-paid - Mark as delivered and paid
 // ================================================================
-ordersRouter.post('/:id/mark-delivered-paid', async (req: AuthRequest, res: Response) => {
+ordersRouter.post('/:id/mark-delivered-paid', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { notes } = req.body;
@@ -2353,7 +2357,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
 // ================================================================
 // POST /api/orders/:id/mark-printed - Mark order label as printed
 // ================================================================
-ordersRouter.post('/:id/mark-printed', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const storeId = req.storeId;
@@ -2427,7 +2431,7 @@ ordersRouter.post('/:id/mark-printed', verifyToken, extractStoreId, async (req: 
 // ================================================================
 // POST /api/orders/mark-printed-bulk - Mark multiple orders as printed
 // ================================================================
-ordersRouter.post('/mark-printed-bulk', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
     try {
         const { order_ids } = req.body;
         const storeId = req.storeId;

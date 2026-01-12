@@ -75,24 +75,42 @@ export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShip
     if (error) throw error;
 
     // Format response
-    return (orders || []).map((order: any) => ({
-      id: order.id,
-      order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
-      customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
-      customer_phone: order.customer_phone || '',
-      customer_address: order.customer_address || '',
-      carrier_name: order.carriers?.name || 'Sin transportadora',
-      carrier_id: order.courier_id,
-      total_items: Array.isArray(order.line_items)
-        ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
-        : 0,
-      cod_amount: order.cod_amount || 0,
-      created_at: order.created_at,
-      // Shopify order identifiers for display
-      shopify_order_name: order.shopify_order_name || null,
-      shopify_order_number: order.shopify_order_number || null,
-      shopify_order_id: order.shopify_order_id || null
-    }));
+    return (orders || []).map((order: any) => {
+      // Determine display order number:
+      // 1. Shopify order name (#1315 format) - preferred for Shopify orders
+      // 2. Shopify order number (numeric) - fallback for Shopify
+      // 3. Ordefy format (ORD-XXXXXXXX) - for manual orders
+      let displayOrderNumber: string;
+      if (order.shopify_order_name) {
+        // Shopify order name already has # prefix (e.g., "#1315")
+        displayOrderNumber = order.shopify_order_name;
+      } else if (order.shopify_order_number) {
+        // Add # prefix if only number is available
+        displayOrderNumber = `#${order.shopify_order_number}`;
+      } else {
+        // Manual order - use Ordefy format
+        displayOrderNumber = `ORD-${order.id.slice(0, 8).toUpperCase()}`;
+      }
+
+      return {
+        id: order.id,
+        order_number: displayOrderNumber,
+        customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+        customer_phone: order.customer_phone || '',
+        customer_address: order.customer_address || '',
+        carrier_name: order.carriers?.name || 'Sin transportadora',
+        carrier_id: order.courier_id,
+        total_items: Array.isArray(order.line_items)
+          ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+          : 0,
+        cod_amount: order.cod_amount || 0,
+        created_at: order.created_at,
+        // Shopify order identifiers for display
+        shopify_order_name: order.shopify_order_name || null,
+        shopify_order_number: order.shopify_order_number || null,
+        shopify_order_id: order.shopify_order_id || null
+      };
+    });
   } catch (error) {
     console.error('Error getting ready to ship orders:', error);
     throw error;

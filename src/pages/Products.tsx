@@ -266,7 +266,7 @@ export default function Products() {
       console.error('Error al guardar producto:', error);
       showErrorToast(toast, error, {
         module: 'products',
-        action: productToEdit ? 'update' : 'create',
+        action: selectedProduct ? 'update' : 'create',
         entity: 'producto',
         variant: 'destructive',
       });

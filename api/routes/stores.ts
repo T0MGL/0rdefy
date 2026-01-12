@@ -14,37 +14,63 @@ import { Module, Permission } from '../permissions';
 
 export const storesRouter = Router();
 
-// Apply verifyToken to all routes, but extractStoreId only where needed
-storesRouter.use(verifyToken);
-storesRouter.use(extractUserRole);
-storesRouter.use(requireModule(Module.SETTINGS));
+// Apply verifyToken to all routes
+// Note: extractUserRole and requireModule are applied per-route since POST /api/stores
+// doesn't require a Store ID (user is creating a new store)
 
 
 // ================================================================
-// GET /api/stores - List all stores (for multi-store dashboard)
+// GET /api/stores - List stores the user has access to (for multi-store dashboard)
 // ================================================================
-storesRouter.get('/', async (req: AuthRequest, res: Response) => {
+storesRouter.get('/', verifyToken, async (req: AuthRequest, res: Response) => {
     try {
-        const { is_active } = req.query;
-
-        // Build query
-        let query = supabaseAdmin
-            .from('stores')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-        if (is_active !== undefined) {
-            query = query.eq('is_active', is_active === 'true');
+        if (!req.userId) {
+            return res.status(401).json({
+                error: 'Unauthorized',
+                message: 'User ID not found in token'
+            });
         }
 
-        const { data, error } = await query;
+        // Get stores the user has access to via user_stores
+        const { data: userStores, error: userStoresError } = await supabaseAdmin
+            .from('user_stores')
+            .select(`
+                store_id,
+                role,
+                stores!inner(
+                    id,
+                    name,
+                    country,
+                    timezone,
+                    currency,
+                    tax_rate,
+                    admin_fee,
+                    is_active,
+                    subscription_plan,
+                    created_at,
+                    updated_at
+                )
+            `)
+            .eq('user_id', req.userId)
+            .eq('is_active', true);
 
-        if (error) {
-            throw error;
+        if (userStoresError) {
+            throw userStoresError;
         }
+
+        // Transform to flat store list with role
+        const stores = (userStores || []).map((us: any) => ({
+            ...us.stores,
+            user_role: us.role
+        }));
+
+        // Sort by created_at descending
+        stores.sort((a: any, b: any) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
 
         res.json({
-            data: data || []
+            data: stores
         });
     } catch (error: any) {
         console.error('[GET /api/stores] Error:', error);
@@ -58,7 +84,7 @@ storesRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/stores/current - Get current store (hardcoded for MVP)
 // ================================================================
-storesRouter.get('/current', extractStoreId, async (req: AuthRequest, res: Response) => {
+storesRouter.get('/current', verifyToken, extractStoreId, extractUserRole, requireModule(Module.SETTINGS), async (req: AuthRequest, res: Response) => {
     try {
         const store = await getStore(req.storeId);
 
@@ -82,7 +108,7 @@ storesRouter.get('/current', extractStoreId, async (req: AuthRequest, res: Respo
 // ================================================================
 // GET /api/stores/:id - Get single store
 // ================================================================
-storesRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+storesRouter.get('/:id', verifyToken, async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -110,8 +136,9 @@ storesRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // ================================================================
 // POST /api/stores - Create new store
+// Note: Only requires verifyToken - no Store ID needed (user is creating a new store)
 // ================================================================
-storesRouter.post('/', async (req: AuthRequest, res: Response) => {
+storesRouter.post('/', verifyToken, async (req: AuthRequest, res: Response) => {
     try {
         const {
             name,
@@ -136,6 +163,71 @@ storesRouter.post('/', async (req: AuthRequest, res: Response) => {
                 error: 'Unauthorized',
                 message: 'User ID not found in token'
             });
+        }
+
+        // Get user's current stores where they are OWNER
+        const { data: userOwnerStores, error: ownerStoresError } = await supabaseAdmin
+            .from('user_stores')
+            .select(`
+                store_id,
+                role,
+                stores!inner(subscription_plan)
+            `)
+            .eq('user_id', req.userId)
+            .eq('role', 'owner')
+            .eq('is_active', true);
+
+        if (ownerStoresError) {
+            throw ownerStoresError;
+        }
+
+        // If user is not owner of any store, they can create their first one
+        // Otherwise, check the plan limits from their highest plan
+        if (userOwnerStores && userOwnerStores.length > 0) {
+            // Get plan limits for the user's stores
+            const storePlans = userOwnerStores.map((us: any) => us.stores?.subscription_plan || 'free');
+
+            // Check highest plan's max_stores limit
+            const { data: planLimits, error: planLimitsError } = await supabaseAdmin
+                .from('plan_limits')
+                .select('plan, max_stores')
+                .in('plan', storePlans);
+
+            if (planLimitsError) {
+                throw planLimitsError;
+            }
+
+            // Find the highest max_stores among user's plans
+            let maxStoresAllowed = 1; // Default
+            if (planLimits) {
+                for (const limit of planLimits) {
+                    if (limit.max_stores === -1) {
+                        // -1 means unlimited
+                        maxStoresAllowed = Infinity;
+                        break;
+                    }
+                    if (limit.max_stores > maxStoresAllowed) {
+                        maxStoresAllowed = limit.max_stores;
+                    }
+                }
+            }
+
+            const currentStoreCount = userOwnerStores.length;
+
+            if (currentStoreCount >= maxStoresAllowed) {
+                const planNames: Record<number, string> = {
+                    1: 'Free, Starter o Growth',
+                    3: 'Professional'
+                };
+                const currentPlanName = planNames[maxStoresAllowed] || 'tu plan actual';
+
+                return res.status(403).json({
+                    error: 'Store limit reached',
+                    message: `Has alcanzado el límite de ${maxStoresAllowed} tienda(s) para ${currentPlanName}. Actualiza tu plan para crear más tiendas.`,
+                    current_stores: currentStoreCount,
+                    max_stores: maxStoresAllowed
+                });
+            }
         }
 
         // Create the store
@@ -194,7 +286,7 @@ storesRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/stores/:id - Update store
 // ================================================================
-storesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+storesRouter.put('/:id', verifyToken, extractStoreId, extractUserRole, requireModule(Module.SETTINGS), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -249,7 +341,7 @@ storesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/stores/:id/config - Get store configuration
 // ================================================================
-storesRouter.get('/:id/config', async (req: AuthRequest, res: Response) => {
+storesRouter.get('/:id/config', verifyToken, extractStoreId, extractUserRole, requireModule(Module.SETTINGS), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -275,7 +367,7 @@ storesRouter.get('/:id/config', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/stores/:id/config - Update store configuration
 // ================================================================
-storesRouter.put('/:id/config', async (req: AuthRequest, res: Response) => {
+storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, requireModule(Module.SETTINGS), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -382,7 +474,7 @@ storesRouter.put('/:id/config', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/stores/:id/stats - Get store statistics
 // ================================================================
-storesRouter.get('/:id/stats', async (req: AuthRequest, res: Response) => {
+storesRouter.get('/:id/stats', verifyToken, extractStoreId, extractUserRole, requireModule(Module.SETTINGS), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -461,7 +553,7 @@ storesRouter.get('/:id/stats', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/stores/:id - Delete store (with validations)
 // ================================================================
-storesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+storesRouter.delete('/:id', verifyToken, extractStoreId, extractUserRole, requireModule(Module.SETTINGS), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 

@@ -78,8 +78,8 @@ export const ordersService = {
         line_items: [{
           product_id: order.product_id,
           product_name: order.product,
-          quantity: order.quantity,
-          price: order.total / order.quantity,
+          quantity: order.quantity || 1,
+          price: order.quantity > 0 ? order.total / order.quantity : order.total,
         }],
         total_price: order.total,
         subtotal_price: order.total,

@@ -615,11 +615,14 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
                 });
             }
 
+            // Parse stock value and ensure it's a positive number
+            const stockChange = Math.abs(parseInt(stock) || 0);
+
             let newStock = currentProduct.stock;
             if (operation === 'increment') {
-                newStock += parseInt(stock);
+                newStock += stockChange;
             } else {
-                newStock = Math.max(0, newStock - parseInt(stock));
+                newStock = Math.max(0, newStock - stockChange);
             }
 
             const { data, error } = await supabaseAdmin
@@ -668,11 +671,12 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
             });
         }
 
-        // For 'set' operation
+        // For 'set' operation - ensure stock is not negative
+        const newStockValue = Math.max(0, parseInt(stock) || 0);
         const { data, error } = await supabaseAdmin
             .from('products')
             .update({
-                stock: parseInt(stock),
+                stock: newStockValue,
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)

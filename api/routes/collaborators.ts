@@ -766,12 +766,17 @@ collaboratorsRouter.post(
   '/cleanup-expired-tokens',
   async (req, res) => {
     try {
-      // Simple auth check - could be enhanced with a secret key
+      // Require CRON_SECRET for security
       const cronSecret = req.headers['x-cron-secret'];
       const expectedSecret = process.env.CRON_SECRET;
 
-      // If CRON_SECRET is set, verify it
-      if (expectedSecret && cronSecret !== expectedSecret) {
+      // CRON_SECRET must be configured and match
+      if (!expectedSecret) {
+        console.error('[Cleanup] CRON_SECRET not configured - denying request');
+        return res.status(500).json({ error: 'Server misconfigured' });
+      }
+
+      if (cronSecret !== expectedSecret) {
         console.warn('[Cleanup] Unauthorized cleanup attempt');
         return res.status(401).json({ error: 'Unauthorized' });
       }

@@ -108,6 +108,19 @@ export async function getShipmentHistory(
 /**
  * Generates a CSV file for courier delivery tracking
  * This CSV can be shared with the courier and later imported for reconciliation
+ *
+ * Columns exported:
+ * - PEDIDO: Order number (#1315 for Shopify, ORD-XXXXXXXX for manual)
+ * - CLIENTE: Customer full name
+ * - TELEFONO: Customer phone number
+ * - DIRECCION: Full delivery address
+ * - CIUDAD: City extracted from address
+ * - MONTO_COD: Amount to collect (0 for prepaid orders)
+ * - TRANSPORTADORA: Carrier/courier name
+ * - ESTADO_ENTREGA: (To fill) ENTREGADO / NO ENTREGADO / RECHAZADO / REPROGRAMADO
+ * - MONTO_COBRADO: (To fill) Actual amount collected
+ * - MOTIVO_FALLA: (To fill) Reason if not delivered
+ * - NOTAS: (To fill) Additional notes
  */
 export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: string): void {
   // CSV Headers in Spanish for courier compatibility
@@ -131,8 +144,13 @@ export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: str
     const addressParts = order.customer_address?.split(',') || [];
     const city = addressParts.length > 1 ? addressParts[addressParts.length - 1].trim() : '';
 
+    // Order number is already formatted correctly by backend:
+    // - Shopify orders: #1315 format (from shopify_order_name)
+    // - Manual orders: ORD-XXXXXXXX format
+    const orderNumber = order.order_number;
+
     return [
-      order.order_number || order.id.slice(0, 8),
+      orderNumber,
       order.customer_name || '',
       order.customer_phone || '',
       order.customer_address || '',

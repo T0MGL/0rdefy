@@ -44,6 +44,15 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             });
         }
 
+        // Validate password length
+        if (password.length < 8) {
+            console.warn('⚠️ [REGISTER] Password too short');
+            return res.status(400).json({
+                success: false,
+                error: 'La contraseña debe tener al menos 8 caracteres'
+            });
+        }
+
         console.log('🔍 [REGISTER] Checking for existing user...');
         const { data: existingUser, error: checkError } = await supabaseAdmin
             .from('users')
@@ -707,11 +716,11 @@ authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: R
             });
         }
 
-        if (newPassword.length < 6) {
+        if (newPassword.length < 8) {
             console.warn('⚠️ [CHANGE-PASSWORD] New password too short');
             return res.status(400).json({
                 success: false,
-                error: 'New password must be at least 6 characters'
+                error: 'La contraseña debe tener al menos 8 caracteres'
             });
         }
 

@@ -509,9 +509,32 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
   }, [orderToEdit, toast]);
 
   const handleDeleteOrder = useCallback((orderId: string) => {
+    // Find the order to check its status
+    const order = orders.find(o => o.id === orderId);
+
+    // Block deletion of delivered orders with a clear message
+    if (order && order.status === 'delivered') {
+      toast({
+        title: '❌ No se puede eliminar',
+        description: 'Los pedidos entregados no pueden ser eliminados porque ya afectaron el inventario y las métricas de la tienda.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Block deletion of shipped orders
+    if (order && order.status === 'shipped') {
+      toast({
+        title: '❌ No se puede eliminar',
+        description: 'Los pedidos despachados no pueden ser eliminados. Espere a que se marquen como entregados o devueltos.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setOrderToDelete(orderId);
     setDeleteDialogOpen(true);
-  }, []);
+  }, [orders, toast]);
 
   const confirmDelete = useCallback(async () => {
     if (!orderToDelete) return;
@@ -1594,15 +1617,18 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                               >
                                 <Package size={16} />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeleteOrder(order.id)}
-                                title="Eliminar pedido"
-                              >
-                                <Trash2 size={16} />
-                              </Button>
+                              {/* No mostrar botón eliminar para pedidos entregados o despachados */}
+                              {order.status !== 'delivered' && order.status !== 'shipped' && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDeleteOrder(order.id)}
+                                  title="Eliminar pedido"
+                                >
+                                  <Trash2 size={16} />
+                                </Button>
+                              )}
                             </>
                           )}
                         </div>

@@ -44,11 +44,209 @@ import {
   FileSpreadsheet,
   Calendar,
   Package,
+  AlertTriangle,
+  FileUp,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 type WorkflowStep = 'selection' | 'reconciliation' | 'review' | 'complete';
+
+// CSV Import types
+interface CSVImportRow {
+  order_number: string;
+  delivery_status: 'delivered' | 'not_delivered' | 'rejected' | 'rescheduled';
+  amount_collected: number;
+  failure_reason?: string;
+  notes?: string;
+}
+
+interface CSVImportResult {
+  rows: CSVImportRow[];
+  errors: string[];
+  warnings: string[];
+}
+
+// Parse CSV content
+function parseCSVContent(content: string): CSVImportResult {
+  const lines = content.split('\n').filter(line => line.trim());
+  const rows: CSVImportRow[] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (lines.length < 2) {
+    errors.push('El archivo CSV debe tener al menos una fila de encabezados y una de datos');
+    return { rows, errors, warnings };
+  }
+
+  // Parse headers - support multiple formats
+  const headerLine = lines[0];
+  const headers = headerLine.split(',').map(h =>
+    h.trim().toLowerCase().replace(/"/g, '').replace(/[\uFEFF]/g, '')
+  );
+
+  // Column name mappings (Spanish and English)
+  const columnMap: Record<string, string> = {
+    // Order number
+    'pedido': 'order_number',
+    'nroreferencia': 'order_number',
+    'order_number': 'order_number',
+    'n° pedido': 'order_number',
+    'numero_pedido': 'order_number',
+    // Delivery status
+    'estado_entrega': 'delivery_status',
+    'estado': 'delivery_status',
+    'delivery_status': 'delivery_status',
+    'resultado': 'delivery_status',
+    // Amount collected
+    'monto_cobrado': 'amount_collected',
+    'amount_collected': 'amount_collected',
+    'cobrado': 'amount_collected',
+    'importe_cobrado': 'amount_collected',
+    // Failure reason
+    'motivo_falla': 'failure_reason',
+    'motivo_no_entrega': 'failure_reason',
+    'failure_reason': 'failure_reason',
+    'motivo': 'failure_reason',
+    // Notes
+    'notas': 'notes',
+    'notes': 'notes',
+    'observaciones': 'notes',
+  };
+
+  // Status mappings (Spanish to internal)
+  const statusMap: Record<string, CSVImportRow['delivery_status']> = {
+    'entregado': 'delivered',
+    'delivered': 'delivered',
+    'si': 'delivered',
+    'yes': 'delivered',
+    '1': 'delivered',
+    'no entregado': 'not_delivered',
+    'not_delivered': 'not_delivered',
+    'fallido': 'not_delivered',
+    'failed': 'not_delivered',
+    'no': 'not_delivered',
+    '0': 'not_delivered',
+    'rechazado': 'rejected',
+    'rejected': 'rejected',
+    'reprogramado': 'rescheduled',
+    'rescheduled': 'rescheduled',
+  };
+
+  // Find column indices
+  const columnIndices: Record<string, number> = {};
+  headers.forEach((header, index) => {
+    const mappedName = columnMap[header];
+    if (mappedName) {
+      columnIndices[mappedName] = index;
+    }
+  });
+
+  // Validate required columns
+  if (columnIndices['order_number'] === undefined) {
+    errors.push('No se encontró la columna de número de pedido (PEDIDO, NroReferencia, order_number)');
+    return { rows, errors, warnings };
+  }
+
+  if (columnIndices['delivery_status'] === undefined) {
+    errors.push('No se encontró la columna de estado de entrega (ESTADO_ENTREGA, estado, delivery_status)');
+    return { rows, errors, warnings };
+  }
+
+  // Parse data rows
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    // Parse CSV values (handle quoted values with commas)
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (const char of line) {
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        values.push(current.trim().replace(/^"|"$/g, ''));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim().replace(/^"|"$/g, ''));
+
+    // Get values
+    const orderNumber = values[columnIndices['order_number']]?.trim();
+    const statusRaw = values[columnIndices['delivery_status']]?.trim().toLowerCase();
+    const amountRaw = values[columnIndices['amount_collected']]?.trim();
+    const failureReason = values[columnIndices['failure_reason']]?.trim();
+    const notes = values[columnIndices['notes']]?.trim();
+
+    // Validate order number
+    if (!orderNumber) {
+      warnings.push(`Fila ${i + 1}: Sin número de pedido, ignorada`);
+      continue;
+    }
+
+    // Parse status
+    const deliveryStatus = statusMap[statusRaw];
+    if (!deliveryStatus && statusRaw) {
+      warnings.push(`Fila ${i + 1} (${orderNumber}): Estado "${statusRaw}" no reconocido, marcado como pendiente`);
+      continue;
+    }
+
+    if (!deliveryStatus) {
+      // Skip rows without status (empty cells)
+      continue;
+    }
+
+    // Parse amount
+    let amountCollected = 0;
+    if (amountRaw) {
+      // Remove currency symbols, spaces, and parse
+      const cleanAmount = amountRaw.replace(/[^\d.,]/g, '').replace(',', '.');
+      amountCollected = parseFloat(cleanAmount) || 0;
+    }
+
+    // Validate: non-delivered orders should have failure reason
+    if (deliveryStatus !== 'delivered' && !failureReason) {
+      warnings.push(`Fila ${i + 1} (${orderNumber}): Pedido no entregado sin motivo de falla`);
+    }
+
+    rows.push({
+      order_number: orderNumber,
+      delivery_status: deliveryStatus,
+      amount_collected: amountCollected,
+      failure_reason: failureReason || undefined,
+      notes: notes || undefined,
+    });
+  }
+
+  if (rows.length === 0) {
+    errors.push('No se encontraron filas válidas con datos de entrega');
+  }
+
+  return { rows, errors, warnings };
+}
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -87,6 +285,12 @@ export default function Settlements() {
   const [totalAmountCollected, setTotalAmountCollected] = useState<number | null>(null);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
   const [confirmDiscrepancy, setConfirmDiscrepancy] = useState(false);
+
+  // CSV Import state
+  const [csvImportDialogOpen, setCsvImportDialogOpen] = useState(false);
+  const [csvImportData, setCsvImportData] = useState<CSVImportResult | null>(null);
+  const [csvFileName, setCsvFileName] = useState('');
+  const [csvProcessing, setCsvProcessing] = useState(false);
 
   // Load groups
   const loadGroups = useCallback(async () => {
@@ -310,18 +514,183 @@ export default function Settlements() {
     }
   };
 
-  // CSV Import (legacy fallback)
+  // CSV Import - Read and parse file
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    toast({
-      title: 'Funcion en desarrollo',
-      description: 'La importacion CSV estara disponible proximamente',
-    });
+    setCsvFileName(file.name);
+
+    try {
+      const content = await file.text();
+      const result = parseCSVContent(content);
+
+      setCsvImportData(result);
+      setCsvImportDialogOpen(true);
+
+      if (result.errors.length > 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Errores en el archivo',
+          description: result.errors[0],
+        });
+      }
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error al leer archivo',
+        description: 'No se pudo leer el archivo CSV',
+      });
+    }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  // Normalize order number for matching (handles #1315 vs 1315 vs #1315)
+  const normalizeOrderNumber = (num: string): string => {
+    // Remove # prefix, convert to lowercase, trim whitespace
+    return num.replace(/^#/, '').toLowerCase().trim();
+  };
+
+  // Process CSV import - match with groups and apply
+  const handleProcessCSVImport = async () => {
+    if (!csvImportData || csvImportData.rows.length === 0) return;
+
+    setCsvProcessing(true);
+
+    try {
+      // Create a map of NORMALIZED order numbers to CSV data
+      // This handles cases like "#1315" vs "1315" from courier input
+      const csvOrderMap = new Map<string, CSVImportRow>();
+      csvImportData.rows.forEach(row => {
+        const normalizedNum = normalizeOrderNumber(row.order_number);
+        csvOrderMap.set(normalizedNum, row);
+      });
+
+      // Find matching group(s) - match orders from CSV to shipped orders
+      let matchedGroup: CourierDateGroup | null = null;
+      let matchedOrders: Array<{ order: any; csvData: CSVImportRow }> = [];
+
+      for (const group of groups) {
+        const matches: Array<{ order: any; csvData: CSVImportRow }> = [];
+
+        for (const order of group.orders) {
+          // Normalize both for comparison
+          const normalizedOrderNum = normalizeOrderNumber(order.order_number);
+          const csvData = csvOrderMap.get(normalizedOrderNum);
+          if (csvData) {
+            matches.push({ order, csvData });
+          }
+        }
+
+        if (matches.length > 0) {
+          if (matches.length > matchedOrders.length) {
+            matchedGroup = group;
+            matchedOrders = matches;
+          }
+        }
+      }
+
+      if (!matchedGroup || matchedOrders.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Sin coincidencias',
+          description: 'No se encontraron pedidos del CSV en los despachos pendientes',
+        });
+        setCsvProcessing(false);
+        return;
+      }
+
+      // Calculate totals from CSV
+      let totalCollected = 0;
+      const ordersData: Array<{
+        order_id: string;
+        delivered: boolean;
+        failure_reason?: string;
+        notes?: string;
+      }> = [];
+
+      for (const { order, csvData } of matchedOrders) {
+        const isDelivered = csvData.delivery_status === 'delivered';
+
+        if (isDelivered) {
+          totalCollected += csvData.amount_collected;
+        }
+
+        ordersData.push({
+          order_id: order.id,
+          delivered: isDelivered,
+          failure_reason: !isDelivered ? (csvData.failure_reason || 'other') : undefined,
+          notes: csvData.notes,
+        });
+      }
+
+      // Check for unmatched orders in the group
+      const unmatchedCount = matchedGroup.orders.length - matchedOrders.length;
+      if (unmatchedCount > 0) {
+        // Add unmatched orders as delivered (default behavior)
+        for (const order of matchedGroup.orders) {
+          const isMatched = matchedOrders.some(m => m.order.id === order.id);
+          if (!isMatched) {
+            ordersData.push({
+              order_id: order.id,
+              delivered: true, // Default to delivered if not in CSV
+            });
+            if (order.is_cod) {
+              totalCollected += order.cod_amount;
+            }
+          }
+        }
+
+        toast({
+          title: 'Pedidos sin datos',
+          description: `${unmatchedCount} pedido(s) no estaban en el CSV y se marcaron como entregados`,
+        });
+      }
+
+      // Process reconciliation
+      const response = await fetch(`${API_BASE}/api/settlements/manual-reconciliation`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          carrier_id: matchedGroup.carrier_id,
+          dispatch_date: matchedGroup.dispatch_date,
+          orders: ordersData,
+          total_amount_collected: totalCollected,
+          discrepancy_notes: `Importado desde CSV: ${csvFileName}`,
+          confirm_discrepancy: true, // Auto-confirm since data comes from courier
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al procesar la conciliacion');
+      }
+
+      const result = await response.json();
+
+      toast({
+        title: 'Importacion exitosa',
+        description: `Liquidacion ${result.data.settlement_code} creada con ${matchedOrders.length} pedidos`,
+      });
+
+      // Mark first action completed
+      onboardingService.markFirstActionCompleted('settlements');
+
+      // Close dialog and reload
+      setCsvImportDialogOpen(false);
+      setCsvImportData(null);
+      loadGroups();
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'No se pudo procesar el archivo CSV',
+      });
+    } finally {
+      setCsvProcessing(false);
     }
   };
 
@@ -433,6 +802,158 @@ export default function Settlements() {
             ))}
           </div>
         )}
+
+        {/* CSV Import Dialog */}
+        <Dialog open={csvImportDialogOpen} onOpenChange={setCsvImportDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileUp className="h-5 w-5" />
+                Importar Resultados de Entrega
+              </DialogTitle>
+              <DialogDescription>
+                Archivo: {csvFileName}
+              </DialogDescription>
+            </DialogHeader>
+
+            {csvImportData && (
+              <div className="space-y-4">
+                {/* Errors */}
+                {csvImportData.errors.length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-red-800 dark:text-red-200 font-medium mb-2">
+                      <XCircle className="h-4 w-4" />
+                      Errores encontrados
+                    </div>
+                    <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside">
+                      {csvImportData.errors.map((error, i) => (
+                        <li key={i}>{error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Warnings */}
+                {csvImportData.warnings.length > 0 && (
+                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-medium mb-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Advertencias ({csvImportData.warnings.length})
+                    </div>
+                    <ScrollArea className="h-24">
+                      <ul className="text-sm text-amber-700 dark:text-amber-300 list-disc list-inside">
+                        {csvImportData.warnings.map((warning, i) => (
+                          <li key={i}>{warning}</li>
+                        ))}
+                      </ul>
+                    </ScrollArea>
+                  </div>
+                )}
+
+                {/* Summary */}
+                {csvImportData.rows.length > 0 && (
+                  <>
+                    <div className="grid grid-cols-4 gap-4">
+                      <Card className="p-3">
+                        <p className="text-xs text-muted-foreground">Total filas</p>
+                        <p className="text-xl font-bold">{csvImportData.rows.length}</p>
+                      </Card>
+                      <Card className="p-3">
+                        <p className="text-xs text-muted-foreground">Entregados</p>
+                        <p className="text-xl font-bold text-green-600">
+                          {csvImportData.rows.filter(r => r.delivery_status === 'delivered').length}
+                        </p>
+                      </Card>
+                      <Card className="p-3">
+                        <p className="text-xs text-muted-foreground">No entregados</p>
+                        <p className="text-xl font-bold text-red-600">
+                          {csvImportData.rows.filter(r => r.delivery_status !== 'delivered').length}
+                        </p>
+                      </Card>
+                      <Card className="p-3">
+                        <p className="text-xs text-muted-foreground">Monto total</p>
+                        <p className="text-xl font-bold text-blue-600">
+                          {formatCurrency(csvImportData.rows.reduce((sum, r) => sum + r.amount_collected, 0))}
+                        </p>
+                      </Card>
+                    </div>
+
+                    {/* Preview table */}
+                    <div className="border rounded-lg">
+                      <ScrollArea className="h-48">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Pedido</TableHead>
+                              <TableHead>Estado</TableHead>
+                              <TableHead className="text-right">Monto</TableHead>
+                              <TableHead>Motivo</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {csvImportData.rows.slice(0, 20).map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="font-medium">{row.order_number}</TableCell>
+                                <TableCell>
+                                  <Badge variant={row.delivery_status === 'delivered' ? 'default' : 'destructive'}>
+                                    {row.delivery_status === 'delivered' ? 'Entregado' :
+                                      row.delivery_status === 'rejected' ? 'Rechazado' :
+                                        row.delivery_status === 'rescheduled' ? 'Reprogramado' : 'No entregado'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">{formatCurrency(row.amount_collected)}</TableCell>
+                                <TableCell className="text-muted-foreground text-sm">
+                                  {row.failure_reason || '-'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            {csvImportData.rows.length > 20 && (
+                              <TableRow>
+                                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                                  ... y {csvImportData.rows.length - 20} filas mas
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </ScrollArea>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setCsvImportDialogOpen(false);
+                  setCsvImportData(null);
+                }}
+                disabled={csvProcessing}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleProcessCSVImport}
+                disabled={!csvImportData || csvImportData.errors.length > 0 || csvImportData.rows.length === 0 || csvProcessing}
+                className="gap-2"
+              >
+                {csvProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Procesar Importacion
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

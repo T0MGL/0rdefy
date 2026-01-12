@@ -1215,6 +1215,7 @@ export async function getShippedOrdersGrouped(
       .select(`
         id,
         order_number,
+        shopify_order_name,
         shopify_order_number,
         customer_first_name,
         customer_last_name,
@@ -1287,9 +1288,22 @@ export async function getShippedOrdersGrouped(
       const isCod = isCodPayment(order.payment_method);
       const codAmount = isCod ? (order.total_price || 0) : 0;
 
+      // Determine display order number:
+      // 1. Shopify order name (#1315 format) - preferred for Shopify orders
+      // 2. Shopify order number (numeric) - fallback for Shopify
+      // 3. Ordefy format (ORD-XXXXXXXX) - for manual orders
+      let displayOrderNumber: string;
+      if (order.shopify_order_name) {
+        displayOrderNumber = order.shopify_order_name;
+      } else if (order.shopify_order_number) {
+        displayOrderNumber = `#${order.shopify_order_number}`;
+      } else {
+        displayOrderNumber = `ORD-${order.id.slice(0, 8).toUpperCase()}`;
+      }
+
       const orderData = {
         id: order.id,
-        order_number: order.order_number || order.shopify_order_number || order.id.slice(0, 8),
+        order_number: displayOrderNumber,
         customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
         customer_phone: order.customer_phone || '',
         customer_address: [order.shipping_address, order.shipping_reference].filter(Boolean).join(', '),

@@ -24,6 +24,7 @@ import {
   ArrowRight,
   PartyPopper,
   Rocket,
+  Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { onboardingService, OnboardingProgress, OnboardingStep } from '@/services/onboarding.service';
@@ -41,6 +42,7 @@ const stepIcons: Record<string, React.ReactNode> = {
   'connect-shopify': <Link2 className="w-5 h-5" />,
   'create-carrier': <Truck className="w-5 h-5" />,
   'add-product': <Package className="w-5 h-5" />,
+  'add-customer': <Users className="w-5 h-5" />,
   'first-order': <ShoppingCart className="w-5 h-5" />,
   'configure-store': <Store className="w-5 h-5" />,
 };

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useOnboardingTour, Tour } from '@/contexts/OnboardingTourContext';
 import { useAuth, Role, Module, Permission } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 import confetti from 'canvas-confetti';
 import {
   ShoppingBag,
@@ -237,34 +238,52 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
   const navigate = useNavigate();
   const { skipTour, hasCompletedTour } = useOnboardingTour();
   const { permissions, currentStore } = useAuth();
+  const { hasFeature } = useSubscription();
   const [showWelcome, setShowWelcome] = useState(false);
 
   const isOwner = permissions.currentRole === Role.OWNER;
   const currentRole = permissions.currentRole;
 
-  // Filter features based on user permissions
+  // Check if user has Shopify access based on plan
+  const hasShopifyAccess = hasFeature('shopify_import');
+
+  // Filter features based on user permissions AND subscription plan
   const availableFeatures = useMemo(() => {
     if (!currentRole) return [];
 
-    // For owners, show the standard owner features
+    // Base features filtered by subscription plan
+    const planFilteredFeatures = ALL_FEATURES.filter(feature => {
+      // Hide Shopify for users without plan access
+      if (feature.id === 'shopify' && !hasShopifyAccess) {
+        return false;
+      }
+      return true;
+    });
+
+    // For owners, show products and orders (shopify only if plan allows)
     if (isOwner) {
-      return ALL_FEATURES.filter(f =>
+      const ownerFeatures = planFilteredFeatures.filter(f =>
         ['shopify', 'products', 'orders'].includes(f.id)
       );
+      // Ensure first one is marked as primary
+      return ownerFeatures.map((f, index) => ({
+        ...f,
+        primary: index === 0,
+      }));
     }
 
     // For collaborators, filter by actual permissions
-    const filtered = ALL_FEATURES.filter(feature => {
+    const filtered = planFilteredFeatures.filter(feature => {
       const permission = feature.permission || Permission.VIEW;
       return permissions.hasPermission(feature.module, permission);
     });
 
-    // Sort: primary first, then by most relevant for the role
+    // Take first 3 and mark first as primary
     return filtered.slice(0, 3).map((f, index) => ({
       ...f,
-      primary: index === 0, // First one is primary
+      primary: index === 0,
     }));
-  }, [currentRole, isOwner, permissions]);
+  }, [currentRole, isOwner, permissions, hasShopifyAccess]);
 
   useEffect(() => {
     if (!autoShow) return;

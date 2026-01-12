@@ -64,7 +64,7 @@ BEGIN
     -- Return summary
     SELECT json_build_object(
         'session_id', p_session_id,
-        'session_code', v_session.session_code,
+        'session_code', v_session.code,
         'orders_updated', v_updated_orders,
         'completed_at', CURRENT_TIMESTAMP
     ) INTO v_result;
