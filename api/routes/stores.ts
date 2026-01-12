@@ -46,7 +46,6 @@ storesRouter.get('/', verifyToken, async (req: AuthRequest, res: Response) => {
                     tax_rate,
                     admin_fee,
                     is_active,
-                    subscription_plan,
                     created_at,
                     updated_at
                 )
@@ -58,19 +57,49 @@ storesRouter.get('/', verifyToken, async (req: AuthRequest, res: Response) => {
             throw userStoresError;
         }
 
-        // Transform to flat store list with role
-        const stores = (userStores || []).map((us: any) => ({
-            ...us.stores,
-            user_role: us.role
-        }));
+        // For each store, get the owner's subscription plan
+        const storesWithPlan = await Promise.all(
+            (userStores || []).map(async (us: any) => {
+                // Get the owner of this store
+                const { data: ownerData } = await supabaseAdmin
+                    .from('user_stores')
+                    .select('user_id')
+                    .eq('store_id', us.store_id)
+                    .eq('role', 'owner')
+                    .eq('is_active', true)
+                    .single();
+
+                let subscription_plan = 'free'; // Default
+
+                if (ownerData) {
+                    // Get the owner's primary subscription
+                    const { data: subscription } = await supabaseAdmin
+                        .from('subscriptions')
+                        .select('plan')
+                        .eq('user_id', ownerData.user_id)
+                        .eq('is_primary', true)
+                        .single();
+
+                    if (subscription) {
+                        subscription_plan = subscription.plan;
+                    }
+                }
+
+                return {
+                    ...us.stores,
+                    user_role: us.role,
+                    subscription_plan
+                };
+            })
+        );
 
         // Sort by created_at descending
-        stores.sort((a: any, b: any) =>
+        storesWithPlan.sort((a: any, b: any) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
 
         res.json({
-            data: stores
+            data: storesWithPlan
         });
     } catch (error: any) {
         console.error('[GET /api/stores] Error:', error);
