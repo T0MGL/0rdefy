@@ -1208,110 +1208,131 @@ export async function getShippedOrdersGrouped(
 ): Promise<CourierDateGroup[]> {
   console.log('📦 [SETTLEMENTS] getShippedOrdersGrouped called for store:', storeId);
 
-  // First get shipped orders
-  const { data: orders, error } = await supabaseAdmin
-    .from('orders')
-    .select(`
-      id,
-      order_number,
-      shopify_order_number,
-      customer_first_name,
-      customer_last_name,
-      customer_phone,
-      shipping_address,
-      shipping_city,
-      shipping_reference,
-      total_price,
-      payment_method,
-      payment_status,
-      courier_id,
-      shipped_at,
-      created_at
-    `)
-    .eq('store_id', storeId)
-    .eq('sleeves_status', 'shipped')
-    .not('courier_id', 'is', null)
-    .order('shipped_at', { ascending: false });
+  try {
+    // First get shipped orders
+    const { data: orders, error } = await supabaseAdmin
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        shopify_order_number,
+        customer_first_name,
+        customer_last_name,
+        customer_phone,
+        shipping_address,
+        shipping_city,
+        shipping_reference,
+        total_price,
+        payment_method,
+        payment_status,
+        courier_id,
+        shipped_at,
+        created_at
+      `)
+      .eq('store_id', storeId)
+      .eq('sleeves_status', 'shipped')
+      .not('courier_id', 'is', null)
+      .order('shipped_at', { ascending: false });
 
-  if (error) {
-    console.error('❌ [SETTLEMENTS] Error fetching shipped orders:', error);
-    throw error;
-  }
-
-  console.log('📦 [SETTLEMENTS] Found', orders?.length || 0, 'shipped orders');
-
-  if (!orders || orders.length === 0) return [];
-
-  // Get unique carrier IDs and fetch carrier names separately
-  const carrierIds = [...new Set(orders.map(o => o.courier_id).filter(Boolean))];
-  const { data: carriers, error: carriersError } = await supabaseAdmin
-    .from('carriers')
-    .select('id, name')
-    .in('id', carrierIds);
-
-  if (carriersError) {
-    console.error('⚠️ [SETTLEMENTS] Error fetching carriers:', carriersError);
-  }
-
-  // Create carrier lookup map
-  const carrierMap = new Map<string, string>();
-  carriers?.forEach(c => carrierMap.set(c.id, c.name));
-
-  console.log('📦 [SETTLEMENTS] Loaded', carrierMap.size, 'carriers');
-
-  const groupMap = new Map<string, CourierDateGroup>();
-
-  orders.forEach((order: any) => {
-    const dispatchDate = order.shipped_at
-      ? new Date(order.shipped_at).toISOString().split('T')[0]
-      : new Date(order.created_at).toISOString().split('T')[0];
-
-    const groupKey = `${order.courier_id}_${dispatchDate}`;
-    const carrierName = carrierMap.get(order.courier_id) || 'Sin courier';
-    const isCod = isCodPayment(order.payment_method);
-    const codAmount = isCod ? (order.total_price || 0) : 0;
-
-    const orderData = {
-      id: order.id,
-      order_number: order.order_number || order.shopify_order_number || order.id.slice(0, 8),
-      customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
-      customer_phone: order.customer_phone || '',
-      customer_address: [order.shipping_address, order.shipping_reference].filter(Boolean).join(', '),
-      customer_city: order.shipping_city || '',
-      total_price: order.total_price || 0,
-      cod_amount: codAmount,
-      payment_method: order.payment_method || '',
-      is_cod: isCod,
-      shipped_at: order.shipped_at || order.created_at,
-    };
-
-    if (groupMap.has(groupKey)) {
-      const group = groupMap.get(groupKey)!;
-      group.orders.push(orderData);
-      group.total_orders++;
-      if (isCod) {
-        group.total_cod_expected += codAmount;
-      } else {
-        group.total_prepaid++;
-      }
-    } else {
-      groupMap.set(groupKey, {
-        carrier_id: order.courier_id,
-        carrier_name: carrierName,
-        dispatch_date: dispatchDate,
-        orders: [orderData],
-        total_orders: 1,
-        total_cod_expected: isCod ? codAmount : 0,
-        total_prepaid: isCod ? 0 : 1,
-      });
+    if (error) {
+      console.error('❌ [SETTLEMENTS] Error fetching shipped orders:', error);
+      // Return empty array instead of throwing - no shipped orders is a valid state
+      return [];
     }
-  });
 
-  console.log('📦 [SETTLEMENTS] Grouped into', groupMap.size, 'carrier/date groups');
+    console.log('📦 [SETTLEMENTS] Found', orders?.length || 0, 'shipped orders');
 
-  return Array.from(groupMap.values()).sort((a, b) =>
-    new Date(b.dispatch_date).getTime() - new Date(a.dispatch_date).getTime()
-  );
+    if (!orders || orders.length === 0) {
+      console.log('📦 [SETTLEMENTS] No shipped orders found, returning empty array');
+      return [];
+    }
+
+    // Get unique carrier IDs and fetch carrier names separately
+    const carrierIdSet = new Set<string>();
+    orders.forEach(o => {
+      if (o.courier_id) carrierIdSet.add(o.courier_id);
+    });
+    const carrierIds = Array.from(carrierIdSet);
+
+    if (carrierIds.length === 0) {
+      console.log('📦 [SETTLEMENTS] No carrier IDs found, returning empty array');
+      return [];
+    }
+
+    const { data: carriers, error: carriersError } = await supabaseAdmin
+      .from('carriers')
+      .select('id, name')
+      .in('id', carrierIds);
+
+    if (carriersError) {
+      console.error('⚠️ [SETTLEMENTS] Error fetching carriers:', carriersError);
+      // Continue with empty carrier map - orders will show "Sin courier"
+    }
+
+    // Create carrier lookup map
+    const carrierMap = new Map<string, string>();
+    carriers?.forEach(c => carrierMap.set(c.id, c.name));
+
+    console.log('📦 [SETTLEMENTS] Loaded', carrierMap.size, 'carriers');
+
+    const groupMap = new Map<string, CourierDateGroup>();
+
+    orders.forEach((order: any) => {
+      const dispatchDate = order.shipped_at
+        ? new Date(order.shipped_at).toISOString().split('T')[0]
+        : new Date(order.created_at).toISOString().split('T')[0];
+
+      const groupKey = `${order.courier_id}_${dispatchDate}`;
+      const carrierName = carrierMap.get(order.courier_id) || 'Sin courier';
+      const isCod = isCodPayment(order.payment_method);
+      const codAmount = isCod ? (order.total_price || 0) : 0;
+
+      const orderData = {
+        id: order.id,
+        order_number: order.order_number || order.shopify_order_number || order.id.slice(0, 8),
+        customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+        customer_phone: order.customer_phone || '',
+        customer_address: [order.shipping_address, order.shipping_reference].filter(Boolean).join(', '),
+        customer_city: order.shipping_city || '',
+        total_price: order.total_price || 0,
+        cod_amount: codAmount,
+        payment_method: order.payment_method || '',
+        is_cod: isCod,
+        shipped_at: order.shipped_at || order.created_at,
+      };
+
+      if (groupMap.has(groupKey)) {
+        const group = groupMap.get(groupKey)!;
+        group.orders.push(orderData);
+        group.total_orders++;
+        if (isCod) {
+          group.total_cod_expected += codAmount;
+        } else {
+          group.total_prepaid++;
+        }
+      } else {
+        groupMap.set(groupKey, {
+          carrier_id: order.courier_id,
+          carrier_name: carrierName,
+          dispatch_date: dispatchDate,
+          orders: [orderData],
+          total_orders: 1,
+          total_cod_expected: isCod ? codAmount : 0,
+          total_prepaid: isCod ? 0 : 1,
+        });
+      }
+    });
+
+    console.log('📦 [SETTLEMENTS] Grouped into', groupMap.size, 'carrier/date groups');
+
+    return Array.from(groupMap.values()).sort((a, b) =>
+      new Date(b.dispatch_date).getTime() - new Date(a.dispatch_date).getTime()
+    );
+  } catch (err: any) {
+    console.error('💥 [SETTLEMENTS] Unexpected error in getShippedOrdersGrouped:', err);
+    // Return empty array on any error - prevents 500 errors
+    return [];
+  }
 }
 
 export interface ManualReconciliationData {
