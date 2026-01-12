@@ -902,7 +902,7 @@ export async function getPackingList(
       };
     }) || [];
 
-    // Get available items (basket)
+    // Get available items (basket) from picking_session_items
     const { data: pickedItems, error: pickedError } = await supabaseAdmin
       .from('picking_session_items')
       .select(`
@@ -923,14 +923,46 @@ export async function getPackingList(
       packedByProduct.set(p.product_id, current + p.quantity_packed);
     });
 
-    const availableItems = pickedItems?.map(item => ({
-      product_id: item.product_id,
-      product_name: item.products?.name || '',
-      product_image: item.products?.image_url || '',
-      total_picked: item.quantity_picked,
-      total_packed: packedByProduct.get(item.product_id) || 0,
-      remaining: item.quantity_picked - (packedByProduct.get(item.product_id) || 0)
-    })) || [];
+    // Calculate total needed per product from packing_progress
+    const neededByProduct = new Map<string, number>();
+    packingProgress?.forEach(p => {
+      const current = neededByProduct.get(p.product_id) || 0;
+      neededByProduct.set(p.product_id, current + p.quantity_needed);
+    });
+
+    // Build availableItems from picking_session_items
+    const availableItemsMap = new Map<string, any>();
+    pickedItems?.forEach(item => {
+      availableItemsMap.set(item.product_id, {
+        product_id: item.product_id,
+        product_name: item.products?.name || '',
+        product_image: item.products?.image_url || '',
+        total_picked: item.quantity_picked,
+        total_packed: packedByProduct.get(item.product_id) || 0,
+        remaining: item.quantity_picked - (packedByProduct.get(item.product_id) || 0)
+      });
+    });
+
+    // FALLBACK: If a product is in packing_progress but NOT in picking_session_items,
+    // add it to availableItems using quantity_needed as total_picked
+    // This handles sessions created before the JSONB fix
+    neededByProduct.forEach((totalNeeded, productId) => {
+      if (!availableItemsMap.has(productId)) {
+        // Find product details from jsonbProductsMap or fetch from packing_progress
+        const product = jsonbProductsMap.get(productId);
+        const packed = packedByProduct.get(productId) || 0;
+        availableItemsMap.set(productId, {
+          product_id: productId,
+          product_name: product?.name || 'Producto',
+          product_image: product?.image_url || '',
+          total_picked: totalNeeded, // Use needed as picked (auto-complete picking)
+          total_packed: packed,
+          remaining: totalNeeded - packed
+        });
+      }
+    });
+
+    const availableItems = Array.from(availableItemsMap.values());
 
     return {
       session,
