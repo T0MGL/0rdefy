@@ -767,6 +767,7 @@ export async function getPackingList(
 
     // Get ALL order line items (not just packing_progress)
     // This ensures we show ALL products in the order, even if not yet packed
+    // First try normalized order_line_items (Shopify orders)
     const { data: orderLineItems, error: lineItemsError } = await supabaseAdmin
       .from('order_line_items')
       .select(`
@@ -785,6 +786,42 @@ export async function getPackingList(
 
     if (lineItemsError) throw lineItemsError;
 
+    // Also fetch JSONB line_items for manual orders (fallback)
+    const { data: ordersWithJsonbItems, error: jsonbError } = await supabaseAdmin
+      .from('orders')
+      .select('id, line_items')
+      .in('id', orderIds);
+
+    if (jsonbError) throw jsonbError;
+
+    // Create a map of JSONB line items by order_id for fallback
+    const jsonbLineItemsMap = new Map<string, any[]>();
+    ordersWithJsonbItems?.forEach((order: any) => {
+      if (Array.isArray(order.line_items) && order.line_items.length > 0) {
+        jsonbLineItemsMap.set(order.id, order.line_items);
+      }
+    });
+
+    // Fetch product details for JSONB line items (if any)
+    const jsonbProductIds = new Set<string>();
+    jsonbLineItemsMap.forEach((items) => {
+      items.forEach((item: any) => {
+        if (item.product_id) jsonbProductIds.add(item.product_id);
+      });
+    });
+
+    let jsonbProductsMap = new Map<string, any>();
+    if (jsonbProductIds.size > 0) {
+      const { data: jsonbProducts } = await supabaseAdmin
+        .from('products')
+        .select('id, name, image_url')
+        .in('id', Array.from(jsonbProductIds));
+
+      jsonbProducts?.forEach((p: any) => {
+        jsonbProductsMap.set(p.id, p);
+      });
+    }
+
     // Create a map of packing progress for quick lookup
     const packingProgressMap = new Map<string, { quantity_needed: number; quantity_packed: number }>();
     packingProgress?.forEach((p: any) => {
@@ -799,29 +836,49 @@ export async function getPackingList(
     const orders: OrderForPacking[] = sessionOrders?.map((so: any) => {
       const order = so.orders;
 
-      // Get ALL line items for this order (from order_line_items table)
-      const orderItems = orderLineItems?.filter((li: any) => li.order_id === order.id) || [];
+      // Get line items from normalized table (Shopify) or JSONB fallback (manual orders)
+      const normalizedItems = orderLineItems?.filter((li: any) => li.order_id === order.id) || [];
+      const jsonbItems = jsonbLineItemsMap.get(order.id) || [];
+
+      // Use normalized items if available, otherwise fallback to JSONB
+      const useNormalized = normalizedItems.length > 0;
+      const orderItems = useNormalized ? normalizedItems : jsonbItems;
 
       const items = orderItems.map((lineItem: any) => {
-        const progressKey = `${order.id}-${lineItem.product_id}`;
-        const progress = packingProgressMap.get(progressKey);
+        if (useNormalized) {
+          // Normalized order_line_items format
+          const progressKey = `${order.id}-${lineItem.product_id}`;
+          const progress = packingProgressMap.get(progressKey);
 
-        // Use product name from products table if available, otherwise from line item
-        const productName = lineItem.products?.name || lineItem.product_name;
-        const fullProductName = lineItem.variant_title
-          ? `${productName} - ${lineItem.variant_title}`
-          : productName;
+          const productName = lineItem.products?.name || lineItem.product_name;
+          const fullProductName = lineItem.variant_title
+            ? `${productName} - ${lineItem.variant_title}`
+            : productName;
 
-        return {
-          product_id: lineItem.product_id,
-          product_name: fullProductName,
-          product_image: lineItem.products?.image_url || '',
-          quantity_needed: progress?.quantity_needed || parseInt(lineItem.quantity) || 0,
-          quantity_packed: progress?.quantity_packed || 0
-        };
+          return {
+            product_id: lineItem.product_id,
+            product_name: fullProductName,
+            product_image: lineItem.products?.image_url || '',
+            quantity_needed: progress?.quantity_needed || parseInt(lineItem.quantity) || 0,
+            quantity_packed: progress?.quantity_packed || 0
+          };
+        } else {
+          // JSONB line_items format (manual orders)
+          const progressKey = `${order.id}-${lineItem.product_id}`;
+          const progress = packingProgressMap.get(progressKey);
+          const product = jsonbProductsMap.get(lineItem.product_id);
+
+          return {
+            product_id: lineItem.product_id,
+            product_name: product?.name || lineItem.product_name || lineItem.name || 'Producto',
+            product_image: product?.image_url || lineItem.image_url || '',
+            quantity_needed: progress?.quantity_needed || parseInt(lineItem.quantity) || 0,
+            quantity_packed: progress?.quantity_packed || 0
+          };
+        }
       });
 
-      const is_complete = items.every(item => item.quantity_packed >= item.quantity_needed);
+      const is_complete = items.length > 0 && items.every(item => item.quantity_packed >= item.quantity_needed);
 
       return {
         id: order.id,
