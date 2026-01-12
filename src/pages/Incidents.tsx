@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import {
   Select,
   SelectContent,
@@ -238,6 +239,13 @@ export default function Incidents() {
 
   return (
     <div className="space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="incidents"
+        title="¡Bienvenido a Incidencias!"
+        description="Gestiona pedidos con problemas de entrega. Programa reintentos y resuelve incidencias para recuperar ventas."
+        tips={['Ve pedidos con fallos', 'Programa reintentos', 'Resuelve o cancela']}
+      />
+
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>

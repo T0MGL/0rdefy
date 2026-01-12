@@ -16,7 +16,7 @@ export default defineConfig({
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 1000,
     // Disable module preload to prevent unused preload warnings
-    modulePreload: false,
+    modulePreload: true,
     rollupOptions: {
       output: {
         // Ensure consistent file names

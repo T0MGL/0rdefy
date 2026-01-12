@@ -125,10 +125,10 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
   return (
     <AnimatePresence>
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        transition={{ duration: 0.3 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.2 }}
       >
         <Card className={cn(
           'relative overflow-hidden',
@@ -136,41 +136,42 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
           'bg-gradient-to-br from-primary/5 via-background to-primary/5',
           className
         )}>
-          {/* Decorative background */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Decorative background - hidden on mobile for performance */}
+          <div className="hidden sm:block absolute inset-0 overflow-hidden pointer-events-none">
             <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary/10 rounded-full blur-3xl" />
             <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-primary/5 rounded-full blur-3xl" />
           </div>
 
           {/* Content */}
-          <div className="relative p-6">
+          <div className="relative p-4 sm:p-6">
             {/* Header */}
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-primary/10 rounded-lg">
-                  <Rocket className="w-6 h-6 text-primary" />
+            <div className="flex items-start justify-between gap-2 mb-3 sm:mb-4">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                <div className="p-1.5 sm:p-2 bg-primary/10 rounded-lg flex-shrink-0">
+                  <Rocket className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
                 </div>
-                <div>
-                  <h3 className="font-semibold text-lg flex items-center gap-2">
-                    Configura tu tienda
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-sm sm:text-lg flex items-center gap-2 flex-wrap">
+                    <span className="truncate">Configura tu tienda</span>
                     {isAlmostComplete && (
-                      <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                      <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs">
                         <Sparkles className="w-3 h-3 mr-1" />
-                        ¡Casi listo!
+                        <span className="hidden sm:inline">¡Casi listo!</span>
+                        <span className="sm:hidden">¡Casi!</span>
                       </Badge>
                     )}
                   </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {filteredProgress.completedCount} de {filteredProgress.totalCount} pasos completados
+                  <p className="text-xs sm:text-sm text-muted-foreground">
+                    {filteredProgress.completedCount}/{filteredProgress.totalCount} pasos
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-7 w-7 sm:h-8 sm:w-8"
                   onClick={() => setIsExpanded(!isExpanded)}
                 >
                   {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -178,7 +179,7 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  className="h-7 w-7 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground"
                   onClick={handleDismiss}
                   title="Ocultar checklist"
                 >
@@ -188,13 +189,13 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
             </div>
 
             {/* Progress bar */}
-            <div className="mb-4">
+            <div className="mb-3 sm:mb-4">
               <Progress
                 value={filteredProgress.percentage}
-                className="h-2 bg-primary/20"
+                className="h-1.5 sm:h-2 bg-primary/20"
               />
               <p className="text-xs text-muted-foreground mt-1 text-right">
-                {filteredProgress.percentage}% completado
+                {filteredProgress.percentage}%
               </p>
             </div>
 
@@ -206,16 +207,18 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
                 >
-                  <div className="space-y-2">
-                    {progress.steps.map((step, index) => (
+                  <div className="space-y-1.5 sm:space-y-2">
+                    {filteredProgress.steps.map((step, index) => (
                       <motion.div
                         key={step.id}
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.05 }}
                         className={cn(
-                          'flex items-center gap-3 p-3 rounded-lg transition-all',
+                          'flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg transition-all',
+                          'active:scale-[0.99]', // Touch feedback
                           step.completed
                             ? 'bg-green-50 dark:bg-green-950/20'
                             : 'bg-white/50 dark:bg-gray-900/50 hover:bg-white dark:hover:bg-gray-900 cursor-pointer',
@@ -225,34 +228,34 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
                       >
                         {/* Status icon */}
                         <div className={cn(
-                          'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
+                          'flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center',
                           step.completed
                             ? 'bg-green-500 text-white'
                             : 'bg-gray-100 dark:bg-gray-800 text-muted-foreground'
                         )}>
                           {step.completed ? (
-                            <CheckCircle2 className="w-5 h-5" />
+                            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
                           ) : (
-                            stepIcons[step.id] || <Circle className="w-5 h-5" />
+                            stepIcons[step.id] || <Circle className="w-4 h-4 sm:w-5 sm:h-5" />
                           )}
                         </div>
 
                         {/* Step content */}
                         <div className="flex-1 min-w-0">
                           <p className={cn(
-                            'font-medium text-sm',
+                            'font-medium text-xs sm:text-sm truncate',
                             step.completed && 'text-green-700 dark:text-green-400'
                           )}>
                             {step.title}
                           </p>
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className="text-xs text-muted-foreground truncate hidden sm:block">
                             {step.description}
                           </p>
                         </div>
 
                         {/* Action indicator */}
                         {!step.completed && step.route && (
-                          <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                          <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                         )}
                       </motion.div>
                     ))}

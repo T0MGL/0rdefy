@@ -11,6 +11,7 @@ import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { formatCurrency } from '@/utils/currency';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import {
   Truck,
   CheckCircle2,
@@ -176,6 +177,13 @@ export default function DashboardLogistics() {
 
   return (
     <div className="space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="dashboard-logistics"
+        title="¡Bienvenido al Dashboard Logístico!"
+        description="Visualiza métricas de entregas, confirmaciones y cobros COD. Monitorea la operación en tiempo real."
+        tips={['Ve tasa de entrega', 'Analiza confirmaciones', 'Monitorea cobros COD']}
+      />
+
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-card-foreground">Dashboard Logístico</h1>

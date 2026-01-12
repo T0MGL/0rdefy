@@ -22,6 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Search, Filter, TrendingDown, TrendingUp, Package, Calendar } from 'lucide-react';
 import { formatInTimeZone } from 'date-fns-tz';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { es } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -131,6 +132,13 @@ export function InventoryMovements() {
 
   return (
     <div className="p-6 space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="inventory"
+        title="¡Bienvenido a Movimientos!"
+        description="Visualiza el historial completo de cambios en tu inventario. Cada ajuste, venta y devolución queda registrado."
+        tips={['Filtra por tipo de movimiento', 'Busca por producto', 'Exporta el historial']}
+      />
+
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">

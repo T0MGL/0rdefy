@@ -192,35 +192,38 @@ interface FeatureCardProps {
 function FeatureCard({ icon, title, description, onClick, primary }: FeatureCardProps) {
   return (
     <motion.button
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.99 }}
       onClick={onClick}
       className={cn(
-        'flex items-start gap-3 p-4 rounded-xl text-left transition-all',
+        'w-full flex items-center gap-2 sm:gap-3',
+        'p-3 sm:p-4 rounded-lg sm:rounded-xl',
+        'text-left transition-all',
         'border border-border/50 hover:border-primary/30',
+        'active:scale-[0.99]', // Touch feedback
         primary
           ? 'bg-primary/10 hover:bg-primary/15 border-primary/20'
           : 'bg-card/50 hover:bg-muted/50'
       )}
     >
       <div className={cn(
-        'w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0',
+        'w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center flex-shrink-0',
         primary ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
       )}>
         {icon}
       </div>
       <div className="flex-1 min-w-0">
         <h4 className={cn(
-          'font-medium text-sm',
+          'font-medium text-sm truncate',
           primary ? 'text-primary' : 'text-card-foreground'
         )}>
           {title}
         </h4>
-        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1 sm:line-clamp-2">
           {description}
         </p>
       </div>
-      <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-1" />
+      <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
     </motion.button>
   );
 }
@@ -302,7 +305,12 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        className={cn(
+          'fixed inset-0 z-[10000]',
+          'flex items-center justify-center',
+          'bg-black/70 backdrop-blur-sm',
+          'p-3 sm:p-4' // Smaller padding on mobile
+        )}
         onClick={(e) => {
           if (e.target === e.currentTarget) handleClose();
         }}
@@ -312,26 +320,31 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+          className={cn(
+            'bg-card border border-border rounded-xl sm:rounded-2xl shadow-2xl',
+            'w-full max-w-lg',
+            'max-h-[90vh] overflow-y-auto', // Scrollable if content is too tall
+            'overscroll-contain' // Prevent scroll chaining
+          )}
         >
           {/* Header */}
-          <div className="relative bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-6 pb-4">
+          <div className="relative bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-4 sm:p-6 pb-3 sm:pb-4">
             <button
               onClick={handleClose}
-              className="absolute top-4 right-4 p-2 rounded-full hover:bg-muted/50 transition-colors"
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 rounded-full hover:bg-muted/50 transition-colors"
             >
               <X className="w-4 h-4 text-muted-foreground" />
             </button>
 
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-primary" />
+            <div className="flex items-center gap-3 pr-8">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-card-foreground">
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl font-bold text-card-foreground truncate">
                   {isOwner ? '¡Bienvenido a Ordefy!' : '¡Bienvenido al equipo!'}
                 </h2>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs sm:text-sm text-muted-foreground truncate">
                   {isOwner
                     ? 'Tu tienda esta lista. ¿Por donde empezamos?'
                     : `Rol: ${currentRole ? ROLE_LABELS[currentRole] : 'Colaborador'}`
@@ -342,9 +355,9 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
           </div>
 
           {/* Content */}
-          <div className="p-6 pt-4 space-y-3">
+          <div className="p-4 sm:p-6 pt-3 sm:pt-4 space-y-2 sm:space-y-3">
             {!isOwner && (
-              <p className="text-sm text-muted-foreground mb-4">
+              <p className="text-xs sm:text-sm text-muted-foreground mb-3 sm:mb-4">
                 Estas son las funciones disponibles segun tu rol.
               </p>
             )}
@@ -361,17 +374,17 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
                 />
               ))
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">
+              <p className="text-xs sm:text-sm text-muted-foreground text-center py-4">
                 Explora el menu lateral para ver tus modulos disponibles.
               </p>
             )}
           </div>
 
           {/* Footer */}
-          <div className="px-6 pb-6">
+          <div className="px-4 sm:px-6 pb-4 sm:pb-6">
             <Button
               variant="ghost"
-              className="w-full text-muted-foreground hover:text-foreground"
+              className="w-full text-muted-foreground hover:text-foreground text-sm"
               onClick={handleClose}
             >
               Explorar por mi cuenta

@@ -25,6 +25,16 @@ onboardingRouter.get('/progress', verifyToken, extractStoreId, async (req: AuthR
             });
         }
 
+        // Get user's role in this store
+        const { data: userStore } = await supabaseAdmin
+            .from('user_stores')
+            .select('role')
+            .eq('user_id', userId)
+            .eq('store_id', storeId)
+            .single();
+
+        const userRole = userStore?.role || 'owner';
+
         // Use the database function to compute progress
         const { data, error } = await supabaseAdmin.rpc('get_onboarding_progress', {
             p_store_id: storeId,
@@ -35,10 +45,14 @@ onboardingRouter.get('/progress', verifyToken, extractStoreId, async (req: AuthR
             console.error('Error fetching onboarding progress:', error);
 
             // Fallback: compute progress manually if function doesn't exist
-            return await computeProgressManually(storeId, userId, res);
+            return await computeProgressManually(storeId, userId, userRole, res);
         }
 
-        return res.json(data);
+        // Add user role to response for frontend decision making
+        return res.json({
+            ...data,
+            userRole
+        });
     } catch (error) {
         console.error('Error in onboarding progress endpoint:', error);
         return res.status(500).json({
@@ -231,7 +245,7 @@ onboardingRouter.post('/reset', verifyToken, extractStoreId, async (req: AuthReq
 /**
  * Fallback function to compute progress when database function is not available
  */
-async function computeProgressManually(storeId: string, userId: string, res: Response) {
+async function computeProgressManually(storeId: string, userId: string, userRole: string, res: Response) {
     try {
         // Check carriers
         const { data: carriers } = await supabaseAdmin
@@ -342,7 +356,8 @@ async function computeProgressManually(storeId: string, userId: string, res: Res
             percentage,
             isComplete: completedCount === totalCount,
             hasShopify,
-            hasDismissed
+            hasDismissed,
+            userRole
         });
     } catch (error) {
         console.error('Error computing progress manually:', error);

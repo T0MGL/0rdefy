@@ -23,6 +23,7 @@ export interface OnboardingProgress {
   isComplete: boolean;
   hasShopify: boolean;
   hasDismissed: boolean;
+  userRole?: string; // User's role in the store (owner, admin, logistics, etc.)
 }
 
 // Storage keys

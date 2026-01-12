@@ -9,6 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Plus, DollarSign, TrendingUp, Users, Settings, Edit, Trash2, Calendar, Repeat } from 'lucide-react';
 import { MetricCard } from '@/components/MetricCard';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 import { additionalValuesService } from '@/services/additional-values.service';
 import { recurringAdditionalValuesService, RecurringAdditionalValue } from '@/services/recurring-additional-values.service';
 import { useToast } from '@/hooks/use-toast';
@@ -314,6 +316,8 @@ export default function AdditionalValues() {
       } else {
         await additionalValuesService.create(data);
         toast({ title: 'Valor registrado', description: 'Valor registrado exitosamente.' });
+        // Mark first action completed (hides the onboarding tip)
+        onboardingService.markFirstActionCompleted('additional-values');
       }
       await loadData();
       setDialogOpen(false);
@@ -383,6 +387,13 @@ export default function AdditionalValues() {
 
   return (
     <div className="space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="additional-values"
+        title="¡Bienvenido a Valores Adicionales!"
+        description="Registra gastos e ingresos que afectan tu rentabilidad. Incluye publicidad, empleados y costos operativos."
+        tips={['Registra gastos únicos', 'Configura recurrentes', 'Ve impacto en Analytics']}
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
