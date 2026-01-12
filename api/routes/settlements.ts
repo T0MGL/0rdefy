@@ -484,6 +484,72 @@ settlementsRouter.delete('/zones/:id', async (req: AuthRequest, res: Response) =
 });
 
 // ================================================================
+// MANUAL RECONCILIATION FLOW (must be before /:id)
+// ================================================================
+
+/**
+ * GET /api/settlements/shipped-orders-grouped - Get shipped orders grouped by carrier/date
+ * For the new manual reconciliation flow
+ */
+settlementsRouter.get('/shipped-orders-grouped', async (req: AuthRequest, res: Response) => {
+  try {
+    console.log('📦 [SETTLEMENTS] Fetching shipped orders grouped by carrier/date');
+
+    const groups = await settlementsService.getShippedOrdersGrouped(req.storeId!);
+
+    res.json({ data: groups });
+  } catch (error: any) {
+    console.error('💥 [SETTLEMENTS] Error fetching grouped orders:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/settlements/manual-reconciliation - Process manual reconciliation
+ * Without CSV - using checkbox UI
+ */
+settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrier_id, dispatch_date, orders, total_amount_collected, discrepancy_notes, confirm_discrepancy } = req.body;
+
+    console.log('📝 [SETTLEMENTS] Processing manual reconciliation:', {
+      carrier_id,
+      dispatch_date,
+      orders_count: orders?.length,
+      total_amount_collected
+    });
+
+    if (!carrier_id || !dispatch_date || !orders || !Array.isArray(orders)) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (total_amount_collected === undefined || total_amount_collected === null) {
+      return res.status(400).json({ error: 'total_amount_collected is required' });
+    }
+
+    const settlement = await settlementsService.processManualReconciliation(
+      req.storeId!,
+      req.userId!,
+      {
+        carrier_id,
+        dispatch_date,
+        orders,
+        total_amount_collected,
+        discrepancy_notes,
+        confirm_discrepancy: confirm_discrepancy || false
+      }
+    );
+
+    console.log('✅ [SETTLEMENTS] Manual reconciliation completed:', settlement.settlement_code);
+
+    res.json({ data: settlement });
+  } catch (error: any) {
+    console.error('💥 [SETTLEMENTS] Error in manual reconciliation:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ================================================================
 // ANALYTICS / DASHBOARD
 // ================================================================
 
@@ -519,6 +585,54 @@ settlementsRouter.get('/pending-by-carrier', async (req: AuthRequest, res: Respo
   } catch (error: any) {
     console.error('❌ [SETTLEMENTS] Pending by carrier error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ================================================================
+// GET /api/settlements/stats - Get settlement statistics
+// MUST be before /:id to avoid route conflicts
+// ================================================================
+settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) => {
+  try {
+    const { start_date, end_date } = req.query;
+
+    console.log('📊 [SETTLEMENTS] Fetching stats');
+
+    let query = supabaseAdmin
+      .from('daily_settlements')
+      .select('expected_cash, collected_cash, status')
+      .eq('store_id', req.storeId);
+
+    if (start_date) {
+      query = query.gte('settlement_date', start_date);
+    }
+
+    if (end_date) {
+      query = query.lte('settlement_date', end_date);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ [SETTLEMENTS] Error:', error);
+      return res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+
+    const stats = {
+      total_expected: data?.reduce((sum, s) => sum + Number(s.expected_cash || 0), 0) || 0,
+      total_collected: data?.reduce((sum, s) => sum + Number(s.collected_cash || 0), 0) || 0,
+      total_difference: 0,
+      pending_count: data?.filter(s => s.status === 'pending').length || 0,
+      completed_count: data?.filter(s => s.status === 'completed').length || 0,
+      with_issues_count: data?.filter(s => s.status === 'with_issues').length || 0
+    };
+
+    stats.total_difference = stats.total_collected - stats.total_expected;
+
+    res.json(stats);
+  } catch (error: any) {
+    console.error('💥 [SETTLEMENTS] Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -762,139 +876,6 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ================================================================
-// GET /api/settlements/stats - Get settlement statistics
-// ================================================================
-settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) => {
-  try {
-    const { start_date, end_date } = req.query;
-
-    console.log('📊 [SETTLEMENTS] Fetching stats');
-
-    let query = supabaseAdmin
-      .from('daily_settlements')
-      .select('expected_cash, collected_cash, status')
-      .eq('store_id', req.storeId);
-
-    if (start_date) {
-      query = query.gte('settlement_date', start_date);
-    }
-
-    if (end_date) {
-      query = query.lte('settlement_date', end_date);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('❌ [SETTLEMENTS] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch stats' });
-    }
-
-    const stats = {
-      total_expected: data?.reduce((sum, s) => sum + Number(s.expected_cash || 0), 0) || 0,
-      total_collected: data?.reduce((sum, s) => sum + Number(s.collected_cash || 0), 0) || 0,
-      total_difference: 0,
-      pending_count: data?.filter(s => s.status === 'pending').length || 0,
-      completed_count: data?.filter(s => s.status === 'completed').length || 0,
-      with_issues_count: data?.filter(s => s.status === 'with_issues').length || 0
-    };
-
-    stats.total_difference = stats.total_collected - stats.total_expected;
-
-    res.json(stats);
-  } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ================================================================
-// GET /api/settlements/shipped-orders-grouped - Get shipped orders grouped by carrier/date
-// For the new manual reconciliation flow
-// ================================================================
-settlementsRouter.get('/shipped-orders-grouped', async (req: AuthRequest, res: Response) => {
-  try {
-    console.log('📦 [SETTLEMENTS] Fetching shipped orders grouped by carrier/date');
-
-    const groups = await settlementsService.getShippedOrdersGrouped(req.storeId!);
-
-    res.json({ data: groups });
-  } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error fetching grouped orders:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-// ================================================================
-// POST /api/settlements/manual-reconciliation - Process manual reconciliation
-// Without CSV - using checkbox UI
-// ================================================================
-settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: Response) => {
-  try {
-    const { carrier_id, dispatch_date, orders, total_amount_collected, discrepancy_notes, confirm_discrepancy } = req.body;
-
-    console.log('📝 [SETTLEMENTS] Processing manual reconciliation:', {
-      carrier_id,
-      dispatch_date,
-      orders_count: orders?.length,
-      total_amount_collected
-    });
-
-    if (!carrier_id || !dispatch_date || !orders || !Array.isArray(orders)) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    if (total_amount_collected === undefined || total_amount_collected === null) {
-      return res.status(400).json({ error: 'total_amount_collected is required' });
-    }
-
-    const settlement = await settlementsService.processManualReconciliation(
-      req.storeId!,
-      req.userId!,
-      {
-        carrier_id,
-        dispatch_date,
-        orders,
-        total_amount_collected,
-        discrepancy_notes,
-        confirm_discrepancy: confirm_discrepancy || false
-      }
-    );
-
-    console.log('✅ [SETTLEMENTS] Manual reconciliation completed:', settlement.settlement_code);
-
-    res.json({ data: settlement });
-  } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error in manual reconciliation:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-// ================================================================
-// GET /api/settlements/dispatch-sessions/:id/export-xlsx - Export as Excel
-// Professional Excel with styling and Ordefy watermark
-// ================================================================
-settlementsRouter.get('/dispatch-sessions/:id/export-xlsx', async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    console.log('📊 [SETTLEMENTS] Exporting dispatch session as Excel:', id);
-
-    const buffer = await settlementsService.exportDispatchExcel(id, req.storeId!);
-
-    // Get session info for filename
-    const session = await settlementsService.getDispatchSessionById(id, req.storeId!);
-
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${session.session_code}.xlsx"`);
-    res.send(buffer);
-  } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error exporting Excel:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
