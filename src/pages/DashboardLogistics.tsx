@@ -40,7 +40,7 @@ import {
 } from 'recharts';
 
 export default function DashboardLogistics() {
-  const { hasFeature } = useSubscription();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const [isLoading, setIsLoading] = useState(true);
   const [showDetailedMetrics, setShowDetailedMetrics] = useState(false);
 
@@ -144,6 +144,10 @@ export default function DashboardLogistics() {
   }, [loadDashboardData, hasFeature]);
 
   // Check warehouse feature access - AFTER all hooks
+  // Wait for subscription to load to prevent flash of upgrade modal
+  if (subscriptionLoading) {
+    return null;
+  }
   if (!hasFeature('warehouse')) {
     return <FeatureBlockedPage feature="warehouse" />;
   }

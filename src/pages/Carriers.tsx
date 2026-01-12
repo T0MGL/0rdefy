@@ -11,6 +11,8 @@ import { Label } from '@/components/ui/label';
 import { ExportButton } from '@/components/ExportButton';
 import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 import { carriersService, Carrier } from '@/services/carriers.service';
 import { Plus, Package, TrendingUp, Clock, Star, Search } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
@@ -193,6 +195,8 @@ export default function Carriers() {
           title: 'Repartidor creado',
           description: 'El repartidor ha sido registrado exitosamente.',
         });
+        // Mark first action completed (hides the onboarding tip)
+        onboardingService.markFirstActionCompleted('carriers');
       }
       await loadCarriers();
       await loadPerformanceStats();
@@ -246,6 +250,13 @@ export default function Carriers() {
 
   return (
     <div className="space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="carriers"
+        title="¡Bienvenido a Repartidores!"
+        description="Gestiona tus couriers y motoristas. Asigna pedidos y analiza su rendimiento de entregas."
+        tips={['Agrega repartidores', 'Asigna zonas de entrega', 'Ve métricas de rendimiento']}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

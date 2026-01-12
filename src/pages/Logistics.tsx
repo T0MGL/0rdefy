@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { ExportButton } from '@/components/ExportButton';
 import { analyticsService, ShippingCostsMetrics, LogisticsMetrics } from '@/services/analytics.service';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import {
   DollarSign,
@@ -132,6 +133,13 @@ export default function Logistics() {
 
   return (
     <div className="space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="logistics"
+        title="¡Bienvenido a Logística!"
+        description="Analiza costos de envío y rendimiento de tus couriers. Visualiza métricas clave de tu operación logística."
+        tips={['Ve costos por courier', 'Analiza entregas exitosas', 'Monitorea pagos pendientes']}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -63,13 +63,24 @@ interface FeatureGateProps {
   children: ReactNode;
   /** If true, shows a full-page blocked state instead of hiding content */
   fullPage?: boolean;
+  /** Optional loading fallback component */
+  loadingFallback?: ReactNode;
 }
 
 /**
  * FeatureGate - Conditionally render children based on plan feature access
+ *
+ * IMPORTANT: Waits for subscription to load before showing blocked state
+ * to prevent flash of upgrade modal on page refresh.
  */
-export function FeatureGate({ feature, children, fullPage = false }: FeatureGateProps) {
-  const { hasFeature, shouldShowLockedFeatures } = useSubscription();
+export function FeatureGate({ feature, children, fullPage = false, loadingFallback }: FeatureGateProps) {
+  const { hasFeature, shouldShowLockedFeatures, loading } = useSubscription();
+
+  // Wait for subscription to load before showing blocked state
+  // This prevents flash of upgrade modal on page refresh
+  if (loading) {
+    return loadingFallback ? <>{loadingFallback}</> : null;
+  }
 
   if (hasFeature(feature)) {
     return <>{children}</>;

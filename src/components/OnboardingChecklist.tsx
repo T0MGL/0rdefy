@@ -28,6 +28,8 @@ import {
 import { cn } from '@/lib/utils';
 import { onboardingService, OnboardingProgress, OnboardingStep } from '@/services/onboarding.service';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth, Role } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 
 interface OnboardingChecklistProps {
   className?: string;
@@ -45,14 +47,27 @@ const stepIcons: Record<string, React.ReactNode> = {
 
 export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklistProps) {
   const navigate = useNavigate();
+  const { permissions } = useAuth();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const [progress, setProgress] = useState<OnboardingProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(true);
   const [isDismissed, setIsDismissed] = useState(false);
 
+  // Only show for owners - collaborators don't need to see setup checklist
+  const isOwner = permissions.currentRole === Role.OWNER;
+
+  // Check if user has Shopify feature in their plan
+  const hasShopifyAccess = hasFeature('shopify_import');
+
   useEffect(() => {
+    // Skip loading if not owner
+    if (!isOwner) {
+      setIsLoading(false);
+      return;
+    }
     loadProgress();
-  }, []);
+  }, [isOwner]);
 
   async function loadProgress() {
     try {
@@ -66,6 +81,27 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
     }
   }
 
+  // Filter steps based on subscription plan
+  const filteredSteps = progress?.steps.filter(step => {
+    // Hide Shopify step if user doesn't have access
+    if (step.id === 'connect-shopify' && !hasShopifyAccess) {
+      return false;
+    }
+    return true;
+  }) || [];
+
+  // Recalculate progress with filtered steps
+  const filteredProgress = progress ? {
+    ...progress,
+    steps: filteredSteps,
+    totalCount: filteredSteps.length,
+    completedCount: filteredSteps.filter(s => s.completed).length,
+    percentage: filteredSteps.length > 0
+      ? Math.round((filteredSteps.filter(s => s.completed).length / filteredSteps.length) * 100)
+      : 0,
+    isComplete: filteredSteps.length > 0 && filteredSteps.every(s => s.completed),
+  } : null;
+
   function handleStepClick(step: OnboardingStep) {
     if (step.route && !step.completed) {
       navigate(step.route);
@@ -78,13 +114,13 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
     await onboardingService.dismiss();
   }
 
-  // Don't render if dismissed, complete, or loading
-  if (isLoading || isDismissed || !progress || progress.isComplete) {
+  // Don't render if not owner, dismissed, complete, or loading
+  if (!isOwner || isLoading || subscriptionLoading || isDismissed || !filteredProgress || filteredProgress.isComplete) {
     return null;
   }
 
   // Show celebration when almost complete (only one step left)
-  const isAlmostComplete = progress.completedCount === progress.totalCount - 1;
+  const isAlmostComplete = filteredProgress.completedCount === filteredProgress.totalCount - 1;
 
   return (
     <AnimatePresence>
@@ -125,7 +161,7 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
                     )}
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    {progress.completedCount} de {progress.totalCount} pasos completados
+                    {filteredProgress.completedCount} de {filteredProgress.totalCount} pasos completados
                   </p>
                 </div>
               </div>
@@ -154,11 +190,11 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
             {/* Progress bar */}
             <div className="mb-4">
               <Progress
-                value={progress.percentage}
+                value={filteredProgress.percentage}
                 className="h-2 bg-primary/20"
               />
               <p className="text-xs text-muted-foreground mt-1 text-right">
-                {progress.percentage}% completado
+                {filteredProgress.percentage}% completado
               </p>
             </div>
 

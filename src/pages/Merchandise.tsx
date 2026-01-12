@@ -11,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 import { merchandiseService } from '@/services/merchandise.service';
 import { productsService } from '@/services/products.service';
 import { suppliersService } from '@/services/suppliers.service';
@@ -19,7 +21,7 @@ import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShi
 
 export default function Merchandise() {
   const { toast } = useToast();
-  const { hasFeature } = useSubscription();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -45,6 +47,10 @@ export default function Merchandise() {
   }, [statusFilter, hasMerchandiseFeature]);
 
   // Plan-based feature check - merchandise requires Starter+ plan (AFTER all hooks)
+  // Wait for subscription to load to prevent flash of upgrade modal
+  if (subscriptionLoading) {
+    return null;
+  }
   if (!hasMerchandiseFeature) {
     return <FeatureBlockedPage feature="merchandise" />;
   }
@@ -112,6 +118,8 @@ export default function Merchandise() {
         title: 'Éxito',
         description: 'Mercadería creada correctamente',
       });
+      // Mark first action completed (hides the onboarding tip)
+      onboardingService.markFirstActionCompleted('merchandise');
       setShowCreateModal(false);
       loadData();
     } catch (error: any) {
@@ -205,6 +213,13 @@ export default function Merchandise() {
 
   return (
     <div className="p-6 space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="merchandise"
+        title="¡Bienvenido a Mercadería!"
+        description="Registra envíos de tus proveedores. Crea recepciones y actualiza tu inventario automáticamente."
+        tips={['Crea envío de proveedor', 'Recibe y valida cantidades', 'Stock se actualiza automático']}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

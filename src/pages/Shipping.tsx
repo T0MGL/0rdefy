@@ -8,6 +8,8 @@ import { useState, useEffect } from 'react';
 import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download, FileSpreadsheet } from 'lucide-react';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,7 +25,7 @@ import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 
 export default function Shipping() {
-  const { hasFeature } = useSubscription();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const { toast } = useToast();
   const [orders, setOrders] = useState<ReadyToShipOrder[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
@@ -74,6 +76,10 @@ export default function Shipping() {
   }
 
   // Check warehouse feature access - AFTER all hooks
+  // Wait for subscription to load to prevent flash of upgrade modal
+  if (subscriptionLoading) {
+    return null;
+  }
   if (!hasWarehouseFeature) {
     return <FeatureBlockedPage feature="warehouse" />;
   }
@@ -192,6 +198,11 @@ export default function Shipping() {
         });
       }
 
+      // Mark first action completed (hides the onboarding tip)
+      if (result.succeeded > 0) {
+        onboardingService.markFirstActionCompleted('shipping');
+      }
+
       // Reset and reload
       setDispatchDialogOpen(false);
       setDispatchNotes('');
@@ -215,7 +226,13 @@ export default function Shipping() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
+      <FirstTimeWelcomeBanner
+        moduleId="shipping"
+        title="¡Bienvenido a Despacho!"
+        description="Entrega pedidos preparados a tus couriers. Genera manifiestos y exporta listas para cada repartidor."
+        tips={['Selecciona pedidos listos', 'Asigna a repartidor', 'Genera manifiesto de entrega']}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

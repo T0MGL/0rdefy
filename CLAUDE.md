@@ -670,3 +670,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 039: **NEW:** Hard delete with cascading cleanup (owner only, no soft delete, complete data cleanup)
 - 045: **NEW:** Dispatch & Settlements system (courier reconciliation, zone rates, CSV import/export)
 - 050: **NEW:** Onboarding progress tracking (setup checklist, first-time module visits)
+- 051: **NEW:** Add image_url to order_line_items (product thumbnail in Orders list)

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useOnboardingTour, Tour } from '@/contexts/OnboardingTourContext';
-import { useAuth, Role } from '@/contexts/AuthContext';
+import { useAuth, Role, Module, Permission } from '@/contexts/AuthContext';
 import confetti from 'canvas-confetti';
 import {
   ShoppingBag,
@@ -12,9 +12,112 @@ import {
   X,
   ArrowRight,
   Sparkles,
+  Users,
+  BarChart3,
+  PackageOpen,
+  RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+// Role labels in Spanish for display
+const ROLE_LABELS: Record<Role, string> = {
+  [Role.OWNER]: 'Propietario',
+  [Role.ADMIN]: 'Administrador',
+  [Role.LOGISTICS]: 'Logística',
+  [Role.CONFIRMADOR]: 'Confirmador',
+  [Role.CONTADOR]: 'Contador',
+  [Role.INVENTARIO]: 'Inventario',
+};
+
+// Feature configuration with module requirements
+interface FeatureConfig {
+  id: string;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  route: string;
+  module: Module;
+  permission?: Permission;
+  primary?: boolean;
+}
+
+// All available features for the welcome modal
+const ALL_FEATURES: FeatureConfig[] = [
+  {
+    id: 'shopify',
+    icon: <Link2 className="w-5 h-5" />,
+    title: 'Conectar Shopify',
+    description: 'Importa productos, clientes y sincroniza pedidos automaticamente',
+    route: '/integrations',
+    module: Module.INTEGRATIONS,
+    permission: Permission.VIEW,
+    primary: true,
+  },
+  {
+    id: 'products',
+    icon: <Package className="w-5 h-5" />,
+    title: 'Agregar Productos',
+    description: 'Crea tu catalogo manualmente si no usas Shopify',
+    route: '/products',
+    module: Module.PRODUCTS,
+    permission: Permission.CREATE,
+  },
+  {
+    id: 'orders',
+    icon: <ShoppingBag className="w-5 h-5" />,
+    title: 'Ver Pedidos',
+    description: 'Gestiona el flujo completo: confirmar, preparar, despachar',
+    route: '/orders',
+    module: Module.ORDERS,
+    permission: Permission.VIEW,
+  },
+  {
+    id: 'warehouse',
+    icon: <Truck className="w-5 h-5" />,
+    title: 'Ver Almacen',
+    description: 'Accede al sistema de picking y packing',
+    route: '/warehouse',
+    module: Module.WAREHOUSE,
+    permission: Permission.VIEW,
+  },
+  {
+    id: 'returns',
+    icon: <RotateCcw className="w-5 h-5" />,
+    title: 'Gestionar Devoluciones',
+    description: 'Procesa devoluciones y ajustes de inventario',
+    route: '/returns',
+    module: Module.RETURNS,
+    permission: Permission.VIEW,
+  },
+  {
+    id: 'merchandise',
+    icon: <PackageOpen className="w-5 h-5" />,
+    title: 'Recibir Mercaderia',
+    description: 'Registra envios entrantes de proveedores',
+    route: '/merchandise',
+    module: Module.MERCHANDISE,
+    permission: Permission.VIEW,
+  },
+  {
+    id: 'customers',
+    icon: <Users className="w-5 h-5" />,
+    title: 'Ver Clientes',
+    description: 'Gestiona tu base de clientes y sus pedidos',
+    route: '/customers',
+    module: Module.CUSTOMERS,
+    permission: Permission.VIEW,
+  },
+  {
+    id: 'analytics',
+    icon: <BarChart3 className="w-5 h-5" />,
+    title: 'Ver Reportes',
+    description: 'Analiza ventas, margenes y metricas de tu negocio',
+    route: '/dashboard',
+    module: Module.ANALYTICS,
+    permission: Permission.VIEW,
+  },
+];
 
 // Minimal confetti burst - Apple style
 const triggerMinimalConfetti = () => {
@@ -134,6 +237,31 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
   const [showWelcome, setShowWelcome] = useState(false);
 
   const isOwner = permissions.currentRole === Role.OWNER;
+  const currentRole = permissions.currentRole;
+
+  // Filter features based on user permissions
+  const availableFeatures = useMemo(() => {
+    if (!currentRole) return [];
+
+    // For owners, show the standard owner features
+    if (isOwner) {
+      return ALL_FEATURES.filter(f =>
+        ['shopify', 'products', 'orders'].includes(f.id)
+      );
+    }
+
+    // For collaborators, filter by actual permissions
+    const filtered = ALL_FEATURES.filter(feature => {
+      const permission = feature.permission || Permission.VIEW;
+      return permissions.hasPermission(feature.module, permission);
+    });
+
+    // Sort: primary first, then by most relevant for the role
+    return filtered.slice(0, 3).map((f, index) => ({
+      ...f,
+      primary: index === 0, // First one is primary
+    }));
+  }, [currentRole, isOwner, permissions]);
 
   useEffect(() => {
     if (!autoShow) return;
@@ -206,7 +334,7 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
                 <p className="text-sm text-muted-foreground">
                   {isOwner
                     ? 'Tu tienda esta lista. ¿Por donde empezamos?'
-                    : `Rol: ${permissions.currentRole}`
+                    : `Rol: ${currentRole ? ROLE_LABELS[currentRole] : 'Colaborador'}`
                   }
                 </p>
               </div>
@@ -215,50 +343,27 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
 
           {/* Content */}
           <div className="p-6 pt-4 space-y-3">
-            {isOwner ? (
-              // Owner view - show key actions
-              <>
+            {!isOwner && (
+              <p className="text-sm text-muted-foreground mb-4">
+                Estas son las funciones disponibles segun tu rol.
+              </p>
+            )}
+
+            {availableFeatures.length > 0 ? (
+              availableFeatures.map((feature) => (
                 <FeatureCard
-                  icon={<Link2 className="w-5 h-5" />}
-                  title="Conectar Shopify"
-                  description="Importa productos, clientes y sincroniza pedidos automaticamente"
-                  onClick={() => handleNavigate('/integrations')}
-                  primary
+                  key={feature.id}
+                  icon={feature.icon}
+                  title={feature.title}
+                  description={feature.description}
+                  onClick={() => handleNavigate(feature.route)}
+                  primary={feature.primary}
                 />
-                <FeatureCard
-                  icon={<Package className="w-5 h-5" />}
-                  title="Agregar Productos"
-                  description="Crea tu catalogo manualmente si no usas Shopify"
-                  onClick={() => handleNavigate('/products')}
-                />
-                <FeatureCard
-                  icon={<ShoppingBag className="w-5 h-5" />}
-                  title="Ver Pedidos"
-                  description="Gestiona el flujo completo: confirmar, preparar, despachar"
-                  onClick={() => handleNavigate('/orders')}
-                />
-              </>
+              ))
             ) : (
-              // Collaborator view - show relevant actions based on role
-              <>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Las funciones disponibles dependen de los permisos asignados.
-                  Explora el menu lateral para ver tus modulos.
-                </p>
-                <FeatureCard
-                  icon={<ShoppingBag className="w-5 h-5" />}
-                  title="Ir a Pedidos"
-                  description="Comienza a gestionar los pedidos de la tienda"
-                  onClick={() => handleNavigate('/orders')}
-                  primary
-                />
-                <FeatureCard
-                  icon={<Truck className="w-5 h-5" />}
-                  title="Ver Almacen"
-                  description="Accede al sistema de picking y packing"
-                  onClick={() => handleNavigate('/warehouse')}
-                />
-              </>
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Explora el menu lateral para ver tus modulos disponibles.
+              </p>
             )}
           </div>
 

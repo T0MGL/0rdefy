@@ -978,20 +978,22 @@ export class ShopifyWebhookService {
         const shopifyLineItemId = item.id?.toString() || null;
         const sku = item.sku || '';
 
-        // Try to find matching local product
+        // Try to find matching local product and get its image_url
         let productId: string | null = null;
+        let imageUrl: string | null = null;
 
         // First try by variant ID (most specific)
         if (shopifyVariantId) {
           const { data: productByVariant } = await this.supabaseAdmin
             .from('products')
-            .select('id')
+            .select('id, image_url')
             .eq('store_id', storeId)
             .eq('shopify_variant_id', shopifyVariantId)
             .maybeSingle();
 
           if (productByVariant) {
             productId = productByVariant.id;
+            imageUrl = productByVariant.image_url;
           }
         }
 
@@ -999,13 +1001,14 @@ export class ShopifyWebhookService {
         if (!productId && shopifyProductId) {
           const { data: productByProductId } = await this.supabaseAdmin
             .from('products')
-            .select('id')
+            .select('id, image_url')
             .eq('store_id', storeId)
             .eq('shopify_product_id', shopifyProductId)
             .maybeSingle();
 
           if (productByProductId) {
             productId = productByProductId.id;
+            imageUrl = productByProductId.image_url;
           }
         }
 
@@ -1013,13 +1016,14 @@ export class ShopifyWebhookService {
         if (!productId && sku) {
           const { data: productBySku } = await this.supabaseAdmin
             .from('products')
-            .select('id')
+            .select('id, image_url')
             .eq('store_id', storeId)
             .eq('sku', sku)
             .maybeSingle();
 
           if (productBySku) {
             productId = productBySku.id;
+            imageUrl = productBySku.image_url;
           }
         }
 
@@ -1041,7 +1045,7 @@ export class ShopifyWebhookService {
           ? parseFloat(item.tax_lines[0].price) || 0
           : 0;
 
-        // Insert line item
+        // Insert line item with image_url from local product
         const { error: insertError } = await this.supabaseAdmin
           .from('order_line_items')
           .insert({
@@ -1059,7 +1063,8 @@ export class ShopifyWebhookService {
             discount_amount: discountAmount,
             tax_amount: taxAmount,
             properties: item.properties || null,
-            shopify_data: item
+            shopify_data: item,
+            image_url: imageUrl  // Snapshot of product image at order time
           });
 
         if (insertError) {

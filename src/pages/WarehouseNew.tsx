@@ -41,7 +41,7 @@ type WorkflowStep = 'selection' | 'picking' | 'packing' | 'verification';
 export default function WarehouseNew() {
   const { toast } = useToast();
   const { currentStore } = useAuth();
-  const { hasFeature } = useSubscription();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
 
   // ==================== STATE ====================
 
@@ -540,6 +540,10 @@ export default function WarehouseNew() {
   }, [packingData, sessionOrders]);
 
   // Plan-based feature check - warehouse requires Starter+ plan (AFTER all hooks)
+  // Wait for subscription to load to prevent flash of upgrade modal
+  if (subscriptionLoading) {
+    return null;
+  }
   if (!hasFeature('warehouse')) {
     return <FeatureBlockedPage feature="warehouse" />;
   }

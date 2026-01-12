@@ -8,6 +8,8 @@ import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ExportButton } from '@/components/ExportButton';
 import { suppliersService } from '@/services/suppliers.service';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 import { Plus, Star, Edit, Trash2, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
@@ -162,6 +164,8 @@ export default function Suppliers() {
           title: 'Proveedor creado',
           description: 'El proveedor ha sido agregado exitosamente.',
         });
+        // Mark first action completed (hides the onboarding tip)
+        onboardingService.markFirstActionCompleted('suppliers');
       }
       await loadSuppliers();
       setDialogOpen(false);
@@ -212,6 +216,13 @@ export default function Suppliers() {
 
   return (
     <div className="space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="suppliers"
+        title="¡Bienvenido a Proveedores!"
+        description="Registra tus proveedores de productos. Centraliza contactos y facilita la gestión de mercadería entrante."
+        tips={['Agrega proveedores', 'Guarda datos de contacto', 'Asocia a envíos de mercadería']}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -95,7 +95,8 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
     <TooltipProvider>
       <div className={`flex items-center gap-1 ${lineItems.length === 1 ? 'justify-center' : ''}`}>
         {visibleItems.map((item, index) => {
-          const productImage = item.products?.image_url;
+          // Try image_url directly on line_item first (new), fallback to products relation (old)
+          const productImage = item.image_url || item.products?.image_url;
           const productName = item.product_name;
           const quantity = item.quantity;
 

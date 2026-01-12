@@ -21,6 +21,8 @@ import { EmptyState } from '@/components/EmptyState';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 import {
   CourierDateGroupCard,
   ReconciliationTable,
@@ -70,7 +72,7 @@ const FAILED_ATTEMPT_FEE_RATE = 0.5;
 
 export default function Settlements() {
   const { toast } = useToast();
-  const { hasFeature } = useSubscription();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // State
@@ -119,6 +121,10 @@ export default function Settlements() {
   }, [loadGroups, hasWarehouseFeature]);
 
   // Plan-based feature check (AFTER all hooks)
+  // Wait for subscription to load to prevent flash of upgrade modal
+  if (subscriptionLoading) {
+    return null;
+  }
   if (!hasWarehouseFeature) {
     return <FeatureBlockedPage feature="warehouse" />;
   }
@@ -271,6 +277,9 @@ export default function Settlements() {
         description: `Liquidacion ${result.data.settlement_code} creada exitosamente`,
       });
 
+      // Mark first action completed (hides the onboarding tip)
+      onboardingService.markFirstActionCompleted('settlements');
+
       setCurrentStep('complete');
 
       // Reload groups after a short delay
@@ -326,6 +335,13 @@ export default function Settlements() {
   if (currentStep === 'selection') {
     return (
       <div className="p-6 space-y-6">
+        <FirstTimeWelcomeBanner
+          moduleId="settlements"
+          title="¡Bienvenido a Conciliaciones!"
+          description="Reconcilia entregas con tus couriers. Marca resultados, ingresa montos cobrados y genera liquidaciones."
+          tips={['Selecciona un despacho', 'Marca entregas o fallos', 'Ingresa monto total cobrado']}
+        />
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

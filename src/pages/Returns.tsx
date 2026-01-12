@@ -31,6 +31,8 @@ import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 import * as returnsService from '@/services/returns.service';
 import type {
   ReturnSession,
@@ -43,7 +45,7 @@ type View = 'sessions' | 'create' | 'process';
 
 export default function Returns() {
   const { toast } = useToast();
-  const { hasFeature } = useSubscription();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const [view, setView] = useState<View>('sessions');
   const [currentSession, setCurrentSession] = useState<ReturnSessionDetail | null>(null);
 
@@ -156,6 +158,10 @@ export default function Returns() {
   }, [view, loadSessions, loadEligibleOrders, hasFeature]);
 
   // Plan-based feature check - returns requires Starter+ plan (AFTER all hooks)
+  // Wait for subscription to load to prevent flash of upgrade modal
+  if (subscriptionLoading) {
+    return null;
+  }
   if (!hasFeature('returns')) {
     return <FeatureBlockedPage feature="returns" />;
   }
@@ -196,6 +202,9 @@ export default function Returns() {
         title: 'Éxito',
         description: `Sesión ${session.session_code} creada exitosamente`,
       });
+
+      // Mark first action completed (hides the onboarding tip)
+      onboardingService.markFirstActionCompleted('returns');
 
       // Load the new session and switch to process view
       await loadSession(session.id);
@@ -345,6 +354,13 @@ export default function Returns() {
   // Render sessions list view
   const renderSessionsView = () => (
     <div className="space-y-6">
+      <FirstTimeWelcomeBanner
+        moduleId="returns"
+        title="¡Bienvenido a Devoluciones!"
+        description="Gestiona devoluciones en lote. Crea sesiones, procesa items y el inventario se actualiza automáticamente."
+        tips={['Crea sesión de devolución', 'Acepta o rechaza items', 'Stock se restaura automático']}
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Devoluciones</h1>

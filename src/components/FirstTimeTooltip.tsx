@@ -192,6 +192,11 @@ export function FirstTimeTooltip({
 
 /**
  * Page-level welcome banner for first-time visits
+ *
+ * Auto-hides when ANY of these conditions are met:
+ * A) User clicks X (manual dismiss)
+ * B) User has visited 3 times
+ * C) User completes first action (call onboardingService.markFirstActionCompleted)
  */
 
 interface FirstTimeWelcomeBannerProps {
@@ -212,14 +217,21 @@ export function FirstTimeWelcomeBanner({
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const isFirstVisit = onboardingService.isFirstVisit(moduleId);
-    setIsVisible(isFirstVisit);
+    // Check if should show using combined logic
+    const shouldShow = onboardingService.shouldShowTip(moduleId);
+    setIsVisible(shouldShow);
+
+    // Increment visit count each time user visits this module
+    if (shouldShow) {
+      onboardingService.incrementVisitCount(moduleId);
+    }
   }, [moduleId]);
 
   async function handleDismiss() {
     setIsVisible(false);
     onDismiss?.();
-    await onboardingService.markVisited(moduleId);
+    // Mark as manually dismissed
+    await onboardingService.dismissModuleTip(moduleId);
   }
 
   if (!isVisible) {

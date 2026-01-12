@@ -695,6 +695,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     total_price,
                     shopify_product_id,
                     shopify_variant_id,
+                    image_url,
                     products:product_id (
                         id,
                         name,
@@ -868,6 +869,7 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
                     shopify_product_id,
                     shopify_variant_id,
                     properties,
+                    image_url,
                     products:product_id (
                         id,
                         name,
@@ -1146,6 +1148,60 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
         }
 
         console.log('✅ [ORDERS] Order created successfully:', data.id);
+
+        // Create normalized line items in order_line_items table (for manual orders)
+        if (line_items && Array.isArray(line_items) && line_items.length > 0) {
+            try {
+                const normalizedLineItems = [];
+
+                for (const item of line_items) {
+                    // Try to find the product to get image_url
+                    let productId = item.product_id || null;
+                    let imageUrl = null;
+
+                    if (productId) {
+                        const { data: product } = await supabaseAdmin
+                            .from('products')
+                            .select('id, image_url')
+                            .eq('id', productId)
+                            .eq('store_id', req.storeId)
+                            .maybeSingle();
+
+                        if (product) {
+                            imageUrl = product.image_url;
+                        }
+                    }
+
+                    normalizedLineItems.push({
+                        order_id: data.id,
+                        product_id: productId,
+                        product_name: item.name || item.title || 'Producto',
+                        variant_title: item.variant_title || null,
+                        sku: item.sku || null,
+                        quantity: item.quantity || 1,
+                        unit_price: parseFloat(item.price) || 0,
+                        total_price: (item.quantity || 1) * (parseFloat(item.price) || 0),
+                        image_url: imageUrl
+                    });
+                }
+
+                if (normalizedLineItems.length > 0) {
+                    const { error: lineItemsError } = await supabaseAdmin
+                        .from('order_line_items')
+                        .insert(normalizedLineItems);
+
+                    if (lineItemsError) {
+                        console.warn('⚠️ [ORDERS] Failed to create normalized line items:', lineItemsError);
+                        // Non-blocking: order is created, line items are optional for display
+                    } else {
+                        console.log(`✅ [ORDERS] Created ${normalizedLineItems.length} normalized line items`);
+                    }
+                }
+            } catch (lineItemsErr) {
+                console.warn('⚠️ [ORDERS] Error creating normalized line items:', lineItemsErr);
+                // Non-blocking
+            }
+        }
 
         res.status(201).json({
             message: 'Order created successfully',

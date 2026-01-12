@@ -15,6 +15,8 @@ import { shopifyService } from '@/services/shopify.service';
 import { externalWebhookService } from '@/services/external-webhook.service';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
+import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { onboardingService } from '@/services/onboarding.service';
 
 interface Integration {
   id: string;
@@ -53,7 +55,7 @@ const integrations: Integration[] = [
 ];
 
 export default function Integrations() {
-  const { hasFeature } = useSubscription();
+  const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const { toast } = useToast();
   const [shopifyModalOpen, setShopifyModalOpen] = useState(false);
   const [shopifyMethodDialogOpen, setShopifyMethodDialogOpen] = useState(false);
@@ -99,6 +101,10 @@ export default function Integrations() {
   }, [hasShopifyImport]);
 
   // Check shopify_import feature access - AFTER all hooks
+  // Wait for subscription to load to prevent flash of upgrade modal
+  if (subscriptionLoading) {
+    return null;
+  }
   if (!hasShopifyImport) {
     return <FeatureBlockedPage feature="shopify_import" />;
   }
@@ -107,6 +113,8 @@ export default function Integrations() {
     setConnectedIntegrations(prev =>
       prev.includes('shopify') ? prev : [...prev, 'shopify']
     );
+    // Mark first action completed (hides the onboarding tip)
+    onboardingService.markFirstActionCompleted('integrations');
   };
 
   const handleShopifyDisconnect = () => {
@@ -277,6 +285,13 @@ export default function Integrations() {
 
   return (
     <div className="space-y-8">
+      <FirstTimeWelcomeBanner
+        moduleId="integrations"
+        title="¡Bienvenido a Integraciones!"
+        description="Conecta tu tienda online para sincronizar productos, clientes y pedidos automáticamente."
+        tips={['Conecta Shopify', 'Importa productos', 'Recibe pedidos automáticos']}
+      />
+
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold mb-2">Integraciones</h2>
