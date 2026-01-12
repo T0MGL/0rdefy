@@ -1206,6 +1206,9 @@ export interface CourierDateGroup {
 export async function getShippedOrdersGrouped(
   storeId: string
 ): Promise<CourierDateGroup[]> {
+  console.log('📦 [SETTLEMENTS] getShippedOrdersGrouped called for store:', storeId);
+
+  // First get shipped orders
   const { data: orders, error } = await supabaseAdmin
     .from('orders')
     .select(`
@@ -1223,16 +1226,38 @@ export async function getShippedOrdersGrouped(
       payment_status,
       courier_id,
       shipped_at,
-      created_at,
-      carriers:courier_id(id, name)
+      created_at
     `)
     .eq('store_id', storeId)
     .eq('sleeves_status', 'shipped')
     .not('courier_id', 'is', null)
     .order('shipped_at', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    console.error('❌ [SETTLEMENTS] Error fetching shipped orders:', error);
+    throw error;
+  }
+
+  console.log('📦 [SETTLEMENTS] Found', orders?.length || 0, 'shipped orders');
+
   if (!orders || orders.length === 0) return [];
+
+  // Get unique carrier IDs and fetch carrier names separately
+  const carrierIds = [...new Set(orders.map(o => o.courier_id).filter(Boolean))];
+  const { data: carriers, error: carriersError } = await supabaseAdmin
+    .from('carriers')
+    .select('id, name')
+    .in('id', carrierIds);
+
+  if (carriersError) {
+    console.error('⚠️ [SETTLEMENTS] Error fetching carriers:', carriersError);
+  }
+
+  // Create carrier lookup map
+  const carrierMap = new Map<string, string>();
+  carriers?.forEach(c => carrierMap.set(c.id, c.name));
+
+  console.log('📦 [SETTLEMENTS] Loaded', carrierMap.size, 'carriers');
 
   const groupMap = new Map<string, CourierDateGroup>();
 
@@ -1242,7 +1267,7 @@ export async function getShippedOrdersGrouped(
       : new Date(order.created_at).toISOString().split('T')[0];
 
     const groupKey = `${order.courier_id}_${dispatchDate}`;
-    const carrierName = order.carriers?.name || 'Sin courier';
+    const carrierName = carrierMap.get(order.courier_id) || 'Sin courier';
     const isCod = isCodPayment(order.payment_method);
     const codAmount = isCod ? (order.total_price || 0) : 0;
 
@@ -1281,6 +1306,8 @@ export async function getShippedOrdersGrouped(
       });
     }
   });
+
+  console.log('📦 [SETTLEMENTS] Grouped into', groupMap.size, 'carrier/date groups');
 
   return Array.from(groupMap.values()).sort((a, b) =>
     new Date(b.dispatch_date).getTime() - new Date(a.dispatch_date).getTime()
