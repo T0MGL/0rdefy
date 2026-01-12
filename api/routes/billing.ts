@@ -261,24 +261,29 @@ router.use(extractUserRole);
 router.use(requireModule(Module.BILLING));
 
 /**
- * Get current subscription
+ * Get current subscription (user-level, covers all stores)
  */
 router.get('/subscription', async (req: Request, res: Response) => {
   try {
-    const storeId = (req as any).storeId;
+    const userId = (req as any).user?.id || (req as any).userId;
 
-    const subscription = await stripeService.getStorePlan(storeId);
-    const usage = await stripeService.getStoreUsage(storeId);
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // Get USER subscription (covers all stores)
+    const subscription = await stripeService.getUserSubscription(userId);
+    const usage = await stripeService.getUserUsage(userId);  // Aggregated across all stores
     const planLimits = await stripeService.getAllPlanLimits();
 
-    const currentPlanLimits = planLimits.find((p) => p.plan === subscription.plan);
+    const currentPlanLimits = planLimits.find((p) => p.plan === (subscription?.plan || 'free'));
 
     res.json({
       subscription: {
         ...subscription,
         planDetails: currentPlanLimits,
       },
-      usage,
+      usage,  // Now includes: stores count, aggregated totals, and per-store breakdown
       allPlans: planLimits.map((plan) => ({
         ...plan,
         priceMonthly: plan.price_monthly_cents / 100,
@@ -309,23 +314,18 @@ router.get('/feature/:feature', async (req: Request, res: Response) => {
 /**
  * Create checkout session
  * Only owners can initiate checkout
+ * Note: Subscription is now user-level (covers all stores)
  */
 router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const storeId = (req as any).storeId;
     const userId = (req as any).user?.id || (req as any).userId;
     const userEmail = (req as any).user?.email;
     const { plan, billingCycle, referralCode, discountCode, fromOnboarding } = req.body;
 
-    console.log('[Billing] Checkout request:', { storeId, userId, userEmail, plan, billingCycle, referralCode, discountCode, fromOnboarding });
+    console.log('[Billing] Checkout request:', { userId, userEmail, plan, billingCycle, referralCode, discountCode, fromOnboarding });
 
     if (!plan || !billingCycle) {
       return res.status(400).json({ error: 'Plan and billing cycle are required' });
-    }
-
-    if (!storeId) {
-      console.error('[Billing] Missing storeId');
-      return res.status(400).json({ error: 'Store ID is required' });
     }
 
     if (!userId || !userEmail) {
@@ -346,8 +346,7 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
 
     console.log('[Billing] Creating checkout session...');
     const session = await stripeService.createCheckoutSession({
-      storeId,
-      userId,
+      userId,  // ⬅️ Only userId, no storeId
       email: userEmail,
       plan: plan as PlanType,
       billingCycle: billingCycle as BillingCycle,
@@ -369,14 +368,19 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
 /**
  * Create billing portal session
  * Only owners can access billing portal
+ * Note: Portal now shows user-level subscription (all stores)
  */
 router.post('/portal', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const storeId = (req as any).storeId;
+    const userId = (req as any).user?.id || (req as any).userId;
     const appUrl = process.env.APP_URL || 'https://app.ordefy.io';
 
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
     const session = await stripeService.createBillingPortalSession(
-      storeId,
+      userId,  // ⬅️ Changed from storeId to userId
       `${appUrl}/settings/billing`
     );
 
@@ -390,16 +394,22 @@ router.post('/portal', requireRole(Role.OWNER), async (req: PermissionRequest, r
 /**
  * Cancel subscription
  * Only owners can cancel subscription
+ * Note: Cancels user subscription (affects ALL their stores)
  */
 router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const storeId = (req as any).storeId;
+    const userId = (req as any).user?.id || (req as any).userId;
     const { reason } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
 
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
       .select('stripe_subscription_id')
-      .eq('store_id', storeId)
+      .eq('user_id', userId)  // ⬅️ Changed from store_id to user_id
+      .eq('is_primary', true)
       .single();
 
     if (!subscription?.stripe_subscription_id) {
@@ -416,9 +426,13 @@ router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, r
         canceled_at: new Date().toISOString(),
         cancellation_reason: reason,
       })
-      .eq('store_id', storeId);
+      .eq('user_id', userId)  // ⬅️ Changed from store_id to user_id
+      .eq('is_primary', true);
 
-    res.json({ success: true, message: 'Subscription will be canceled at period end' });
+    res.json({
+      success: true,
+      message: 'Subscription will be canceled at period end. This affects all your stores.'
+    });
   } catch (error: any) {
     console.error('[Billing] Cancel error:', error);
     res.status(500).json({ error: error.message });
@@ -428,15 +442,21 @@ router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, r
 /**
  * Reactivate subscription
  * Only owners can reactivate subscription
+ * Note: Reactivates user subscription (affects ALL their stores)
  */
 router.post('/reactivate', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const storeId = (req as any).storeId;
+    const userId = (req as any).user?.id || (req as any).userId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
 
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
       .select('stripe_subscription_id')
-      .eq('store_id', storeId)
+      .eq('user_id', userId)  // ⬅️ Changed from store_id to user_id
+      .eq('is_primary', true)
       .single();
 
     if (!subscription?.stripe_subscription_id) {
@@ -453,9 +473,13 @@ router.post('/reactivate', requireRole(Role.OWNER), async (req: PermissionReques
         canceled_at: null,
         cancellation_reason: null,
       })
-      .eq('store_id', storeId);
+      .eq('user_id', userId)  // ⬅️ Changed from store_id to user_id
+      .eq('is_primary', true);
 
-    res.json({ success: true, message: 'Subscription reactivated' });
+    res.json({
+      success: true,
+      message: 'Subscription reactivated. This applies to all your stores.'
+    });
   } catch (error: any) {
     console.error('[Billing] Reactivate error:', error);
     res.status(500).json({ error: error.message });
@@ -465,11 +489,16 @@ router.post('/reactivate', requireRole(Role.OWNER), async (req: PermissionReques
 /**
  * Change plan
  * Only owners can change subscription plan
+ * Note: Changes user subscription (affects ALL their stores)
  */
 router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const storeId = (req as any).storeId;
+    const userId = (req as any).user?.id || (req as any).userId;
     const { plan, billingCycle } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
 
     if (!plan || !billingCycle) {
       return res.status(400).json({ error: 'Plan and billing cycle are required' });
@@ -478,7 +507,8 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
       .select('stripe_subscription_id')
-      .eq('store_id', storeId)
+      .eq('user_id', userId)  // ⬅️ Changed from store_id to user_id
+      .eq('is_primary', true)
       .single();
 
     if (!subscription?.stripe_subscription_id) {
@@ -495,7 +525,10 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
       billingCycle as BillingCycle
     );
 
-    res.json({ success: true, message: 'Plan changed successfully' });
+    res.json({
+      success: true,
+      message: 'Plan changed successfully. This applies to all your stores.'
+    });
   } catch (error: any) {
     console.error('[Billing] Change plan error:', error);
     res.status(500).json({ error: error.message });
@@ -549,13 +582,12 @@ router.post('/referrals/generate', async (req: Request, res: Response) => {
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   console.log('[Billing Webhook] Checkout completed:', session.id);
 
-  const storeId = session.metadata?.store_id;
-  const userId = session.metadata?.user_id;
+  const userId = session.metadata?.user_id;  // ⬅️ Only userId now
   const plan = session.metadata?.plan as PlanType;
   const billingCycle = session.metadata?.billing_cycle as BillingCycle;
   const referralCode = session.metadata?.referral_code;
 
-  if (!storeId || !plan) {
+  if (!userId || !plan) {
     console.error('[Billing Webhook] Missing metadata in checkout session');
     return;
   }
@@ -566,10 +598,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       session.subscription as string
     );
 
-    if (subscription.trial_end && userId) {
+    if (subscription.trial_end) {
       await supabaseAdmin.from('subscription_trials').insert({
         user_id: userId,
-        store_id: storeId,
         plan_tried: plan,
         trial_ends_at: new Date(subscription.trial_end * 1000).toISOString(),
       });
@@ -624,21 +655,21 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
   console.log('[Billing Webhook] Subscription created:', subscription.id);
 
-  const storeId = subscription.metadata?.store_id;
+  const userId = subscription.metadata?.user_id;  // ⬅️ Changed from store_id to user_id
   const plan = subscription.metadata?.plan as PlanType;
 
-  if (!storeId) {
+  if (!userId) {
     // Try to get from customer
     const customer = await getStripe().customers.retrieve(
       subscription.customer as string
     );
-    if ('metadata' in customer && customer.metadata?.store_id) {
-      await updateSubscriptionInDB(subscription, customer.metadata.store_id as string, plan);
+    if ('metadata' in customer && customer.metadata?.user_id) {
+      await updateSubscriptionInDB(subscription, customer.metadata.user_id as string, plan);
     }
     return;
   }
 
-  await updateSubscriptionInDB(subscription, storeId, plan);
+  await updateSubscriptionInDB(subscription, userId, plan);
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
@@ -646,12 +677,12 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 
   const { data: localSub } = await supabaseAdmin
     .from('subscriptions')
-    .select('store_id')
+    .select('user_id')  // ⬅️ Changed from store_id to user_id
     .eq('stripe_subscription_id', subscription.id)
     .single();
 
   if (localSub) {
-    await updateSubscriptionInDB(subscription, localSub.store_id);
+    await updateSubscriptionInDB(subscription, localSub.user_id);  // ⬅️ Changed from store_id to user_id
   }
 }
 
@@ -676,29 +707,22 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     const customerId = invoice.customer as string;
     const customer = await getStripe().customers.retrieve(customerId);
 
-    if ('metadata' in customer && customer.metadata?.store_id) {
-      // Get user from store
-      const { data: userStore } = await supabaseAdmin
-        .from('user_stores')
-        .select('user_id')
-        .eq('store_id', customer.metadata.store_id)
-        .eq('role', 'owner')
+    if ('metadata' in customer && customer.metadata?.user_id) {
+      const userId = customer.metadata.user_id;
+
+      // Get subscription plan
+      const { data: sub } = await supabaseAdmin
+        .from('subscriptions')
+        .select('plan')
+        .eq('user_id', userId)  // ⬅️ Changed from store_id to user_id
+        .eq('is_primary', true)
         .single();
 
-      if (userStore) {
-        // Get subscription plan
-        const { data: sub } = await supabaseAdmin
-          .from('subscriptions')
-          .select('plan')
-          .eq('store_id', customer.metadata.store_id)
-          .single();
-
-        if (sub) {
-          await stripeService.processReferralConversion(
-            userStore.user_id,
-            sub.plan as PlanType
-          );
-        }
+      if (sub) {
+        await stripeService.processReferralConversion(
+          userId,
+          sub.plan as PlanType
+        );
       }
     }
   }
@@ -707,7 +731,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   if (invoice.subscription) {
     const { data: localSub } = await supabaseAdmin
       .from('subscriptions')
-      .select('store_id')
+      .select('user_id')  // ⬅️ Changed from store_id to user_id
       .eq('stripe_subscription_id', invoice.subscription)
       .single();
 
@@ -715,7 +739,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
       await supabaseAdmin
         .from('subscription_trials')
         .update({ converted: true, converted_at: new Date().toISOString() })
-        .eq('store_id', localSub.store_id)
+        .eq('user_id', localSub.user_id)  // ⬅️ Changed from store_id to user_id
         .is('converted', false);
     }
   }
@@ -743,7 +767,7 @@ async function handleTrialWillEnd(subscription: Stripe.Subscription) {
 
 async function updateSubscriptionInDB(
   subscription: Stripe.Subscription,
-  storeId: string,
+  userId: string,  // ⬅️ Changed from storeId to userId
   _plan?: PlanType // Ignored for security - we derive plan from priceId
 ) {
   const priceId = subscription.items.data[0]?.price.id;
@@ -760,7 +784,7 @@ async function updateSubscriptionInDB(
     // SECURITY: Unknown priceId is a critical error - could be manipulation attempt
     // DO NOT default to free - this would give paid features without payment
     console.error('[Billing Webhook] SECURITY ALERT: Unknown priceId rejected:', priceId);
-    console.error('[Billing Webhook] Store:', storeId, 'Subscription:', subscription.id);
+    console.error('[Billing Webhook] User:', userId, 'Subscription:', subscription.id);
     throw new Error(`SECURITY: Unrecognized priceId "${priceId}" - subscription rejected. Contact support if this is legitimate.`);
   }
 
@@ -780,13 +804,14 @@ async function updateSubscriptionInDB(
   await supabaseAdmin
     .from('subscriptions')
     .upsert({
-      store_id: storeId,
+      user_id: userId,  // ⬅️ Changed from store_id to user_id
       plan: verifiedPlan,
       billing_cycle: billingCycle,
       status: status,
       stripe_customer_id: subscription.customer as string,
       stripe_subscription_id: subscription.id,
       stripe_price_id: priceId,
+      is_primary: true,  // ⬅️ Added for user-level subscriptions
       trial_started_at: subscription.trial_start
         ? new Date(subscription.trial_start * 1000).toISOString()
         : null,
@@ -800,8 +825,9 @@ async function updateSubscriptionInDB(
         subscription.current_period_end * 1000
       ).toISOString(),
       cancel_at_period_end: subscription.cancel_at_period_end,
-    })
-    .eq('store_id', storeId);
+    }, {
+      onConflict: 'user_id,is_primary'  // ⬅️ Use composite unique constraint
+    });
 }
 
 export default router;

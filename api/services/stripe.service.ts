@@ -151,20 +151,22 @@ export async function initializeStripeProducts(): Promise<void> {
 }
 
 /**
- * Get or create a Stripe customer for a store
+ * Get or create a Stripe customer for a user
+ * Note: Changed from store-level to user-level in migration 052
  */
 export async function getOrCreateCustomer(
-  storeId: string,
+  userId: string,
   email: string,
   name?: string
 ): Promise<string> {
-  console.log('[Stripe] getOrCreateCustomer:', { storeId, email });
+  console.log('[Stripe] getOrCreateCustomer:', { userId, email });
 
-  // Check if subscription record exists
+  // Check if subscription record exists for this user
   const { data: subscription, error: subError } = await supabaseAdmin
     .from('subscriptions')
     .select('stripe_customer_id')
-    .eq('store_id', storeId)
+    .eq('user_id', userId)
+    .eq('is_primary', true)
     .single();
 
   console.log('[Stripe] Subscription lookup result:', { subscription, error: subError?.message });
@@ -181,7 +183,7 @@ export async function getOrCreateCustomer(
     email,
     name,
     metadata: {
-      store_id: storeId,
+      user_id: userId,  // ⬅️ Changed from store_id to user_id
     },
   });
   console.log('[Stripe] Created customer:', customer.id);
@@ -190,10 +192,11 @@ export async function getOrCreateCustomer(
   if (subError?.code === 'PGRST116' || !subscription) {
     console.log('[Stripe] Creating new subscription record...');
     const { error: insertError } = await supabaseAdmin.from('subscriptions').insert({
-      store_id: storeId,
+      user_id: userId,  // ⬅️ Changed from store_id to user_id
       plan: 'free',
       status: 'active',
       stripe_customer_id: customer.id,
+      is_primary: true,
     });
     if (insertError) {
       console.error('[Stripe] Error creating subscription:', insertError.message);
@@ -204,7 +207,7 @@ export async function getOrCreateCustomer(
     const { error: updateError } = await supabaseAdmin
       .from('subscriptions')
       .update({ stripe_customer_id: customer.id })
-      .eq('store_id', storeId);
+      .eq('user_id', userId);  // ⬅️ Changed from store_id to user_id
     if (updateError) {
       console.error('[Stripe] Error updating subscription:', updateError.message);
     }
@@ -236,9 +239,9 @@ export async function canStartTrial(
 
 /**
  * Create a checkout session for upgrading
+ * Note: Now user-level subscription (covers all user's stores)
  */
 export async function createCheckoutSession(params: {
-  storeId: string;
   userId: string;
   email: string;
   plan: PlanType;
@@ -249,7 +252,6 @@ export async function createCheckoutSession(params: {
   discountCode?: string;
 }): Promise<Stripe.Checkout.Session> {
   const {
-    storeId,
     userId,
     email,
     plan,
@@ -260,7 +262,7 @@ export async function createCheckoutSession(params: {
     discountCode,
   } = params;
 
-  console.log('[Stripe] createCheckoutSession called:', { storeId, userId, email, plan, billingCycle });
+  console.log('[Stripe] createCheckoutSession called:', { userId, email, plan, billingCycle });
 
   if (plan === 'free') {
     throw new Error('Cannot create checkout for free plan');
@@ -272,9 +274,9 @@ export async function createCheckoutSession(params: {
     throw new Error(`Price not found for ${plan} ${billingCycle}`);
   }
 
-  // Get or create customer
-  console.log('[Stripe] Getting or creating customer for store:', storeId);
-  const customerId = await getOrCreateCustomer(storeId, email);
+  // Get or create customer (now user-level)
+  console.log('[Stripe] Getting or creating customer for user:', userId);
+  const customerId = await getOrCreateCustomer(userId, email);
   console.log('[Stripe] Customer ID:', customerId);
 
   // Check if user can start trial
@@ -293,8 +295,7 @@ export async function createCheckoutSession(params: {
     success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: cancelUrl,
     metadata: {
-      store_id: storeId,
-      user_id: userId,
+      user_id: userId,  // ⬅️ Only user_id now, no store_id
       plan,
       billing_cycle: billingCycle,
       referral_code: referralCode || '',
@@ -302,7 +303,7 @@ export async function createCheckoutSession(params: {
     },
     subscription_data: {
       metadata: {
-        store_id: storeId,
+        user_id: userId,  // ⬅️ Only user_id now, no store_id
         plan,
       },
     },
@@ -376,19 +377,21 @@ export async function createCheckoutSession(params: {
 
 /**
  * Create a billing portal session for managing subscription
+ * Note: Now user-level subscription
  */
 export async function createBillingPortalSession(
-  storeId: string,
+  userId: string,
   returnUrl: string
 ): Promise<Stripe.BillingPortal.Session> {
   const { data: subscription } = await supabaseAdmin
     .from('subscriptions')
     .select('stripe_customer_id')
-    .eq('store_id', storeId)
+    .eq('user_id', userId)  // ⬅️ Changed from store_id to user_id
+    .eq('is_primary', true)
     .single();
 
   if (!subscription?.stripe_customer_id) {
-    throw new Error('No Stripe customer found for this store');
+    throw new Error('No Stripe customer found for this user');
   }
 
   const session = await getStripe().billingPortal.sessions.create({
@@ -632,7 +635,8 @@ export async function validateReferralCode(code: string): Promise<{
 }
 
 /**
- * Get current plan for a store
+ * Get current plan for a store (via owner's subscription)
+ * Note: Store inherits plan from owner's user-level subscription
  */
 export async function getStorePlan(storeId: string): Promise<{
   plan: PlanType;
@@ -642,10 +646,33 @@ export async function getStorePlan(storeId: string): Promise<{
   cancelAtPeriodEnd: boolean;
   trialEndsAt: Date | null;
 }> {
+  // Get store owner
+  const { data: userStore } = await supabaseAdmin
+    .from('user_stores')
+    .select('user_id')
+    .eq('store_id', storeId)
+    .eq('role', 'owner')
+    .eq('is_active', true)
+    .single();
+
+  if (!userStore) {
+    // No owner found, return free plan
+    return {
+      plan: 'free',
+      status: 'active',
+      billingCycle: null,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      trialEndsAt: null,
+    };
+  }
+
+  // Get owner's subscription
   const { data: subscription } = await supabaseAdmin
     .from('subscriptions')
     .select('*')
-    .eq('store_id', storeId)
+    .eq('user_id', userStore.user_id)
+    .eq('is_primary', true)
     .single();
 
   if (!subscription) {
@@ -674,7 +701,147 @@ export async function getStorePlan(storeId: string): Promise<{
 }
 
 /**
- * Get store usage stats
+ * Get user's subscription (all stores covered)
+ * Note: New function for user-level subscriptions
+ */
+export async function getUserSubscription(userId: string): Promise<{
+  plan: PlanType;
+  status: string;
+  billingCycle: BillingCycle | null;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+  trialEndsAt: Date | null;
+  storeCount: number;
+  maxStores: number;
+} | null> {
+  const { data } = await supabaseAdmin.rpc('get_user_subscription', {
+    p_user_id: userId,
+  });
+
+  if (!data || data.length === 0) {
+    return null;
+  }
+
+  const sub = data[0];
+  return {
+    plan: sub.plan as PlanType,
+    status: sub.status,
+    billingCycle: sub.billing_cycle as BillingCycle | null,
+    currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end) : null,
+    cancelAtPeriodEnd: sub.cancel_at_period_end || false,
+    trialEndsAt: sub.trial_ends_at ? new Date(sub.trial_ends_at) : null,
+    storeCount: sub.store_count || 0,
+    maxStores: sub.max_stores || 1,
+  };
+}
+
+/**
+ * Get user's aggregated usage across all stores
+ * Note: New function for user-level subscriptions
+ */
+export async function getUserUsage(userId: string): Promise<{
+  stores: number;
+  maxStores: number;
+  orders: { used: number; limit: number; percentage: number };
+  products: { used: number; limit: number; percentage: number };
+  users: { used: number; limit: number; percentage: number };
+  storeDetails?: Array<{
+    storeId: string;
+    storeName: string;
+    usersCount: number;
+    ordersCount: number;
+    productsCount: number;
+  }>;
+}> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc('get_user_usage', {
+      p_user_id: userId,
+    });
+
+    if (error) {
+      console.error('[Stripe] Error getting user usage:', error.message);
+      // Return defaults if RPC doesn't exist yet
+      return {
+        stores: 0,
+        maxStores: 1,
+        orders: { used: 0, limit: 50, percentage: 0 },
+        products: { used: 0, limit: 100, percentage: 0 },
+        users: { used: 0, limit: 1, percentage: 0 },
+      };
+    }
+
+    if (!data || data.length === 0) {
+      return {
+        stores: 0,
+        maxStores: 1,
+        orders: { used: 0, limit: 50, percentage: 0 },
+        products: { used: 0, limit: 100, percentage: 0 },
+        users: { used: 0, limit: 1, percentage: 0 },
+      };
+    }
+
+    const usage = data[0];
+
+    // Calculate percentages
+    const ordersPercentage = usage.max_orders_per_month === -1
+      ? 0
+      : Math.round((usage.total_orders_this_month / usage.max_orders_per_month) * 100);
+
+    const productsPercentage = usage.max_products === -1
+      ? 0
+      : Math.round((usage.total_products / usage.max_products) * 100);
+
+    const usersPercentage = usage.max_users === -1
+      ? 0
+      : Math.round((usage.total_users / usage.max_users) * 100);
+
+    // Parse store details from JSONB
+    let storeDetails = [];
+    if (usage.stores && Array.isArray(usage.stores)) {
+      storeDetails = usage.stores.map((s: any) => ({
+        storeId: s.store_id,
+        storeName: s.store_name,
+        usersCount: s.users_count,
+        ordersCount: s.orders_count,
+        productsCount: s.products_count,
+      }));
+    }
+
+    return {
+      stores: usage.store_count || 0,
+      maxStores: usage.max_stores === -1 ? Infinity : usage.max_stores,
+      orders: {
+        used: usage.total_orders_this_month || 0,
+        limit: usage.max_orders_per_month === -1 ? Infinity : usage.max_orders_per_month,
+        percentage: ordersPercentage,
+      },
+      products: {
+        used: usage.total_products || 0,
+        limit: usage.max_products === -1 ? Infinity : usage.max_products,
+        percentage: productsPercentage,
+      },
+      users: {
+        used: usage.total_users || 0,
+        limit: usage.max_users === -1 ? Infinity : usage.max_users,
+        percentage: usersPercentage,
+      },
+      storeDetails,
+    };
+  } catch (error: any) {
+    console.error('[Stripe] Exception getting user usage:', error.message);
+    return {
+      stores: 0,
+      maxStores: 1,
+      orders: { used: 0, limit: 50, percentage: 0 },
+      products: { used: 0, limit: 100, percentage: 0 },
+      users: { used: 0, limit: 1, percentage: 0 },
+    };
+  }
+}
+
+/**
+ * Get store usage stats (kept for backwards compatibility)
+ * Note: This now returns usage for the specific store only
  */
 export async function getStoreUsage(storeId: string): Promise<{
   orders: { used: number; limit: number; percentage: number };
@@ -976,27 +1143,20 @@ export async function processReferralConversion(
     source_referral_id: referral.id,
   });
 
-  // Get referrer's subscription to apply credit
-  const { data: referrerStore } = await supabaseAdmin
-    .from('user_stores')
-    .select('store_id')
+  // Get referrer's subscription to apply credit (now user-level)
+  const { data: subscription } = await supabaseAdmin
+    .from('subscriptions')
+    .select('stripe_customer_id')
     .eq('user_id', referral.referrer_user_id)
+    .eq('is_primary', true)
     .single();
 
-  if (referrerStore) {
-    const { data: subscription } = await supabaseAdmin
-      .from('subscriptions')
-      .select('stripe_customer_id')
-      .eq('store_id', referrerStore.store_id)
-      .single();
-
-    if (subscription?.stripe_customer_id) {
-      await applyReferralCredit(
-        subscription.stripe_customer_id,
-        referral.referrer_credit_amount_cents || 1000,
-        referral.id
-      );
-    }
+  if (subscription?.stripe_customer_id) {
+    await applyReferralCredit(
+      subscription.stripe_customer_id,
+      referral.referrer_credit_amount_cents || 1000,
+      referral.id
+    );
   }
 }
 
@@ -1015,6 +1175,8 @@ export default {
   createStripeDiscount,
   validateDiscountCode,
   validateReferralCode,
+  getUserSubscription,  // ⬅️ New function
+  getUserUsage,  // ⬅️ New function
   getStorePlan,
   getStoreUsage,
   hasFeatureAccess,

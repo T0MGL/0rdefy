@@ -114,14 +114,14 @@ INSERT INTO plan_limits (
    30, true, 2900, 28800, true, 14),
 
   -- GROWTH: $79/month, $792/year ($66/month)
-  ('growth', 10, 2000, 2000, 1, 1,
+  ('growth', 10, 2000, 2000, 3, 1,
    true, true, true, true, true,
    true, true, true, true, false,
    true, true, true, false, false,
    365, true, 7900, 79200, true, 14),
 
   -- PROFESSIONAL: $169/month, $1,704/year ($142/month)
-  ('professional', 25, 10000, -1, 3, -1,
+  ('professional', 25, 10000, -1, 10, -1,
    true, true, true, true, true,
    true, true, true, true, true,
    true, true, true, true, true,

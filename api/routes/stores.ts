@@ -165,69 +165,33 @@ storesRouter.post('/', verifyToken, async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // Get user's current stores where they are OWNER
-        const { data: userOwnerStores, error: ownerStoresError } = await supabaseAdmin
-            .from('user_stores')
-            .select(`
-                store_id,
-                role,
-                stores!inner(subscription_plan)
-            `)
-            .eq('user_id', req.userId)
-            .eq('role', 'owner')
-            .eq('is_active', true);
+        // Check if user can create more stores (user-level subscription)
+        const { data: canCreateResult, error: canCreateError } = await supabaseAdmin
+            .rpc('can_create_store', {
+                p_user_id: req.userId
+            });
 
-        if (ownerStoresError) {
-            throw ownerStoresError;
+        if (canCreateError) {
+            console.error('[POST /api/stores] Error checking store limit:', canCreateError);
+            throw canCreateError;
         }
 
-        // If user is not owner of any store, they can create their first one
-        // Otherwise, check the plan limits from their highest plan
-        if (userOwnerStores && userOwnerStores.length > 0) {
-            // Get plan limits for the user's stores
-            const storePlans = userOwnerStores.map((us: any) => us.stores?.subscription_plan || 'free');
+        const canCreate = canCreateResult && canCreateResult.length > 0 ? canCreateResult[0] : null;
 
-            // Check highest plan's max_stores limit
-            const { data: planLimits, error: planLimitsError } = await supabaseAdmin
-                .from('plan_limits')
-                .select('plan, max_stores')
-                .in('plan', storePlans);
+        if (!canCreate || !canCreate.can_create) {
+            const planNames: Record<number, string> = {
+                1: 'Free, Starter o Growth',
+                3: 'Professional'
+            };
+            const planName = planNames[canCreate?.max_stores || 1] || canCreate?.plan || 'tu plan actual';
 
-            if (planLimitsError) {
-                throw planLimitsError;
-            }
-
-            // Find the highest max_stores among user's plans
-            let maxStoresAllowed = 1; // Default
-            if (planLimits) {
-                for (const limit of planLimits) {
-                    if (limit.max_stores === -1) {
-                        // -1 means unlimited
-                        maxStoresAllowed = Infinity;
-                        break;
-                    }
-                    if (limit.max_stores > maxStoresAllowed) {
-                        maxStoresAllowed = limit.max_stores;
-                    }
-                }
-            }
-
-            const currentStoreCount = userOwnerStores.length;
-
-            if (currentStoreCount >= maxStoresAllowed) {
-                const planNames: Record<number, string> = {
-                    1: 'Free, Starter o Growth',
-                    3: 'Professional'
-                };
-                const currentPlanName = planNames[maxStoresAllowed] || 'tu plan actual';
-
-                return res.status(403).json({
-                    error: 'Store limit reached',
-                    message: `Has alcanzado el límite de ${maxStoresAllowed} tienda(s) para ${currentPlanName}. Actualiza tu plan para crear más tiendas.`,
-                    current_stores: currentStoreCount,
-                    max_stores: maxStoresAllowed
-                });
-            }
+            return res.status(403).json({
+                error: 'Store limit reached',
+                message: canCreate?.reason || `Has alcanzado el límite de tiendas para ${planName}. Actualiza tu plan para crear más tiendas.`,
+                current_stores: canCreate?.current_stores || 0,
+                max_stores: canCreate?.max_stores || 1,
+                plan: canCreate?.plan || 'free'
+            });
         }
 
         // Create the store
