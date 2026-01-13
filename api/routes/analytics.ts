@@ -623,14 +623,19 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         if (productIds.size > 0) {
             const { data: productsData } = await supabaseAdmin
                 .from('products')
-                .select('id, cost')
+                .select('id, cost, packaging_cost, additional_costs')
                 .in('id', Array.from(productIds))
                 .eq('store_id', req.storeId);
 
             if (productsData) {
                 productsData.forEach(product => {
                     if (product.id) {
-                        productCostMap.set(product.id, Number(product.cost) || 0);
+                        // Calculate total unit cost including packaging and extras
+                        const baseCost = Number(product.cost) || 0;
+                        const packaging = Number(product.packaging_cost) || 0;
+                        const additional = Number(product.additional_costs) || 0;
+                        const totalUnitCost = baseCost + packaging + additional;
+                        productCostMap.set(product.id, totalUnitCost);
                     }
                 });
             }
@@ -1292,14 +1297,19 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
         if (productIds.size > 0) {
             const { data: productsData } = await supabaseAdmin
                 .from('products')
-                .select('id, cost')
+                .select('id, cost, packaging_cost, additional_costs')
                 .in('id', Array.from(productIds))
                 .eq('store_id', req.storeId);
 
             if (productsData) {
                 productsData.forEach(product => {
                     if (product.id) {
-                        productCostMap.set(product.id, Number(product.cost) || 0);
+                        // Calculate total unit cost including packaging and extras
+                        const baseCost = Number(product.cost) || 0;
+                        const packaging = Number(product.packaging_cost) || 0;
+                        const additional = Number(product.additional_costs) || 0;
+                        const totalUnitCost = baseCost + packaging + additional;
+                        productCostMap.set(product.id, totalUnitCost);
                     }
                 });
             }

@@ -18,14 +18,16 @@ unifiedRouter.use(verifyToken);
 // Helper: Get user's accessible store IDs
 const getUserStoreIds = async (userId: string) => {
     // In a real implementation with RLS, this might be implicit,
-    // but here we explicit fetch mapping if needed. 
+    // but here we explicit fetch mapping if needed.
     // Assuming 'verifyToken' populates req.user.id and we can trust the 'stores' claim or fetch fresh.
 
     // For safety, let's fetch fresh store list for this user
+    // IMPORTANT: Only fetch active store relationships (is_active = true)
     const { data: userStores, error } = await supabaseAdmin
         .from('user_stores')
         .select('store_id')
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('is_active', true);
 
     if (error || !userStores) return [];
     return userStores.map(s => s.store_id);
@@ -164,8 +166,8 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 payment_status,
                 created_at,
                 store_id,
+                carrier_id,
                 stores (name),
-                carriers!orders_carrier_id_fkey (name),
                 order_line_items (product_name, quantity)
             `, { count: 'exact' })
             .in('store_id', storeIds)
@@ -183,6 +185,24 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
         }
         console.log(`[GET /api/unified/orders] Fetched ${data?.length} orders (Total: ${count})`);
 
+        // Fetch carrier names for all unique carrier_ids
+        const carrierIds = [...new Set(data?.map((o: any) => o.carrier_id).filter(Boolean))];
+        let carriersMap: { [key: string]: string } = {};
+
+        if (carrierIds.length > 0) {
+            const { data: carriers } = await supabaseAdmin
+                .from('carriers')
+                .select('id, name')
+                .in('id', carrierIds);
+
+            if (carriers) {
+                carriersMap = carriers.reduce((acc: any, c: any) => {
+                    acc[c.id] = c.name;
+                    return acc;
+                }, {});
+            }
+        }
+
         const transformed = data.map(order => {
             // Construct product string
             const productStr = order.order_line_items
@@ -190,7 +210,6 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 .join(', ') || 'Sin productos';
 
             // Safely access array properties from join
-            const carrierData = Array.isArray(order.carriers) ? order.carriers[0] : order.carriers;
             const storeData = Array.isArray(order.stores) ? order.stores[0] : order.stores;
 
             return {
@@ -198,7 +217,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 order_number: order.order_number,
                 customer: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim(),
                 product: productStr,
-                carrier: carrierData?.name || 'Pendiente',
+                carrier: order.carrier_id ? (carriersMap[order.carrier_id] || 'Pendiente') : 'Pendiente',
                 total: order.total_price,
                 status: order.sleeves_status,
                 payment_status: order.payment_status,

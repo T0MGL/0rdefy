@@ -1003,107 +1003,94 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
         });
 
         // ================================================================
-        // Find or create customer (same logic as Shopify webhook)
+        // Find or create customer using atomic function (prevents race conditions)
         // ================================================================
         let customerId: string | null = null;
 
         try {
-            // 1. Search by phone first (priority)
-            if (customer_phone) {
-                const { data: existingByPhone } = await supabaseAdmin
-                    .from('customers')
-                    .select('id, first_name, last_name, email, phone')
-                    .eq('store_id', req.storeId)
-                    .eq('phone', customer_phone)
-                    .maybeSingle();
-
-                if (existingByPhone) {
-                    customerId = existingByPhone.id;
-                    console.log(`📞 [ORDERS] Found existing customer by phone: ${customerId}`);
-
-                    // Update customer info if changed
-                    const updateData: any = { updated_at: new Date().toISOString() };
-                    if (customer_first_name && customer_first_name !== existingByPhone.first_name) {
-                        updateData.first_name = customer_first_name;
-                    }
-                    if (customer_last_name && customer_last_name !== existingByPhone.last_name) {
-                        updateData.last_name = customer_last_name;
-                    }
-                    if (customer_email && customer_email !== existingByPhone.email) {
-                        updateData.email = customer_email;
-                    }
-
-                    if (Object.keys(updateData).length > 1) {
-                        await supabaseAdmin
-                            .from('customers')
-                            .update(updateData)
-                            .eq('id', customerId);
-                        console.log(`🔄 [ORDERS] Updated customer info for: ${customerId}`);
-                    }
-                }
-            }
-
-            // 2. If not found by phone, search by email
-            if (!customerId && customer_email) {
-                const { data: existingByEmail } = await supabaseAdmin
-                    .from('customers')
-                    .select('id, first_name, last_name, email, phone')
-                    .eq('store_id', req.storeId)
-                    .eq('email', customer_email)
-                    .maybeSingle();
-
-                if (existingByEmail) {
-                    customerId = existingByEmail.id;
-                    console.log(`📧 [ORDERS] Found existing customer by email: ${customerId}`);
-
-                    // Update customer info if changed
-                    const updateData: any = { updated_at: new Date().toISOString() };
-                    if (customer_first_name && customer_first_name !== existingByEmail.first_name) {
-                        updateData.first_name = customer_first_name;
-                    }
-                    if (customer_last_name && customer_last_name !== existingByEmail.last_name) {
-                        updateData.last_name = customer_last_name;
-                    }
-                    if (customer_phone && customer_phone !== existingByEmail.phone) {
-                        updateData.phone = customer_phone;
-                    }
-
-                    if (Object.keys(updateData).length > 1) {
-                        await supabaseAdmin
-                            .from('customers')
-                            .update(updateData)
-                            .eq('id', customerId);
-                        console.log(`🔄 [ORDERS] Updated customer info for: ${customerId}`);
-                    }
-                }
-            }
-
-            // 3. If customer doesn't exist, create new one
-            if (!customerId) {
-                const newCustomerData = {
-                    store_id: req.storeId,
-                    first_name: customer_first_name || null,
-                    last_name: customer_last_name || null,
-                    email: customer_email || null,
-                    phone: customer_phone || null,
-                    total_orders: 0,
-                    total_spent: 0,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                };
-
-                const { data: newCustomer, error: customerError } = await supabaseAdmin
-                    .from('customers')
-                    .insert(newCustomerData)
-                    .select('id')
-                    .single();
+            // Use atomic RPC function to prevent race conditions
+            // when two orders with same phone/email are created simultaneously
+            if (customer_phone || customer_email) {
+                const { data: customerResult, error: customerError } = await supabaseAdmin
+                    .rpc('find_or_create_customer_atomic', {
+                        p_store_id: req.storeId,
+                        p_phone: customer_phone || null,
+                        p_email: customer_email || null,
+                        p_first_name: customer_first_name || null,
+                        p_last_name: customer_last_name || null,
+                        p_address: customer_address || null,
+                        p_city: null,
+                        p_country: 'Paraguay'
+                    });
 
                 if (customerError) {
-                    console.error('⚠️ [ORDERS] Failed to create customer:', customerError);
-                    // Non-blocking: continue with order creation even if customer creation fails
+                    console.error('⚠️ [ORDERS] Failed to find/create customer via RPC:', customerError);
+                    // Fallback to legacy method if RPC not available
+                    const { data: existingByPhone } = await supabaseAdmin
+                        .from('customers')
+                        .select('id')
+                        .eq('store_id', req.storeId)
+                        .or(`phone.eq.${customer_phone},email.eq.${customer_email}`)
+                        .maybeSingle();
+
+                    if (existingByPhone) {
+                        customerId = existingByPhone.id;
+                    } else {
+                        const { data: newCustomer } = await supabaseAdmin
+                            .from('customers')
+                            .insert({
+                                store_id: req.storeId,
+                                first_name: customer_first_name || null,
+                                last_name: customer_last_name || null,
+                                email: customer_email || null,
+                                phone: customer_phone || null,
+                                total_orders: 0,
+                                total_spent: 0
+                            })
+                            .select('id')
+                            .single();
+                        if (newCustomer) customerId = newCustomer.id;
+                    }
                 } else {
-                    customerId = newCustomer.id;
-                    console.log(`✅ [ORDERS] Created new customer: ${customerId}`);
+                    customerId = customerResult;
+                    console.log(`✅ [ORDERS] Customer (atomic): ${customerId}`);
+                }
+
+                // Update customer info if we have additional data
+                if (customerId) {
+                    const { data: existingCustomer } = await supabaseAdmin
+                        .from('customers')
+                        .select('first_name, last_name, email, phone, address')
+                        .eq('id', customerId)
+                        .single();
+
+                    if (existingCustomer) {
+                        const updateData: any = {};
+                        if (customer_first_name && customer_first_name !== existingCustomer.first_name) {
+                            updateData.first_name = customer_first_name;
+                        }
+                        if (customer_last_name && customer_last_name !== existingCustomer.last_name) {
+                            updateData.last_name = customer_last_name;
+                        }
+                        if (customer_email && customer_email !== existingCustomer.email) {
+                            updateData.email = customer_email;
+                        }
+                        if (customer_phone && customer_phone !== existingCustomer.phone) {
+                            updateData.phone = customer_phone;
+                        }
+                        if (customer_address && customer_address !== existingCustomer.address) {
+                            updateData.address = customer_address;
+                        }
+
+                        if (Object.keys(updateData).length > 0) {
+                            updateData.updated_at = new Date().toISOString();
+                            await supabaseAdmin
+                                .from('customers')
+                                .update(updateData)
+                                .eq('id', customerId);
+                            console.log(`🔄 [ORDERS] Updated customer info for: ${customerId}`);
+                        }
+                    }
                 }
             }
         } catch (customerErr) {

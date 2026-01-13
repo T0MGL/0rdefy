@@ -219,9 +219,10 @@ export default function Products() {
   const handleSubmit = async (data: any) => {
     try {
       if (selectedProduct) {
+        const totalCost = data.cost + (data.packaging_cost || 0) + (data.additional_costs || 0);
         const updatedProduct = await productsService.update(selectedProduct.id, {
           ...data,
-          profitability: ((data.price - data.cost) / data.price * 100).toFixed(1),
+          profitability: ((data.price - totalCost) / data.price * 100).toFixed(1),
           sales: selectedProduct.sales,
         });
 
@@ -246,9 +247,10 @@ export default function Products() {
           description: 'El producto ha sido importado exitosamente desde Shopify.',
         });
       } else {
+        const totalCost = data.cost + (data.packaging_cost || 0) + (data.additional_costs || 0);
         const newProduct = await productsService.create({
           ...data,
-          profitability: ((data.price - data.cost) / data.price * 100).toFixed(1),
+          profitability: ((data.price - totalCost) / data.price * 100).toFixed(1),
           sales: 0,
         });
 
