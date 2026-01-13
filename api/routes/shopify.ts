@@ -30,20 +30,25 @@ export const shopifyRouter = Router();
  * Custom App integrations have api_secret_key populated in DB
  */
 function getWebhookSecret(integration: any): { secret: string | null; source: string } {
-  // Check if this is an OAuth integration by verifying if scope exists
-  const isOAuth = integration.scope && integration.scope.trim() !== '';
-
-  if (isOAuth) {
-    // OAuth integration: Use Public App secret from environment
-    const secret = process.env.SHOPIFY_API_SECRET?.trim() || null;
-    return { secret, source: 'env (OAuth Public App)' };
-  } else {
-    // Custom App integration: Use webhook_signature (API Secret Key) from database
-    // For Custom Apps, webhook_signature contains the API Secret Key used to verify HMAC
-    // Note: api_secret_key contains the Admin API access token (different purpose)
-    const secret = integration.webhook_signature?.trim() || null;
-    return { secret, source: 'database (Custom App webhook_signature)' };
+  // Priority 1: Custom Apps (Dev Dashboard 2026) - use webhook_signature from database
+  // These have is_custom_app=true and use their own Client Secret for HMAC
+  if (integration.is_custom_app === true) {
+    const secret = integration.webhook_signature?.trim() || integration.api_secret_key?.trim() || null;
+    return { secret, source: 'database (Custom App - Dev Dashboard 2026)' };
   }
+
+  // Priority 2: Legacy Custom Apps (pre-2026) - no scope but have webhook_signature
+  // These have no scope and use api_secret_key for HMAC
+  const hasScope = integration.scope && integration.scope.trim() !== '';
+  if (!hasScope && integration.webhook_signature) {
+    const secret = integration.webhook_signature?.trim() || null;
+    return { secret, source: 'database (Legacy Custom App)' };
+  }
+
+  // Priority 3: OAuth Apps (Ordefy official app) - use SHOPIFY_API_SECRET from .env
+  // These have scope and use the official app's API secret
+  const secret = process.env.SHOPIFY_API_SECRET?.trim() || null;
+  return { secret, source: 'env (OAuth Public App)' };
 }
 
 // ================================================================
