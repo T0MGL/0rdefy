@@ -6,20 +6,21 @@
     <title>Ordefy - Panel de Gestión de E-commerce</title>
     <meta name="description" content="Plataforma profesional de gestión de e-commerce. Gestiona pedidos, productos, inventario y estadísticas en un solo lugar. Desarrollado por Bright Idea." />
     <meta name="author" content="Bright Idea" />
-    <meta name="theme-color" content="hsl(0, 0%, 98%)" />
+    <meta name="theme-color" content="hsl(240, 10%, 8%)" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
 
-    <!-- Prevent flash of unstyled content for dark mode -->
+    <!-- Prevent flash of unstyled content - dark mode is default -->
     <script>
       (function() {
         const theme = localStorage.getItem('theme');
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        if (theme === 'dark' || (!theme && prefersDark)) {
+        // Dark mode is the default theme
+        if (theme === 'light') {
+          document.documentElement.classList.add('light');
+          document.querySelector('meta[name="theme-color"]')?.setAttribute('content', 'hsl(0, 0%, 98%)');
+        } else {
+          // Default to dark (including when no theme is set)
           document.documentElement.classList.add('dark');
           document.querySelector('meta[name="theme-color"]')?.setAttribute('content', 'hsl(240, 10%, 8%)');
-        } else {
-          document.documentElement.classList.add('light');
         }
       })();
     </script>

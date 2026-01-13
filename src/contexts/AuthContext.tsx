@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
+import { safeJsonParse } from '@/lib/utils';
 
 // ================================================================
 // Permission System Types and Constants
@@ -223,8 +224,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const savedStoreId = localStorage.getItem('current_store_id');
 
     if (token && savedUser) {
-      try {
-        const parsedUser = JSON.parse(savedUser);
+      // Use safeJsonParse to prevent crashes from corrupted localStorage data
+      const parsedUser = safeJsonParse<User | null>(savedUser, null);
+
+      if (parsedUser) {
         console.log('✅ [AUTH] Found existing session:', parsedUser.email);
 
         setUser(parsedUser);
@@ -237,8 +240,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setCurrentStore(parsedUser.stores[0]);
           localStorage.setItem('current_store_id', parsedUser.stores[0].id);
         }
-      } catch (error) {
-        console.error('❌ [AUTH] Failed to parse saved user:', error);
+      } else {
+        // Parse failed - clear corrupted data
+        console.error('❌ [AUTH] Failed to parse saved user data - clearing session');
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user');
       }

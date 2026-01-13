@@ -11,6 +11,7 @@ import { AuthProvider, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
+import { GlobalViewProvider } from "@/contexts/GlobalViewContext";
 // OnboardingTourProvider removed - using DemoTourProvider only
 import { DemoTourProvider } from "@/components/demo-tour/DemoTourProvider";
 import { PrivateRoute } from "@/components/PrivateRoute";
@@ -81,6 +82,16 @@ const queryClient = new QueryClient({
   },
 });
 
+// Skip link component for accessibility
+const SkipLink = () => (
+  <a
+    href="#main-content"
+    className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+  >
+    Saltar al contenido principal
+  </a>
+);
+
 // Layout wrapper component to avoid duplication
 const AppLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
   children: React.ReactNode;
@@ -88,10 +99,11 @@ const AppLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
   onToggleSidebar: () => void;
 }) => (
   <div className="flex min-h-screen w-full bg-background">
+    <SkipLink />
     <Sidebar collapsed={sidebarCollapsed} onToggle={onToggleSidebar} />
     <div className="flex-1 flex flex-col min-w-0">
       <Header />
-      <main className="flex-1 p-6 overflow-auto">
+      <main id="main-content" className="flex-1 p-4 sm:p-6 overflow-auto" tabIndex={-1}>
         <Suspense fallback={<CardSkeleton count={3} />}>
           {children}
         </Suspense>
@@ -144,6 +156,7 @@ const App = () => {
                   <SubscriptionProvider>
                     <PlanLimitHandler />
                     <DateRangeProvider>
+                      <GlobalViewProvider>
                         <DemoTourProvider>
                         <ErrorBoundary>
                           <OnboardingGuard>
@@ -223,6 +236,7 @@ const App = () => {
                         </OnboardingGuard>
                         </ErrorBoundary>
                         </DemoTourProvider>
+                      </GlobalViewProvider>
                     </DateRangeProvider>
                   </SubscriptionProvider>
                 </AuthProvider>

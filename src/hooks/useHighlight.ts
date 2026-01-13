@@ -18,7 +18,7 @@ export function useHighlight() {
       setHighlightId(id);
 
       // Auto-scroll to highlighted element after a short delay
-      setTimeout(() => {
+      const scrollTimer = setTimeout(() => {
         const element = document.getElementById(`item-${id}`);
         if (element) {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -26,11 +26,15 @@ export function useHighlight() {
       }, 300);
 
       // Auto-clear highlight after 5 seconds
-      const timer = setTimeout(() => {
+      const clearTimer = setTimeout(() => {
         clearHighlight();
       }, 5000);
 
-      return () => clearTimeout(timer);
+      // Cleanup both timers on unmount or dependency change
+      return () => {
+        clearTimeout(scrollTimer);
+        clearTimeout(clearTimer);
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);

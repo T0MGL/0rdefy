@@ -9,6 +9,7 @@ import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { Bell, ChevronDown, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
+import { GlobalViewToggle } from './GlobalViewToggle';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { adsService } from '@/services/ads.service';
@@ -36,6 +37,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
 import { StoreSwitcher } from './StoreSwitcher';
+import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -48,9 +50,13 @@ const dateRanges = [
 
 export function Header() {
   const navigate = useNavigate();
-  const { signOut, user } = useAuth();
+  const { signOut, user, stores } = useAuth();
   const { hasFeature } = useSubscription();
   const { selectedRange, setSelectedRange, customRange, setCustomRange } = useDateRange();
+  const { globalViewEnabled, setGlobalViewEnabled } = useGlobalView();
+
+  // Check if user has multiple stores (2 or more)
+  const hasMultipleStores = (stores?.length || 0) >= 2;
 
   // Check if user has smart alerts feature (Growth+ plan)
   const hasSmartAlerts = hasFeature('smart_alerts');
@@ -210,35 +216,49 @@ export function Header() {
   return (
     <header className="h-16 border-b border-border bg-card sticky top-0 z-40 shadow-sm">
       <div className="h-full px-6 flex items-center justify-between">
-        {/* Welcome Message */}
-        <div>
-          <h1 className="text-2xl font-bold text-card-foreground">
+        {/* Welcome Message - Hidden on very small screens */}
+        <div className="hidden sm:block">
+          <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-card-foreground truncate max-w-[200px] md:max-w-none">
             Hola, {user?.name || user?.email?.split('@')[0] || 'Usuario'}! 👋
           </h1>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-3">
-          {/* Store Switcher */}
-          <StoreSwitcher />
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Global View Toggle - Only shows for users with 2+ stores - Hidden on mobile */}
+          {hasMultipleStores && (
+            <div className="hidden md:block">
+              <GlobalViewToggle
+                enabled={globalViewEnabled}
+                onToggle={setGlobalViewEnabled}
+              />
+            </div>
+          )}
 
-          {/* Global Search */}
-          <GlobalSearch />
+          {/* Store Switcher - Hidden on small mobile */}
+          <div className="hidden sm:block">
+            <StoreSwitcher />
+          </div>
 
-          {/* Date Selector */}
+          {/* Global Search - Hidden on mobile */}
+          <div className="hidden md:block">
+            <GlobalSearch />
+          </div>
+
+          {/* Date Selector - Simplified on mobile */}
           <div className="flex items-center gap-2">
             <Popover open={showCalendar} onOpenChange={setShowCalendar}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2 h-9 px-3 bg-card">
+                  <Button variant="outline" size="sm" className="gap-1 sm:gap-2 h-10 min-h-[44px] px-2 sm:px-3 bg-card">
                     <Calendar size={16} className="text-muted-foreground" />
-                    <span className="text-sm">
+                    <span className="text-sm hidden sm:inline">
                       {selectedRange === 'custom' && customRange
                         ? getCustomLabel()
                         : dateRanges.find((r) => r.value === selectedRange)?.label
                       }
                     </span>
-                    <ChevronDown size={14} className="text-muted-foreground" />
+                    <ChevronDown size={14} className="text-muted-foreground hidden sm:block" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
@@ -319,8 +339,13 @@ export function Header() {
           {/* Notifications */}
           <DropdownMenu open={notifOpen} onOpenChange={handleNotificationOpen}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative h-9 w-9">
-                <Bell size={18} className="text-muted-foreground" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-10 w-10 min-h-[44px] min-w-[44px]"
+                aria-label={`Notificaciones${unreadCount > 0 ? `, ${unreadCount} sin leer` : ''}`}
+              >
+                <Bell size={20} className="text-muted-foreground" />
                 {(unreadCount > 0 || criticalAlerts > 0) && (
                   <Badge className={cn(
                     "absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] border-2 border-card",
@@ -334,7 +359,7 @@ export function Header() {
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[340px]">
+            <DropdownMenuContent align="end" className="w-[340px] max-w-[calc(100vw-24px)]">
               <div className="flex items-center justify-between px-3 py-2">
                 <DropdownMenuLabel className="p-0">Notificaciones</DropdownMenuLabel>
                 {unreadCount > 0 && (
@@ -419,17 +444,17 @@ export function Header() {
           {/* User Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2 pl-1 pr-3 h-9">
-                <Avatar className="h-7 w-7">
+              <Button variant="ghost" className="gap-1 sm:gap-2 pl-1 pr-2 sm:pr-3 h-10 min-h-[44px]" aria-label="Menú de usuario">
+                <Avatar className="h-8 w-8">
                   {(user as any)?.avatar_url ? (
-                    <AvatarImage src={(user as any).avatar_url} alt="Profile" />
+                    <AvatarImage src={(user as any).avatar_url} alt="Foto de perfil" />
                   ) : (
                     <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
                       {user?.user_metadata?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
                     </AvatarFallback>
                   )}
                 </Avatar>
-                <ChevronDown size={14} className="text-muted-foreground" />
+                <ChevronDown size={14} className="text-muted-foreground hidden sm:block" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { Store, AlertCircle, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { safeJsonParse } from '@/lib/utils';
 
 interface ShopifyOAuthConnectProps {
   open: boolean;
@@ -64,7 +65,7 @@ export function ShopifyOAuthConnect({ open, onOpenChange }: ShopifyOAuthConnectP
     try {
       // Get user and store IDs from localStorage
       const storeId = localStorage.getItem('current_store_id');
-      const userId = JSON.parse(localStorage.getItem('user') || '{}')?.id;
+      const userId = safeJsonParse<{ id?: string }>(localStorage.getItem('user'), {})?.id;
 
       // Build OAuth installation URL
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';

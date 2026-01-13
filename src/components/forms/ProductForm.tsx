@@ -165,17 +165,31 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
         }
       );
       onSubmit(product);
+      // Reset only on success
+      setSelectedProduct('');
+      setSelectedVariant('');
+      setShopifyCost(undefined);
+      setShopifyPackagingCost(0);
+      setShopifyAdditionalCosts(0);
+      setShopifyIsService(false);
     } catch (error: any) {
       console.error('Error creating product:', error);
-      alert(error.message || 'Error al agregar el producto');
+      // Error is thrown back to parent - don't reset form state
+      throw error;
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleManualSubmit = (data: ManualProductFormValues) => {
-    onSubmit(data);
-    form.reset();
+  const handleManualSubmit = async (data: ManualProductFormValues) => {
+    try {
+      await onSubmit(data);
+      // Only reset form after successful submission
+      form.reset();
+    } catch (error) {
+      // Error handled by parent, form state preserved for retry
+      console.error('Error submitting product form:', error);
+    }
   };
 
   const selectedProductData = shopifyProducts.find(p => p.id === selectedProduct);

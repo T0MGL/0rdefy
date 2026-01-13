@@ -11,9 +11,9 @@ import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { UsageLimitsIndicator } from '@/components/UsageLimitsIndicator';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
-import { GlobalViewToggle } from '@/components/GlobalViewToggle';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
@@ -46,24 +46,18 @@ import {
   Legend,
 } from 'recharts';
 
-// Storage key for global view preference
-const GLOBAL_VIEW_STORAGE_KEY = 'dashboard_global_view';
-
 export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [showSecondaryMetrics, setShowSecondaryMetrics] = useState(false);
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
-  // Global View state
-  const { user } = useAuth();
-  const [globalViewEnabled, setGlobalViewEnabled] = useState(() => {
-    const saved = localStorage.getItem(GLOBAL_VIEW_STORAGE_KEY);
-    return saved === 'true';
-  });
+  // Global View state from context (toggle is now in Header)
+  const { stores } = useAuth();
+  const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
 
-  // Check if user has multiple stores
-  const hasMultipleStores = (user?.stores?.length || 0) > 1;
+  // Check if user has multiple stores (2 or more)
+  const hasMultipleStores = (stores?.length || 0) >= 2;
 
   // Use global date range context
   const { getDateRange } = useDateRange();
@@ -71,12 +65,6 @@ export default function Dashboard() {
   // Real analytics data
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
-
-  // Handle global view toggle
-  const handleGlobalViewToggle = useCallback((enabled: boolean) => {
-    setGlobalViewEnabled(enabled);
-    localStorage.setItem(GLOBAL_VIEW_STORAGE_KEY, String(enabled));
-  }, []);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -103,7 +91,6 @@ export default function Dashboard() {
       };
 
       const useGlobalView = globalViewEnabled && hasMultipleStores;
-      console.log('📊 Loading dashboard data with params:', dateParams, 'Global View:', useGlobalView);
 
       let overview: DashboardOverview | null;
       let chart: ChartData[];
@@ -132,7 +119,6 @@ export default function Dashboard() {
 
       // Check if request was aborted before updating state
       if (signal?.aborted) {
-        console.log('Dashboard data load was cancelled');
         return;
       }
 
@@ -141,10 +127,9 @@ export default function Dashboard() {
     } catch (error: any) {
       // Ignore abort errors
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
-        console.log('Dashboard data load was cancelled');
         return;
       }
-      console.error('Error loading dashboard data:', error);
+      console.error('[Dashboard] Error loading data:', error);
     } finally {
       if (!signal?.aborted) {
         setIsLoading(false);
@@ -171,15 +156,6 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        {/* Show toggle even while loading */}
-        {hasMultipleStores && (
-          <div className="flex items-center gap-4">
-            <GlobalViewToggle
-              enabled={globalViewEnabled}
-              onToggle={handleGlobalViewToggle}
-            />
-          </div>
-        )}
         <DailySummary />
         <QuickActions />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -194,15 +170,6 @@ export default function Dashboard() {
   if (!dashboardOverview) {
     return (
       <div className="space-y-6">
-        {/* Show toggle even when no data */}
-        {hasMultipleStores && (
-          <div className="flex items-center gap-4">
-            <GlobalViewToggle
-              enabled={globalViewEnabled}
-              onToggle={handleGlobalViewToggle}
-            />
-          </div>
-        )}
         <DailySummary />
         <QuickActions />
         <Card className="p-6">
@@ -219,27 +186,19 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Global View Toggle - Only shows for users with multiple stores */}
-      {hasMultipleStores && (
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <GlobalViewToggle
-            enabled={globalViewEnabled}
-            onToggle={handleGlobalViewToggle}
-          />
-          {isShowingGlobalView && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Globe size={14} className="text-blue-500" />
-              <span>Mostrando datos de:</span>
-              <div className="flex flex-wrap gap-1">
-                {globalViewStores.map((store) => (
-                  <Badge key={store.id} variant="secondary" className="text-xs">
-                    <Store size={10} className="mr-1" />
-                    {store.name}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
+      {/* Global View Store Badges - Shows which stores are being aggregated */}
+      {isShowingGlobalView && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+          <Globe size={14} className="text-blue-500" />
+          <span>Vista Global activa - Mostrando datos de:</span>
+          <div className="flex flex-wrap gap-1">
+            {globalViewStores.map((store) => (
+              <Badge key={store.id} variant="secondary" className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                <Store size={10} className="mr-1" />
+                {store.name}
+              </Badge>
+            ))}
+          </div>
         </div>
       )}
 

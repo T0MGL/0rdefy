@@ -86,20 +86,26 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     },
   });
 
-  const handleSubmit = (data: OrderFormValues) => {
-    // Combine country code and phone number
-    const fullPhone = `${data.countryCode}${data.phone}`;
-    onSubmit({ ...data, phone: fullPhone });
-    form.reset({
-      customer: '',
-      countryCode: '+595',
-      phone: '',
-      address: '',
-      product: '',
-      quantity: 1,
-      carrier: '',
-      paymentMethod: 'cod',
-    });
+  const handleSubmit = async (data: OrderFormValues) => {
+    try {
+      // Combine country code and phone number
+      const fullPhone = `${data.countryCode}${data.phone}`;
+      await onSubmit({ ...data, phone: fullPhone });
+      // Only reset form after successful submission
+      form.reset({
+        customer: '',
+        countryCode: '+595',
+        phone: '',
+        address: '',
+        product: '',
+        quantity: 1,
+        carrier: '',
+        paymentMethod: 'cod',
+      });
+    } catch (error) {
+      // Error handled by parent, form state preserved for retry
+      console.error('Error submitting order form:', error);
+    }
   };
 
   return (

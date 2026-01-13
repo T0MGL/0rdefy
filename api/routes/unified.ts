@@ -359,6 +359,7 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
         }
 
         const storeIds = await getUserStoreIds(req.user.id);
+
         if (storeIds.length === 0) {
             return res.json({ data: null, stores: [] });
         }

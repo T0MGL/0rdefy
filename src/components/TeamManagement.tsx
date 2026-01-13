@@ -8,6 +8,9 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +23,14 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import {
   Select,
   SelectContent,
@@ -45,11 +55,24 @@ import {
   MessageCircle,
   Mail,
   Link2,
-  Sparkles
+  Sparkles,
+  Loader2
 } from 'lucide-react';
+import { toast } from 'sonner';
 import apiClient from '@/services/api.client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { CollaboratorStats, CollaboratorInvitation, TeamMember } from '@/types';
+
+// Validation schema for invitation form
+const inviteSchema = z.object({
+  name: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(100, 'Máximo 100 caracteres'),
+  email: z.string().trim().email('Ingresa un email válido'),
+  role: z.enum(['admin', 'logistics', 'confirmador', 'contador', 'inventario'], {
+    errorMap: () => ({ message: 'Selecciona un rol' })
+  })
+});
+
+type InviteFormValues = z.infer<typeof inviteSchema>;
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Propietario',
@@ -89,12 +112,17 @@ export function TeamManagement() {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
-  const [inviteData, setInviteData] = useState({
-    name: '',
-    email: '',
-    role: 'confirmador'
-  });
   const [inviteUrl, setInviteUrl] = useState('');
+
+  // Form with Zod validation
+  const form = useForm<InviteFormValues>({
+    resolver: zodResolver(inviteSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      role: 'confirmador'
+    }
+  });
 
   // Fetch stats
   const { data: stats } = useQuery<CollaboratorStats>({
@@ -125,7 +153,7 @@ export function TeamManagement() {
 
   // Create invitation mutation
   const createInvitation = useMutation({
-    mutationFn: async (data: typeof inviteData) => {
+    mutationFn: async (data: InviteFormValues) => {
       const res = await apiClient.post('/collaborators/invite', data);
       return res.data;
     },
@@ -133,6 +161,10 @@ export function TeamManagement() {
       setInviteUrl(data.invitation.inviteUrl);
       queryClient.invalidateQueries({ queryKey: ['collaborators', 'invitations'] });
       queryClient.invalidateQueries({ queryKey: ['collaborators', 'stats'] });
+      toast.success('Invitación creada exitosamente');
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.error || 'Error al crear la invitación');
     }
   });
 
@@ -142,13 +174,14 @@ export function TeamManagement() {
       const response = await apiClient.delete(`/collaborators/${userId}`);
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, _userId) => {
       queryClient.invalidateQueries({ queryKey: ['collaborators'] });
       queryClient.invalidateQueries({ queryKey: ['collaborators', 'stats'] });
+      toast.success('Colaborador removido del equipo');
     },
     onError: (error: any) => {
       console.error('[TeamManagement] Error removing member:', error);
-      alert(`Error al remover colaborador: ${error?.response?.data?.error || error.message}`);
+      toast.error(error?.response?.data?.error || 'Error al remover colaborador');
     }
   });
 
@@ -160,12 +193,15 @@ export function TeamManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['collaborators', 'invitations'] });
       queryClient.invalidateQueries({ queryKey: ['collaborators', 'stats'] });
+      toast.success('Invitación cancelada');
+    },
+    onError: () => {
+      toast.error('Error al cancelar la invitación');
     }
   });
 
-  const handleInvite = async (e: React.FormEvent) => {
-    e.preventDefault();
-    createInvitation.mutate(inviteData);
+  const handleInvite = (data: InviteFormValues) => {
+    createInvitation.mutate(data);
   };
 
   const copyInviteUrl = () => {
@@ -177,15 +213,17 @@ export function TeamManagement() {
   const closeInviteDialog = () => {
     setInviteOpen(false);
     setInviteUrl('');
-    setInviteData({ name: '', email: '', role: 'confirmador' });
+    form.reset();
     setCopiedUrl(false);
     setCopiedWhatsApp(false);
     setCopiedEmail(false);
     createInvitation.reset();
   };
 
+  const inviteFormValues = form.watch();
+
   const getWhatsAppMessage = () => {
-    return `Hola ${inviteData.name}!
+    return `Hola ${inviteFormValues.name}!
 
 Te invito a colaborar en mi tienda en Ordefy.
 
@@ -197,7 +235,7 @@ El link expira en 7 dias.`;
   };
 
   const getEmailMessage = () => {
-    return `Hola ${inviteData.name}!
+    return `Hola ${inviteFormValues.name}!
 
 Te invito a colaborar en mi tienda en Ordefy.
 
@@ -258,62 +296,82 @@ El link expira en 7 dias.`;
               </DialogHeader>
 
               {!inviteUrl ? (
-                <form onSubmit={handleInvite} className="space-y-4">
-                  <div>
-                    <Label htmlFor="name">Nombre Completo</Label>
-                    <Input
-                      id="name"
-                      value={inviteData.name}
-                      onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
-                      placeholder="Ej: Juan Pérez"
-                      required
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(handleInvite)} className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Nombre Completo</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Ej: Juan Pérez" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
 
-                  <div>
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={inviteData.email}
-                      onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
-                      placeholder="ejemplo@email.com"
-                      required
+                    <FormField
+                      control={form.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <Input type="email" placeholder="ejemplo@email.com" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
 
-                  <div>
-                    <Label htmlFor="role">Rol</Label>
-                    <Select
-                      value={inviteData.role}
-                      onValueChange={(value) => setInviteData({ ...inviteData, role: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="confirmador">Confirmador - Órdenes y Customers</SelectItem>
-                        <SelectItem value="logistics">Logística - Warehouse y Returns</SelectItem>
-                        <SelectItem value="contador">Contador - Analytics y Reportes</SelectItem>
-                        <SelectItem value="inventario">Inventario - Products y Suppliers</SelectItem>
-                        <SelectItem value="admin">Administrador - Acceso Completo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                    <FormField
+                      control={form.control}
+                      name="role"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Rol</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="confirmador">Confirmador - Órdenes y Customers</SelectItem>
+                              <SelectItem value="logistics">Logística - Warehouse y Returns</SelectItem>
+                              <SelectItem value="contador">Contador - Analytics y Reportes</SelectItem>
+                              <SelectItem value="inventario">Inventario - Products y Suppliers</SelectItem>
+                              <SelectItem value="admin">Administrador - Acceso Completo</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  {createInvitation.isError && (
-                    <Alert variant="destructive">
-                      <AlertCircle className="w-4 h-4" />
-                      <AlertDescription>
-                        {(createInvitation.error as any)?.response?.data?.error || 'Error al crear invitación'}
-                      </AlertDescription>
-                    </Alert>
-                  )}
+                    {createInvitation.isError && (
+                      <Alert variant="destructive">
+                        <AlertCircle className="w-4 h-4" />
+                        <AlertDescription>
+                          {(createInvitation.error as any)?.response?.data?.error || 'Error al crear invitación'}
+                        </AlertDescription>
+                      </Alert>
+                    )}
 
-                  <Button type="submit" className="w-full" disabled={createInvitation.isPending}>
-                    {createInvitation.isPending ? 'Creando...' : 'Crear Invitación'}
-                  </Button>
-                </form>
+                    <Button type="submit" className="w-full" disabled={createInvitation.isPending || form.formState.isSubmitting}>
+                      {createInvitation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creando...
+                        </>
+                      ) : (
+                        'Crear Invitación'
+                      )}
+                    </Button>
+                  </form>
+                </Form>
               ) : (
                 <div className="space-y-5">
                   {/* Success Banner */}
@@ -325,7 +383,7 @@ El link expira en 7 dias.`;
                       ¡Invitación creada!
                     </p>
                     <p className="text-sm text-green-600 dark:text-green-400">
-                      Comparte el link con <strong>{inviteData.name}</strong>
+                      Comparte el link con <strong>{inviteFormValues.name}</strong>
                     </p>
                   </div>
 
@@ -462,17 +520,13 @@ El link expira en 7 dias.`;
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={async () => {
-                            if (confirm(`¿Remover a ${member.name} del equipo?`)) {
-                              try {
-                                await removeMember.mutateAsync(member.id);
-                                alert(`${member.name} ha sido removido del equipo`);
-                              } catch (error) {
-                                // Error handling is in onError callback
-                              }
+                          onClick={() => {
+                            if (window.confirm(`¿Remover a ${member.name} del equipo?`)) {
+                              removeMember.mutate(member.id);
                             }
                           }}
                           disabled={removeMember.isPending}
+                          aria-label={`Remover a ${member.name} del equipo`}
                         >
                           <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
                         </Button>

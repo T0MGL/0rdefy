@@ -51,8 +51,15 @@ export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones, isHig
   if (carriers.length === 0) {
     return (
       <Card className="p-12 text-center bg-card">
-        <p className="text-muted-foreground">No hay repartidores registrados</p>
-        <p className="text-sm text-muted-foreground mt-2">Haz clic en "Agregar Repartidor" para comenzar</p>
+        <div className="flex flex-col items-center">
+          <div className="h-16 w-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+            <MapPin className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="text-lg font-semibold mb-2">No hay repartidores registrados</h3>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Agrega tu primer repartidor para empezar a asignar entregas y gestionar tu logística.
+          </p>
+        </div>
       </Card>
     );
   }
@@ -163,40 +170,40 @@ export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones, isHig
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
-                          title="Ver detalles"
+                          className="h-10 w-10 min-h-[44px] min-w-[44px]"
+                          aria-label={`Ver detalles de ${carrierName}`}
                         >
-                          <Eye size={16} />
+                          <Eye size={18} />
                         </Button>
                       </Link>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 hover:bg-blue-50 dark:hover:bg-blue-950"
+                        className="h-10 w-10 min-h-[44px] min-w-[44px] hover:bg-blue-50 dark:hover:bg-blue-950"
                         onClick={() => onManageZones && onManageZones(carrier)}
-                        title="Gestionar zonas"
+                        aria-label={`Gestionar zonas de ${carrierName}`}
                       >
-                        <MapPin size={16} className="text-blue-600 dark:text-blue-400" />
+                        <MapPin size={18} className="text-blue-600 dark:text-blue-400" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-10 w-10 min-h-[44px] min-w-[44px]"
                         onClick={() => handleEdit(carrier)}
-                        title="Editar repartidor"
+                        aria-label={`Editar ${carrierName}`}
                       >
-                        <Edit size={16} />
+                        <Edit size={18} />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className={`h-8 w-8 ${
+                        className={`h-10 w-10 min-h-[44px] min-w-[44px] ${
                           carrier.is_active ? 'text-primary hover:text-primary' : 'text-muted-foreground'
                         }`}
                         onClick={() => handleToggleStatus(carrier)}
-                        title={carrier.is_active ? 'Desactivar' : 'Activar'}
+                        aria-label={carrier.is_active ? `Desactivar ${carrierName}` : `Activar ${carrierName}`}
                       >
-                        <Power size={16} />
+                        <Power size={18} />
                       </Button>
                     </div>
                   </td>

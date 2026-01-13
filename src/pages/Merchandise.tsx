@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { ListCardSkeleton } from '@/components/LoadingSkeleton';
 import { onboardingService } from '@/services/onboarding.service';
 import { merchandiseService } from '@/services/merchandise.service';
 import { productsService } from '@/services/products.service';
@@ -262,9 +263,7 @@ export default function Merchandise() {
 
       {/* Shipments List */}
       {loading ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">Cargando...</p>
-        </div>
+        <ListCardSkeleton items={3} />
       ) : filteredShipments.length === 0 ? (
         <Card className="p-12 text-center">
           <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />

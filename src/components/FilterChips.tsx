@@ -23,8 +23,14 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
   useEffect(() => {
     const stored = localStorage.getItem(storageKey);
     if (stored) {
-      setSavedFilters(JSON.parse(stored));
-    } else {
+      try {
+        setSavedFilters(JSON.parse(stored));
+      } catch {
+        console.error('[FilterChips] Failed to parse saved filters');
+        // Continue with defaults on parse error
+      }
+    }
+    if (!stored) {
       // Filtros por defecto para pedidos (permanentes - no se pueden eliminar)
       const defaults: SavedFilter[] = [
         {
