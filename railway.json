@@ -1,0 +1,28 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  },
+  "crons": [
+    {
+      "schedule": "0 8 * * *",
+      "endpoint": "/api/billing/cron/expiring-trials",
+      "timeout": 60
+    },
+    {
+      "schedule": "0 9 * * *",
+      "endpoint": "/api/billing/cron/past-due-enforcement",
+      "timeout": 60
+    },
+    {
+      "schedule": "0 10 * * *",
+      "endpoint": "/api/billing/cron/process-referral-credits",
+      "timeout": 120
+    }
+  ]
+}

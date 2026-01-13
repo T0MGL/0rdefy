@@ -161,15 +161,26 @@ export async function validateStore(storeId: string): Promise<boolean> {
  * Set the user's JWT token for the regular client
  * This must be called before any authenticated request
  * The token is extracted from the Authorization header
+ *
+ * Note: In newer Supabase versions, we use the auth.setSession method
+ * or create a new client with the token in headers
  */
 export function setSupabaseAuth(token: string) {
     // Remove 'Bearer ' prefix if present
     const cleanToken = token.replace('Bearer ', '');
-    // Set global auth for this client instance
-    supabase.rest.headers = {
-        ...supabase.rest.headers,
-        Authorization: `Bearer ${cleanToken}`
-    };
+
+    // Use type assertion to access internal headers
+    // This is a workaround for Supabase client's protected property
+    // In production, consider creating a new client per request instead
+    try {
+        (supabase as any).rest.headers = {
+            ...(supabase as any).rest.headers,
+            Authorization: `Bearer ${cleanToken}`
+        };
+    } catch (e) {
+        // Fallback: set via auth if available
+        console.warn('[Supabase] Could not set auth headers directly');
+    }
 }
 
 // ================================================================

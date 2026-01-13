@@ -507,8 +507,8 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
       console.log('✅ [ORDERS] Order created:', newOrder);
 
-      const updatedOrders = await ordersService.getAll();
-      setOrders(updatedOrders);
+      const updatedOrdersResponse = await ordersService.getAll();
+      setOrders(updatedOrdersResponse.data || []);
       setDialogOpen(false);
 
       toast({
@@ -992,8 +992,8 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         }
 
         // Refresh local orders state
-        const updatedOrders = await ordersService.getAll();
-        setOrders(updatedOrders);
+        const updatedOrdersResponse = await ordersService.getAll();
+        setOrders(updatedOrdersResponse.data || []);
 
         toast({
           title: 'Impresión completada',
@@ -1825,8 +1825,8 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
           // Refresh orders list after confirmation to get full updated data
           try {
-            const data = await ordersService.getAll();
-            setOrders(data);
+            const response = await ordersService.getAll();
+            setOrders(response.data || []);
           } catch (error) {
             console.error('Error refreshing orders:', error);
             // Keep optimistic update even if refresh fails

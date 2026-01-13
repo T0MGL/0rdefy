@@ -93,10 +93,10 @@ BEGIN
         LIMIT 1
     ) INTO v_has_customer;
 
-    -- Check for order
+    -- Check for order (just check if any order exists for onboarding)
     SELECT EXISTS(
         SELECT 1 FROM orders
-        WHERE store_id = p_store_id AND is_deleted = FALSE
+        WHERE store_id = p_store_id
         LIMIT 1
     ) INTO v_has_order;
 

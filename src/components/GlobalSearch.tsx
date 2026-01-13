@@ -123,13 +123,15 @@ export function GlobalSearch() {
 
     setIsLoading(true);
     try {
-      const [ordersData, productsData, adsData, carriersData, customersData] = await Promise.all([
+      const [ordersResponse, productsData, adsData, carriersData, customersData] = await Promise.all([
         ordersService.getAll(),
         productsService.getAll(),
         adsService.getAll(),
         carriersService.getAll(),
         customersService.getAll(),
       ]);
+
+      const ordersData = ordersResponse.data || [];
 
       // Update cache
       dataCache = {

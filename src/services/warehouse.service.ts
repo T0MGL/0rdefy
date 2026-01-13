@@ -194,3 +194,54 @@ export async function completeSession(sessionId: string): Promise<PickingSession
   );
   return response.data;
 }
+
+/**
+ * Abandons a picking session and restores orders to confirmed status
+ */
+export async function abandonSession(sessionId: string, reason?: string): Promise<{
+  success: boolean;
+  session_id: string;
+  session_code: string;
+  orders_restored: number;
+  total_orders: number;
+  abandoned_at: string;
+  reason: string;
+}> {
+  const response = await apiClient.post(
+    `${BASE_URL}/sessions/${sessionId}/abandon`,
+    { reason }
+  );
+  return response.data;
+}
+
+/**
+ * Removes a single order from a picking session
+ */
+export async function removeOrderFromSession(sessionId: string, orderId: string): Promise<{
+  success: boolean;
+  order_id: string;
+  order_number: string;
+  remaining_orders: number;
+  session_abandoned: boolean;
+}> {
+  const response = await apiClient.delete(
+    `${BASE_URL}/sessions/${sessionId}/orders/${orderId}`
+  );
+  return response.data;
+}
+
+/**
+ * Gets stale sessions that may need attention
+ */
+export async function getStaleSessions(): Promise<Array<{
+  id: string;
+  code: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  inactive_hours: number;
+  staleness_level: 'OK' | 'WARNING' | 'CRITICAL';
+}>> {
+  const response = await apiClient.get(`${BASE_URL}/sessions/stale`);
+  return response.data;
+}

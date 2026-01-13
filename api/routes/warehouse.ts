@@ -295,4 +295,114 @@ router.post('/sessions/:sessionId/complete', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/warehouse/sessions/:sessionId/abandon
+ * Abandons a picking session and restores orders to confirmed status
+ * Body: { reason?: string }
+ */
+router.post('/sessions/:sessionId/abandon', async (req, res) => {
+  try {
+    const storeId = req.storeId;
+    const userId = req.userId;
+    const { sessionId } = req.params;
+    const { reason } = req.body;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    const result = await warehouseService.abandonSession(
+      sessionId,
+      storeId,
+      userId,
+      reason
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error abandoning session:', error);
+    const isValidationError = error.message?.includes('not found') ||
+                              error.message?.includes('completed') ||
+                              error.message?.includes('already');
+    res.status(isValidationError ? 400 : 500).json({
+      error: 'Failed to abandon session',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/warehouse/sessions/:sessionId/orders/:orderId
+ * Removes a single order from a session and restores it to confirmed
+ */
+router.delete('/sessions/:sessionId/orders/:orderId', async (req, res) => {
+  try {
+    const storeId = req.storeId;
+    const { sessionId, orderId } = req.params;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    const result = await warehouseService.removeOrderFromSession(
+      sessionId,
+      orderId,
+      storeId
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error removing order from session:', error);
+    res.status(500).json({
+      error: 'Failed to remove order from session',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/warehouse/cleanup-sessions
+ * Cleans up expired/stale sessions (for cron job)
+ * Query: { hours?: number } - default 48
+ */
+router.post('/cleanup-sessions', async (req, res) => {
+  try {
+    const hoursInactive = parseInt(req.query.hours as string) || 48;
+
+    const result = await warehouseService.cleanupExpiredSessions(hoursInactive);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error cleaning up sessions:', error);
+    res.status(500).json({
+      error: 'Failed to cleanup sessions',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/warehouse/sessions/stale
+ * Gets list of stale sessions that may need attention
+ */
+router.get('/sessions/stale', async (req, res) => {
+  try {
+    const storeId = req.storeId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    const staleSessions = await warehouseService.getStaleSessions(storeId);
+
+    res.json(staleSessions);
+  } catch (error) {
+    console.error('Error fetching stale sessions:', error);
+    res.status(500).json({
+      error: 'Failed to fetch stale sessions',
+      details: error.message
+    });
+  }
+});
+
 export default router;

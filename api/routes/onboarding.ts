@@ -270,12 +270,11 @@ async function computeProgressManually(storeId: string, userId: string, userRole
             .eq('store_id', storeId)
             .limit(1);
 
-        // Check orders
+        // Check orders (just check if any order exists for onboarding purposes)
         const { data: orders } = await supabaseAdmin
             .from('orders')
             .select('id')
             .eq('store_id', storeId)
-            .eq('is_deleted', false)
             .limit(1);
 
         // Check Shopify integration

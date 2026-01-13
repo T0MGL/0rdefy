@@ -58,14 +58,14 @@ export function RevenueIntelligence() {
           endDate: dateRange.endDate,
         };
 
-        const [overviewData, productsData, ordersData] = await Promise.all([
+        const [overviewData, productsData, ordersResponse] = await Promise.all([
           analyticsService.getOverview(dateParams),
           analyticsService.getTopProducts(10, dateParams),
           ordersService.getAll(),
         ]);
         setOverview(overviewData);
         setTopProducts(productsData);
-        setOrders(ordersData);
+        setOrders(ordersResponse.data || []);
       } catch (error) {
         console.error('Error loading revenue intelligence data:', error);
       } finally {

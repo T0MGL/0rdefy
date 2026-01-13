@@ -44,7 +44,7 @@ export default function CarrierDetail() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [allCarriers, allOrders] = await Promise.all([
+        const [allCarriers, ordersResponse] = await Promise.all([
           carriersService.getAll(),
           ordersService.getAll() // Fetching all orders to client-side filter. Optimize later if needed.
         ]);
@@ -52,6 +52,7 @@ export default function CarrierDetail() {
         const foundCarrier = allCarriers.find((c) => c.id === id);
         setCarrier(foundCarrier);
 
+        const allOrders = ordersResponse.data || [];
         if (foundCarrier) {
           // Filter orders for this carrier
           // Match by carrier_id if available, or fall back to name matching
@@ -182,7 +183,8 @@ export default function CarrierDetail() {
 
       // Refresh local state (Optimistic or Refetch)
       // Let's refetch to be safe and simple
-      const updatedOrders = await ordersService.getAll();
+      const updatedOrdersResponse = await ordersService.getAll();
+      const updatedOrders = updatedOrdersResponse.data || [];
       setOrders(updatedOrders.filter(o =>
         o.carrier_id === carrier.id ||
         o.carrier?.toLowerCase() === carrier.name?.toLowerCase() ||

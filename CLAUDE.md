@@ -112,7 +112,7 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 **Why ready_to_ship?** Stock decrements when picking/packing complete (physical inventory removed), not at confirmation (prevents overselling while allowing order modifications).
 
 ### Warehouse (Picking & Packing)
-**Files:** `src/pages/Warehouse.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`
+**Files:** `src/pages/Warehouse.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`
 
 **Workflow:**
 1. Dashboard: Multi-select confirmed orders → create picking session
@@ -120,11 +120,35 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 3. Packing: Split-view (basket ← → order boxes), smart highlighting
 4. Complete packing → order status = `ready_to_ship` → **stock automatically decremented** (see Inventory Management)
 
-**Features:** Batch processing, auto-generated codes (PREP-DDMMYYYY-NN format, e.g., PREP-02122025-01), progress tracking, order transitions (confirmed → in_preparation → ready_to_ship), touch-optimized, automatic stock management
+**Features:** Batch processing, auto-generated codes (PREP-DDMMYYYY-NNN format, e.g., PREP-12012026-001), progress tracking, order transitions (confirmed → in_preparation → ready_to_ship), touch-optimized, automatic stock management
 
-**Tables:** picking_sessions, picking_session_orders, picking_session_items, packing_progress
+**Tables:** picking_sessions (with last_activity_at, abandoned_at columns), picking_session_orders, picking_session_items, packing_progress
 
-**Recent Updates (Dec 2024 - Jan 2025):**
+**Session Management (Migration 058):**
+- **Session Abandonment:** `POST /api/warehouse/sessions/:id/abandon` restores orders to confirmed
+- **Order Removal:** `DELETE /api/warehouse/sessions/:id/orders/:orderId` removes single order
+- **Stale Session Cleanup:** `POST /api/warehouse/cleanup-sessions?hours=48` for cron jobs
+- **Session Code:** 3-digit format supports 999 sessions/day (was 99)
+- **Atomic Packing:** `update_packing_progress_atomic()` RPC with row locking
+- **Staleness Indicators:** UI shows WARNING (>24h) and CRITICAL (>48h) sessions
+
+**Session Recovery:**
+- Abandoned sessions: Orders restored to confirmed, can be re-picked
+- Browser close: Session remains active, user can resume from dashboard
+- Auto-cleanup: Cron job cleans sessions inactive >48h (configurable)
+
+**Cron Setup (Recommended):**
+```bash
+# Every 6 hours, cleanup sessions inactive > 48h
+0 */6 * * * curl -X POST https://api.ordefy.io/api/warehouse/cleanup-sessions?hours=48
+```
+
+**Monitoring Views:**
+- `v_stale_warehouse_sessions`: Sessions needing attention (WARNING/CRITICAL)
+- `v_orders_stuck_in_preparation`: Orders that may be orphaned
+- `v_warehouse_session_stats`: Daily completion rates and metrics
+
+**Recent Updates (Dec 2024 - Jan 2026):**
 - ✅ Fixed 500 error in picking-list endpoint (query optimization)
 - ✅ Implemented automatic stock tracking system (migration 019)
 - ✅ Improved session code format to DDMMYYYY (Latin American standard)
@@ -134,7 +158,14 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - ✅ Added shipping label print tracking (migration 017)
 - ✅ Collaborator invitation system with role-based access (migration 030)
 - ✅ Shopify order fields expansion - total_discounts, tags, timestamps (migration 033)
-- ✅ **NEW: Hard delete system for orders** - Complete cascading cleanup (migration 039)
+- ✅ Hard delete system for orders - Complete cascading cleanup (migration 039)
+- ✅ **NEW: Production-ready warehouse fixes (migration 058):**
+  - Session abandonment with order restoration
+  - 3-digit session codes (999/day capacity)
+  - Atomic packing operations with row locking
+  - Session staleness tracking and auto-cleanup
+  - Cancel Session UI button with confirmation dialog
+  - Visual indicators for stale sessions (>24h WARNING, >48h CRITICAL)
 
 ### Merchandise (Inbound Shipments)
 **Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`
@@ -198,10 +229,16 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - Orders: order_line_items (normalized line items with product mapping)
 - Sync: shopify_sync_conflicts
 
-**Cron Jobs:**
+**Cron Jobs (auto-configured via railway.json):**
 ```bash
+# Shopify (manual setup if needed)
 */5 * * * * curl -X POST /api/shopify/webhook-retry/process  # Retries
 0 3 * * * curl -X POST /api/shopify/webhook-cleanup         # Cleanup
+
+# Billing (auto-configured in railway.json - Railway handles these)
+# 0 8 * * *  /api/billing/cron/expiring-trials         # Trial reminders (3 days before)
+# 0 9 * * *  /api/billing/cron/past-due-enforcement    # Downgrade after 7-day grace
+# 0 10 * * * /api/billing/cron/process-referral-credits # Credits after 30-day wait
 ```
 
 ### Returns System (Batch Returns Processing)
@@ -421,12 +458,14 @@ WHATSAPP_VERIFICATION_ENABLED=false  # false = demo mode, true = production
 **Trial System:**
 - 14 days free trial on Starter and Growth plans
 - Card required to start trial (no charge)
-- One trial per plan per user (can't repeat)
+- **ONE trial per user lifetime** (any plan) - prevents trial abuse
 - Auto-charges at end of trial or cancels
+- Cron job sends reminder 3 days before expiration
 
 **Referral System:**
 - Each user gets unique referral code (6 chars)
-- Referrer earns $10 credit when referred user pays first month
+- **30-day waiting period** before referrer earns $10 credit (anti-abuse)
+- Credit only applied if referred user remains active after 30 days
 - Referred user gets 20% off first month
 - No limits on referral credits
 
@@ -434,6 +473,17 @@ WHATSAPP_VERIFICATION_ENABLED=false  # false = demo mode, true = production
 - Types: percentage, fixed, trial_extension
 - Restrictions: valid dates, max uses, applicable plans
 - Stored in Stripe as coupons/promotion codes
+- **Atomic increment** of usage in webhook (prevents race conditions)
+
+**Downgrade Protection:**
+- System validates current usage before allowing downgrade
+- Must reduce users/products/stores to fit new plan limits
+- Error message shows exactly what needs to be reduced
+
+**Payment Grace Period:**
+- 7-day grace period after payment failure
+- User retains access during grace period
+- Auto-downgrade to Free after grace period expires
 
 **Configuration:**
 ```bash
@@ -449,9 +499,15 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - `POST /api/billing/portal` - Open Stripe billing portal
 - `POST /api/billing/cancel` - Cancel subscription at period end
 - `POST /api/billing/reactivate` - Reactivate canceled subscription
+- `POST /api/billing/change-plan` - Change plan (validates downgrade limits)
 - `GET /api/billing/referrals` - Get referral stats
 - `POST /api/billing/referrals/generate` - Generate referral code
 - `POST /api/billing/webhook` - Stripe webhook handler
+
+**Cron Endpoints (require X-Cron-Secret header):**
+- `POST /api/billing/cron/expiring-trials` - Send reminders for trials expiring in 3 days
+- `POST /api/billing/cron/past-due-enforcement` - Downgrade subscriptions past 7-day grace period
+- `POST /api/billing/cron/process-referral-credits` - Apply credits after 30-day waiting period
 
 **Stripe Webhook Events:**
 - `checkout.session.completed` - Trial/subscription started

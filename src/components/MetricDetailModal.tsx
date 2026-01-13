@@ -37,12 +37,12 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
       const loadData = async () => {
         setIsLoading(true);
         try {
-          const [ordersData, productsData, carriersData] = await Promise.all([
+          const [ordersResponse, productsData, carriersData] = await Promise.all([
             ordersService.getAll(),
             productsService.getAll(),
             carriersService.getAll(),
           ]);
-          setOrders(ordersData);
+          setOrders(ordersResponse.data || []);
           setProducts(productsData);
           setCarriers(carriersData);
         } catch (error) {

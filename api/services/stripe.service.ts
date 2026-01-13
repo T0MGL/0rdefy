@@ -21,7 +21,7 @@ const isStripeConfigured = !!STRIPE_SECRET_KEY;
 let stripe: Stripe | null = null;
 if (isStripeConfigured) {
   stripe = new Stripe(STRIPE_SECRET_KEY, {
-    apiVersion: '2024-12-18.acacia',
+    apiVersion: '2025-02-24.acacia',
   });
   console.log('[Stripe] Initialized with API key');
 } else {
@@ -218,6 +218,7 @@ export async function getOrCreateCustomer(
 
 /**
  * Check if user can start a trial for a plan
+ * SECURITY: Only ONE trial per user (any plan) to prevent trial abuse
  */
 export async function canStartTrial(
   userId: string,
@@ -227,14 +228,27 @@ export async function canStartTrial(
     return false;
   }
 
-  const { data: existingTrial } = await supabaseAdmin
+  // SECURITY FIX: Check if user has EVER had ANY trial (not just this specific plan)
+  // This prevents users from cycling through Starter trial -> Growth trial -> etc.
+  const { data: existingTrials, error } = await supabaseAdmin
     .from('subscription_trials')
-    .select('id')
+    .select('id, plan_tried')
     .eq('user_id', userId)
-    .eq('plan_tried', plan)
-    .single();
+    .limit(1);
 
-  return !existingTrial;
+  if (error) {
+    console.error('[Stripe] Error checking trial eligibility:', error.message);
+    // SECURITY: Fail closed - deny trial if we can't verify
+    return false;
+  }
+
+  // If user has ANY previous trial, deny new trial
+  if (existingTrials && existingTrials.length > 0) {
+    console.log('[Stripe] User already used trial:', { userId, previousPlan: existingTrials[0].plan_tried });
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -447,12 +461,95 @@ export async function reactivateSubscription(
 }
 
 /**
+ * Get plan limits from database
+ */
+export async function getPlanLimits(plan: PlanType): Promise<{
+  maxUsers: number;
+  maxOrdersPerMonth: number;
+  maxProducts: number;
+  maxStores: number;
+}> {
+  const { data } = await supabaseAdmin
+    .from('plan_limits')
+    .select('max_users, max_orders_per_month, max_products, max_stores')
+    .eq('plan', plan)
+    .single();
+
+  return {
+    maxUsers: data?.max_users ?? 1,
+    maxOrdersPerMonth: data?.max_orders_per_month ?? 50,
+    maxProducts: data?.max_products ?? 100,
+    maxStores: data?.max_stores ?? 1,
+  };
+}
+
+/**
+ * Validate downgrade is allowed (user doesn't exceed new plan limits)
+ * SECURITY: Prevents users from keeping more resources than their plan allows
+ */
+export async function validatePlanChange(
+  userId: string,
+  currentPlan: PlanType,
+  newPlan: PlanType
+): Promise<{ allowed: boolean; reason?: string; details?: Record<string, any> }> {
+  // Upgrades are always allowed
+  const planOrder = { free: 0, starter: 1, growth: 2, professional: 3 };
+  if (planOrder[newPlan] >= planOrder[currentPlan]) {
+    return { allowed: true };
+  }
+
+  // For downgrades, validate current usage against new plan limits
+  const newLimits = await getPlanLimits(newPlan);
+  const usage = await getUserUsage(userId);
+
+  const violations: string[] = [];
+
+  // Check users limit
+  if (newLimits.maxUsers !== -1 && usage.users.used > newLimits.maxUsers) {
+    violations.push(`usuarios (tienes ${usage.users.used}, el plan ${newPlan} permite ${newLimits.maxUsers})`);
+  }
+
+  // Check products limit
+  if (newLimits.maxProducts !== -1 && usage.products.used > newLimits.maxProducts) {
+    violations.push(`productos (tienes ${usage.products.used}, el plan ${newPlan} permite ${newLimits.maxProducts})`);
+  }
+
+  // Check stores limit (for multi-store users)
+  if (newLimits.maxStores !== -1 && usage.stores > newLimits.maxStores) {
+    violations.push(`tiendas (tienes ${usage.stores}, el plan ${newPlan} permite ${newLimits.maxStores})`);
+  }
+
+  if (violations.length > 0) {
+    return {
+      allowed: false,
+      reason: `Debes reducir: ${violations.join(', ')} antes de cambiar al plan ${newPlan}`,
+      details: {
+        currentUsage: {
+          users: usage.users.used,
+          products: usage.products.used,
+          stores: usage.stores,
+        },
+        newLimits: {
+          users: newLimits.maxUsers,
+          products: newLimits.maxProducts,
+          stores: newLimits.maxStores,
+        },
+      },
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
  * Change subscription plan (upgrade/downgrade)
+ * SECURITY: Validates downgrade limits before allowing plan change
  */
 export async function changeSubscriptionPlan(
   subscriptionId: string,
   newPlan: PlanType,
-  billingCycle: BillingCycle
+  billingCycle: BillingCycle,
+  userId?: string
 ): Promise<Stripe.Subscription> {
   const priceId = stripePrices[newPlan]?.[billingCycle];
   if (!priceId) {
@@ -461,6 +558,16 @@ export async function changeSubscriptionPlan(
 
   const stripeClient = getStripe();
   const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
+
+  // SECURITY: Validate downgrade limits if userId is provided
+  if (userId) {
+    const currentPlan = getPlanFromPriceId(subscription.items.data[0]?.price.id) || 'free';
+    const validation = await validatePlanChange(userId, currentPlan, newPlan);
+
+    if (!validation.allowed) {
+      throw new Error(validation.reason || 'Plan change not allowed');
+    }
+  }
 
   const updatedSubscription = await stripeClient.subscriptions.update(subscriptionId, {
     items: [
@@ -1108,6 +1215,9 @@ export async function getReferralStats(userId: string): Promise<{
 
 /**
  * Process referral after first payment
+ * SECURITY: Credit is NOT applied immediately - requires 30-day waiting period
+ * The cron job /cron/process-referral-credits handles actual credit application
+ * This prevents abuse from users who cancel immediately after first payment
  */
 export async function processReferralConversion(
   referredUserId: string,
@@ -1125,39 +1235,19 @@ export async function processReferralConversion(
     return; // No referral to process
   }
 
-  // Update referral with conversion
+  // SECURITY: Only record the first payment date
+  // Credit will be applied after 30-day waiting period by cron job
+  // This prevents abuse from users who cancel immediately
   await supabaseAdmin
     .from('referrals')
     .update({
       first_payment_at: new Date().toISOString(),
       referred_plan: plan,
-      referrer_credit_applied: true,
-      referrer_credit_applied_at: new Date().toISOString(),
+      // NOTE: referrer_credit_applied remains FALSE until cron processes it
     })
     .eq('id', referral.id);
 
-  // Create credit for referrer
-  await supabaseAdmin.from('referral_credits').insert({
-    user_id: referral.referrer_user_id,
-    amount_cents: referral.referrer_credit_amount_cents || 1000,
-    source_referral_id: referral.id,
-  });
-
-  // Get referrer's subscription to apply credit (now user-level)
-  const { data: subscription } = await supabaseAdmin
-    .from('subscriptions')
-    .select('stripe_customer_id')
-    .eq('user_id', referral.referrer_user_id)
-    .eq('is_primary', true)
-    .single();
-
-  if (subscription?.stripe_customer_id) {
-    await applyReferralCredit(
-      subscription.stripe_customer_id,
-      referral.referrer_credit_amount_cents || 1000,
-      referral.id
-    );
-  }
+  console.log(`[Stripe] Referral conversion recorded for user ${referredUserId}. Credit pending 30-day waiting period.`);
 }
 
 export default {
@@ -1175,8 +1265,8 @@ export default {
   createStripeDiscount,
   validateDiscountCode,
   validateReferralCode,
-  getUserSubscription,  // ⬅️ New function
-  getUserUsage,  // ⬅️ New function
+  getUserSubscription,
+  getUserUsage,
   getStorePlan,
   getStoreUsage,
   hasFeatureAccess,
@@ -1185,6 +1275,8 @@ export default {
   getReferralStats,
   processReferralConversion,
   getPlanFromPriceId,
+  getPlanLimits,           // New: Get limits for a specific plan
+  validatePlanChange,      // New: Validate downgrade is allowed
   PLANS,
   getStripe,
 };

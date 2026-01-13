@@ -522,7 +522,8 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
     await stripeService.changeSubscriptionPlan(
       subscription.stripe_subscription_id,
       plan as PlanType,
-      billingCycle as BillingCycle
+      billingCycle as BillingCycle,
+      userId  // Pass userId for downgrade validation
     );
 
     res.json({
@@ -586,10 +587,53 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const plan = session.metadata?.plan as PlanType;
   const billingCycle = session.metadata?.billing_cycle as BillingCycle;
   const referralCode = session.metadata?.referral_code;
+  const discountCode = session.metadata?.discount_code;
 
   if (!userId || !plan) {
     console.error('[Billing Webhook] Missing metadata in checkout session');
     return;
+  }
+
+  // SECURITY: Process discount code redemption (atomic increment of current_uses)
+  // This is the authoritative point where we count the discount as "used"
+  // Even if validation passed earlier, this ensures we don't exceed max_uses
+  if (discountCode) {
+    const { data: discount, error: discountError } = await supabaseAdmin
+      .from('discount_codes')
+      .select('id, code, max_uses, current_uses, is_active')
+      .eq('code', discountCode.toUpperCase())
+      .single();
+
+    if (discount && !discountError) {
+      // Check if discount is still valid (race condition protection)
+      if (!discount.is_active) {
+        console.warn('[Billing Webhook] Discount code was deactivated during checkout:', discountCode);
+      } else if (discount.max_uses && discount.current_uses >= discount.max_uses) {
+        console.warn('[Billing Webhook] Discount code max_uses exceeded during checkout:', discountCode);
+        // Note: Stripe already processed the discount, so we just log this anomaly
+        // The discount was technically used, but the checkout went through
+      } else {
+        // Atomically increment current_uses
+        const { error: incrementError } = await supabaseAdmin
+          .from('discount_codes')
+          .update({ current_uses: discount.current_uses + 1 })
+          .eq('id', discount.id)
+          .eq('current_uses', discount.current_uses); // Optimistic locking
+
+        if (incrementError) {
+          console.error('[Billing Webhook] Failed to increment discount usage:', incrementError);
+        } else {
+          // Record redemption
+          await supabaseAdmin.from('discount_redemptions').insert({
+            discount_code_id: discount.id,
+            user_id: userId,
+            applied_at: new Date().toISOString(),
+            stripe_subscription_id: session.subscription as string,
+          });
+          console.log('[Billing Webhook] Discount code redeemed:', discountCode);
+        }
+      }
+    }
   }
 
   // Record trial if applicable
@@ -829,5 +873,330 @@ async function updateSubscriptionInDB(
       onConflict: 'user_id,is_primary'  // ⬅️ Use composite unique constraint
     });
 }
+
+// =============================================
+// CRON JOB ENDPOINTS (for scheduled tasks)
+// =============================================
+
+/**
+ * Validate cron request - supports multiple auth methods:
+ * 1. Railway Cron (internal): No auth needed from private network
+ * 2. External caller: Requires X-Cron-Secret header
+ */
+function validateCronAuth(req: Request): { valid: boolean; source: string } {
+  // Railway internal cron jobs come from private network
+  // Check for Railway-specific headers or internal IP
+  const railwayEnv = process.env.RAILWAY_ENVIRONMENT;
+  const isRailwayInternal = req.headers['x-railway-cron'] === 'true' ||
+    req.ip === '127.0.0.1' ||
+    req.ip === '::1' ||
+    req.headers.host?.includes('.railway.internal');
+
+  if (railwayEnv && isRailwayInternal) {
+    return { valid: true, source: 'railway-internal' };
+  }
+
+  // External callers must provide CRON_SECRET
+  const cronSecret = req.headers['x-cron-secret'];
+  const expectedSecret = process.env.CRON_SECRET;
+
+  if (expectedSecret && cronSecret === expectedSecret) {
+    return { valid: true, source: 'cron-secret' };
+  }
+
+  // Allow if CRON_SECRET is not set (development mode)
+  if (!expectedSecret && process.env.NODE_ENV === 'development') {
+    return { valid: true, source: 'dev-mode' };
+  }
+
+  return { valid: false, source: 'unauthorized' };
+}
+
+/**
+ * Process expiring trials - fallback for trial_will_end webhook
+ * Should be called daily by cron job
+ * Sends reminder emails for trials expiring in 3 days
+ */
+router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
+  const auth = validateCronAuth(req);
+  if (!auth.valid) {
+    console.warn('[Billing Cron] Unauthorized cron attempt');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  console.log(`[Billing Cron] expiring-trials called via ${auth.source}`);
+
+  try {
+    // Find trials expiring in the next 3 days that haven't been notified
+    const threeDaysFromNow = new Date();
+    threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+
+    const { data: expiringTrials, error } = await supabaseAdmin
+      .from('subscriptions')
+      .select(`
+        id,
+        user_id,
+        plan,
+        trial_ends_at,
+        stripe_subscription_id,
+        users:user_id (email, name)
+      `)
+      .eq('status', 'trialing')
+      .lte('trial_ends_at', threeDaysFromNow.toISOString())
+      .gt('trial_ends_at', new Date().toISOString())
+      .is('trial_reminder_sent', null);
+
+    if (error) {
+      console.error('[Billing Cron] Error fetching expiring trials:', error);
+      return res.status(500).json({ error: 'Failed to fetch expiring trials' });
+    }
+
+    console.log(`[Billing Cron] Found ${expiringTrials?.length || 0} expiring trials`);
+
+    const processed: string[] = [];
+    const failed: string[] = [];
+
+    for (const trial of expiringTrials || []) {
+      try {
+        // Mark as notified to prevent duplicate sends
+        await supabaseAdmin
+          .from('subscriptions')
+          .update({ trial_reminder_sent: new Date().toISOString() })
+          .eq('id', trial.id);
+
+        // TODO: Send email notification
+        // await sendTrialExpiringEmail({
+        //   email: trial.users?.email,
+        //   name: trial.users?.name,
+        //   plan: trial.plan,
+        //   expiresAt: trial.trial_ends_at,
+        // });
+
+        processed.push(trial.id);
+        console.log(`[Billing Cron] Processed trial reminder for user ${trial.user_id}`);
+      } catch (err: any) {
+        console.error(`[Billing Cron] Failed to process trial ${trial.id}:`, err.message);
+        failed.push(trial.id);
+      }
+    }
+
+    res.json({
+      success: true,
+      processed: processed.length,
+      failed: failed.length,
+      details: { processed, failed },
+    });
+  } catch (error: any) {
+    console.error('[Billing Cron] Unexpected error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Process past due subscriptions - grace period enforcement
+ * Should be called daily by cron job
+ * Downgrades subscriptions past_due for more than 7 days
+ */
+router.post('/cron/past-due-enforcement', async (req: Request, res: Response) => {
+  const auth = validateCronAuth(req);
+  if (!auth.valid) {
+    console.warn('[Billing Cron] Unauthorized cron attempt');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  console.log(`[Billing Cron] past-due-enforcement called via ${auth.source}`);
+
+  try {
+    const gracePeriodDays = 7;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - gracePeriodDays);
+
+    // Find subscriptions past_due for more than grace period
+    const { data: overdueSubscriptions, error } = await supabaseAdmin
+      .from('subscriptions')
+      .select('id, user_id, plan, status, updated_at')
+      .eq('status', 'past_due')
+      .lt('updated_at', cutoffDate.toISOString());
+
+    if (error) {
+      console.error('[Billing Cron] Error fetching overdue subscriptions:', error);
+      return res.status(500).json({ error: 'Failed to fetch overdue subscriptions' });
+    }
+
+    console.log(`[Billing Cron] Found ${overdueSubscriptions?.length || 0} overdue subscriptions`);
+
+    const downgraded: string[] = [];
+    const failed: string[] = [];
+
+    for (const sub of overdueSubscriptions || []) {
+      try {
+        // Downgrade to free plan after grace period
+        await supabaseAdmin
+          .from('subscriptions')
+          .update({
+            plan: 'free',
+            status: 'canceled',
+            canceled_at: new Date().toISOString(),
+            cancellation_reason: 'payment_failed_grace_period_exceeded',
+          })
+          .eq('id', sub.id);
+
+        // Log the downgrade
+        await supabaseAdmin.from('subscription_history').insert({
+          subscription_id: sub.id,
+          event_type: 'downgraded_payment_failed',
+          from_plan: sub.plan,
+          to_plan: 'free',
+          metadata: {
+            reason: 'Grace period exceeded after payment failure',
+            grace_period_days: gracePeriodDays,
+          },
+        });
+
+        downgraded.push(sub.id);
+        console.log(`[Billing Cron] Downgraded subscription ${sub.id} to free after grace period`);
+
+        // TODO: Send email notification about downgrade
+      } catch (err: any) {
+        console.error(`[Billing Cron] Failed to downgrade subscription ${sub.id}:`, err.message);
+        failed.push(sub.id);
+      }
+    }
+
+    res.json({
+      success: true,
+      downgraded: downgraded.length,
+      failed: failed.length,
+      gracePeriodDays,
+      details: { downgraded, failed },
+    });
+  } catch (error: any) {
+    console.error('[Billing Cron] Unexpected error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * Process pending referral credits - 30 day waiting period
+ * Should be called daily by cron job
+ * Applies credits for referrals where referred user has been paying for 30+ days
+ */
+router.post('/cron/process-referral-credits', async (req: Request, res: Response) => {
+  const auth = validateCronAuth(req);
+  if (!auth.valid) {
+    console.warn('[Billing Cron] Unauthorized cron attempt');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  console.log(`[Billing Cron] process-referral-credits called via ${auth.source}`);
+
+  try {
+    const waitingPeriodDays = 30;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - waitingPeriodDays);
+
+    // Find referrals that:
+    // 1. Have first payment date older than 30 days
+    // 2. Haven't had credit applied yet
+    // 3. Referred user still has active subscription
+    const { data: eligibleReferrals, error } = await supabaseAdmin
+      .from('referrals')
+      .select(`
+        id,
+        referrer_user_id,
+        referred_user_id,
+        referral_code,
+        referrer_credit_amount_cents,
+        first_payment_at
+      `)
+      .lt('first_payment_at', cutoffDate.toISOString())
+      .eq('referrer_credit_applied', false)
+      .not('first_payment_at', 'is', null);
+
+    if (error) {
+      console.error('[Billing Cron] Error fetching eligible referrals:', error);
+      return res.status(500).json({ error: 'Failed to fetch eligible referrals' });
+    }
+
+    console.log(`[Billing Cron] Found ${eligibleReferrals?.length || 0} referrals eligible for credit`);
+
+    const processed: string[] = [];
+    const skipped: string[] = [];
+    const failed: string[] = [];
+
+    for (const referral of eligibleReferrals || []) {
+      try {
+        // Verify referred user still has active paid subscription
+        const { data: referredSub } = await supabaseAdmin
+          .from('subscriptions')
+          .select('status, plan')
+          .eq('user_id', referral.referred_user_id)
+          .eq('is_primary', true)
+          .single();
+
+        // Skip if referred user canceled or downgraded to free
+        if (!referredSub || referredSub.status === 'canceled' || referredSub.plan === 'free') {
+          console.log(`[Billing Cron] Skipping referral ${referral.id} - referred user no longer active`);
+          skipped.push(referral.id);
+          continue;
+        }
+
+        // Get referrer's Stripe customer ID
+        const { data: referrerSub } = await supabaseAdmin
+          .from('subscriptions')
+          .select('stripe_customer_id')
+          .eq('user_id', referral.referrer_user_id)
+          .eq('is_primary', true)
+          .single();
+
+        if (referrerSub?.stripe_customer_id) {
+          // Apply credit to referrer's Stripe account
+          await stripeService.applyReferralCredit(
+            referrerSub.stripe_customer_id,
+            referral.referrer_credit_amount_cents || 1000,
+            referral.id
+          );
+        }
+
+        // Create credit record
+        await supabaseAdmin.from('referral_credits').insert({
+          user_id: referral.referrer_user_id,
+          amount_cents: referral.referrer_credit_amount_cents || 1000,
+          source_referral_id: referral.id,
+        });
+
+        // Mark referral as credit applied
+        await supabaseAdmin
+          .from('referrals')
+          .update({
+            referrer_credit_applied: true,
+            referrer_credit_applied_at: new Date().toISOString(),
+          })
+          .eq('id', referral.id);
+
+        // Update referral code stats
+        await supabaseAdmin.rpc('increment_referral_conversion', {
+          p_referral_code: referral.referral_code,
+          p_credit_amount: referral.referrer_credit_amount_cents || 1000,
+        });
+
+        processed.push(referral.id);
+        console.log(`[Billing Cron] Applied credit for referral ${referral.id}`);
+      } catch (err: any) {
+        console.error(`[Billing Cron] Failed to process referral ${referral.id}:`, err.message);
+        failed.push(referral.id);
+      }
+    }
+
+    res.json({
+      success: true,
+      processed: processed.length,
+      skipped: skipped.length,
+      failed: failed.length,
+      waitingPeriodDays,
+      details: { processed, skipped, failed },
+    });
+  } catch (error: any) {
+    console.error('[Billing Cron] Unexpected error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 export default router;

@@ -5,13 +5,23 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Package, PackageCheck, PackageOpen, Printer, ArrowLeft, Check, Plus, Minus, Layers, Loader2 } from 'lucide-react';
+import { Package, PackageCheck, PackageOpen, Printer, ArrowLeft, Check, Plus, Minus, Layers, Loader2, XCircle, AlertTriangle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useDateRange } from '@/contexts/DateRangeContext';
@@ -67,6 +77,11 @@ export default function Warehouse() {
   const [selectedOrdersForPrint, setSelectedOrdersForPrint] = useState<Set<string>>(new Set());
   const [isPrinting, setIsPrinting] = useState(false);
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
+
+  // Abandon session state
+  const [showAbandonDialog, setShowAbandonDialog] = useState(false);
+  const [sessionToAbandon, setSessionToAbandon] = useState<PickingSession | null>(null);
+  const [abandoningSession, setAbandoningSession] = useState(false);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -377,6 +392,56 @@ export default function Warehouse() {
     setSelectedItem(null);
   }
 
+  async function handleAbandonSession(session: PickingSession) {
+    setSessionToAbandon(session);
+    setShowAbandonDialog(true);
+  }
+
+  async function confirmAbandonSession() {
+    if (!sessionToAbandon) return;
+
+    setAbandoningSession(true);
+    try {
+      const result = await warehouseService.abandonSession(sessionToAbandon.id);
+      toast({
+        title: 'Sesión cancelada',
+        description: `${result.orders_restored} pedido(s) restaurados a estado confirmado`,
+      });
+      setShowAbandonDialog(false);
+      setSessionToAbandon(null);
+
+      // If we're currently in this session, go back to dashboard
+      if (currentSession?.id === sessionToAbandon.id) {
+        handleBackToDashboard();
+      }
+
+      // Reload dashboard data
+      loadDashboardData();
+    } catch (error: any) {
+      console.error('Error abandoning session:', error);
+      showErrorToast(toast, error, {
+        module: 'warehouse',
+        action: 'abandon_session',
+        entity: 'sesión',
+        variant: 'destructive',
+      });
+    } finally {
+      setAbandoningSession(false);
+    }
+  }
+
+  // Calculate session age for staleness indicators
+  function getSessionAge(session: PickingSession): { hours: number; level: 'OK' | 'WARNING' | 'CRITICAL' } {
+    const createdAt = new Date(session.updated_at || session.created_at);
+    const now = new Date();
+    const hours = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+
+    return {
+      hours: Math.round(hours * 10) / 10,
+      level: hours > 48 ? 'CRITICAL' : hours > 24 ? 'WARNING' : 'OK'
+    };
+  }
+
   const handleOrderPrinted = useCallback(async (orderId: string) => {
     try {
       // Mark order as printed
@@ -574,6 +639,46 @@ export default function Warehouse() {
 
   return (
     <>
+      {/* Abandon Session Confirmation Dialog */}
+      <AlertDialog open={showAbandonDialog} onOpenChange={setShowAbandonDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-500" />
+              Cancelar Sesión {sessionToAbandon?.code}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción restaurará todos los pedidos de esta sesión al estado "confirmado".
+              Podrás volver a preparar estos pedidos en una nueva sesión.
+              <br /><br />
+              <span className="font-medium text-foreground">¿Estás seguro de que deseas cancelar esta sesión?</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={abandoningSession}>
+              No, mantener sesión
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmAbandonSession}
+              disabled={abandoningSession}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {abandoningSession ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Cancelando...
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Sí, cancelar sesión
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {view === 'dashboard' && (
         <DashboardView
           confirmedOrders={confirmedOrders}
@@ -584,6 +689,8 @@ export default function Warehouse() {
           onCreateSession={handleCreateSession}
           onResumeSession={handleResumeSession}
           onQuickPrepare={handleQuickPrepare}
+          onAbandonSession={handleAbandonSession}
+          getSessionAge={getSessionAge}
           isGlobalView={isGlobalView}
           onToggleGlobalView={setIsGlobalView}
         />
@@ -639,6 +746,8 @@ interface DashboardViewProps {
   onCreateSession: () => void;
   onResumeSession: (session: PickingSession) => void;
   onQuickPrepare: (order: ConfirmedOrder) => void;
+  onAbandonSession: (session: PickingSession) => void;
+  getSessionAge: (session: PickingSession) => { hours: number; level: 'OK' | 'WARNING' | 'CRITICAL' };
   isGlobalView: boolean;
   onToggleGlobalView: (enabled: boolean) => void;
 }
@@ -652,6 +761,8 @@ function DashboardView({
   onCreateSession,
   onResumeSession,
   onQuickPrepare,
+  onAbandonSession,
+  getSessionAge,
   isGlobalView,
   onToggleGlobalView
 }: DashboardViewProps) {
@@ -700,39 +811,107 @@ function DashboardView({
             </div>
           ) : (
             <div className="space-y-3">
-              {activeSessions.map(session => (
-                <Card
-                  key={session.id}
-                  className="p-3 cursor-pointer hover:shadow-md hover:border-primary transition-all"
-                  onClick={() => onResumeSession(session)}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono font-bold text-sm">
-                      {session.code}
-                    </span>
-                    <Badge
-                      variant={session.status === 'picking' ? 'default' : 'secondary'}
-                      className="text-xs"
-                    >
-                      {session.status === 'picking' ? '📦 Picking' : '📋 Packing'}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(session.created_at).toLocaleString('es-ES', {
-                      day: '2-digit',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </p>
-                  {/* Show Store Name in Global View */}
-                  {(session as any).store_name && (
-                    <Badge variant="outline" className="mt-2 text-[10px] h-5 bg-blue-50 text-blue-700 border-blue-200">
-                      {(session as any).store_name}
-                    </Badge>
-                  )}
-                </Card>
-              ))}
+              {activeSessions.map(session => {
+                const sessionAge = getSessionAge(session);
+                const isStale = sessionAge.level !== 'OK';
+
+                return (
+                  <Card
+                    key={session.id}
+                    className={`p-3 transition-all ${
+                      isStale
+                        ? sessionAge.level === 'CRITICAL'
+                          ? 'border-red-300 bg-red-50 dark:bg-red-950/20'
+                          : 'border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20'
+                        : 'hover:shadow-md hover:border-primary'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span
+                        className="font-mono font-bold text-sm cursor-pointer hover:text-primary"
+                        onClick={() => onResumeSession(session)}
+                      >
+                        {session.code}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <Badge
+                          variant={session.status === 'picking' ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {session.status === 'picking' ? '📦 Picking' : '📋 Packing'}
+                        </Badge>
+                        {isStale && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] h-5 ${
+                              sessionAge.level === 'CRITICAL'
+                                ? 'bg-red-100 text-red-700 border-red-300'
+                                : 'bg-yellow-100 text-yellow-700 border-yellow-300'
+                            }`}
+                          >
+                            <Clock className="h-3 w-3 mr-1" />
+                            {Math.round(sessionAge.hours)}h
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Staleness Warning */}
+                    {isStale && (
+                      <div className={`flex items-center gap-1 text-xs mb-2 ${
+                        sessionAge.level === 'CRITICAL' ? 'text-red-600' : 'text-yellow-600'
+                      }`}>
+                        <AlertTriangle className="h-3 w-3" />
+                        <span>
+                          {sessionAge.level === 'CRITICAL'
+                            ? 'Sesión muy antigua - considera cancelarla'
+                            : 'Sesión inactiva por más de 24h'}
+                        </span>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(session.created_at).toLocaleString('es-ES', {
+                        day: '2-digit',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+
+                    {/* Show Store Name in Global View */}
+                    {(session as any).store_name && (
+                      <Badge variant="outline" className="mt-2 text-[10px] h-5 bg-blue-50 text-blue-700 border-blue-200">
+                        {(session as any).store_name}
+                      </Badge>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="flex-1 h-8"
+                        onClick={() => onResumeSession(session)}
+                      >
+                        Continuar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAbandonSession(session);
+                        }}
+                        title="Cancelar sesión y restaurar pedidos"
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </Card>

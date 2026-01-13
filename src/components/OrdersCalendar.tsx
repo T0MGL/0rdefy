@@ -28,8 +28,8 @@ export function OrdersCalendar() {
     const loadOrders = async () => {
       setIsLoading(true);
       try {
-        const ordersData = await ordersService.getAll();
-        setOrders(ordersData);
+        const ordersResponse = await ordersService.getAll();
+        setOrders(ordersResponse.data || []);
       } catch (error) {
         console.error('Error loading orders:', error);
       } finally {

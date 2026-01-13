@@ -66,11 +66,11 @@ export function DailySummary() {
           endDate: dateRange.endDate,
         };
 
-        const [ordersData, overviewData] = await Promise.all([
-          ordersService.getAll(dateParams), // ✅ Pasar parámetros de fecha
+        const [ordersResponse, overviewData] = await Promise.all([
+          ordersService.getAll(dateParams),
           analyticsService.getOverview(dateParams),
         ]);
-        setOrders(ordersData);
+        setOrders(ordersResponse.data || []);
         setOverview(overviewData);
       } catch (error) {
         console.error('Error loading daily summary data:', error);

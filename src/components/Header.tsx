@@ -68,14 +68,14 @@ export function Header() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [ordersData, productsData, adsData, carriersData, overviewData] = await Promise.all([
+        const [ordersResponse, productsData, adsData, carriersData, overviewData] = await Promise.all([
           ordersService.getAll(),
           productsService.getAll(),
           adsService.getAll(),
           carriersService.getAll(),
           analyticsService.getOverview(),
         ]);
-        setOrders(ordersData);
+        setOrders(ordersResponse.data || []);
         setCarriers(carriersData);
         setOverview(overviewData);
 

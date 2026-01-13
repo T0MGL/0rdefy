@@ -1179,6 +1179,330 @@ export async function getConfirmedOrders(storeId: string) {
 }
 
 /**
+ * Abandons a picking session and restores orders to confirmed
+ */
+export async function abandonSession(
+  sessionId: string,
+  storeId: string,
+  userId: string | null,
+  reason?: string
+): Promise<any> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('abandon_picking_session', {
+        p_session_id: sessionId,
+        p_store_id: storeId,
+        p_user_id: userId,
+        p_reason: reason || 'Sesión abandonada por el usuario'
+      });
+
+    if (error) {
+      // Fallback if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        console.warn('⚠️ RPC abandon_picking_session not available, using fallback');
+        return await abandonSessionFallback(sessionId, storeId, userId, reason);
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error abandoning session:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fallback for abandonSession when RPC is not available
+ */
+async function abandonSessionFallback(
+  sessionId: string,
+  storeId: string,
+  userId: string | null,
+  reason?: string
+): Promise<any> {
+  // Verify session exists and belongs to store
+  const { data: session, error: sessionError } = await supabaseAdmin
+    .from('picking_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (sessionError || !session) {
+    throw new Error('Session not found or does not belong to this store');
+  }
+
+  if (session.status === 'completed') {
+    throw new Error('Cannot abandon a completed session');
+  }
+
+  // Get orders in session
+  const { data: sessionOrders } = await supabaseAdmin
+    .from('picking_session_orders')
+    .select('order_id')
+    .eq('picking_session_id', sessionId);
+
+  const orderIds = sessionOrders?.map(so => so.order_id) || [];
+
+  // Restore orders to confirmed
+  let ordersRestored = 0;
+  if (orderIds.length > 0) {
+    const { data: updated } = await supabaseAdmin
+      .from('orders')
+      .update({ sleeves_status: 'confirmed', updated_at: new Date().toISOString() })
+      .eq('store_id', storeId)
+      .eq('sleeves_status', 'in_preparation')
+      .in('id', orderIds)
+      .select();
+
+    ordersRestored = updated?.length || 0;
+  }
+
+  // Mark session as completed (abandoned)
+  await supabaseAdmin
+    .from('picking_sessions')
+    .update({
+      status: 'completed',
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', sessionId);
+
+  return {
+    success: true,
+    session_id: sessionId,
+    session_code: session.code,
+    orders_restored: ordersRestored,
+    total_orders: orderIds.length,
+    abandoned_at: new Date().toISOString(),
+    reason: reason || 'Sesión abandonada por el usuario'
+  };
+}
+
+/**
+ * Removes a single order from a session
+ */
+export async function removeOrderFromSession(
+  sessionId: string,
+  orderId: string,
+  storeId: string
+): Promise<any> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('remove_order_from_session', {
+        p_session_id: sessionId,
+        p_order_id: orderId,
+        p_store_id: storeId
+      });
+
+    if (error) {
+      // Fallback if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        console.warn('⚠️ RPC remove_order_from_session not available, using fallback');
+        return await removeOrderFromSessionFallback(sessionId, orderId, storeId);
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error removing order from session:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fallback for removeOrderFromSession when RPC is not available
+ */
+async function removeOrderFromSessionFallback(
+  sessionId: string,
+  orderId: string,
+  storeId: string
+): Promise<any> {
+  // Verify session
+  const { data: session, error: sessionError } = await supabaseAdmin
+    .from('picking_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (sessionError || !session) {
+    throw new Error('Session not found');
+  }
+
+  if (session.status === 'completed') {
+    throw new Error('Cannot modify a completed session');
+  }
+
+  // Check order exists in session
+  const { data: sessionOrder } = await supabaseAdmin
+    .from('picking_session_orders')
+    .select('*')
+    .eq('picking_session_id', sessionId)
+    .eq('order_id', orderId)
+    .single();
+
+  if (!sessionOrder) {
+    throw new Error('Order not found in this session');
+  }
+
+  // Get order details
+  const { data: order } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .eq('id', orderId)
+    .eq('store_id', storeId)
+    .single();
+
+  // Restore order to confirmed if still in_preparation
+  if (order?.sleeves_status === 'in_preparation') {
+    await supabaseAdmin
+      .from('orders')
+      .update({ sleeves_status: 'confirmed', updated_at: new Date().toISOString() })
+      .eq('id', orderId);
+  }
+
+  // Remove from session
+  await supabaseAdmin
+    .from('picking_session_orders')
+    .delete()
+    .eq('picking_session_id', sessionId)
+    .eq('order_id', orderId);
+
+  // Remove packing progress
+  await supabaseAdmin
+    .from('packing_progress')
+    .delete()
+    .eq('picking_session_id', sessionId)
+    .eq('order_id', orderId);
+
+  // Check remaining orders
+  const { data: remainingOrders } = await supabaseAdmin
+    .from('picking_session_orders')
+    .select('order_id')
+    .eq('picking_session_id', sessionId);
+
+  const remainingCount = remainingOrders?.length || 0;
+
+  // Auto-abandon if no orders left
+  if (remainingCount === 0) {
+    await abandonSession(sessionId, storeId, null, 'Auto-abandoned: No orders remaining');
+  }
+
+  return {
+    success: true,
+    order_id: orderId,
+    order_number: order?.shopify_order_number,
+    remaining_orders: remainingCount,
+    session_abandoned: remainingCount === 0
+  };
+}
+
+/**
+ * Cleans up expired sessions
+ */
+export async function cleanupExpiredSessions(hoursInactive: number = 48): Promise<any> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('cleanup_expired_sessions', {
+        p_hours_inactive: hoursInactive
+      });
+
+    if (error) {
+      // Fallback if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        console.warn('⚠️ RPC cleanup_expired_sessions not available');
+        return { success: false, message: 'Migration 058 required for this feature' };
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error cleaning up sessions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Gets stale sessions for a store
+ */
+export async function getStaleSessions(storeId: string): Promise<any[]> {
+  try {
+    // Try to use the view first
+    const { data, error } = await supabaseAdmin
+      .from('picking_sessions')
+      .select(`
+        id,
+        code,
+        status,
+        created_at,
+        updated_at,
+        picking_started_at,
+        packing_started_at
+      `)
+      .eq('store_id', storeId)
+      .in('status', ['picking', 'packing'])
+      .order('updated_at', { ascending: true });
+
+    if (error) throw error;
+
+    // Calculate staleness for each session
+    const now = new Date();
+    const staleSessions = (data || []).map(session => {
+      const lastActivity = new Date(session.updated_at);
+      const inactiveHours = (now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60);
+
+      return {
+        ...session,
+        inactive_hours: Math.round(inactiveHours * 10) / 10,
+        staleness_level: inactiveHours > 48 ? 'CRITICAL' : inactiveHours > 24 ? 'WARNING' : 'OK'
+      };
+    });
+
+    return staleSessions;
+  } catch (error) {
+    console.error('Error getting stale sessions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Updates packing progress using atomic RPC (with row locking)
+ */
+export async function updatePackingProgressAtomic(
+  sessionId: string,
+  orderId: string,
+  productId: string,
+  storeId: string
+): Promise<any> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('update_packing_progress_atomic', {
+        p_session_id: sessionId,
+        p_order_id: orderId,
+        p_product_id: productId,
+        p_store_id: storeId
+      });
+
+    if (error) {
+      // Fallback to existing implementation if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        console.warn('⚠️ RPC update_packing_progress_atomic not available, using fallback');
+        return await updatePackingProgress(sessionId, orderId, productId, storeId);
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error updating packing progress atomically:', error);
+    throw error;
+  }
+}
+
+/**
  * Completes a picking session
  */
 export async function completeSession(
