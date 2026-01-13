@@ -66,6 +66,7 @@ export interface EligibleOrder {
 
 /**
  * Get eligible orders for return (delivered, shipped, cancelled)
+ * Excludes orders that have already been returned (completed return sessions)
  */
 export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[]> {
   const { data, error } = await supabaseAdmin
@@ -92,12 +93,31 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
     throw new Error(`Failed to fetch eligible orders: ${error.message}`);
   }
 
-  // Get line items count for each order
+  // Get orders that have already been returned (in completed sessions)
   const orderIds = data.map(o => o.id);
+
+  const { data: alreadyReturnedOrders } = await supabaseAdmin
+    .from('return_session_orders')
+    .select(`
+      order_id,
+      return_sessions!inner(status)
+    `)
+    .in('order_id', orderIds)
+    .eq('return_sessions.status', 'completed');
+
+  const alreadyReturnedSet = new Set(
+    alreadyReturnedOrders?.map(o => o.order_id) || []
+  );
+
+  // Filter out already returned orders
+  const eligibleOrders = data.filter(order => !alreadyReturnedSet.has(order.id));
+
+  // Get line items count for remaining eligible orders
+  const eligibleOrderIds = eligibleOrders.map(o => o.id);
   const { data: lineItemCounts } = await supabaseAdmin
     .from('order_line_items')
     .select('order_id')
-    .in('order_id', orderIds)
+    .in('order_id', eligibleOrderIds)
     .not('product_id', 'is', null);
 
   // Count items per order
@@ -106,7 +126,7 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
     itemCountMap.set(item.order_id, (itemCountMap.get(item.order_id) || 0) + 1);
   });
 
-  return data.map(order => ({
+  return eligibleOrders.map(order => ({
     id: order.id,
     order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
     status: order.delivery_status === 'failed' ? 'failed' : order.sleeves_status,
@@ -139,7 +159,8 @@ export async function createReturnSession(
 
   const sessionCode = codeData;
 
-  // Check if any of these orders are already in an active return session
+  // Check if any of these orders are already in a return session (in_progress OR completed)
+  // This prevents the same order from being returned multiple times
   const { data: existingSessions, error: checkError } = await supabaseAdmin
     .from('return_session_orders')
     .select(`
@@ -151,7 +172,7 @@ export async function createReturnSession(
       )
     `)
     .in('order_id', orderIds)
-    .in('return_sessions.status', ['in_progress']);
+    .in('return_sessions.status', ['in_progress', 'completed']);
 
   if (checkError) {
     console.error('Error checking existing sessions:', checkError);
@@ -159,12 +180,25 @@ export async function createReturnSession(
   }
 
   if (existingSessions && existingSessions.length > 0) {
-    const sessionCodes = [...new Set(existingSessions.map((s: any) => s.return_sessions.session_code))];
-    const orderCount = existingSessions.length;
-    throw new Error(
-      `${orderCount} pedido(s) ya están en sesión de devolución activa: ${sessionCodes.join(', ')}. ` +
-      `Por favor, completa o cancela la sesión existente antes de crear una nueva.`
-    );
+    // Separate by status for clear error messages
+    const inProgressOrders = existingSessions.filter((s: any) => s.return_sessions.status === 'in_progress');
+    const completedOrders = existingSessions.filter((s: any) => s.return_sessions.status === 'completed');
+
+    if (completedOrders.length > 0) {
+      const sessionCodes = [...new Set(completedOrders.map((s: any) => s.return_sessions.session_code))];
+      throw new Error(
+        `${completedOrders.length} pedido(s) ya fueron devueltos en sesión(es) completada(s): ${sessionCodes.join(', ')}. ` +
+        `No se puede procesar una devolución dos veces.`
+      );
+    }
+
+    if (inProgressOrders.length > 0) {
+      const sessionCodes = [...new Set(inProgressOrders.map((s: any) => s.return_sessions.session_code))];
+      throw new Error(
+        `${inProgressOrders.length} pedido(s) ya están en sesión de devolución activa: ${sessionCodes.join(', ')}. ` +
+        `Por favor, completa o cancela la sesión existente antes de crear una nueva.`
+      );
+    }
   }
 
   // Get order details with normalized line items

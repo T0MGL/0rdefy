@@ -2,13 +2,17 @@ import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { MetricCard } from '@/components/MetricCard';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { analyticsService } from '@/services/analytics.service';
+import { unifiedService } from '@/services/unified.service';
 import { QuickActions } from '@/components/QuickActions';
 import { DailySummary } from '@/components/DailySummary';
 import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { UsageLimitsIndicator } from '@/components/UsageLimitsIndicator';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
+import { GlobalViewToggle } from '@/components/GlobalViewToggle';
+import { useAuth } from '@/contexts/AuthContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
@@ -28,6 +32,8 @@ import {
   ChevronUp,
   ShoppingCart,
   Activity,
+  Globe,
+  Store,
 } from 'lucide-react';
 import {
   LineChart,
@@ -40,10 +46,24 @@ import {
   Legend,
 } from 'recharts';
 
+// Storage key for global view preference
+const GLOBAL_VIEW_STORAGE_KEY = 'dashboard_global_view';
+
 export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [showSecondaryMetrics, setShowSecondaryMetrics] = useState(false);
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
+
+  // Global View state
+  const { user } = useAuth();
+  const [globalViewEnabled, setGlobalViewEnabled] = useState(() => {
+    const saved = localStorage.getItem(GLOBAL_VIEW_STORAGE_KEY);
+    return saved === 'true';
+  });
+  const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
+
+  // Check if user has multiple stores
+  const hasMultipleStores = (user?.stores?.length || 0) > 1;
 
   // Use global date range context
   const { getDateRange } = useDateRange();
@@ -51,6 +71,12 @@ export default function Dashboard() {
   // Real analytics data
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
+
+  // Handle global view toggle
+  const handleGlobalViewToggle = useCallback((enabled: boolean) => {
+    setGlobalViewEnabled(enabled);
+    localStorage.setItem(GLOBAL_VIEW_STORAGE_KEY, String(enabled));
+  }, []);
 
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
@@ -76,12 +102,33 @@ export default function Dashboard() {
         endDate: dateRange.endDate,
       };
 
-      console.log('📊 Loading dashboard data with params:', dateParams);
+      const useGlobalView = globalViewEnabled && hasMultipleStores;
+      console.log('📊 Loading dashboard data with params:', dateParams, 'Global View:', useGlobalView);
 
-      const [overview, chart] = await Promise.all([
-        analyticsService.getOverview(dateParams),
-        analyticsService.getChartData(dateRange.days, dateParams),
-      ]);
+      let overview: DashboardOverview | null;
+      let chart: ChartData[];
+
+      if (useGlobalView) {
+        // Fetch unified data from all stores
+        const [unifiedOverview, unifiedChart] = await Promise.all([
+          unifiedService.getAnalyticsOverview(dateParams),
+          unifiedService.getAnalyticsChart(dateRange.days, dateParams),
+        ]);
+
+        overview = unifiedOverview.data;
+        chart = unifiedChart;
+        setGlobalViewStores(unifiedOverview.stores);
+      } else {
+        // Fetch data from current store only
+        const [singleOverview, singleChart] = await Promise.all([
+          analyticsService.getOverview(dateParams),
+          analyticsService.getChartData(dateRange.days, dateParams),
+        ]);
+
+        overview = singleOverview;
+        chart = singleChart;
+        setGlobalViewStores([]);
+      }
 
       // Check if request was aborted before updating state
       if (signal?.aborted) {
@@ -103,7 +150,7 @@ export default function Dashboard() {
         setIsLoading(false);
       }
     }
-  }, [dateRange]);
+  }, [dateRange, globalViewEnabled, hasMultipleStores]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -124,6 +171,15 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+        {/* Show toggle even while loading */}
+        {hasMultipleStores && (
+          <div className="flex items-center gap-4">
+            <GlobalViewToggle
+              enabled={globalViewEnabled}
+              onToggle={handleGlobalViewToggle}
+            />
+          </div>
+        )}
         <DailySummary />
         <QuickActions />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -138,6 +194,15 @@ export default function Dashboard() {
   if (!dashboardOverview) {
     return (
       <div className="space-y-6">
+        {/* Show toggle even when no data */}
+        {hasMultipleStores && (
+          <div className="flex items-center gap-4">
+            <GlobalViewToggle
+              enabled={globalViewEnabled}
+              onToggle={handleGlobalViewToggle}
+            />
+          </div>
+        )}
         <DailySummary />
         <QuickActions />
         <Card className="p-6">
@@ -149,8 +214,35 @@ export default function Dashboard() {
     );
   }
 
+  // Determine if we're showing global view
+  const isShowingGlobalView = globalViewEnabled && hasMultipleStores && globalViewStores.length > 0;
+
   return (
     <div className="space-y-6">
+      {/* Global View Toggle - Only shows for users with multiple stores */}
+      {hasMultipleStores && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <GlobalViewToggle
+            enabled={globalViewEnabled}
+            onToggle={handleGlobalViewToggle}
+          />
+          {isShowingGlobalView && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Globe size={14} className="text-blue-500" />
+              <span>Mostrando datos de:</span>
+              <div className="flex flex-wrap gap-1">
+                {globalViewStores.map((store) => (
+                  <Badge key={store.id} variant="secondary" className="text-xs">
+                    <Store size={10} className="mr-1" />
+                    {store.name}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Onboarding Checklist - Shows for new users */}
       <OnboardingChecklist />
 
@@ -165,7 +257,9 @@ export default function Dashboard() {
 
       {/* Priority Metrics - Always Visible */}
       <div>
-        <h2 className="text-2xl font-bold mb-4 text-card-foreground">Resumen de Ventas</h2>
+        <h2 className="text-2xl font-bold mb-4 text-card-foreground">
+          {isShowingGlobalView ? 'Resumen de Ventas (Todas las Tiendas)' : 'Resumen de Ventas'}
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <MetricCard
             title={

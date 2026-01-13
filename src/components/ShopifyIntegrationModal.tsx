@@ -43,6 +43,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
     if (open) {
       loadIntegration();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const loadIntegration = async () => {

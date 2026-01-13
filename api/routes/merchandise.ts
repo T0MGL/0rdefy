@@ -411,11 +411,24 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
       }
     }
 
+    // Transform items to include NEW TOTALS (old + new) for the RPC function
+    // The RPC function calculates deltas internally, so we need to send totals
+    const itemsWithTotals = items.map(item => {
+      const existingItem = itemsMap.get(item.item_id);
+      return {
+        item_id: item.item_id,
+        // NEW total = existing + what user is adding now
+        qty_received: (existingItem?.qty_received || 0) + item.qty_received,
+        qty_rejected: (existingItem?.qty_rejected || 0) + (item.qty_rejected || 0),
+        discrepancy_notes: item.discrepancy_notes
+      };
+    });
+
     // Call the database function to process reception
     const { data: result, error } = await supabaseAdmin
       .rpc('receive_shipment_items', {
         p_shipment_id: id,
-        p_items: items,
+        p_items: itemsWithTotals,
         p_received_by: req.userId
       });
 

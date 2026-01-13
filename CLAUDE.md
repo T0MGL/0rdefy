@@ -168,19 +168,31 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
   - Visual indicators for stale sessions (>24h WARNING, >48h CRITICAL)
 
 ### Merchandise (Inbound Shipments)
-**Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`
+**Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`, `db/migrations/062_merchandise_system_production_fixes.sql`
 
 **Features:**
 - Create shipments from suppliers with multiple products
-- Auto-generation: references (ISH-YYYYMMDD-XXX), tracking codes
-- Inline product creation (📦+ button)
+- Auto-generation: references (ISH-YYYYMMDD-XXX), tracking codes with advisory lock (race-condition safe)
+- Inline product creation (📦+ button) with duplicate detection
 - Receive workflow: qty_received/qty_rejected, discrepancy notes
+- **Delta-based stock updates:** Only adds/removes the difference, not total (prevents double-counting)
+- **Complete audit trail:** All receptions logged in `inventory_movements` table
 - Inventory updates ONLY on reception (qty_received)
 - Status: pending → partial/received
 - Cannot delete received/partial shipments
+- **Duplicate import prevention:** Shopify imports check for existing shipments before creating new ones
 
 **Tables:** inbound_shipments, inbound_shipment_items
-**Functions:** generate_inbound_reference, receive_shipment_items
+**Functions:** generate_inbound_reference (with advisory lock), receive_shipment_items (delta-based), check_shopify_import_duplicate, check_product_exists
+**Views:** v_inbound_items_with_history, v_merchandise_stock_discrepancies, v_stuck_inbound_shipments
+
+**Production Fixes (Migration 062 - Jan 2026):**
+- ✅ Race condition in reference generation fixed with `pg_advisory_xact_lock`
+- ✅ Delta-based stock updates prevent double-counting in partial receptions
+- ✅ Inventory movements audit trail for all manual receptions
+- ✅ Duplicate Shopify import shipments prevention
+- ✅ Product duplicate detection before inline creation
+- ✅ Frontend validation with real-time error feedback
 
 ### Shopify Integration (Production-Ready)
 **Files:** `src/pages/Integrations.tsx`, `src/components/ShopifyIntegrationModal.tsx`, `api/routes/shopify.ts`, `api/services/shopify-*.service.ts`
@@ -751,3 +763,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 055: **NEW:** Billing production fixes (trial reminders, referral credits, discount increments)
 - 058: **NEW:** Warehouse production-ready fixes (session abandonment, atomic packing, staleness tracking)
 - 059: **NEW:** Dispatch & Settlements production fixes (duplicate prevention, 999/day codes, status validation)
+- 062: **NEW:** Merchandise production fixes (race-condition safe references, delta-based stock, audit trail, duplicate prevention)

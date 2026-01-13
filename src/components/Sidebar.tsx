@@ -157,7 +157,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       }))
       // Remove sections with no visible items
       .filter(section => section.items.length > 0);
-  }, [permissions, shouldShowLockedFeatures]);
+  }, [permissions]);
 
   if (collapsed) {
     // Collapsed view - show flat list of all items with icons only

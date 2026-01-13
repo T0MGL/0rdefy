@@ -38,6 +38,7 @@ export function CarrierZonesDialog({ open, onOpenChange, carrierId, carrierName 
     if (open && carrierId) {
       loadZones();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, carrierId]);
 
   const loadZones = async () => {

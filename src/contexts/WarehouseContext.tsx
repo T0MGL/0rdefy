@@ -516,7 +516,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
   }, [state.packingData]);
 
   const progress = useMemo(() => {
-    let picking = 0;
+    const picking = 0;
     let packing = 0;
 
     if (state.packingData) {

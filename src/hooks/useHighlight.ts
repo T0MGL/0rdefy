@@ -32,6 +32,7 @@ export function useHighlight() {
 
       return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   const clearHighlight = () => {

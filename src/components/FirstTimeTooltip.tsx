@@ -111,6 +111,7 @@ export function FirstTimeTooltip({
 
   useEffect(() => {
     checkFirstVisit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleId]);
 
   useEffect(() => {

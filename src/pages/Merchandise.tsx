@@ -44,6 +44,7 @@ export default function Merchandise() {
   useEffect(() => {
     if (!hasMerchandiseFeature) return;
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, hasMerchandiseFeature]);
 
   // Plan-based feature check - merchandise requires Starter+ plan (AFTER all hooks)
@@ -485,8 +486,10 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
       // Refresh products list
       onProductCreated();
     } catch (error: any) {
+      // Handle duplicate product error specifically
+      const isDuplicate = error.message?.includes('duplicado') || error.message?.includes('409');
       toast({
-        title: 'Error',
+        title: isDuplicate ? 'Producto Duplicado' : 'Error',
         description: error.message || 'Error al crear el producto',
         variant: 'destructive',
       });
@@ -794,38 +797,114 @@ interface ReceiveShipmentModalProps {
 }
 
 function ReceiveShipmentModal({ open, onClose, shipment, onSubmit, loading }: ReceiveShipmentModalProps) {
+  const { toast } = useToast();
   const [receivedData, setReceivedData] = useState<Record<string, {
     qty_received: number;
     qty_rejected: number;
     discrepancy_notes: string;
   }>>({});
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Initialize received data when shipment changes
   useEffect(() => {
     if (shipment.items) {
       const initial: typeof receivedData = {};
       shipment.items.forEach(item => {
+        const remaining = item.qty_ordered - (item.qty_received || 0) - (item.qty_rejected || 0);
         initial[item.id] = {
-          qty_received: item.qty_ordered - (item.qty_received || 0), // Remaining to receive
+          qty_received: remaining, // Remaining to receive (pre-fill with max)
           qty_rejected: 0,
           discrepancy_notes: '',
         };
       });
       setReceivedData(initial);
+      setValidationErrors({});
     }
   }, [shipment]);
 
   const handleItemChange = (itemId: string, field: 'qty_received' | 'qty_rejected' | 'discrepancy_notes', value: any) => {
+    // Clear validation error when user edits
+    setValidationErrors(prev => {
+      const updated = { ...prev };
+      delete updated[itemId];
+      return updated;
+    });
+
+    // Get the item to validate against
+    const item = shipment.items?.find(i => i.id === itemId);
+    if (!item) return;
+
+    const remaining = item.qty_ordered - (item.qty_received || 0) - (item.qty_rejected || 0);
+
+    // Enforce value bounds for numeric fields
+    let finalValue = value;
+    if (field === 'qty_received' || field === 'qty_rejected') {
+      const numValue = parseInt(value) || 0;
+
+      // Get the other quantity to calculate total
+      const currentData = receivedData[itemId] || { qty_received: 0, qty_rejected: 0, discrepancy_notes: '' };
+      const otherValue = field === 'qty_received' ? currentData.qty_rejected : currentData.qty_received;
+
+      // Clamp value: minimum 0, maximum such that total doesn't exceed remaining
+      const maxAllowed = remaining - otherValue;
+      finalValue = Math.max(0, Math.min(numValue, maxAllowed));
+
+      // Show warning if user tried to exceed
+      if (numValue > maxAllowed) {
+        toast({
+          title: 'Cantidad ajustada',
+          description: `La cantidad máxima permitida es ${maxAllowed}`,
+          variant: 'default',
+        });
+      }
+    }
+
     setReceivedData(prev => ({
       ...prev,
       [itemId]: {
         ...prev[itemId],
-        [field]: value,
+        [field]: finalValue,
       },
     }));
   };
 
+  const validateBeforeSubmit = (): boolean => {
+    const errors: Record<string, string> = {};
+    let hasErrors = false;
+
+    shipment.items?.forEach(item => {
+      const data = receivedData[item.id];
+      if (!data) return;
+
+      const remaining = item.qty_ordered - (item.qty_received || 0) - (item.qty_rejected || 0);
+      const total = data.qty_received + data.qty_rejected;
+
+      // Validate total doesn't exceed remaining
+      if (total > remaining) {
+        errors[item.id] = `Total (${total}) excede lo pendiente (${remaining})`;
+        hasErrors = true;
+      }
+
+      // Validate discrepancy notes if there's a discrepancy
+      if (total < remaining && !data.discrepancy_notes.trim()) {
+        // Only warn, don't block - allow partial receptions
+      }
+    });
+
+    setValidationErrors(errors);
+    return !hasErrors;
+  };
+
   const handleSubmit = () => {
+    if (!validateBeforeSubmit()) {
+      toast({
+        title: 'Error de validación',
+        description: 'Por favor corrige los errores antes de continuar',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const items: ReceiveShipmentItemDTO[] = Object.entries(receivedData).map(([itemId, data]) => ({
       item_id: itemId,
       qty_received: data.qty_received,
@@ -850,24 +929,31 @@ function ReceiveShipmentModal({ open, onClose, shipment, onSubmit, loading }: Re
 
           <div className="space-y-4">
             {shipment.items?.map((item) => {
-              const remaining = item.qty_ordered - (item.qty_received || 0);
+              const remaining = item.qty_ordered - (item.qty_received || 0) - (item.qty_rejected || 0);
               const data = receivedData[item.id] || { qty_received: remaining, qty_rejected: 0, discrepancy_notes: '' };
               const hasDiscrepancy = data.qty_received + data.qty_rejected < remaining;
+              const error = validationErrors[item.id];
 
               return (
-                <Card key={item.id} className="p-4">
+                <Card key={item.id} className={`p-4 ${error ? 'border-red-500 dark:border-red-700' : ''}`}>
                   <div className="space-y-4">
                     <div className="flex items-start justify-between">
                       <div>
                         <h4 className="font-medium">{item.product_name}</h4>
                         <p className="text-sm text-muted-foreground">
-                          Ordenado: {item.qty_ordered} | Ya recibido: {item.qty_received || 0} | Restante: {remaining}
+                          Ordenado: {item.qty_ordered} | Ya recibido: {item.qty_received || 0} | Ya rechazado: {item.qty_rejected || 0} | Pendiente: {remaining}
                         </p>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium">Costo: ${item.unit_cost.toFixed(2)}</p>
                       </div>
                     </div>
+
+                    {error && (
+                      <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-md p-2">
+                        <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
@@ -877,8 +963,10 @@ function ReceiveShipmentModal({ open, onClose, shipment, onSubmit, loading }: Re
                           min="0"
                           max={remaining}
                           value={data.qty_received}
-                          onChange={(e) => handleItemChange(item.id, 'qty_received', parseInt(e.target.value) || 0)}
+                          onChange={(e) => handleItemChange(item.id, 'qty_received', e.target.value)}
+                          className={error ? 'border-red-500' : ''}
                         />
+                        <p className="text-xs text-muted-foreground">Máximo: {remaining - data.qty_rejected}</p>
                       </div>
 
                       <div className="space-y-2">
@@ -888,15 +976,17 @@ function ReceiveShipmentModal({ open, onClose, shipment, onSubmit, loading }: Re
                           min="0"
                           max={remaining - data.qty_received}
                           value={data.qty_rejected}
-                          onChange={(e) => handleItemChange(item.id, 'qty_rejected', parseInt(e.target.value) || 0)}
+                          onChange={(e) => handleItemChange(item.id, 'qty_rejected', e.target.value)}
+                          className={error ? 'border-red-500' : ''}
                         />
+                        <p className="text-xs text-muted-foreground">Máximo: {remaining - data.qty_received}</p>
                       </div>
                     </div>
 
                     {hasDiscrepancy && (
                       <div className="space-y-2">
                         <Label className="text-orange-600 dark:text-orange-400">
-                          Motivo de Discrepancia (Requerido)
+                          Motivo de Discrepancia (Opcional)
                         </Label>
                         <Textarea
                           placeholder="Ej: Productos dañados en tránsito, faltantes, etc..."
@@ -905,6 +995,9 @@ function ReceiveShipmentModal({ open, onClose, shipment, onSubmit, loading }: Re
                           rows={2}
                           className="border-orange-200 dark:border-orange-900"
                         />
+                        <p className="text-xs text-orange-600 dark:text-orange-400">
+                          Faltan {remaining - data.qty_received - data.qty_rejected} unidades por procesar
+                        </p>
                       </div>
                     )}
                   </div>

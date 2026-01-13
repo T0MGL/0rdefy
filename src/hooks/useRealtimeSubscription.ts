@@ -152,6 +152,7 @@ export function useRealtimeSubscription({
         channelRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [table, event, filterByStore, enabled, filter?.column, filter?.value]);
 
   return {

@@ -273,6 +273,45 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
             });
         }
 
+        // Check for duplicate product by name or SKU
+        try {
+            const { data: duplicateCheck, error: rpcError } = await supabaseAdmin
+                .rpc('check_product_exists', {
+                    p_store_id: req.storeId,
+                    p_name: name,
+                    p_sku: sku || null
+                });
+
+            // Only process if RPC succeeded (function exists and ran)
+            if (!rpcError && duplicateCheck && duplicateCheck.length > 0) {
+                const match = duplicateCheck[0];
+                if (match.exists_by_sku) {
+                    return res.status(409).json({
+                        error: 'Producto duplicado',
+                        message: `Ya existe un producto con el SKU "${sku}": ${match.existing_product_name}`,
+                        existing_product_id: match.existing_product_id,
+                        match_type: 'sku'
+                    });
+                }
+                if (match.exists_by_name) {
+                    return res.status(409).json({
+                        error: 'Producto duplicado',
+                        message: `Ya existe un producto con el nombre "${name}"`,
+                        existing_product_id: match.existing_product_id,
+                        match_type: 'name'
+                    });
+                }
+            }
+            // If RPC error (function doesn't exist yet), continue with creation
+            // The database unique constraint will still catch SKU duplicates
+            if (rpcError) {
+                console.warn('[POST /api/products] check_product_exists RPC not available, skipping duplicate check:', rpcError.message);
+            }
+        } catch (rpcErr: any) {
+            // Graceful degradation: if RPC fails, continue with creation
+            console.warn('[POST /api/products] Error checking for duplicates, continuing:', rpcErr.message);
+        }
+
         // Check if we have an active Shopify integration
         const { data: integration } = await supabaseAdmin
             .from('shopify_integrations')
@@ -281,7 +320,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
             .eq('status', 'active')
             .maybeSingle();
 
-        let syncWarnings: string[] = [];
+        const syncWarnings: string[] = [];
 
         const { data, error } = await supabaseAdmin
             .from('products')

@@ -246,8 +246,27 @@ export class ShopifyImportService {
     // Create automatic inbound shipment if products were imported
     if (importedProducts.length > 0) {
       try {
-        console.log(`📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
-        await this.createAutomaticInboundShipment(importedProducts);
+        // Check for duplicate import today to prevent multiple shipments
+        const { data: duplicateCheck, error: rpcError } = await this.supabaseAdmin
+          .rpc('check_shopify_import_duplicate', {
+            p_store_id: this.integration.store_id,
+            p_tracking_prefix: 'SHOPIFY-IMPORT-'
+          });
+
+        // If RPC function doesn't exist, proceed with shipment creation (graceful degradation)
+        if (rpcError) {
+          console.warn(`⚠️  [SHOPIFY-IMPORT] Duplicate check RPC not available, proceeding with shipment creation: ${rpcError.message}`);
+          console.log(`📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
+          await this.createAutomaticInboundShipment(importedProducts);
+        } else if (duplicateCheck && duplicateCheck.length > 0 && duplicateCheck[0].has_duplicate) {
+          console.warn(
+            `⚠️  [SHOPIFY-IMPORT] Skipping automatic inbound shipment - already created today: ` +
+            `${duplicateCheck[0].existing_reference} at ${duplicateCheck[0].created_at}`
+          );
+        } else {
+          console.log(`📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
+          await this.createAutomaticInboundShipment(importedProducts);
+        }
       } catch (error: any) {
         console.error('❌ [SHOPIFY-IMPORT] Failed to create automatic inbound shipment:', error);
         // Don't fail the import job if shipment creation fails

@@ -50,6 +50,7 @@ export function ShopifyDiagnostics() {
 
   useEffect(() => {
     loadDiagnostics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDiagnostics = async () => {

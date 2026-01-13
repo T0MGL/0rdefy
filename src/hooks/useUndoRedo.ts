@@ -79,6 +79,7 @@ export function useUndoRedo(options: UseUndoRedoOptions = {}) {
 
       toastIdRef.current = toastInstance.id;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [maxHistorySize, toastDuration]
   );
 

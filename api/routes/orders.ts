@@ -1143,7 +1143,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
 
                 for (const item of line_items) {
                     // Try to find the product to get image_url
-                    let productId = item.product_id || null;
+                    const productId = item.product_id || null;
                     let imageUrl = null;
 
                     if (productId) {

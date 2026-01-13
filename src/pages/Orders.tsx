@@ -13,8 +13,6 @@ import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FilterChips } from '@/components/FilterChips';
 import { ordersService } from '@/services/orders.service';
-import { unifiedService } from '@/services/unified.service';
-import { GlobalViewToggle } from '@/components/GlobalViewToggle';
 import { productsService } from '@/services/products.service';
 import { useCarriers } from '@/hooks/useCarriers';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -176,12 +174,6 @@ export default function Orders() {
   });
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // Global View State - Persist in localStorage
-  const [isGlobalView, setIsGlobalView] = useState(() => {
-    const saved = localStorage.getItem('orders_global_view');
-    return saved === 'true';
-  });
-
   // Use centralized carriers hook with caching
   const { getCarrierName } = useCarriers();
   const [search, setSearch] = useState('');
@@ -227,28 +219,13 @@ export default function Orders() {
   // Smart polling - only polls when page is visible
   const { refetch } = useSmartPolling({
     queryFn: useCallback(async () => {
-      let data: Order[];
-      let paginationData;
-
-      if (isGlobalView) {
-        // Fetch unified data with date params
-        const result = await unifiedService.getOrders({
-          limit: 50,
-          offset: 0,
-          startDate: dateParams.startDate,
-          endDate: dateParams.endDate
-        });
-        data = result.data as unknown as Order[];
-        paginationData = result.pagination;
-      } else {
-        const result = await ordersService.getAll({
-          ...dateParams,
-          limit: 50,
-          offset: 0
-        });
-        data = result.data;
-        paginationData = result.pagination;
-      }
+      const result = await ordersService.getAll({
+        ...dateParams,
+        limit: 50,
+        offset: 0
+      });
+      const data = result.data;
+      const paginationData = result.pagination;
 
       // Check for new orders
       if (data.length > previousCountRef.current && previousCountRef.current > 0) {
@@ -264,7 +241,7 @@ export default function Orders() {
       previousCountRef.current = data.length;
       setIsLoading(false);
       return data;
-    }, [dateParams, toast, isGlobalView]),
+    }, [dateParams, toast]),
     interval: 15000, // Poll every 15 seconds when page is visible
     enabled: true,
     fetchOnMount: true,
@@ -277,22 +254,11 @@ export default function Orders() {
     setIsLoadingMore(true);
     try {
       const newOffset = pagination.offset + pagination.limit;
-      let result;
-
-      if (isGlobalView) {
-        result = await unifiedService.getOrders({
-          limit: 50,
-          offset: newOffset,
-          startDate: dateParams.startDate,
-          endDate: dateParams.endDate
-        });
-      } else {
-        result = await ordersService.getAll({
-          ...dateParams,
-          limit: 50,
-          offset: newOffset
-        });
-      }
+      const result = await ordersService.getAll({
+        ...dateParams,
+        limit: 50,
+        offset: newOffset
+      });
 
       // Append new orders to existing ones
       setOrders(prev => [...prev, ...(result.data as Order[])]);
@@ -307,7 +273,7 @@ export default function Orders() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, pagination, isGlobalView, dateParams, toast]);
+  }, [isLoadingMore, pagination, dateParams, toast]);
 
   // Refetch when date range changes - reset pagination
   useEffect(() => {
@@ -1096,18 +1062,6 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
         {/* Actions - Right (aligned with title) */}
         <div className="flex items-center gap-2">
-          <GlobalViewToggle
-            enabled={isGlobalView}
-            onToggle={(enabled) => {
-              setIsGlobalView(enabled);
-              localStorage.setItem('orders_global_view', String(enabled));
-              // Reset pagination when switching views
-              setPagination(prev => ({ ...prev, offset: 0, hasMore: false }));
-              setOrders([]);
-              setIsLoading(true);
-            }}
-          />
-
           {selectedOrderIds.size > 0 && (
             <Button
               variant="default"
@@ -1232,11 +1186,6 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                     <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
                       ID Pedido
                     </th>
-                    {isGlobalView && (
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                        Tienda
-                      </th>
-                    )}
                     <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
                       Cliente
                     </th>
@@ -1371,15 +1320,6 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                           )}
                         </div>
                       </td>
-                      {isGlobalView && (
-                        <td className="py-4 px-6">
-                          {(order as any).store_name && (
-                            <Badge variant="secondary" className="font-medium text-[11px] h-6 px-3 bg-secondary/50 text-secondary-foreground border border-border shadow-sm">
-                              {(order as any).store_name}
-                            </Badge>
-                          )}
-                        </td>
-                      )}
                       <td className="py-4 px-6">
                         <div>
                           <p className="text-sm font-medium">{order.customer}</p>

@@ -29,6 +29,7 @@ export function CashFlowProjection() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodType]);
 
   const loadData = async () => {

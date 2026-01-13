@@ -810,7 +810,7 @@ export async function getPackingList(
       });
     });
 
-    let jsonbProductsMap = new Map<string, any>();
+    const jsonbProductsMap = new Map<string, any>();
     if (jsonbProductIds.size > 0) {
       const { data: jsonbProducts } = await supabaseAdmin
         .from('products')

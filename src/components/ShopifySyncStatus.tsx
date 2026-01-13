@@ -49,6 +49,7 @@ export function ShopifySyncStatus() {
   // Cargar configuracion de integracion al montar
   useEffect(() => {
     loadIntegration();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Poll para estado de sincronizacion cada 3 segundos si esta sincronizando

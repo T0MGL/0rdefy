@@ -156,6 +156,7 @@ export default function Settings() {
       loadSessions();
       loadActivity();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const loadSessions = async () => {

@@ -5,6 +5,9 @@
   "type": "module",
   "author": "Bright Idea",
   "description": "Ordefy - E-commerce management dashboard - Developed by Bright Idea",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

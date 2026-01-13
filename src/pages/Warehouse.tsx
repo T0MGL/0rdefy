@@ -37,9 +37,7 @@ import type {
   OrderForPacking,
   PackingListResponse
 } from '@/services/warehouse.service';
-import { unifiedService } from '@/services/unified.service';
 import { showErrorToast } from '@/utils/errorMessages';
-import { GlobalViewToggle } from '@/components/GlobalViewToggle';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 
 type View = 'dashboard' | 'picking' | 'packing';
@@ -50,9 +48,6 @@ export default function Warehouse() {
   const { getDateRange } = useDateRange();
   const [view, setView] = useState<View>('dashboard');
   const [currentSession, setCurrentSession] = useState<PickingSession | null>(null);
-
-  // Global View State (Multi-store)
-  const [isGlobalView, setIsGlobalView] = useState(false);
 
   // Dashboard state
   const [confirmedOrders, setConfirmedOrders] = useState<ConfirmedOrder[]>([]);
@@ -96,24 +91,12 @@ export default function Warehouse() {
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      if (isGlobalView) {
-        // Unified Data Load
-        const [orders, sessions] = await Promise.all([
-          unifiedService.getWarehouseReady(),
-          unifiedService.getWarehouseSessions(),
-        ]);
-        // Adapt unified types to local types (they are compatible enough for display)
-        setConfirmedOrders(orders as unknown as ConfirmedOrder[]);
-        setActiveSessions(sessions as unknown as PickingSession[]);
-      } else {
-        // Single Store Data Load
-        const [orders, sessions] = await Promise.all([
-          warehouseService.getConfirmedOrders(),
-          warehouseService.getActiveSessions(),
-        ]);
-        setConfirmedOrders(orders);
-        setActiveSessions(sessions);
-      }
+      const [orders, sessions] = await Promise.all([
+        warehouseService.getConfirmedOrders(),
+        warehouseService.getActiveSessions(),
+      ]);
+      setConfirmedOrders(orders);
+      setActiveSessions(sessions);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       showErrorToast(toast, error, {
@@ -125,7 +108,7 @@ export default function Warehouse() {
     } finally {
       setLoading(false);
     }
-  }, [toast, dateRange, isGlobalView]);
+  }, [toast]);
 
   const loadPickingList = useCallback(async () => {
     if (!currentSession) return;
@@ -691,8 +674,6 @@ export default function Warehouse() {
           onQuickPrepare={handleQuickPrepare}
           onAbandonSession={handleAbandonSession}
           getSessionAge={getSessionAge}
-          isGlobalView={isGlobalView}
-          onToggleGlobalView={setIsGlobalView}
         />
       )}
 
@@ -748,8 +729,6 @@ interface DashboardViewProps {
   onQuickPrepare: (order: ConfirmedOrder) => void;
   onAbandonSession: (session: PickingSession) => void;
   getSessionAge: (session: PickingSession) => { hours: number; level: 'OK' | 'WARNING' | 'CRITICAL' };
-  isGlobalView: boolean;
-  onToggleGlobalView: (enabled: boolean) => void;
 }
 
 function DashboardView({
@@ -763,8 +742,6 @@ function DashboardView({
   onQuickPrepare,
   onAbandonSession,
   getSessionAge,
-  isGlobalView,
-  onToggleGlobalView
 }: DashboardViewProps) {
   return (
     <div className="p-6 space-y-6">
@@ -784,10 +761,6 @@ function DashboardView({
             Gestiona la preparación y empaquetado de pedidos
           </p>
         </div>
-      </div>
-      <div className="flex items-center gap-4">
-        <GlobalViewToggle enabled={isGlobalView} onToggle={onToggleGlobalView} />
-        <Package className="h-10 w-10 text-primary" />
       </div>
 
       {/* 3-Column Grid Layout */}

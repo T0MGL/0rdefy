@@ -19,8 +19,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import * as shippingService from '@/services/shipping.service';
 import { generateDispatchCSV } from '@/services/shipping.service';
-import { unifiedService } from '@/services/unified.service';
-import { GlobalViewToggle } from '@/components/GlobalViewToggle';
 import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 
@@ -35,34 +33,19 @@ export default function Shipping() {
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [dispatching, setDispatching] = useState(false);
 
-  // Global View
-  const [isGlobalView, setIsGlobalView] = useState(false);
-
   const hasWarehouseFeature = hasFeature('warehouse');
 
   useEffect(() => {
     if (!hasWarehouseFeature) return;
     loadOrders();
-  }, [isGlobalView, hasWarehouseFeature]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasWarehouseFeature]);
 
   async function loadOrders() {
     setLoading(true);
     try {
-      if (isGlobalView) {
-        const data = await unifiedService.getDispatchReady();
-        // Convert to ReadyToShipOrder (compatible)
-        const adaptedData = data.map((d: any) => ({
-          ...d,
-          total_items: 1, // Defaulting as unified might not return count yet (TODO: improve unified API)
-          customer_phone: d.customer_phone || '',
-          customer_address: d.address || '',
-          address_reference: '',
-        }));
-        setOrders(adaptedData as unknown as ReadyToShipOrder[]);
-      } else {
-        const data = await shippingService.getReadyToShipOrders();
-        setOrders(data);
-      }
+      const data = await shippingService.getReadyToShipOrders();
+      setOrders(data);
     } catch (error) {
       console.error('Error loading ready to ship orders:', error);
       toast({
@@ -241,10 +224,7 @@ export default function Shipping() {
             Entrega de pedidos preparados a los couriers
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          <GlobalViewToggle enabled={isGlobalView} onToggle={setIsGlobalView} />
-          <Truck className="h-10 w-10 text-primary" />
-        </div>
+        <Truck className="h-10 w-10 text-primary" />
       </div>
 
       {/* Stats */}

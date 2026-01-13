@@ -13,8 +13,8 @@ import storageService from '../services/storage.service';
 const router = Router();
 
 // Configure multer for memory storage (we'll upload to Supabase)
-// @ts-ignore - multer types issue
-const upload = (multer as any)({
+// @ts-expect-error - multer types issue with default export
+const upload = (multer as unknown)({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB max
@@ -30,7 +30,7 @@ const upload = (multer as any)({
 });
 
 // Middleware to handle multer errors
-const handleMulterError = (err: any, req: Request, res: Response, next: Function) => {
+const handleMulterError = (err: any, req: Request, res: Response, next: () => void) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: 'File size exceeds 5MB limit' });

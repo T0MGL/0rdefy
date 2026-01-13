@@ -169,7 +169,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
             // Use historical delivery rate if available, otherwise use 85% default
             // If there are shipped orders but no deliveries yet, still use the 85% default
-            let deliveryRateDecimal = shippedOrDelivered > 0 && delivered > 0
+            const deliveryRateDecimal = shippedOrDelivered > 0 && delivered > 0
                 ? (delivered / shippedOrDelivered)
                 : 0.85; // Default 85% for new stores or when no deliveries yet
 

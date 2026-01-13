@@ -57,6 +57,7 @@ export function DeliveryAttemptsPanel({ orderId, orderNumber }: DeliveryAttempts
 
   useEffect(() => {
     fetchAttempts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
   const handleCreateAttempt = async () => {

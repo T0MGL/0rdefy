@@ -274,7 +274,8 @@ export function useSmartPolling<T>({
     if (fetchOnMount && enabled) {
       fetchData();
     }
-  }, [fetchOnMount, enabled]); // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchOnMount, enabled]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -324,6 +325,7 @@ export function useAutoStopPolling<T>(
     return () => {
       result.stopPolling();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return result;

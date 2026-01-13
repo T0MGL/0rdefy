@@ -72,6 +72,7 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
       from: range.from.toISOString(),
       to: range.to.toISOString(),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRange, customRange]);
 
   return (
