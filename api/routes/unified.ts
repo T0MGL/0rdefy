@@ -166,7 +166,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 payment_status,
                 created_at,
                 store_id,
-                carrier_id,
+                courier_id,
                 stores (name),
                 order_line_items (product_name, quantity)
             `, { count: 'exact' })
@@ -185,15 +185,15 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
         }
         console.log(`[GET /api/unified/orders] Fetched ${data?.length} orders (Total: ${count})`);
 
-        // Fetch carrier names for all unique carrier_ids
-        const carrierIds = [...new Set(data?.map((o: any) => o.carrier_id).filter(Boolean))];
+        // Fetch carrier names for all unique courier_ids
+        const courierIds = [...new Set(data?.map((o: any) => o.courier_id).filter(Boolean))];
         let carriersMap: { [key: string]: string } = {};
 
-        if (carrierIds.length > 0) {
+        if (courierIds.length > 0) {
             const { data: carriers } = await supabaseAdmin
                 .from('carriers')
                 .select('id, name')
-                .in('id', carrierIds);
+                .in('id', courierIds);
 
             if (carriers) {
                 carriersMap = carriers.reduce((acc: any, c: any) => {
@@ -217,7 +217,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 order_number: order.order_number,
                 customer: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim(),
                 product: productStr,
-                carrier: order.carrier_id ? (carriersMap[order.carrier_id] || 'Pendiente') : 'Pendiente',
+                carrier: order.courier_id ? (carriersMap[order.courier_id] || 'Pendiente') : 'Pendiente',
                 total: order.total_price,
                 status: order.sleeves_status,
                 payment_status: order.payment_status,

@@ -167,8 +167,11 @@ export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Global View State
-  const [isGlobalView, setIsGlobalView] = useState(false);
+  // Global View State - Persist in localStorage
+  const [isGlobalView, setIsGlobalView] = useState(() => {
+    const saved = localStorage.getItem('orders_global_view');
+    return saved === 'true';
+  });
 
   // Use centralized carriers hook with caching
   const { getCarrierName } = useCarriers();
@@ -1027,7 +1030,13 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
         {/* Actions - Right (aligned with title) */}
         <div className="flex items-center gap-2">
-          <GlobalViewToggle enabled={isGlobalView} onToggle={setIsGlobalView} />
+          <GlobalViewToggle
+            enabled={isGlobalView}
+            onToggle={(enabled) => {
+              setIsGlobalView(enabled);
+              localStorage.setItem('orders_global_view', String(enabled));
+            }}
+          />
 
           {selectedOrderIds.size > 0 && (
             <Button
