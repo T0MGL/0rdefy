@@ -2318,6 +2318,10 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         const { id } = req.params;
         const {
             upsell_added = false,
+            upsell_product_id,
+            upsell_quantity = 1,
+            upsell_product_name,
+            upsell_product_price,
             courier_id,
             address,
             latitude,
@@ -2405,6 +2409,79 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             }
         }
 
+        // Add upsell product as a line item if provided (adds to order, doesn't replace existing items)
+        if (upsell_added && upsell_product_id) {
+            console.log(`📦 [ORDERS] Adding upsell product ${upsell_product_id} (qty: ${upsell_quantity}) to order ${id}`);
+
+            // Get product details
+            const { data: product } = await supabaseAdmin
+                .from('products')
+                .select('id, name, price, image_url, sku')
+                .eq('id', upsell_product_id)
+                .eq('store_id', req.storeId)
+                .single();
+
+            if (product) {
+                // Insert as new line item with is_upsell flag (normalized table)
+                const unitPrice = product.price || upsell_product_price || 0;
+                const { error: lineItemError } = await supabaseAdmin
+                    .from('order_line_items')
+                    .insert({
+                        order_id: id,
+                        product_id: product.id,
+                        product_name: product.name || upsell_product_name,
+                        quantity: upsell_quantity,
+                        unit_price: unitPrice,
+                        total_price: unitPrice * upsell_quantity,
+                        image_url: product.image_url,
+                        sku: product.sku,
+                        is_upsell: true, // Mark as upsell for tracking
+                        created_at: new Date().toISOString()
+                    });
+
+                if (lineItemError) {
+                    console.error('[ORDERS] Error adding upsell line item:', lineItemError);
+                    // Don't fail the confirmation, just log the error
+                } else {
+                    console.log(`✅ [ORDERS] Upsell product added successfully to order ${id}`);
+
+                    // Get current line_items from order (JSONB field used by inventory trigger)
+                    const { data: currentOrder } = await supabaseAdmin
+                        .from('orders')
+                        .select('line_items, total_price')
+                        .eq('id', id)
+                        .single();
+
+                    // Add upsell to line_items JSONB array (for inventory deduction)
+                    const currentLineItems = currentOrder?.line_items || [];
+                    const upsellLineItem = {
+                        product_id: product.id,
+                        product_name: product.name || upsell_product_name,
+                        quantity: upsell_quantity,
+                        price: unitPrice,
+                        sku: product.sku,
+                        is_upsell: true
+                    };
+                    const updatedLineItems = [...currentLineItems, upsellLineItem];
+
+                    // Update order total and line_items to include upsell
+                    const upsellTotal = unitPrice * upsell_quantity;
+                    await supabaseAdmin
+                        .from('orders')
+                        .update({
+                            total_price: (currentOrder?.total_price || data.total_price || 0) + upsellTotal,
+                            line_items: updatedLineItems,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', id);
+
+                    console.log(`✅ [ORDERS] Updated order ${id} line_items with upsell product for inventory tracking`);
+                }
+            } else {
+                console.warn(`[ORDERS] Upsell product not found: ${upsell_product_id}`);
+            }
+        }
+
         // Log status change to history
         await supabaseAdmin
             .from('order_status_history')
@@ -2415,7 +2492,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 new_status: 'confirmed',
                 changed_by: req.userId || 'confirmador',
                 change_source: 'dashboard',
-                notes: upsell_added ? 'Order confirmed with upsell added' : 'Order confirmed'
+                notes: upsell_added && upsell_product_id
+                    ? `Order confirmed with upsell: ${upsell_product_name || 'product'} x${upsell_quantity}`
+                    : (upsell_added ? 'Order confirmed with upsell added' : 'Order confirmed')
             });
 
         res.json({

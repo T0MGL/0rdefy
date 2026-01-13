@@ -1451,8 +1451,15 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                               variant="outline"
                               className="h-7 px-2 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
                               onClick={() => {
-                                setOrderToConfirm(order);
-                                setConfirmDialogOpen(true);
+                                // Users with warehouse feature confirm directly (skip popup)
+                                // They'll assign carrier/zone in the warehouse/dispatch flow
+                                if (hasWarehouseFeature) {
+                                  handleConfirm(order.id);
+                                } else {
+                                  // Free plan users need to assign carrier and print label here
+                                  setOrderToConfirm(order);
+                                  setConfirmDialogOpen(true);
+                                }
                               }}
                             >
                               <CheckCircle size={14} className="mr-1" />

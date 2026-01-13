@@ -449,6 +449,7 @@ CREATE TABLE IF NOT EXISTS order_line_items (
     product_name VARCHAR(500) NOT NULL,
     variant_title VARCHAR(255),
     sku VARCHAR(255),
+    image_url TEXT,
     quantity INTEGER NOT NULL DEFAULT 1,
     unit_price DECIMAL(10,2) NOT NULL,
     total_price DECIMAL(10,2) NOT NULL,
@@ -459,6 +460,7 @@ CREATE TABLE IF NOT EXISTS order_line_items (
     quantity_fulfilled INTEGER DEFAULT 0,
     stock_deducted BOOLEAN DEFAULT FALSE,
     stock_deducted_at TIMESTAMP,
+    is_upsell BOOLEAN DEFAULT FALSE,
     shopify_data JSONB,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
@@ -470,6 +472,7 @@ CREATE INDEX IF NOT EXISTS idx_order_line_items_shopify_product ON order_line_it
 CREATE INDEX IF NOT EXISTS idx_order_line_items_shopify_variant ON order_line_items(shopify_variant_id);
 CREATE INDEX IF NOT EXISTS idx_order_line_items_sku ON order_line_items(sku);
 CREATE INDEX IF NOT EXISTS idx_order_line_items_stock_deducted ON order_line_items(stock_deducted);
+CREATE INDEX IF NOT EXISTS idx_order_line_items_is_upsell ON order_line_items(is_upsell) WHERE is_upsell = TRUE;
 
 -- ================================================================
 -- PARTE 6: HISTORY AND LOGS

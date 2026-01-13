@@ -82,7 +82,7 @@ export function Header() {
         // Update notifications service with new data (only if user has smart_alerts feature)
         if (hasSmartAlerts) {
           notificationsService.updateNotifications({
-            orders: ordersData,
+            orders: ordersResponse.data || [],
             products: productsData,
             ads: adsData,
             carriers: carriersData,

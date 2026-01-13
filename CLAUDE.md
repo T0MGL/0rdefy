@@ -267,25 +267,29 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - Order status updated to 'returned' on session completion
 
 ### Dispatch & Settlements System (Courier Reconciliation)
-**Files:** `src/pages/Settlements.tsx`, `api/routes/settlements.ts`, `api/services/settlements.service.ts`, `db/migrations/045_dispatch_settlements_system.sql`
+**Files:** `src/pages/Settlements.tsx`, `api/routes/settlements.ts`, `api/services/settlements.service.ts`, `db/migrations/045_dispatch_settlements_system.sql`, `059_dispatch_settlements_production_fixes.sql`
 
 **Workflow (Despacho → Conciliación → Liquidación → Pago):**
-1. **Despacho:** Select ready_to_ship orders → create dispatch session (DISP-DDMMYYYY-NN)
+1. **Despacho:** Select ready_to_ship orders → create dispatch session (DISP-DDMMYYYY-NNN)
 2. **Export CSV:** Download session for courier (Google Sheets/Excel compatible)
 3. **Courier Delivery:** Courier delivers orders, marks results in CSV
 4. **Conciliación:** Import CSV results → system validates and reconciles
-5. **Liquidación:** Calculate net amount (COD collected - shipping costs)
+5. **Liquidación:** Calculate net amount (COD collected - carrier fees)
 6. **Pago:** Mark settlement as paid
 
 **Features:**
-- Batch dispatch sessions with auto-generated codes
+- Batch dispatch sessions with auto-generated codes (3-digit: 999 sessions/day)
+- **Duplicate order prevention** - Orders cannot be in multiple active sessions
 - CSV export for courier communication (transition until QR scanning)
 - CSV import with Spanish column name support (ESTADO_ENTREGA, MONTO_COBRADO, etc.)
+- **Latin number format support** - Parses 25.000, 25,000, 25000 correctly
 - Zone-based carrier rates (Asunción: 25,000 Gs, Central: 30,000-35,000 Gs, Interior: 45,000 Gs)
+- **Carrier zone validation** - Warns if carrier has no zones configured
 - Delivery result tracking: delivered, failed, rejected, rescheduled
 - Discrepancy detection during reconciliation
-- Financial summary: COD expected vs collected, shipping costs, net receivable
+- Financial summary: COD expected vs collected, carrier fees, net receivable
 - Pending amounts by carrier dashboard
+- **Status transition validation** - Prevents invalid status changes
 
 **Delivery Results:**
 - `delivered`: Order delivered, COD collected (if applicable)
@@ -295,20 +299,36 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 **Session Status Flow:**
 ```
-open → dispatched → reconciled → settled
-  ↓         ↓            ↓           ↓
-Create   Export CSV   Import CSV   Calculate
-Session  + Mark       + Validate   Settlement
-         Shipped      Results      + Mark Paid
+dispatched → processing → settled
+     ↓           ↓           ↓
+  Export     Import      Create
+  CSV        Results     Settlement
+     ↓
+ cancelled (can happen from any non-settled state)
 ```
 
 **Net Receivable Calculation:**
 ```
-Net Receivable = COD Collected - Shipping Costs - Failed Attempt Fees
+Net Receivable = COD Collected - Carrier Fees (COD + Prepaid) - Failed Attempt Fees
+If positive: Courier owes store
+If negative: Store owes courier (common with prepaid orders)
 ```
 
-**Tables:** dispatch_sessions, dispatch_session_orders, carrier_zones
-**Functions:** generate_dispatch_session_code, process_dispatch_settlement, calculate_shipping_cost
+**Tables:** dispatch_sessions, dispatch_session_orders, carrier_zones, daily_settlements
+**Functions:** generate_dispatch_session_code, process_dispatch_settlement_atomic, check_orders_not_in_active_session, validate_carrier_has_zones, get_carrier_fee_for_zone
+**Views:** v_dispatch_session_health, v_settlement_discrepancies
+
+**Production Fixes (Migration 059):**
+- ✅ Duplicate order dispatch prevention (trigger + validation)
+- ✅ Session code format: 3 digits (999/day capacity)
+- ✅ Status transition validation trigger
+- ✅ Carrier zone validation helpers
+- ✅ Settlement tracking columns (total_cod_expected, carrier_fees_cod, carrier_fees_prepaid)
+- ✅ Carrier fee protection (cannot modify after dispatch)
+- ✅ Performance indexes for dispatch queries
+- ✅ Atomic settlement processing with row locking
+- ✅ Health monitoring view (CRITICAL >72h, WARNING >48h)
+- ✅ Discrepancy tracking view
 
 **API Endpoints:**
 - `GET/POST /api/settlements/dispatch-sessions` - List/create dispatch sessions
@@ -316,10 +336,11 @@ Net Receivable = COD Collected - Shipping Costs - Failed Attempt Fees
 - `POST /api/settlements/dispatch-sessions/:id/dispatch` - Mark as dispatched
 - `GET /api/settlements/dispatch-sessions/:id/export` - Export CSV for courier
 - `POST /api/settlements/dispatch-sessions/:id/import` - Import delivery results
-- `POST /api/settlements/dispatch-sessions/:id/settle` - Process settlement
-- `POST /api/settlements/v2/:id/paid` - Mark settlement as paid
+- `POST /api/settlements/dispatch-sessions/:id/process` - Process settlement (atomic)
+- `POST /api/settlements/v2/:id/pay` - Record payment
 - `GET /api/settlements/summary/v2` - Analytics summary
 - `GET /api/settlements/pending-by-carrier` - Pending amounts by carrier
+- `POST /api/settlements/manual-reconciliation` - Manual reconciliation without CSV
 
 ### Shipping Labels System
 **Files:** `src/components/OrderShippingLabel.tsx`, `src/pages/Orders.tsx`, `db/migrations/017_add_printed_status.sql`
@@ -727,3 +748,6 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 045: **NEW:** Dispatch & Settlements system (courier reconciliation, zone rates, CSV import/export)
 - 050: **NEW:** Onboarding progress tracking (setup checklist, first-time module visits)
 - 051: **NEW:** Add image_url to order_line_items (product thumbnail in Orders list)
+- 055: **NEW:** Billing production fixes (trial reminders, referral credits, discount increments)
+- 058: **NEW:** Warehouse production-ready fixes (session abandonment, atomic packing, staleness tracking)
+- 059: **NEW:** Dispatch & Settlements production fixes (duplicate prevention, 999/day codes, status validation)

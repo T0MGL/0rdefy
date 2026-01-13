@@ -86,6 +86,70 @@ interface CSVImportResult {
   warnings: string[];
 }
 
+/**
+ * Parse amount in Latin American format
+ * Handles: 25.000, 25,000, 25000, 25.000,50, 25,000.50
+ *
+ * Paraguay uses: 25.000 Gs (dot as thousands separator)
+ * Some use: 25,000 (comma as thousands separator)
+ *
+ * @param raw - Raw amount string from CSV
+ * @returns Parsed number value
+ */
+function parseLatinAmount(raw: string): number {
+  if (!raw) return 0;
+
+  // Remove currency symbols, Gs, spaces
+  const clean = raw.replace(/[^\d.,]/g, '').trim();
+
+  if (!clean) return 0;
+
+  // Detect format based on separator positions
+  const lastDot = clean.lastIndexOf('.');
+  const lastComma = clean.lastIndexOf(',');
+
+  if (lastDot === -1 && lastComma === -1) {
+    // No separators: "25000"
+    return parseFloat(clean) || 0;
+  }
+
+  if (lastDot !== -1 && lastComma !== -1) {
+    // Both separators present
+    if (lastComma > lastDot) {
+      // European/Latin: "1.234,56" -> comma is decimal
+      return parseFloat(clean.replace(/\./g, '').replace(',', '.')) || 0;
+    } else {
+      // US format: "1,234.56" -> dot is decimal
+      return parseFloat(clean.replace(/,/g, '')) || 0;
+    }
+  }
+
+  // Only one separator
+  if (lastDot !== -1) {
+    // Check if dot is thousands separator (25.000) or decimal (25.50)
+    const afterDot = clean.substring(lastDot + 1);
+    if (afterDot.length === 3 && !clean.includes(',')) {
+      // "25.000" - dot is thousands separator
+      return parseFloat(clean.replace(/\./g, '')) || 0;
+    }
+    // "25.50" or "1.5" - dot is decimal
+    return parseFloat(clean) || 0;
+  }
+
+  if (lastComma !== -1) {
+    // Check if comma is thousands separator (25,000) or decimal (25,50)
+    const afterComma = clean.substring(lastComma + 1);
+    if (afterComma.length === 3) {
+      // "25,000" - comma is thousands separator
+      return parseFloat(clean.replace(/,/g, '')) || 0;
+    }
+    // "25,50" - comma is decimal (European)
+    return parseFloat(clean.replace(',', '.')) || 0;
+  }
+
+  return parseFloat(clean) || 0;
+}
+
 // Parse CSV content
 function parseCSVContent(content: string): CSVImportResult {
   const lines = content.split('\n').filter(line => line.trim());
@@ -219,12 +283,10 @@ function parseCSVContent(content: string): CSVImportResult {
       continue;
     }
 
-    // Parse amount
+    // Parse amount - handle both Latin (25.000 or 25,000) and English (25000) formats
     let amountCollected = 0;
     if (amountRaw) {
-      // Remove currency symbols, spaces, and parse
-      const cleanAmount = amountRaw.replace(/[^\d.,]/g, '').replace(',', '.');
-      amountCollected = parseFloat(cleanAmount) || 0;
+      amountCollected = parseLatinAmount(amountRaw);
     }
 
     // Validate: non-delivered orders should have failure reason
@@ -324,6 +386,52 @@ export default function Settlements() {
     loadGroups();
   }, [loadGroups, hasWarehouseFeature]);
 
+  // Calculate stats - MUST be before early returns to follow React Hooks rules
+  const stats = useMemo(() => {
+    if (!selectedGroup) return null;
+
+    let delivered = 0;
+    let notDelivered = 0;
+    let codExpected = 0;
+    let missingReasons = 0;
+
+    selectedGroup.orders.forEach(order => {
+      const state = reconciliationState.get(order.id);
+      const isDelivered = state?.delivered ?? true;
+
+      if (isDelivered) {
+        delivered++;
+        if (order.is_cod) {
+          codExpected += order.cod_amount;
+        }
+      } else {
+        notDelivered++;
+        if (!state?.failure_reason) {
+          missingReasons++;
+        }
+      }
+    });
+
+    return {
+      delivered,
+      notDelivered,
+      codExpected,
+      missingReasons,
+    };
+  }, [selectedGroup, reconciliationState]);
+
+  // Validation for proceeding - MUST be before early returns
+  const canProceedToReview = useMemo(() => {
+    if (!stats) return false;
+    if (stats.missingReasons > 0) return false;
+    if (totalAmountCollected === null || totalAmountCollected < 0) return false;
+
+    const hasDiscrepancy = totalAmountCollected !== stats.codExpected;
+    if (hasDiscrepancy && !confirmDiscrepancy) return false;
+
+    return true;
+  }, [stats, totalAmountCollected, confirmDiscrepancy]);
+
   // Plan-based feature check (AFTER all hooks)
   // Wait for subscription to load to prevent flash of upgrade modal
   if (subscriptionLoading) {
@@ -388,52 +496,6 @@ export default function Settlements() {
       return newState;
     });
   };
-
-  // Calculate stats
-  const stats = useMemo(() => {
-    if (!selectedGroup) return null;
-
-    let delivered = 0;
-    let notDelivered = 0;
-    let codExpected = 0;
-    let missingReasons = 0;
-
-    selectedGroup.orders.forEach(order => {
-      const state = reconciliationState.get(order.id);
-      const isDelivered = state?.delivered ?? true;
-
-      if (isDelivered) {
-        delivered++;
-        if (order.is_cod) {
-          codExpected += order.cod_amount;
-        }
-      } else {
-        notDelivered++;
-        if (!state?.failure_reason) {
-          missingReasons++;
-        }
-      }
-    });
-
-    return {
-      delivered,
-      notDelivered,
-      codExpected,
-      missingReasons,
-    };
-  }, [selectedGroup, reconciliationState]);
-
-  // Validation for proceeding
-  const canProceedToReview = useMemo(() => {
-    if (!stats) return false;
-    if (stats.missingReasons > 0) return false;
-    if (totalAmountCollected === null || totalAmountCollected < 0) return false;
-
-    const hasDiscrepancy = totalAmountCollected !== stats.codExpected;
-    if (hasDiscrepancy && !confirmDiscrepancy) return false;
-
-    return true;
-  }, [stats, totalAmountCollected, confirmDiscrepancy]);
 
   // Go to review step
   const handleProceedToReview = () => {
@@ -515,6 +577,7 @@ export default function Settlements() {
   };
 
   // CSV Import - Read and parse file
+  // Handles both UTF-8 and Latin-1 (Windows-1252) encodings
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -522,7 +585,19 @@ export default function Settlements() {
     setCsvFileName(file.name);
 
     try {
-      const content = await file.text();
+      // Try UTF-8 first, then fall back to Latin-1 for Windows Excel files
+      let content: string;
+      try {
+        const buffer = await file.arrayBuffer();
+        // Try UTF-8 first
+        const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+        content = utf8Decoder.decode(buffer);
+      } catch {
+        // Fall back to Latin-1 (Windows-1252) if UTF-8 fails
+        const buffer = await file.arrayBuffer();
+        const latin1Decoder = new TextDecoder('windows-1252');
+        content = latin1Decoder.decode(buffer);
+      }
       const result = parseCSVContent(content);
 
       setCsvImportData(result);

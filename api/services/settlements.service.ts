@@ -162,11 +162,15 @@ export async function getOrdersToDispatch(
 
   if (error) throw error;
 
-  // Get order IDs already in dispatch sessions
+  // Get order IDs already in ACTIVE dispatch sessions (exclude cancelled/settled)
   const { data: dispatchedOrders } = await supabaseAdmin
     .from('dispatch_session_orders')
-    .select('order_id')
-    .in('order_id', (orders || []).map(o => o.id));
+    .select(`
+      order_id,
+      dispatch_sessions!inner(status)
+    `)
+    .in('order_id', (orders || []).map(o => o.id))
+    .not('dispatch_sessions.status', 'in', '("cancelled","settled")');
 
   const dispatchedOrderIds = new Set((dispatchedOrders || []).map(d => d.order_id));
 
@@ -279,6 +283,12 @@ export async function getDispatchSessionById(
 
 /**
  * Create a new dispatch session with orders
+ *
+ * VALIDATIONS:
+ * 1. Orders must exist in the store
+ * 2. Orders must NOT be in another active dispatch session
+ * 3. Carrier must have at least one zone configured (warning if not)
+ * 4. Orders should be in ready_to_ship status (warning if not)
  */
 export async function createDispatchSession(
   storeId: string,
@@ -286,7 +296,26 @@ export async function createDispatchSession(
   orderIds: string[],
   userId: string
 ): Promise<DispatchSession> {
-  // Generate session code
+  // ============================================================
+  // VALIDATION 1: Check for orders already in active sessions
+  // ============================================================
+  const { data: duplicateOrders } = await supabaseAdmin
+    .from('dispatch_session_orders')
+    .select(`
+      order_id,
+      dispatch_sessions!inner(session_code, status)
+    `)
+    .in('order_id', orderIds)
+    .not('dispatch_sessions.status', 'in', '("cancelled","settled")');
+
+  if (duplicateOrders && duplicateOrders.length > 0) {
+    const duplicateIds = duplicateOrders.map((d: any) =>
+      `${d.order_id.slice(0, 8)} (${d.dispatch_sessions.session_code})`
+    ).join(', ');
+    throw new Error(`${duplicateOrders.length} orden(es) ya están en sesiones activas: ${duplicateIds}`);
+  }
+
+  // Generate session code (3-digit format for 999/day capacity)
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-PY', {
     day: '2-digit',
@@ -301,10 +330,13 @@ export async function createDispatchSession(
     .eq('store_id', storeId)
     .eq('dispatch_date', today.toISOString().split('T')[0]);
 
-  const sessionNumber = ((count || 0) + 1).toString().padStart(2, '0');
+  // Changed from 2 to 3 digits (supports 999 sessions/day)
+  const sessionNumber = ((count || 0) + 1).toString().padStart(3, '0');
   const sessionCode = `DISP-${dateStr}-${sessionNumber}`;
 
-  // Get carrier zones for rate lookup
+  // ============================================================
+  // VALIDATION 2: Get carrier zones and validate
+  // ============================================================
   const { data: zones } = await supabaseAdmin
     .from('carrier_zones')
     .select('*')
@@ -312,9 +344,21 @@ export async function createDispatchSession(
     .eq('is_active', true);
 
   const zoneMap = new Map<string, number>();
+  let hasDefaultZone = false;
+
   (zones || []).forEach(z => {
     zoneMap.set(z.zone_name.toLowerCase(), z.rate);
+    if (z.zone_name.toLowerCase() === 'default') {
+      hasDefaultZone = true;
+    }
   });
+
+  // Warn if carrier has no zones (fees will be 0)
+  if (!zones || zones.length === 0) {
+    console.warn(`⚠️ [DISPATCH] Carrier ${carrierId} has NO zones configured! Fees will be 0.`);
+  } else if (!hasDefaultZone) {
+    console.warn(`⚠️ [DISPATCH] Carrier ${carrierId} has no DEFAULT zone. Orders without matching city will have 0 fees.`);
+  }
 
   // Get orders with customer and product info
   const { data: orders, error: ordersError } = await supabaseAdmin
@@ -328,7 +372,30 @@ export async function createDispatchSession(
 
   if (ordersError) throw ordersError;
   if (!orders || orders.length === 0) {
-    throw new Error('No orders found');
+    throw new Error('No se encontraron las órdenes especificadas');
+  }
+
+  // ============================================================
+  // VALIDATION 3: Verify all orders were found
+  // ============================================================
+  if (orders.length !== orderIds.length) {
+    const foundIds = new Set(orders.map(o => o.id));
+    const missingIds = orderIds.filter(id => !foundIds.has(id));
+    throw new Error(`${missingIds.length} orden(es) no encontradas: ${missingIds.map(id => id.slice(0, 8)).join(', ')}`);
+  }
+
+  // ============================================================
+  // VALIDATION 4: Check order statuses (warn if not ready_to_ship)
+  // ============================================================
+  const invalidStatusOrders = orders.filter(o =>
+    !['ready_to_ship', 'confirmed'].includes(o.sleeves_status)
+  );
+
+  if (invalidStatusOrders.length > 0) {
+    const details = invalidStatusOrders.map(o =>
+      `${o.order_number || o.id.slice(0, 8)} (${o.sleeves_status})`
+    ).join(', ');
+    console.warn(`⚠️ [DISPATCH] ${invalidStatusOrders.length} orden(es) con estado inesperado: ${details}`);
   }
 
   // Create session
@@ -747,7 +814,8 @@ export async function processSettlement(
     .eq('store_id', storeId)
     .eq('settlement_date', today.toISOString().split('T')[0]);
 
-  const settlementNumber = ((count || 0) + 1).toString().padStart(2, '0');
+  // Changed from 2 to 3 digits (supports 999 settlements/day)
+  const settlementNumber = ((count || 0) + 1).toString().padStart(3, '0');
   const settlementCode = `LIQ-${dateStr}-${settlementNumber}`;
 
   // Calculate net receivable
@@ -1667,7 +1735,8 @@ export async function processManualReconciliation(
       .eq('store_id', storeId)
       .eq('settlement_date', today.toISOString().split('T')[0]);
 
-    const settlementNumber = ((count || 0) + 1 + attempts).toString().padStart(2, '0');
+    // Changed from 2 to 3 digits (supports 999 settlements/day)
+    const settlementNumber = ((count || 0) + 1 + attempts).toString().padStart(3, '0');
     settlementCode = `LIQ-${dateStr}-${settlementNumber}`;
 
     // Check if code already exists
