@@ -20,7 +20,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
 import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Product } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,6 +30,7 @@ import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
 
 export default function Products() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showCalculator, setShowCalculator] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,6 +47,7 @@ export default function Products() {
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const [productToPublish, setProductToPublish] = useState<Product | null>(null);
   const [stockAdjustLoading, setStockAdjustLoading] = useState(false);
+  const [stockFilter, setStockFilter] = useState<'all' | 'low-stock' | 'out-of-stock'>('all');
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
 
@@ -61,6 +64,58 @@ export default function Products() {
     loadProducts();
     checkShopify();
   }, []);
+
+  // Process URL query parameters for filtering and navigation from notifications
+  useEffect(() => {
+    const filter = searchParams.get('filter');
+    const highlightId = searchParams.get('highlight');
+
+    // Apply filter from URL
+    if (filter) {
+      switch (filter) {
+        case 'low-stock':
+          setStockFilter('low-stock');
+          break;
+        case 'out-of-stock':
+          setStockFilter('out-of-stock');
+          break;
+        default:
+          setStockFilter('all');
+          break;
+      }
+
+      // Clean up URL after applying filter (keep highlight if present)
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('filter');
+      if (newParams.toString() !== searchParams.toString()) {
+        setSearchParams(newParams, { replace: true });
+      }
+    }
+
+    // Validate highlighted product exists after data loads
+    if (highlightId && products.length > 0) {
+      const productExists = products.some(p => p.id === highlightId);
+      if (!productExists) {
+        // Product not found - show toast and clean URL
+        toast({
+          title: 'Producto no encontrado',
+          description: 'El producto al que intentas acceder ya no existe o fue eliminado.',
+          variant: 'destructive',
+        });
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('highlight');
+        setSearchParams(newParams, { replace: true });
+      }
+    }
+  }, [searchParams, setSearchParams, products, toast]);
+
+  // Filter products based on stock filter
+  const filteredProducts = useMemo(() => {
+    if (stockFilter === 'all') return products;
+    if (stockFilter === 'low-stock') return products.filter(p => p.stock > 0 && p.stock < 10);
+    if (stockFilter === 'out-of-stock') return products.filter(p => p.stock === 0);
+    return products;
+  }, [products, stockFilter]);
 
   const handleCreate = () => {
     setSelectedProduct(null);
@@ -409,9 +464,27 @@ export default function Products() {
         </div>
       </div>
 
+      {/* Stock Filter Chips */}
+      {stockFilter !== 'all' && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Filtrando por:</span>
+          <Badge
+            variant="secondary"
+            className="cursor-pointer hover:bg-destructive/20"
+            onClick={() => setStockFilter('all')}
+          >
+            {stockFilter === 'low-stock' ? 'Stock bajo' : 'Sin stock'}
+            <span className="ml-1">×</span>
+          </Badge>
+          <span className="text-sm text-muted-foreground">
+            ({filteredProducts.length} de {products.length} productos)
+          </span>
+        </div>
+      )}
+
       {/* Products Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {products.map((product, index) => (
+        {filteredProducts.map((product, index) => (
           <motion.div
             key={product.id}
             id={`item-${product.id}`}

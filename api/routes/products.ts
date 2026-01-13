@@ -265,7 +265,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
             is_service = false
         } = req.body;
 
-        // Validation
+        // Basic validation
         if (!name || !price) {
             return res.status(400).json({
                 error: 'Validation failed',
@@ -273,43 +273,64 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
             });
         }
 
-        // Check for duplicate product by name or SKU
+        // Comprehensive validation using database function
         try {
-            const { data: duplicateCheck, error: rpcError } = await supabaseAdmin
-                .rpc('check_product_exists', {
+            const { data: validationResult, error: validationError } = await supabaseAdmin
+                .rpc('validate_product_data', {
                     p_store_id: req.storeId,
                     p_name: name,
-                    p_sku: sku || null
+                    p_sku: sku || null,
+                    p_price: parseFloat(price) || 0,
+                    p_cost: cost ? parseFloat(cost) : null,
+                    p_stock: parseInt(stock) || 0,
+                    p_image_url: image_url || null,
+                    p_exclude_product_id: null
                 });
 
-            // Only process if RPC succeeded (function exists and ran)
-            if (!rpcError && duplicateCheck && duplicateCheck.length > 0) {
-                const match = duplicateCheck[0];
-                if (match.exists_by_sku) {
-                    return res.status(409).json({
-                        error: 'Producto duplicado',
-                        message: `Ya existe un producto con el SKU "${sku}": ${match.existing_product_name}`,
-                        existing_product_id: match.existing_product_id,
-                        match_type: 'sku'
+            if (!validationError && validationResult && validationResult.length > 0) {
+                const validation = validationResult[0];
+
+                // Block if there are errors
+                if (!validation.is_valid) {
+                    const errors = validation.errors || [];
+                    return res.status(400).json({
+                        error: 'Validation failed',
+                        message: errors.length > 0 ? errors[0] : 'Invalid product data',
+                        validation_errors: errors
                     });
                 }
-                if (match.exists_by_name) {
-                    return res.status(409).json({
-                        error: 'Producto duplicado',
-                        message: `Ya existe un producto con el nombre "${name}"`,
-                        existing_product_id: match.existing_product_id,
-                        match_type: 'name'
-                    });
+
+                // Log warnings but don't block
+                const warnings = validation.warnings || [];
+                if (warnings.length > 0) {
+                    console.log(`[POST /api/products] Validation warnings for "${name}":`, warnings);
                 }
-            }
-            // If RPC error (function doesn't exist yet), continue with creation
-            // The database unique constraint will still catch SKU duplicates
-            if (rpcError) {
-                console.warn('[POST /api/products] check_product_exists RPC not available, skipping duplicate check:', rpcError.message);
+            } else if (validationError) {
+                console.warn('[POST /api/products] validate_product_data RPC not available, using legacy check:', validationError.message);
+
+                // Fallback to legacy duplicate check
+                const { data: duplicateCheck } = await supabaseAdmin
+                    .rpc('check_product_exists', {
+                        p_store_id: req.storeId,
+                        p_name: name,
+                        p_sku: sku || null
+                    });
+
+                if (duplicateCheck && duplicateCheck.length > 0) {
+                    const match = duplicateCheck[0];
+                    if (match.exists_by_sku) {
+                        return res.status(409).json({
+                            error: 'Producto duplicado',
+                            message: `Ya existe un producto con el SKU "${sku}": ${match.existing_product_name}`,
+                            existing_product_id: match.existing_product_id,
+                            match_type: 'sku'
+                        });
+                    }
+                }
             }
         } catch (rpcErr: any) {
             // Graceful degradation: if RPC fails, continue with creation
-            console.warn('[POST /api/products] Error checking for duplicates, continuing:', rpcErr.message);
+            console.warn('[POST /api/products] Error in validation, continuing:', rpcErr.message);
         }
 
         // Check if we have an active Shopify integration
@@ -780,9 +801,32 @@ productsRouter.delete('/:id', requirePermission(Module.PRODUCTS, Permission.DELE
 
         if (hard_delete === 'true') {
             // Hard delete - permanently remove from database
-            // Optionally also delete from Shopify if delete_from_shopify=true
+            // First check if product can be safely deleted using the database function
 
-            // Check if product has Shopify integration and should be deleted there too
+            try {
+                const { data: canDeleteResult, error: canDeleteError } = await supabaseAdmin
+                    .rpc('can_delete_product', { p_product_id: id });
+
+                if (!canDeleteError && canDeleteResult && canDeleteResult.length > 0) {
+                    const check = canDeleteResult[0];
+                    if (!check.can_delete) {
+                        return res.status(409).json({
+                            error: 'No se puede eliminar el producto',
+                            message: check.blocking_reason,
+                            details: {
+                                active_orders: check.active_orders_count,
+                                pending_shipments: check.pending_shipments_count,
+                                active_picking_sessions: check.active_picking_sessions_count
+                            }
+                        });
+                    }
+                }
+                // If RPC fails, proceed with deletion (database triggers will protect)
+            } catch (checkError: any) {
+                console.warn('[DELETE /api/products] can_delete_product check failed, proceeding:', checkError.message);
+            }
+
+            // Optionally also delete from Shopify if delete_from_shopify=true
             if (delete_from_shopify === 'true') {
                 const { data: product } = await supabaseAdmin
                     .from('products')
@@ -988,6 +1032,192 @@ productsRouter.get('/stats/inventory', async (req: AuthRequest, res: Response) =
         console.error('[GET /api/products/stats/inventory] Error:', error);
         res.status(500).json({
             error: 'Failed to fetch inventory stats',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/products/stats/full - Get comprehensive statistics via RPC
+// ================================================================
+productsRouter.get('/stats/full', async (req: AuthRequest, res: Response) => {
+    try {
+        const { data: stats, error } = await supabaseAdmin
+            .rpc('get_product_stats', { p_store_id: req.storeId });
+
+        if (error) {
+            // Fallback to basic stats if RPC not available
+            console.warn('[GET /api/products/stats/full] RPC not available, falling back to basic stats');
+            const { data: products } = await supabaseAdmin
+                .from('products')
+                .select('is_active, stock, price, cost, shopify_product_id, sync_status')
+                .eq('store_id', req.storeId);
+
+            const fallbackStats = {
+                total_products: products?.length || 0,
+                active_products: products?.filter(p => p.is_active).length || 0,
+                out_of_stock: products?.filter(p => p.is_active && p.stock === 0).length || 0,
+                low_stock: products?.filter(p => p.is_active && p.stock > 0 && p.stock <= 10).length || 0,
+                synced_with_shopify: products?.filter(p => p.shopify_product_id && p.sync_status === 'synced').length || 0,
+                sync_errors: products?.filter(p => p.shopify_product_id && p.sync_status === 'error').length || 0,
+                total_inventory_value: products?.reduce((sum, p) => p.is_active ? sum + ((p.price || 0) * (p.stock || 0)) : sum, 0) || 0,
+                avg_price: 0,
+                avg_margin_percent: 0
+            };
+
+            return res.json({ data: fallbackStats });
+        }
+
+        res.json({ data: stats && stats.length > 0 ? stats[0] : {} });
+    } catch (error: any) {
+        console.error('[GET /api/products/stats/full] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch product statistics',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/products/sync/status - Get products with sync issues
+// ================================================================
+productsRouter.get('/sync/status', async (req: AuthRequest, res: Response) => {
+    try {
+        // Try using the monitoring view
+        const { data: syncIssues, error } = await supabaseAdmin
+            .from('v_products_needing_sync_attention')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .order('hours_since_issue', { ascending: false })
+            .limit(50);
+
+        if (error) {
+            // Fallback: query products directly
+            console.warn('[GET /api/products/sync/status] View not available, querying directly');
+            const { data: products } = await supabaseAdmin
+                .from('products')
+                .select('id, name, sku, sync_status, last_synced_at, updated_at, shopify_product_id')
+                .eq('store_id', req.storeId)
+                .eq('is_active', true)
+                .not('shopify_product_id', 'is', null)
+                .in('sync_status', ['error', 'pending'])
+                .order('updated_at', { ascending: true })
+                .limit(50);
+
+            return res.json({
+                data: products || [],
+                source: 'fallback'
+            });
+        }
+
+        res.json({
+            data: syncIssues || [],
+            source: 'monitoring_view'
+        });
+    } catch (error: any) {
+        console.error('[GET /api/products/sync/status] Error:', error);
+        res.status(500).json({
+            error: 'Failed to fetch sync status',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/products/sync/retry - Retry failed syncs
+// ================================================================
+productsRouter.post('/sync/retry', requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { max_products = 100 } = req.body;
+
+        // Mark products for retry using RPC
+        const { data: result, error } = await supabaseAdmin
+            .rpc('mark_products_for_sync_retry', {
+                p_store_id: req.storeId,
+                p_max_products: Math.min(max_products, 100)
+            });
+
+        if (error) {
+            // Fallback: update directly
+            console.warn('[POST /api/products/sync/retry] RPC not available, updating directly');
+            const { data: updated, error: updateError } = await supabaseAdmin
+                .from('products')
+                .update({ sync_status: 'pending', updated_at: new Date().toISOString() })
+                .eq('store_id', req.storeId)
+                .eq('sync_status', 'error')
+                .not('shopify_product_id', 'is', null)
+                .eq('is_active', true)
+                .select('id');
+
+            if (updateError) throw updateError;
+
+            return res.json({
+                message: `Marked ${updated?.length || 0} products for sync retry`,
+                count: updated?.length || 0
+            });
+        }
+
+        res.json({
+            message: `Marked ${result || 0} products for sync retry`,
+            count: result || 0
+        });
+    } catch (error: any) {
+        console.error('[POST /api/products/sync/retry] Error:', error);
+        res.status(500).json({
+            error: 'Failed to retry sync',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/products/:id/can-delete - Check if product can be deleted
+// ================================================================
+productsRouter.get('/:id/can-delete', async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Verify product belongs to store first
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('id, name')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+
+        // Check deletion safety
+        const { data: result, error } = await supabaseAdmin
+            .rpc('can_delete_product', { p_product_id: id });
+
+        if (error) {
+            // Fallback: assume can delete (database triggers will protect)
+            return res.json({
+                can_delete: true,
+                product_name: product.name,
+                fallback: true
+            });
+        }
+
+        const check = result && result.length > 0 ? result[0] : { can_delete: true };
+
+        res.json({
+            can_delete: check.can_delete,
+            blocking_reason: check.blocking_reason,
+            product_name: product.name,
+            details: {
+                active_orders: check.active_orders_count || 0,
+                pending_shipments: check.pending_shipments_count || 0,
+                active_picking_sessions: check.active_picking_sessions_count || 0
+            }
+        });
+    } catch (error: any) {
+        console.error(`[GET /api/products/${req.params.id}/can-delete] Error:`, error);
+        res.status(500).json({
+            error: 'Failed to check deletion status',
             message: error.message
         });
     }

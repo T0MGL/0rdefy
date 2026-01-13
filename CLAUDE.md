@@ -111,6 +111,56 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 **Why ready_to_ship?** Stock decrements when picking/packing complete (physical inventory removed), not at confirmation (prevents overselling while allowing order modifications).
 
+### Product System (Production-Ready)
+**Files:** `api/routes/products.ts`, `src/services/products.service.ts`, `src/pages/Products.tsx`, `db/migrations/063_product_system_production_fixes.sql`
+
+**Data Integrity Constraints:**
+- **Non-negative stock:** CHECK constraint prevents negative stock values
+- **Non-negative price/cost:** CHECK constraints on price, cost, packaging_cost, additional_costs
+- **SKU uniqueness:** Partial unique index per store (allows empty/null SKUs)
+- **Validation function:** `validate_product_data()` for comprehensive pre-save checks
+
+**Safe Deletion System:**
+- **Dependency check:** `can_delete_product()` verifies no active orders/shipments/sessions
+- **Blocking reasons:** Returns specific reason (active orders, pending shipments, picking sessions)
+- **Webhook safety:** Shopify products/delete webhook uses `safe_delete_product_by_shopify_id()`
+- **Soft delete fallback:** If hard delete blocked, product is deactivated instead
+
+**Shopify Sync Monitoring:**
+- **Monitoring view:** `v_products_sync_status` tracks sync health (OK, ERROR, STUCK_PENDING, OUT_OF_SYNC)
+- **Attention view:** `v_products_needing_sync_attention` for products needing manual intervention
+- **Retry mechanism:** `mark_products_for_sync_retry()` resets error status to pending
+- **API endpoints:** `/api/products/sync/status`, `/api/products/sync/retry`
+
+**API Endpoints:**
+- `GET /api/products` - List products with pagination
+- `GET /api/products/:id` - Get single product
+- `POST /api/products` - Create product (with validation)
+- `PUT /api/products/:id` - Update product (auto-syncs to Shopify)
+- `DELETE /api/products/:id?hard_delete=true` - Delete with dependency check
+- `GET /api/products/:id/can-delete` - Check if product can be deleted
+- `PATCH /api/products/:id/stock` - Adjust stock (set/increment/decrement)
+- `POST /api/products/:id/publish-to-shopify` - Publish local product to Shopify
+- `GET /api/products/stats/inventory` - Basic inventory statistics
+- `GET /api/products/stats/full` - Comprehensive statistics via RPC
+- `GET /api/products/sync/status` - Products with sync issues
+- `POST /api/products/sync/retry` - Retry failed syncs
+
+**Functions (Migration 063):**
+- `validate_product_data()` - Comprehensive validation with errors/warnings
+- `can_delete_product()` - Dependency check for safe deletion
+- `safe_delete_product_by_shopify_id()` - Safe deletion from webhooks
+- `normalize_sku()` - SKU normalization (uppercase, trimmed)
+- `mark_products_for_sync_retry()` - Batch reset of error products
+- `get_product_stats()` - Comprehensive product statistics
+
+**Views (Migration 063):**
+- `v_products_sync_status` - Sync health monitoring
+- `v_products_needing_sync_attention` - Products needing manual intervention
+- `v_products_stock_discrepancy` - Stock with recent movement analysis
+
+**Image Upload:** Currently NOT supported - only accepts external URLs. Products without images use placeholder.
+
 ### Warehouse (Picking & Packing)
 **Files:** `src/pages/Warehouse.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`
 
@@ -296,7 +346,8 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - CSV import with Spanish column name support (ESTADO_ENTREGA, MONTO_COBRADO, etc.)
 - **Latin number format support** - Parses 25.000, 25,000, 25000 correctly
 - Zone-based carrier rates (Asunción: 25,000 Gs, Central: 30,000-35,000 Gs, Interior: 45,000 Gs)
-- **Carrier zone validation** - Warns if carrier has no zones configured
+- **Carrier zone validation (BLOCKING)** - Dispatch blocked if carrier has no zones (NEW: Migration 063)
+- **Carrier deletion protection** - Cannot delete carriers with active orders (NEW: Migration 063)
 - Delivery result tracking: delivered, failed, rejected, rescheduled
 - Discrepancy detection during reconciliation
 - Financial summary: COD expected vs collected, carrier fees, net receivable
@@ -327,8 +378,8 @@ If negative: Store owes courier (common with prepaid orders)
 ```
 
 **Tables:** dispatch_sessions, dispatch_session_orders, carrier_zones, daily_settlements
-**Functions:** generate_dispatch_session_code, process_dispatch_settlement_atomic, check_orders_not_in_active_session, validate_carrier_has_zones, get_carrier_fee_for_zone
-**Views:** v_dispatch_session_health, v_settlement_discrepancies
+**Functions:** generate_dispatch_session_code, process_dispatch_settlement_atomic, check_orders_not_in_active_session, validate_carrier_has_zones, get_carrier_fee_for_zone, calculate_shipping_cost, suggest_carrier_for_order, reassign_carrier_orders
+**Views:** v_dispatch_session_health, v_settlement_discrepancies, v_carrier_health, v_orders_without_carrier, v_carrier_zone_coverage_gaps
 
 **Production Fixes (Migration 059):**
 - ✅ Duplicate order dispatch prevention (trigger + validation)
@@ -341,6 +392,18 @@ If negative: Store owes courier (common with prepaid orders)
 - ✅ Atomic settlement processing with row locking
 - ✅ Health monitoring view (CRITICAL >72h, WARNING >48h)
 - ✅ Discrepancy tracking view
+
+**Carrier System Fixes (Migration 063 - NEW):**
+- ✅ **Carrier deletion protection** - Trigger prevents deleting carriers with active orders
+- ✅ **Carrier deactivation warning** - Warns when deactivating carrier with pending orders
+- ✅ **calculate_shipping_cost()** - Zone-based rate calculation with smart fallbacks
+- ✅ **validate_dispatch_carrier_zones()** - BLOCKING validation (no zones = no dispatch)
+- ✅ **suggest_carrier_for_order()** - AI-like carrier recommendation based on zone, rate, workload
+- ✅ **reassign_carrier_orders()** - Bulk order reassignment between carriers
+- ✅ **v_carrier_health** - Comprehensive carrier monitoring (zones, orders, settlements, health score)
+- ✅ **v_orders_without_carrier** - Orders needing carrier assignment with urgency levels
+- ✅ **v_carrier_zone_coverage_gaps** - Shows uncovered cities from recent orders
+- ✅ Performance indexes for carrier queries
 
 **API Endpoints:**
 - `GET/POST /api/settlements/dispatch-sessions` - List/create dispatch sessions
@@ -642,6 +705,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - Auto-update: customer stats, carrier stats, order status history, delivery tokens, COD calculation, warehouse timestamps
 - Stock management: trigger_update_stock_on_order_status (decrements/restores stock on status changes)
 - Data protection: trigger_prevent_line_items_edit, trigger_prevent_order_deletion (prevents data corruption)
+- Carrier protection: trigger_prevent_carrier_deletion (blocks deletion with active orders), trigger_validate_carrier_deactivation (warns on deactivation)
 
 ## Analytics Formulas (Verified)
 
@@ -707,6 +771,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - ✅ **NEW: Stripe Billing System** (subscriptions, trials, referrals, discount codes)
 - ✅ **NEW: Dispatch & Settlements** (courier reconciliation, CSV export/import, zone-based rates)
 - ✅ **NEW: Onboarding & Activation System** (setup checklist, first-time tooltips, contextual empty states)
+- ✅ **NEW: Product System Production Fixes** (validation, safe deletion, sync monitoring)
 
 **Coming Soon:**
 - 2FA authentication
@@ -764,3 +829,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 058: **NEW:** Warehouse production-ready fixes (session abandonment, atomic packing, staleness tracking)
 - 059: **NEW:** Dispatch & Settlements production fixes (duplicate prevention, 999/day codes, status validation)
 - 062: **NEW:** Merchandise production fixes (race-condition safe references, delta-based stock, audit trail, duplicate prevention)
+- 063: **NEW:** Carrier system production fixes (deletion protection, zone validation blocking, calculate_shipping_cost, carrier health monitoring)

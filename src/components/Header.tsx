@@ -64,6 +64,16 @@ export function Header() {
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
 
+  // Subscribe to cross-tab notification updates
+  useEffect(() => {
+    const unsubscribe = notificationsService.subscribe(() => {
+      // Another tab updated notifications - refresh our state
+      setNotifications(notificationsService.getAll());
+      setUnreadCount(notificationsService.getUnreadCount());
+    });
+    return unsubscribe;
+  }, []);
+
   // Load data for notifications and alerts
   useEffect(() => {
     const loadData = async () => {
@@ -151,6 +161,12 @@ export function Header() {
 
     // Close dropdown
     setNotifOpen(false);
+  };
+
+  const handleMarkAllRead = () => {
+    notificationsService.markAllAsRead();
+    setNotifications(notificationsService.getAll());
+    setUnreadCount(0);
   };
 
   const handleDateRangeChange = (value: string) => {
@@ -308,17 +324,36 @@ export function Header() {
                 {(unreadCount > 0 || criticalAlerts > 0) && (
                   <Badge className={cn(
                     "absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] border-2 border-card",
-                    criticalAlerts > 0 ? "bg-red-600" : "bg-destructive"
+                    // Red for urgent, orange for others
+                    notifications.some(n => !n.read && n.category === 'urgent') || criticalAlerts > 0
+                      ? "bg-red-600"
+                      : "bg-orange-500"
                   )}>
                     {unreadCount + criticalAlerts}
                   </Badge>
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="w-[340px]">
+              <div className="flex items-center justify-between px-3 py-2">
+                <DropdownMenuLabel className="p-0">Notificaciones</DropdownMenuLabel>
+                {unreadCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleMarkAllRead();
+                    }}
+                  >
+                    Marcar todo leído
+                  </Button>
+                )}
+              </div>
               <DropdownMenuSeparator />
-              <div className="max-h-96 overflow-y-auto">
+              <div className="max-h-[400px] overflow-y-auto">
                 {!hasSmartAlerts ? (
                   <div className="p-8 text-center text-sm text-muted-foreground">
                     <p className="font-medium mb-2">Alertas Inteligentes</p>
@@ -326,30 +361,52 @@ export function Header() {
                   </div>
                 ) : notifications.length === 0 ? (
                   <div className="p-8 text-center text-sm text-muted-foreground">
-                    No hay notificaciones
+                    <Bell size={32} className="mx-auto mb-3 opacity-30" />
+                    <p>Todo en orden</p>
+                    <p className="text-xs mt-1">No hay notificaciones pendientes</p>
                   </div>
                 ) : (
                   notifications.map((notif) => (
                     <DropdownMenuItem
                       key={notif.id}
                       className={cn(
-                        "cursor-pointer flex-col items-start p-3 gap-1",
-                        !notif.read && "bg-primary/5"
+                        "cursor-pointer flex-col items-start p-3 gap-1.5 focus:bg-muted/50",
+                        !notif.read && notif.category === 'urgent' && "bg-red-50 dark:bg-red-950/20",
+                        !notif.read && notif.category === 'action_required' && "bg-orange-50 dark:bg-orange-950/20",
+                        !notif.read && notif.category === 'informational' && "bg-blue-50 dark:bg-blue-950/20",
+                        notif.read && "opacity-70"
                       )}
                       onClick={() => handleNotificationClick(notif)}
                     >
                       <div className="flex items-start justify-between w-full gap-2">
-                        <p className={cn(
-                          "text-sm flex-1",
-                          !notif.read ? "font-semibold" : "font-medium"
-                        )}>
-                          {notif.message}
-                        </p>
+                        <div className="flex items-start gap-2 flex-1">
+                          {/* Category indicator */}
+                          <div className={cn(
+                            "h-2 w-2 rounded-full mt-1.5 flex-shrink-0",
+                            notif.category === 'urgent' && "bg-red-500",
+                            notif.category === 'action_required' && "bg-orange-500",
+                            notif.category === 'informational' && "bg-blue-500"
+                          )} />
+                          <div className="flex-1">
+                            <p className={cn(
+                              "text-sm leading-tight",
+                              !notif.read ? "font-semibold" : "font-normal"
+                            )}>
+                              {notif.message}
+                            </p>
+                            {/* Action label as subtle CTA */}
+                            {notif.actionLabel && !notif.read && (
+                              <p className="text-xs text-primary mt-1 font-medium">
+                                {notif.actionLabel} →
+                              </p>
+                            )}
+                          </div>
+                        </div>
                         {!notif.read && (
                           <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0 mt-1" />
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground ml-4">
                         {formatTimeAgo(notif.metadata?.timeReference || notif.timestamp)}
                       </p>
                     </DropdownMenuItem>

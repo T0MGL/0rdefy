@@ -1,13 +1,19 @@
 /**
  * Time utilities with timezone support for accurate time calculations
  * Based on user's browser timezone (from Intl.DateTimeFormat)
+ *
+ * All functions include error handling to prevent crashes on invalid input
  */
 
 /**
  * Get user's timezone from browser
  */
 export function getUserTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return 'America/Asuncion'; // Default fallback for Paraguay
+  }
 }
 
 /**
@@ -18,14 +24,32 @@ export function getNow(): Date {
 }
 
 /**
+ * Safely parse a date, returning null if invalid
+ */
+function safeParseDate(date: string | Date | null | undefined): Date | null {
+  if (!date) return null;
+  try {
+    const parsed = typeof date === 'string' ? new Date(date) : date;
+    // Check if date is valid
+    if (isNaN(parsed.getTime())) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Calculate difference in hours between two dates
  * @param from - Start date (ISO string or Date)
  * @param to - End date (ISO string or Date), defaults to now
- * @returns Hours difference (can be decimal)
+ * @returns Hours difference (can be decimal), 0 if invalid input
  */
 export function getHoursDifference(from: string | Date, to?: string | Date): number {
-  const fromDate = typeof from === 'string' ? new Date(from) : from;
-  const toDate = to ? (typeof to === 'string' ? new Date(to) : to) : getNow();
+  const fromDate = safeParseDate(from);
+  if (!fromDate) return 0;
+
+  const toDate = to ? safeParseDate(to) : getNow();
+  if (!toDate) return 0;
 
   const diffMs = toDate.getTime() - fromDate.getTime();
   return diffMs / (1000 * 60 * 60);
@@ -33,10 +57,14 @@ export function getHoursDifference(from: string | Date, to?: string | Date): num
 
 /**
  * Calculate difference in minutes between two dates
+ * @returns Minutes difference, 0 if invalid input
  */
 export function getMinutesDifference(from: string | Date, to?: string | Date): number {
-  const fromDate = typeof from === 'string' ? new Date(from) : from;
-  const toDate = to ? (typeof to === 'string' ? new Date(to) : to) : getNow();
+  const fromDate = safeParseDate(from);
+  if (!fromDate) return 0;
+
+  const toDate = to ? safeParseDate(to) : getNow();
+  if (!toDate) return 0;
 
   const diffMs = toDate.getTime() - fromDate.getTime();
   return diffMs / (1000 * 60);
@@ -45,8 +73,12 @@ export function getMinutesDifference(from: string | Date, to?: string | Date): n
 /**
  * Format time difference as human-readable string (español)
  * Examples: "hace 2 horas", "hace 30 minutos", "hace 1 día"
+ * @returns Formatted string, or "fecha inválida" if input is invalid
  */
 export function formatTimeAgo(from: string | Date): string {
+  const fromDate = safeParseDate(from);
+  if (!fromDate) return 'fecha inválida';
+
   const minutes = getMinutesDifference(from);
   const hours = minutes / 60;
   const days = hours / 24;
@@ -70,36 +102,51 @@ export function formatTimeAgo(from: string | Date): string {
 
 /**
  * Format a date in user's timezone
+ * @returns Formatted date string, or 'fecha inválida' if input is invalid
  */
 export function formatDateInUserTz(date: string | Date, options?: Intl.DateTimeFormatOptions): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  const timezone = getUserTimezone();
+  const dateObj = safeParseDate(date);
+  if (!dateObj) return 'fecha inválida';
 
-  const defaultOptions: Intl.DateTimeFormatOptions = {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    ...options,
-  };
+  try {
+    const timezone = getUserTimezone();
 
-  return new Intl.DateTimeFormat('es-ES', defaultOptions).format(dateObj);
+    const defaultOptions: Intl.DateTimeFormatOptions = {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      ...options,
+    };
+
+    return new Intl.DateTimeFormat('es-ES', defaultOptions).format(dateObj);
+  } catch {
+    return 'fecha inválida';
+  }
 }
 
 /**
  * Check if date is older than X hours
+ * @returns true if older than specified hours, false if invalid or not older
  */
 export function isOlderThan(date: string | Date, hours: number): boolean {
+  const dateObj = safeParseDate(date);
+  if (!dateObj) return false;
+
   const hoursDiff = getHoursDifference(date);
   return hoursDiff > hours;
 }
 
 /**
  * Check if date is within next X hours
+ * @returns true if within specified hours, false if invalid or outside range
  */
 export function isWithinNextHours(date: string | Date, hours: number): boolean {
+  const dateObj = safeParseDate(date);
+  if (!dateObj) return false;
+
   const hoursDiff = getHoursDifference(getNow(), date);
   return hoursDiff > 0 && hoursDiff <= hours;
 }
@@ -126,10 +173,13 @@ export function getEndOfDay(date?: Date): Date {
 
 /**
  * Check if two dates are on the same day (in user's timezone)
+ * @returns false if either date is invalid
  */
 export function isSameDay(date1: string | Date, date2: string | Date): boolean {
-  const d1 = typeof date1 === 'string' ? new Date(date1) : date1;
-  const d2 = typeof date2 === 'string' ? new Date(date2) : date2;
+  const d1 = safeParseDate(date1);
+  const d2 = safeParseDate(date2);
+
+  if (!d1 || !d2) return false;
 
   return (
     d1.getFullYear() === d2.getFullYear() &&
@@ -140,8 +190,12 @@ export function isSameDay(date1: string | Date, date2: string | Date): boolean {
 
 /**
  * Check if date is tomorrow (in user's timezone)
+ * @returns false if date is invalid
  */
 export function isTomorrow(date: string | Date): boolean {
+  const dateObj = safeParseDate(date);
+  if (!dateObj) return false;
+
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   return isSameDay(date, tomorrow);
@@ -149,6 +203,7 @@ export function isTomorrow(date: string | Date): boolean {
 
 /**
  * Get detailed time info for debugging
+ * @returns Time info object, or fallback values if date is invalid
  */
 export function getTimeInfo(date: string | Date): {
   timezone: string;
@@ -158,7 +213,18 @@ export function getTimeInfo(date: string | Date): {
   minutesAgo: number;
   formattedAgo: string;
 } {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const dateObj = safeParseDate(date);
+  if (!dateObj) {
+    return {
+      timezone: getUserTimezone(),
+      localTime: 'fecha inválida',
+      utcTime: 'fecha inválida',
+      hoursAgo: 0,
+      minutesAgo: 0,
+      formattedAgo: 'fecha inválida',
+    };
+  }
+
   const hoursAgo = getHoursDifference(dateObj);
   const minutesAgo = getMinutesDifference(dateObj);
 

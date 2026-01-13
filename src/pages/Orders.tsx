@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrderQuickView } from '@/components/OrderQuickView';
@@ -155,6 +155,7 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
 export default function Orders() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { currentStore, user } = useAuth();
   const { hasFeature } = useSubscription();
   const userRole = user?.role || 'viewer'; // Default to viewer if no role
@@ -280,6 +281,66 @@ export default function Orders() {
     setPagination(prev => ({ ...prev, offset: 0 }));
     refetch();
   }, [dateParams, refetch]);
+
+  // Process URL query parameters for filtering and navigation from notifications
+  useEffect(() => {
+    const filter = searchParams.get('filter');
+    const sort = searchParams.get('sort');
+    const highlightId = searchParams.get('highlight');
+
+    // Apply filter from URL
+    if (filter) {
+      switch (filter) {
+        case 'pending':
+          setChipFilters({ status: 'pending' });
+          break;
+        case 'confirmed':
+          setChipFilters({ status: 'confirmed' });
+          break;
+        case 'shipped':
+          setChipFilters({ status: 'shipped' });
+          break;
+        case 'delivered':
+          setChipFilters({ status: 'delivered' });
+          break;
+        case 'cancelled':
+          setChipFilters({ status: 'cancelled' });
+          break;
+        case 'tomorrow-delivery':
+          // This is handled by the calendar view or a special filter
+          setViewMode('calendar');
+          break;
+        default:
+          // Unknown filter - clear it
+          break;
+      }
+
+      // Clean up URL after applying filter (keep highlight if present)
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('filter');
+      newParams.delete('sort');
+      if (newParams.toString() !== searchParams.toString()) {
+        setSearchParams(newParams, { replace: true });
+      }
+    }
+
+    // Scroll to highlighted order after data loads
+    if (highlightId && orders.length > 0) {
+      // Check if the order exists
+      const orderExists = orders.some(o => o.id === highlightId);
+      if (!orderExists) {
+        // Order not found - show toast and clean URL
+        toast({
+          title: 'Pedido no encontrado',
+          description: 'El pedido al que intentas acceder ya no existe o fue eliminado.',
+          variant: 'destructive',
+        });
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('highlight');
+        setSearchParams(newParams, { replace: true });
+      }
+    }
+  }, [searchParams, setSearchParams, orders, toast]);
 
   const handleConfirm = useCallback(async (orderId: string) => {
     // Get original order before confirming

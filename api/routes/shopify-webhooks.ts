@@ -523,13 +523,14 @@ router.post('/products-update', async (req: Request, res: Response) => {
 // WEBHOOK 5: PRODUCTS - DELETE
 // ================================================================
 // Triggered when a product is deleted in Shopify
+// Uses safe_delete_product_by_shopify_id to check dependencies
 // ================================================================
 router.post('/products-delete', async (req: Request, res: Response) => {
   try {
     const product = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`🗑️ [PRODUCT-DELETE] Product deleted: ${product.id}`);
+    console.log(`🗑️ [PRODUCT-DELETE] Product deleted in Shopify: ${product.id}`);
 
     // Find integration
     const { data: integration } = await supabaseAdmin
@@ -542,16 +543,40 @@ router.post('/products-delete', async (req: Request, res: Response) => {
       return res.status(404).send('Integration not found');
     }
 
-    // Delete product from database
-    const { error } = await supabaseAdmin
-      .from('products')
-      .delete()
-      .eq('shopify_product_id', product.id)
-      .eq('store_id', integration.store_id);
+    // Use safe deletion function that checks for active orders/sessions
+    const { data: result, error: rpcError } = await supabaseAdmin
+      .rpc('safe_delete_product_by_shopify_id', {
+        p_shopify_product_id: product.id.toString(),
+        p_store_id: integration.store_id,
+        p_force: false // Don't force delete if has dependencies
+      });
 
-    if (error) throw error;
+    if (rpcError) {
+      // Fallback to soft delete if RPC not available
+      console.warn(`[PRODUCT-DELETE] RPC not available, falling back to soft delete: ${rpcError.message}`);
 
-    console.log(`✅ [PRODUCT-DELETE] Product removed from database`);
+      const { error: updateError } = await supabaseAdmin
+        .from('products')
+        .update({
+          is_active: false,
+          shopify_product_id: null,
+          shopify_variant_id: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('shopify_product_id', product.id)
+        .eq('store_id', integration.store_id);
+
+      if (updateError) throw updateError;
+
+      console.log(`✅ [PRODUCT-DELETE] Product soft deleted (fallback)`);
+    } else if (result && result.length > 0) {
+      const deleteResult = result[0];
+      if (deleteResult.success) {
+        console.log(`✅ [PRODUCT-DELETE] ${deleteResult.action_taken} (ID: ${deleteResult.deleted_product_id})`);
+      } else {
+        console.log(`⚠️ [PRODUCT-DELETE] ${deleteResult.action_taken}: ${deleteResult.blocked_reason}`);
+      }
+    }
 
     // Log webhook
     await supabaseAdmin

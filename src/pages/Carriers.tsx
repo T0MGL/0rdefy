@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MetricCard } from '@/components/MetricCard';
 import { CarrierTable } from '@/components/carriers/CarrierTable';
 import { CarrierZonesDialog } from '@/components/CarrierZonesDialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -123,10 +124,12 @@ function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSub
 
 export default function Carriers() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [performanceFilter, setPerformanceFilter] = useState<'all' | 'poor-performance'>('all');
   const [carriers, setCarriers] = useState<any[]>([]);
   const [dbCarriers, setDbCarriers] = useState<Carrier[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -139,6 +142,47 @@ export default function Carriers() {
     loadCarriers();
     loadPerformanceStats();
   }, []);
+
+  // Process URL query parameters for filtering and navigation from notifications
+  useEffect(() => {
+    const filter = searchParams.get('filter');
+    const highlightId = searchParams.get('highlight');
+
+    // Apply filter from URL
+    if (filter) {
+      switch (filter) {
+        case 'poor-performance':
+          setPerformanceFilter('poor-performance');
+          break;
+        default:
+          setPerformanceFilter('all');
+          break;
+      }
+
+      // Clean up URL after applying filter (keep highlight if present)
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('filter');
+      if (newParams.toString() !== searchParams.toString()) {
+        setSearchParams(newParams, { replace: true });
+      }
+    }
+
+    // Validate highlighted carrier exists after data loads
+    if (highlightId && dbCarriers.length > 0) {
+      const carrierExists = dbCarriers.some(c => c.id === highlightId);
+      if (!carrierExists) {
+        // Carrier not found - show toast and clean URL
+        toast({
+          title: 'Transportadora no encontrada',
+          description: 'La transportadora a la que intentas acceder ya no existe o fue eliminada.',
+          variant: 'destructive',
+        });
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('highlight');
+        setSearchParams(newParams, { replace: true });
+      }
+    }
+  }, [searchParams, setSearchParams, dbCarriers, toast]);
 
   const loadCarriers = async () => {
     const data = await carriersService.getAll();
@@ -230,7 +274,11 @@ export default function Carriers() {
       statusFilter === 'all' ||
       (statusFilter === 'active' && carrier.is_active) ||
       (statusFilter === 'inactive' && !carrier.is_active);
-    return matchesSearch && matchesStatus;
+    // Apply performance filter from URL notifications
+    const matchesPerformance =
+      performanceFilter === 'all' ||
+      (performanceFilter === 'poor-performance' && (carrier.delivery_rate || 0) < 80);
+    return matchesSearch && matchesStatus && matchesPerformance;
   });
 
   // Calculate global metrics
@@ -336,6 +384,24 @@ export default function Carriers() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Performance Filter Indicator */}
+      {performanceFilter !== 'all' && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Filtrando por:</span>
+          <Badge
+            variant="secondary"
+            className="cursor-pointer hover:bg-destructive/20"
+            onClick={() => setPerformanceFilter('all')}
+          >
+            Bajo rendimiento (&lt;80%)
+            <span className="ml-1">×</span>
+          </Badge>
+          <span className="text-sm text-muted-foreground">
+            ({filteredCarriers.length} de {carriersWithStats.length} transportadoras)
+          </span>
+        </div>
+      )}
 
       {/* Carriers Table */}
       <CarrierTable

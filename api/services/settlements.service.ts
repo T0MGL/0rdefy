@@ -335,7 +335,7 @@ export async function createDispatchSession(
   const sessionCode = `DISP-${dateStr}-${sessionNumber}`;
 
   // ============================================================
-  // VALIDATION 2: Get carrier zones and validate
+  // VALIDATION 2: Get carrier zones and validate (BLOCKING)
   // ============================================================
   const { data: zones } = await supabaseAdmin
     .from('carrier_zones')
@@ -345,19 +345,36 @@ export async function createDispatchSession(
 
   const zoneMap = new Map<string, number>();
   let hasDefaultZone = false;
+  const defaultZoneNames = ['default', 'otros', 'interior', 'general'];
 
   (zones || []).forEach(z => {
-    zoneMap.set(z.zone_name.toLowerCase(), z.rate);
-    if (z.zone_name.toLowerCase() === 'default') {
+    const zoneLower = z.zone_name.toLowerCase();
+    zoneMap.set(zoneLower, z.rate);
+    if (defaultZoneNames.includes(zoneLower)) {
       hasDefaultZone = true;
     }
   });
 
-  // Warn if carrier has no zones (fees will be 0)
+  // BLOCKING: Carrier must have at least one zone configured
   if (!zones || zones.length === 0) {
-    console.warn(`⚠️ [DISPATCH] Carrier ${carrierId} has NO zones configured! Fees will be 0.`);
-  } else if (!hasDefaultZone) {
-    console.warn(`⚠️ [DISPATCH] Carrier ${carrierId} has no DEFAULT zone. Orders without matching city will have 0 fees.`);
+    // Get carrier name for better error message
+    const { data: carrier } = await supabaseAdmin
+      .from('carriers')
+      .select('name')
+      .eq('id', carrierId)
+      .single();
+
+    const carrierName = carrier?.name || carrierId.slice(0, 8);
+    throw new Error(
+      `El carrier "${carrierName}" no tiene zonas configuradas. ` +
+      `Configure al menos una zona con tarifas antes de despachar. ` +
+      `Vaya a Configuración > Carriers > Zonas para agregar zonas.`
+    );
+  }
+
+  // Warning if no default zone (but allow dispatch)
+  if (!hasDefaultZone) {
+    console.warn(`⚠️ [DISPATCH] Carrier ${carrierId} has no fallback zone (default/otros/interior/general). Orders to unconfigured cities will have 0 fees.`);
   }
 
   // Get orders with customer and product info
@@ -422,8 +439,21 @@ export async function createDispatchSession(
   let totalPrepaidCarrierFees = 0;
 
   const sessionOrders = orders.map(order => {
-    const city = order.shipping_city || order.delivery_zone || '';
-    const rate = zoneMap.get(city.toLowerCase()) || zoneMap.get('default') || 0;
+    // delivery_zone is the primary field for zone matching (shipping_city doesn't exist as column)
+    const city = (order.delivery_zone || '').toLowerCase().trim();
+
+    // Try to find rate: exact city match, then fallback zones
+    let rate = zoneMap.get(city);
+    if (rate === undefined) {
+      // Try fallback zones in priority order
+      for (const fallback of defaultZoneNames) {
+        if (zoneMap.has(fallback)) {
+          rate = zoneMap.get(fallback);
+          break;
+        }
+      }
+    }
+    rate = rate || 0;
 
     // Use centralized payment utilities for COD determination
     const isCod = isCodPayment(order.payment_method);
@@ -443,8 +473,8 @@ export async function createDispatchSession(
       customer_name: order.customers?.name || order.customer_name || '',
       customer_phone: order.customers?.phone || order.customer_phone || '',
       delivery_address: [order.shipping_address, order.shipping_reference].filter(Boolean).join(', '),
-      delivery_city: order.shipping_city || '',
-      delivery_zone: order.delivery_zone || order.shipping_city || '',
+      delivery_city: order.delivery_zone || '',
+      delivery_zone: order.delivery_zone || '',
       total_price: order.total_price || 0,
       payment_method: normalizedMethod,
       is_cod: isCod,
@@ -1289,7 +1319,7 @@ export async function getShippedOrdersGrouped(
         customer_last_name,
         customer_phone,
         shipping_address,
-        shipping_city,
+        delivery_zone,
         shipping_reference,
         total_price,
         payment_method,
@@ -1375,7 +1405,7 @@ export async function getShippedOrdersGrouped(
         customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
         customer_phone: order.customer_phone || '',
         customer_address: [order.shipping_address, order.shipping_reference].filter(Boolean).join(', '),
-        customer_city: order.shipping_city || '',
+        customer_city: order.delivery_zone || '',
         total_price: order.total_price || 0,
         cod_amount: codAmount,
         payment_method: order.payment_method || '',
@@ -1507,11 +1537,29 @@ export async function processManualReconciliation(
     .eq('carrier_id', carrier_id)
     .eq('is_active', true);
 
-  const defaultRate = zones?.find(z => z.zone_name.toLowerCase() === 'default')?.rate || 25000;
+  // Find default rate from fallback zones (priority: default > otros > interior > general)
+  const fallbackZoneNames = ['default', 'otros', 'interior', 'general'];
+  let defaultRate = 25000; // Fallback if no zones at all
   const zoneMap = new Map<string, number>();
+
   (zones || []).forEach(z => {
-    zoneMap.set(z.zone_name.toLowerCase(), z.rate);
+    const zoneLower = z.zone_name.toLowerCase();
+    zoneMap.set(zoneLower, z.rate);
   });
+
+  // Find best fallback rate
+  for (const fallback of fallbackZoneNames) {
+    if (zoneMap.has(fallback)) {
+      defaultRate = zoneMap.get(fallback)!;
+      break;
+    }
+  }
+
+  // If carrier has zones but none matched as default, use first zone's rate
+  if (zones && zones.length > 0 && !fallbackZoneNames.some(f => zoneMap.has(f))) {
+    defaultRate = zones[0].rate;
+    console.warn(`⚠️ [RECONCILIATION] Carrier ${carrier_id} has no fallback zone, using first zone rate: ${defaultRate}`);
+  }
 
   // Get all orders from database and validate
   const orderIds = orders.map(o => o.order_id);
@@ -1585,7 +1633,7 @@ export async function processManualReconciliation(
     }
 
     const isCod = isCodPayment(dbOrder.payment_method);
-    const city = (dbOrder.shipping_city || '').toLowerCase().trim();
+    const city = (dbOrder.delivery_zone || '').toLowerCase().trim();
     const carrierFee = zoneMap.get(city) || defaultRate;
 
     if (orderInput.delivered) {
