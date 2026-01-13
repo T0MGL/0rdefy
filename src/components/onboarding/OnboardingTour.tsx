@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useOnboardingTour, Tour } from '@/contexts/OnboardingTourContext';
+import { useDemoTour } from '@/components/demo-tour/DemoTourProvider';
 import { useAuth, Role, Module, Permission } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import confetti from 'canvas-confetti';
@@ -146,38 +146,15 @@ const triggerMinimalConfetti = () => {
   }, 150);
 };
 
-// Empty tours for compatibility - we're using WelcomeModal instead
-export const ownerTour: Tour = {
-  id: 'owner-onboarding',
-  name: 'Tour de Bienvenida',
-  steps: [],
-};
-
-export const collaboratorTour: Tour = {
-  id: 'collaborator-onboarding',
-  name: 'Tour de Colaborador',
-  steps: [],
-};
-
 interface OnboardingTourProps {
   autoStart?: boolean;
 }
 
 // Main component - now just renders the Welcome Modal
+// Note: The actual DemoTour is rendered separately in App.tsx
 export function OnboardingTour({ autoStart = true }: OnboardingTourProps) {
-  const { justFinished, clearJustFinished } = useOnboardingTour();
-
-  // Trigger confetti when tour finishes
-  useEffect(() => {
-    if (justFinished) {
-      const timer = setTimeout(() => {
-        triggerMinimalConfetti();
-        clearJustFinished();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [justFinished, clearJustFinished]);
-
+  // This component is deprecated - DemoTour handles the interactive tour
+  // WelcomeModal is shown for quick navigation after onboarding
   return <WelcomeModal autoShow={autoStart} />;
 }
 
@@ -236,7 +213,7 @@ interface WelcomeModalProps {
 
 export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
   const navigate = useNavigate();
-  const { skipTour, hasCompletedTour } = useOnboardingTour();
+  const { skipTour, hasCompletedTour, isActive: isDemoTourActive } = useDemoTour();
   const { permissions, currentStore } = useAuth();
   const { hasFeature } = useSubscription();
   const [showWelcome, setShowWelcome] = useState(false);
@@ -289,19 +266,27 @@ export function WelcomeModal({ autoShow = true }: WelcomeModalProps) {
     if (!autoShow) return;
     if (hasCompletedTour) return;
     if (!currentStore) return;
+    // Don't show WelcomeModal if DemoTour is active (they conflict)
+    if (isDemoTourActive) return;
 
     // Check if user just completed onboarding
     const onboardingCompleted = localStorage.getItem('onboarding_completed');
     const welcomeSeen = localStorage.getItem('ordefy_welcome_modal_seen');
+    // Also check if DemoTour is pending (don't show modal if tour is about to start)
+    const tourPending = localStorage.getItem('ordefy_demo_tour_pending');
 
-    if (onboardingCompleted === 'true' && !welcomeSeen) {
+    // Only show WelcomeModal if:
+    // 1. Onboarding is completed
+    // 2. Welcome modal hasn't been seen
+    // 3. DemoTour is NOT pending (user skipped the tour or already completed it)
+    if (onboardingCompleted === 'true' && !welcomeSeen && tourPending !== 'true') {
       // Delay to let dashboard render
       const timer = setTimeout(() => {
         setShowWelcome(true);
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [autoShow, hasCompletedTour, currentStore]);
+  }, [autoShow, hasCompletedTour, currentStore, isDemoTourActive]);
 
   const handleClose = () => {
     localStorage.setItem('ordefy_welcome_modal_seen', 'true');

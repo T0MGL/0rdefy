@@ -256,20 +256,32 @@ export function getInvitableRoles(): Role[] {
 
 /**
  * Verifica si un rol puede invitar a otro rol específico
+ *
+ * SECURITY: Prevents horizontal privilege escalation
+ * - Owners can invite anyone except other owners
+ * - Admins can only invite roles lower than admin
+ * - Other roles cannot invite
  */
 export function canInviteRole(currentRole: Role, targetRole: Role): boolean {
-  // Solo owners pueden invitar a cualquiera
+  // Nobody can create new owners (owners are created at store creation)
+  if (targetRole === Role.OWNER) {
+    return false;
+  }
+
+  // Owners can invite any non-owner role
   if (currentRole === Role.OWNER) {
     return true;
   }
 
-  // Admins no pueden invitar a owners
-  if (currentRole === Role.ADMIN && targetRole === Role.OWNER) {
-    return false;
+  // Admins can only invite roles LOWER than admin (prevent horizontal escalation)
+  // This means admins cannot invite other admins
+  if (currentRole === Role.ADMIN) {
+    const nonAdminRoles = [Role.LOGISTICS, Role.CONFIRMADOR, Role.CONTADOR, Role.INVENTARIO];
+    return nonAdminRoles.includes(targetRole);
   }
 
-  // Admins pueden invitar a todos los demás roles
-  return currentRole === Role.ADMIN;
+  // Other roles cannot invite anyone
+  return false;
 }
 
 /**

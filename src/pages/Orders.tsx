@@ -167,6 +167,15 @@ export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    total: 0,
+    limit: 50,
+    offset: 0,
+    hasMore: false
+  });
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // Global View State - Persist in localStorage
   const [isGlobalView, setIsGlobalView] = useState(() => {
     const saved = localStorage.getItem('orders_global_view');
@@ -218,13 +227,27 @@ export default function Orders() {
   // Smart polling - only polls when page is visible
   const { refetch } = useSmartPolling({
     queryFn: useCallback(async () => {
-      let data;
+      let data: Order[];
+      let paginationData;
+
       if (isGlobalView) {
-        // Fetch unified data and adapt to Order type
-        const result = await unifiedService.getOrders({ limit: 50, offset: 0 }); // pagination to be implemented later fully
+        // Fetch unified data with date params
+        const result = await unifiedService.getOrders({
+          limit: 50,
+          offset: 0,
+          startDate: dateParams.startDate,
+          endDate: dateParams.endDate
+        });
         data = result.data as unknown as Order[];
+        paginationData = result.pagination;
       } else {
-        data = await ordersService.getAll(dateParams);
+        const result = await ordersService.getAll({
+          ...dateParams,
+          limit: 50,
+          offset: 0
+        });
+        data = result.data;
+        paginationData = result.pagination;
       }
 
       // Check for new orders
@@ -237,17 +260,58 @@ export default function Orders() {
       }
 
       setOrders(data);
+      setPagination(paginationData);
       previousCountRef.current = data.length;
       setIsLoading(false);
       return data;
-    }, [dateParams, toast, isGlobalView]), // Add isGlobalView dependency
+    }, [dateParams, toast, isGlobalView]),
     interval: 15000, // Poll every 15 seconds when page is visible
     enabled: true,
     fetchOnMount: true,
   });
 
-  // Refetch when date range changes
+  // Load more orders (pagination)
+  const handleLoadMore = useCallback(async () => {
+    if (isLoadingMore || !pagination.hasMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const newOffset = pagination.offset + pagination.limit;
+      let result;
+
+      if (isGlobalView) {
+        result = await unifiedService.getOrders({
+          limit: 50,
+          offset: newOffset,
+          startDate: dateParams.startDate,
+          endDate: dateParams.endDate
+        });
+      } else {
+        result = await ordersService.getAll({
+          ...dateParams,
+          limit: 50,
+          offset: newOffset
+        });
+      }
+
+      // Append new orders to existing ones
+      setOrders(prev => [...prev, ...(result.data as Order[])]);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error('Error loading more orders:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar más pedidos',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, pagination, isGlobalView, dateParams, toast]);
+
+  // Refetch when date range changes - reset pagination
   useEffect(() => {
+    setPagination(prev => ({ ...prev, offset: 0 }));
     refetch();
   }, [dateParams, refetch]);
 
@@ -1014,7 +1078,9 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         <div>
           <h2 className="text-2xl font-bold">Pedidos</h2>
           <div className="flex items-center gap-3">
-            <p className="text-muted-foreground">{filteredOrders.length} pedidos encontrados</p>
+            <p className="text-muted-foreground">
+              {filteredOrders.length} pedidos{pagination.total > orders.length && ` (${pagination.total} en total)`}
+            </p>
             <Button
               variant="ghost"
               size="sm"
@@ -1035,6 +1101,10 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
             onToggle={(enabled) => {
               setIsGlobalView(enabled);
               localStorage.setItem('orders_global_view', String(enabled));
+              // Reset pagination when switching views
+              setPagination(prev => ({ ...prev, offset: 0, hasMore: false }));
+              setOrders([]);
+              setIsLoading(true);
             }}
           />
 
@@ -1126,6 +1196,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           </span>
           <Badge variant="secondary" className="text-sm font-semibold">
             {filteredOrders.length}
+            {pagination.total > orders.length && ` de ${pagination.total}`}
           </Badge>
         </div>
       </Card>
@@ -1648,6 +1719,29 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                 </tbody>
               </table>
             </div>
+
+            {/* Load More Button */}
+            {pagination.hasMore && (
+              <div className="flex justify-center py-4">
+                <Button
+                  variant="outline"
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="min-w-[200px]"
+                >
+                  {isLoadingMore ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cargando...
+                    </>
+                  ) : (
+                    <>
+                      Cargar más ({pagination.total - orders.length} restantes)
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
           </Card>
         )
       }

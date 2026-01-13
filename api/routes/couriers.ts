@@ -2,11 +2,16 @@
 // ORDEFY API - COURIERS ROUTES (Repartidores/Delivery Personnel)
 // ================================================================
 // CRUD operations for delivery couriers
+//
+// Security: Requires CARRIERS module access
+// Roles with access: owner, admin, logistics, confirmador (view only)
 // ================================================================
 
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import {
   calculateCourierDeliveryRate,
   getCourierPerformanceByStore,
@@ -16,7 +21,11 @@ import {
 
 export const couriersRouter = Router();
 
-couriersRouter.use(verifyToken, extractStoreId);
+// Apply authentication and role middleware
+couriersRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// All courier routes require CARRIERS module access
+couriersRouter.use(requireModule(Module.CARRIERS));
 
 // ================================================================
 // GET /api/couriers - List all couriers (repartidores)

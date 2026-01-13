@@ -54,12 +54,20 @@ export const unifiedService = {
         }
     },
 
-    getOrders: async (params?: { limit?: number; offset?: number; status?: string }) => {
+    getOrders: async (params?: {
+        limit?: number;
+        offset?: number;
+        status?: string;
+        startDate?: string;
+        endDate?: string;
+    }) => {
         try {
             const queryParams = new URLSearchParams();
             if (params?.limit) queryParams.append('limit', params.limit.toString());
             if (params?.offset) queryParams.append('offset', params.offset.toString());
             if (params?.status) queryParams.append('status', params.status);
+            if (params?.startDate) queryParams.append('startDate', params.startDate);
+            if (params?.endDate) queryParams.append('endDate', params.endDate);
 
             const response = await fetch(`${API_BASE_URL}/unified/orders?${queryParams}`, {
                 headers: getHeaders(),
@@ -71,10 +79,13 @@ export const unifiedService = {
                 throw new Error(errorData.details || 'Failed to fetch unified orders');
             }
             const result = await response.json();
-            return result;
+            return {
+                data: result.data || [],
+                pagination: result.pagination || { total: 0, limit: 50, offset: 0, hasMore: false }
+            };
         } catch (error) {
             console.error('Unified Orders Error:', error);
-            return { data: [], pagination: { total: 0 } };
+            return { data: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } };
         }
     },
 

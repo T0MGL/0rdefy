@@ -1,10 +1,15 @@
 /**
  * Shipping API Routes
  * Endpoints for managing order dispatch to couriers
+ *
+ * Security: Requires CARRIERS module access
+ * Roles with access: owner, admin, logistics
  */
 
-import { Router } from 'express';
-import { verifyToken, extractStoreId } from '../middleware/auth';
+import { Router, Response } from 'express';
+import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';
+import { Module } from '../permissions';
 import * as shippingService from '../services/shipping.service';
 
 const router = Router();
@@ -12,12 +17,16 @@ const router = Router();
 // Apply authentication middleware to all routes
 router.use(verifyToken);
 router.use(extractStoreId);
+router.use(extractUserRole);
+
+// Shipping operations require CARRIERS module access
+router.use(requireModule(Module.CARRIERS));
 
 /**
  * GET /api/shipping/ready-to-ship
  * Gets all orders ready to be dispatched to couriers
  */
-router.get('/ready-to-ship', async (req, res) => {
+router.get('/ready-to-ship', async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = req.storeId;
 
@@ -42,7 +51,7 @@ router.get('/ready-to-ship', async (req, res) => {
  * Dispatches a single order to courier
  * Body: { orderId: string, notes?: string }
  */
-router.post('/dispatch', async (req, res) => {
+router.post('/dispatch', async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = req.storeId;
     const userId = req.userId;
@@ -78,7 +87,7 @@ router.post('/dispatch', async (req, res) => {
  * Dispatches multiple orders to couriers at once
  * Body: { orderIds: string[], notes?: string }
  */
-router.post('/dispatch-batch', async (req, res) => {
+router.post('/dispatch-batch', async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = req.storeId;
     const userId = req.userId;
@@ -124,7 +133,7 @@ router.post('/dispatch-batch', async (req, res) => {
  * GET /api/shipping/order/:orderId
  * Gets shipment history for a specific order
  */
-router.get('/order/:orderId', async (req, res) => {
+router.get('/order/:orderId', async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = req.storeId;
     const { orderId } = req.params;
@@ -150,7 +159,7 @@ router.get('/order/:orderId', async (req, res) => {
  * Gets shipment history for the store (paginated)
  * Query params: limit, offset
  */
-router.get('/history', async (req, res) => {
+router.get('/history', async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = req.storeId;
     const limit = parseInt(req.query.limit as string) || 50;

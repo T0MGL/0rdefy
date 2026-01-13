@@ -145,13 +145,13 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
         return res.status(401).json({ error: 'User not authenticated' });
     }
     try {
-        const { limit = '50', offset = '0', status } = req.query;
+        const { limit = '50', offset = '0', status, startDate, endDate } = req.query;
         const storeIds = await getUserStoreIds(req.user.id);
         console.log(`[GET /api/unified/orders] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
 
         if (storeIds.length === 0) {
             console.log('[GET /api/unified/orders] No stores found for user');
-            return res.json({ data: [], pagination: { total: 0 } });
+            return res.json({ data: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } });
         }
 
         let query = supabaseAdmin
@@ -176,6 +176,17 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
 
         if (status) {
             query = query.eq('sleeves_status', status);
+        }
+
+        // Date range filtering
+        if (startDate) {
+            query = query.gte('created_at', startDate as string);
+        }
+        if (endDate) {
+            // Add one day to endDate to include the full day
+            const endDateTime = new Date(endDate as string);
+            endDateTime.setDate(endDateTime.getDate() + 1);
+            query = query.lt('created_at', endDateTime.toISOString());
         }
 
         const { data, error, count } = await query;
@@ -227,12 +238,16 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
             };
         });
 
+        const parsedLimit = parseInt(limit as string);
+        const parsedOffset = parseInt(offset as string);
+
         res.json({
             data: transformed,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string)
+                limit: parsedLimit,
+                offset: parsedOffset,
+                hasMore: parsedOffset + (data?.length || 0) < (count || 0)
             }
         });
 

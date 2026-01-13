@@ -1,12 +1,27 @@
+// ================================================================
+// ORDEFY API - COD METRICS ROUTES
+// ================================================================
+// Cash on Delivery metrics and analytics
+//
+// Security: Requires ANALYTICS module access
+// Roles with access: owner, admin, logistics, contador
+// ================================================================
+
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule } from '../middleware/permissions';
+import { Module } from '../permissions';
 
 export const codMetricsRouter = Router();
 
-// All routes require authentication and store context
+// All routes require authentication, store context, and analytics access
 codMetricsRouter.use(verifyToken);
 codMetricsRouter.use(extractStoreId);
+codMetricsRouter.use(extractUserRole);
+
+// COD metrics is part of ANALYTICS module
+codMetricsRouter.use(requireModule(Module.ANALYTICS));
 
 // ================================================================
 // GET /api/cod-metrics - Get COD metrics for dashboard

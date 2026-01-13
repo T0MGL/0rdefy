@@ -1001,20 +1001,29 @@ export async function updatePackingProgress(
     }
 
     // CRITICAL: Check order status before allowing packing modifications
-    // If order already reached ready_to_ship, stock was decremented and packing is locked
+    // Block if order reached ready_to_ship (stock decremented) OR was cancelled/rejected
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .select('sleeves_status')
+      .select('sleeves_status, order_number')
       .eq('id', orderId)
       .single();
 
     if (orderError) throw orderError;
-    if (order.sleeves_status === 'ready_to_ship' ||
-        order.sleeves_status === 'shipped' ||
-        order.sleeves_status === 'delivered') {
+
+    // Block completed orders (stock already decremented)
+    if (['ready_to_ship', 'shipped', 'in_transit', 'delivered'].includes(order.sleeves_status)) {
       throw new Error(
-        'Cannot modify packing - order has already been completed and stock was decremented. ' +
+        `Cannot modify packing - order ${order.order_number || orderId} has already been completed ` +
+        `(status: ${order.sleeves_status}) and stock was decremented. ` +
         'This order is now locked to maintain inventory accuracy.'
+      );
+    }
+
+    // Block cancelled/rejected orders (shouldn't be packed)
+    if (['cancelled', 'rejected', 'returned'].includes(order.sleeves_status)) {
+      throw new Error(
+        `Cannot modify packing - order ${order.order_number || orderId} has been ${order.sleeves_status}. ` +
+        'Remove this order from the picking session.'
       );
     }
 

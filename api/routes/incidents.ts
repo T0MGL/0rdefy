@@ -3,11 +3,17 @@
 // ================================================================
 // Endpoints para gestionar incidencias de entrega y reintentos
 // Permite hasta 3 intentos adicionales por incidencia
+//
+// Security: Authenticated endpoints require ORDERS module access
+// Roles with access: owner, admin, logistics, confirmador
+// Public endpoints: Courier-facing endpoints for delivery completion
 // ================================================================
 
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule } from '../middleware/permissions';
+import { Module } from '../permissions';
 
 export const incidentsRouter = Router();
 
@@ -195,6 +201,10 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
 
 incidentsRouter.use(verifyToken);
 incidentsRouter.use(extractStoreId);
+incidentsRouter.use(extractUserRole);
+
+// Incidents are part of ORDERS module (order lifecycle management)
+incidentsRouter.use(requireModule(Module.ORDERS));
 
 // GET /api/incidents - List all incidents
 // Query params: status, limit, offset

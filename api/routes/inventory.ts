@@ -3,11 +3,16 @@
 // ================================================================
 // Provides read-only access to inventory movement history
 // Includes filtering by product, date range, and movement type
+//
+// Security: Requires PRODUCTS module access (inventory is part of products)
+// Roles with access: owner, admin, inventario, confirmador (view), contador (view)
 // ================================================================
 
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import { productNotFound, databaseError, serverError } from '../utils/errorResponses';
 
 export const inventoryRouter = Router();
@@ -15,6 +20,10 @@ export const inventoryRouter = Router();
 // Apply authentication middleware to all routes
 inventoryRouter.use(verifyToken);
 inventoryRouter.use(extractStoreId);
+inventoryRouter.use(extractUserRole);
+
+// Inventory is part of PRODUCTS module
+inventoryRouter.use(requireModule(Module.PRODUCTS));
 
 // ================================================================
 // GET /api/inventory/movements - Get all inventory movements

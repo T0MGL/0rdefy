@@ -1206,6 +1206,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
 // ================================================================
 // PUT /api/orders/:id - Update order
 // ================================================================
+// Supports optimistic locking via 'version' field to prevent race conditions
 ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
@@ -1224,12 +1225,14 @@ ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), asyn
             total_shipping,
             shipping_cost,
             currency,
-            upsell_added
+            upsell_added,
+            version // Optimistic locking: client sends current version
         } = req.body;
 
         // Build update object with only provided fields
         const updateData: any = {
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
+            last_modified_by: req.user?.id || null
         };
 
         if (customer_email !== undefined) updateData.customer_email = customer_email;
@@ -1248,11 +1251,19 @@ ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), asyn
         if (currency !== undefined) updateData.currency = currency;
         if (upsell_added !== undefined) updateData.upsell_added = upsell_added;
 
-        const { data, error } = await supabaseAdmin
+        // Build query with optimistic locking if version provided
+        let query = supabaseAdmin
             .from('orders')
             .update(updateData)
             .eq('id', id)
-            .eq('store_id', req.storeId)
+            .eq('store_id', req.storeId);
+
+        // If version is provided, use optimistic locking
+        if (version !== undefined && version !== null) {
+            query = query.eq('version', version);
+        }
+
+        const { data, error, count } = await query
             .select(`
                 *,
                 carriers!orders_courier_id_fkey (
@@ -1261,6 +1272,32 @@ ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), asyn
                 )
             `)
             .single();
+
+        // Check for optimistic locking conflict
+        if (error?.code === 'PGRST116' || (!data && version !== undefined)) {
+            // Row not found with that version - likely concurrent update
+            const { data: currentOrder } = await supabaseAdmin
+                .from('orders')
+                .select('version, last_modified_at, last_modified_by')
+                .eq('id', id)
+                .eq('store_id', req.storeId)
+                .single();
+
+            if (currentOrder && currentOrder.version !== version) {
+                return res.status(409).json({
+                    error: 'Conflict',
+                    message: 'Este pedido fue modificado por otro usuario. Por favor, recarga la página e intenta de nuevo.',
+                    code: 'VERSION_CONFLICT',
+                    currentVersion: currentOrder.version,
+                    yourVersion: version,
+                    lastModifiedAt: currentOrder.last_modified_at
+                });
+            }
+
+            return res.status(404).json({
+                error: 'Order not found'
+            });
+        }
 
         if (error || !data) {
             return res.status(404).json({
@@ -1294,7 +1331,8 @@ ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), asyn
             rejectionReason: data.rejection_reason,
             delivery_link_token: data.delivery_link_token,
             latitude: data.latitude,
-            longitude: data.longitude
+            longitude: data.longitude,
+            version: data.version // Include version for optimistic locking
         };
 
         res.json(transformedData);
@@ -1603,6 +1641,62 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         // Log force usage for audit trail
         if (canForce) {
             console.log(`⚠️ [ORDERS] Force transition by ${req.userRole} (user ${req.userId}): ${fromStatus} → ${toStatus}`);
+        }
+
+        // ================================================================
+        // CRITICAL: Check stock availability before moving to ready_to_ship
+        // This prevents the trigger from failing with insufficient stock
+        // ================================================================
+        if (toStatus === 'ready_to_ship' && fromStatus !== 'ready_to_ship') {
+            const lineItems = currentOrder.line_items || [];
+
+            if (Array.isArray(lineItems) && lineItems.length > 0) {
+                const stockIssues: Array<{
+                    product_name: string;
+                    required: number;
+                    available: number;
+                    shortage: number;
+                }> = [];
+
+                // Check stock for each product
+                for (const item of lineItems) {
+                    const productId = item.product_id;
+                    const requiredQty = parseInt(item.quantity) || 0;
+
+                    if (!productId || requiredQty <= 0) continue;
+
+                    const { data: product } = await supabaseAdmin
+                        .from('products')
+                        .select('name, sku, stock')
+                        .eq('id', productId)
+                        .eq('store_id', req.storeId)
+                        .single();
+
+                    if (product && (product.stock || 0) < requiredQty) {
+                        stockIssues.push({
+                            product_name: product.name || item.name || 'Producto',
+                            required: requiredQty,
+                            available: product.stock || 0,
+                            shortage: requiredQty - (product.stock || 0)
+                        });
+                    }
+                }
+
+                if (stockIssues.length > 0) {
+                    const issueList = stockIssues
+                        .map(i => `• ${i.product_name}: necesita ${i.required}, disponible ${i.available} (faltan ${i.shortage})`)
+                        .join('\n');
+
+                    console.warn(`⚠️ [ORDERS] Stock insuficiente para orden ${id}:\n${issueList}`);
+
+                    return res.status(400).json({
+                        error: 'Insufficient stock',
+                        code: 'INSUFFICIENT_STOCK',
+                        message: `No hay suficiente stock para completar este pedido:\n\n${issueList}\n\nRecibe mercadería para reponer el stock o reduce la cantidad del pedido.`,
+                        details: stockIssues
+                    });
+                }
+            }
         }
 
         const updateData: any = {
@@ -2352,10 +2446,10 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
 
         console.log(`🖨️ [ORDERS] Marking order ${id} as printed by ${userId}`);
 
-        // Verify order exists and belongs to store
+        // Verify order exists and belongs to store - include line_items for stock check
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, printed, printed_at, sleeves_status')
+            .select('id, printed, printed_at, sleeves_status, line_items')
             .eq('id', id)
             .eq('store_id', storeId)
             .single();
@@ -2365,6 +2459,60 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
                 error: 'Order not found',
                 message: 'El pedido no existe o no pertenece a esta tienda'
             });
+        }
+
+        // ================================================================
+        // CRITICAL: Check stock availability before transitioning to ready_to_ship
+        // ================================================================
+        if (existingOrder.sleeves_status === 'in_preparation') {
+            const lineItems = existingOrder.line_items || [];
+
+            if (Array.isArray(lineItems) && lineItems.length > 0) {
+                const stockIssues: Array<{
+                    product_name: string;
+                    required: number;
+                    available: number;
+                    shortage: number;
+                }> = [];
+
+                for (const item of lineItems) {
+                    const productId = item.product_id;
+                    const requiredQty = parseInt(item.quantity) || 0;
+
+                    if (!productId || requiredQty <= 0) continue;
+
+                    const { data: product } = await supabaseAdmin
+                        .from('products')
+                        .select('name, sku, stock')
+                        .eq('id', productId)
+                        .eq('store_id', storeId)
+                        .single();
+
+                    if (product && (product.stock || 0) < requiredQty) {
+                        stockIssues.push({
+                            product_name: product.name || item.name || 'Producto',
+                            required: requiredQty,
+                            available: product.stock || 0,
+                            shortage: requiredQty - (product.stock || 0)
+                        });
+                    }
+                }
+
+                if (stockIssues.length > 0) {
+                    const issueList = stockIssues
+                        .map(i => `• ${i.product_name}: necesita ${i.required}, disponible ${i.available}`)
+                        .join('\n');
+
+                    console.warn(`⚠️ [ORDERS] Stock insuficiente para orden ${id} al imprimir etiqueta`);
+
+                    return res.status(400).json({
+                        error: 'Insufficient stock',
+                        code: 'INSUFFICIENT_STOCK',
+                        message: `No hay suficiente stock para completar este pedido:\n\n${issueList}\n\nRecibe mercadería para reponer el stock antes de imprimir la etiqueta.`,
+                        details: stockIssues
+                    });
+                }
+            }
         }
 
         // Update order as printed (only if not already printed)
@@ -2433,15 +2581,73 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
 
         console.log(`🖨️ [ORDERS] Bulk marking ${order_ids.length} orders as printed by ${userId}`);
 
-        // Get all orders to check their current status
+        // Get all orders with line_items for stock checking
         const { data: existingOrders, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, printed, sleeves_status')
+            .select('id, printed, sleeves_status, line_items, order_number')
             .in('id', order_ids)
             .eq('store_id', storeId);
 
         if (fetchError) {
             throw fetchError;
+        }
+
+        // First pass: Check stock for all orders that need status change
+        const ordersWithStockIssues: Array<{ order_id: string; order_number: string; issues: any[] }> = [];
+
+        for (const order of existingOrders || []) {
+            if (order.sleeves_status !== 'in_preparation') continue;
+
+            const lineItems = order.line_items || [];
+            if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
+
+            const stockIssues: any[] = [];
+
+            for (const item of lineItems) {
+                const productId = item.product_id;
+                const requiredQty = parseInt(item.quantity) || 0;
+
+                if (!productId || requiredQty <= 0) continue;
+
+                const { data: product } = await supabaseAdmin
+                    .from('products')
+                    .select('name, sku, stock')
+                    .eq('id', productId)
+                    .eq('store_id', storeId)
+                    .single();
+
+                if (product && (product.stock || 0) < requiredQty) {
+                    stockIssues.push({
+                        product_name: product.name || item.name || 'Producto',
+                        required: requiredQty,
+                        available: product.stock || 0
+                    });
+                }
+            }
+
+            if (stockIssues.length > 0) {
+                ordersWithStockIssues.push({
+                    order_id: order.id,
+                    order_number: order.order_number || order.id.slice(0, 8),
+                    issues: stockIssues
+                });
+            }
+        }
+
+        // If any orders have stock issues, return error with details
+        if (ordersWithStockIssues.length > 0) {
+            const ordersList = ordersWithStockIssues
+                .map(o => `Pedido ${o.order_number}: ${o.issues.map(i => `${i.product_name} (necesita ${i.required}, disponible ${i.available})`).join(', ')}`)
+                .join('\n');
+
+            console.warn(`⚠️ [ORDERS] Stock insuficiente en ${ordersWithStockIssues.length} pedidos`);
+
+            return res.status(400).json({
+                error: 'Insufficient stock',
+                code: 'INSUFFICIENT_STOCK',
+                message: `No hay suficiente stock para completar estos pedidos:\n\n${ordersList}\n\nRecibe mercadería para reponer el stock.`,
+                details: ordersWithStockIssues
+            });
         }
 
         // Process each order individually to handle status changes correctly

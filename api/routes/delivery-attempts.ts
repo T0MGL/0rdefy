@@ -1,7 +1,18 @@
+// ================================================================
+// ORDEFY API - DELIVERY ATTEMPTS ROUTES
+// ================================================================
+// Manages delivery attempt records and photos
+//
+// Security: Requires ORDERS module access (delivery is part of order lifecycle)
+// Roles with access: owner, admin, logistics, confirmador
+// ================================================================
+
 import { Router, Response } from 'express';
 import multer from 'multer';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
+import { Module, Permission } from '../permissions';
 import { uploadDeliveryPhoto } from '../services/delivery-photo-cleanup.service';
 
 // Configure multer for file uploads
@@ -22,9 +33,13 @@ const upload = multer({
 
 export const deliveryAttemptsRouter = Router();
 
-// All routes require authentication and store context
+// All routes require authentication, store context, and orders module access
 deliveryAttemptsRouter.use(verifyToken);
 deliveryAttemptsRouter.use(extractStoreId);
+deliveryAttemptsRouter.use(extractUserRole);
+
+// Delivery attempts are part of ORDERS module
+deliveryAttemptsRouter.use(requireModule(Module.ORDERS));
 
 // ================================================================
 // POST /api/delivery-attempts/upload-photo - Upload delivery photo

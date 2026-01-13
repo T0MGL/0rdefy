@@ -21,12 +21,29 @@ const getHeaders = () => {
   return headers;
 };
 
+export interface OrdersResponse {
+  data: Order[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 export const ordersService = {
-  getAll: async (params?: { startDate?: string; endDate?: string }): Promise<Order[]> => {
+  getAll: async (params?: {
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<OrdersResponse> => {
     try {
       const queryParams = new URLSearchParams();
       if (params?.startDate) queryParams.append('startDate', params.startDate);
       if (params?.endDate) queryParams.append('endDate', params.endDate);
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+      if (params?.offset) queryParams.append('offset', params.offset.toString());
 
       const url = `${API_BASE_URL}/orders${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const response = await fetch(url, {
@@ -36,11 +53,13 @@ export const ordersService = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const result = await response.json();
-      // API returns {data: [], pagination: {...}}, extract the data array
-      return result.data || [];
+      return {
+        data: result.data || [],
+        pagination: result.pagination || { total: 0, limit: 50, offset: 0, hasMore: false }
+      };
     } catch (error) {
       console.error('Error loading orders:', error);
-      return [];
+      return { data: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } };
     }
   },
 

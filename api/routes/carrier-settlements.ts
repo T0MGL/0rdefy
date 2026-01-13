@@ -3,15 +3,24 @@
 // ================================================================
 // Manages deferred payments to external carriers (weekly/monthly)
 // Business Logic: Net Amount = Total COD - Total Shipping Cost
+//
+// Security: Requires CARRIERS module access
+// Roles with access: owner, admin, logistics
 // ================================================================
 
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule } from '../middleware/permissions';
+import { Module } from '../permissions';
 
 export const carrierSettlementsRouter = Router();
 
-carrierSettlementsRouter.use(verifyToken, extractStoreId);
+// Apply authentication and role middleware
+carrierSettlementsRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Carrier settlements require CARRIERS module access
+carrierSettlementsRouter.use(requireModule(Module.CARRIERS));
 
 // ================================================================
 // GET /api/carrier-settlements - List all settlements

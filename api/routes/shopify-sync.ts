@@ -3,17 +3,25 @@
 // ================================================================
 // Handles bidirectional sync between Shopify and Ordefy
 // Products & Customers only (Orders managed 100% in Ordefy)
+//
+// Security: Requires INTEGRATIONS module access
+// Roles with access: owner, admin
 // ================================================================
 
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
+import { extractUserRole, requireModule } from '../middleware/permissions';
+import { Module } from '../permissions';
 import { ShopifyClientService } from '../services/shopify-client.service';
 
 export const shopifySyncRouter = Router();
 
 // Apply auth middleware to all routes
-shopifySyncRouter.use(verifyToken, extractStoreId);
+shopifySyncRouter.use(verifyToken, extractStoreId, extractUserRole);
+
+// Shopify sync requires INTEGRATIONS module access
+shopifySyncRouter.use(requireModule(Module.INTEGRATIONS));
 
 // ================================================================
 // HELPER: Get Shopify Integration

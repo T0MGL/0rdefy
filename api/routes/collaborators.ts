@@ -2,6 +2,13 @@
  * Collaborators API Routes
  *
  * Endpoints para gestionar invitaciones de colaboradores y miembros del equipo.
+ *
+ * Security Features:
+ * - Role-based access control (owner/admin for most operations)
+ * - Plan limit validation at invitation creation AND acceptance
+ * - Atomic token claiming to prevent race conditions
+ * - canInviteRole validation to prevent privilege escalation
+ * - Secure token generation (32 bytes = 64 hex chars)
  */
 
 import { Router, Response } from 'express';
@@ -12,7 +19,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireRole, PermissionRequest } from '../middleware/permissions';
 import { requireFeature } from '../middleware/planLimits';
-import { Role } from '../permissions';
+import { Role, canInviteRole } from '../permissions';
 
 export const collaboratorsRouter = Router();
 
@@ -108,6 +115,16 @@ collaboratorsRouter.post(
         });
       }
 
+      // SECURITY: Validate that current user can invite the target role
+      // Prevents admins from inviting other admins (horizontal privilege escalation)
+      if (!canInviteRole(req.userRole as Role, role as Role)) {
+        console.warn(`[Invite] Role escalation attempt: ${req.userRole} tried to invite ${role}`);
+        return res.status(403).json({
+          error: 'You cannot invite users with this role',
+          message: `Your role (${req.userRole}) cannot invite ${role} users`
+        });
+      }
+
       // Check user limit for subscription plan
       const { data: canAdd, error: canAddError } = await supabaseAdmin
         .rpc('can_add_user_to_store', { p_store_id: storeId });
@@ -172,9 +189,10 @@ collaboratorsRouter.post(
         });
       }
 
-      // Generate short, memorable token (8 chars alphanumeric)
-      // Using base36 (0-9, a-z) for URL-friendly codes like: "a1b2c3d4"
-      const token = crypto.randomBytes(6).toString('base64url').substring(0, 8).toLowerCase();
+      // SECURITY: Generate cryptographically secure token (32 bytes = 64 hex chars)
+      // Previous implementation used only 8 chars which was weak
+      // Now using full 64 character hex string for maximum security
+      const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
 
@@ -420,6 +438,42 @@ collaboratorsRouter.post(
       }
 
       console.log('[AcceptInvitation] Invitation atomically claimed for:', invitation.invited_email);
+
+      // SECURITY FIX: Validate plan limit at acceptance time (not just at creation)
+      // This prevents race conditions where multiple invitations exceed the limit
+      const { data: canAdd, error: canAddError } = await supabaseAdmin
+        .rpc('can_add_user_to_store', { p_store_id: invitation.store_id });
+
+      if (canAddError) {
+        console.error('[AcceptInvitation] Error checking user limit:', canAddError);
+        // Rollback: Mark invitation as unused
+        await supabaseAdmin
+          .from('collaborator_invitations')
+          .update({ used: false, used_at: null })
+          .eq('id', invitation.id);
+        return res.status(500).json({ error: 'Failed to check user limit' });
+      }
+
+      if (!canAdd) {
+        console.warn('[AcceptInvitation] User limit reached at acceptance time');
+        // Rollback: Mark invitation as unused so it can be used when space is available
+        await supabaseAdmin
+          .from('collaborator_invitations')
+          .update({ used: false, used_at: null })
+          .eq('id', invitation.id);
+
+        const { data: stats } = await supabaseAdmin
+          .rpc('get_store_user_stats', { p_store_id: invitation.store_id })
+          .single();
+
+        return res.status(403).json({
+          error: 'User limit reached for the store subscription plan',
+          message: 'The store has reached its maximum number of users. Please contact the store owner to upgrade the plan.',
+          current: stats?.current_users,
+          max: stats?.max_users,
+          plan: stats?.plan
+        });
+      }
 
       // Check if user already exists with this email
       let userId: string;
@@ -717,6 +771,107 @@ collaboratorsRouter.patch(
       res.json({ success: true });
     } catch (error) {
       console.error('[ChangeRole] Unexpected error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ============================================================================
+// PATCH /api/collaborators/:userId/reactivate
+// Reactivar colaborador previamente removido (soft delete → active)
+// ============================================================================
+
+collaboratorsRouter.patch(
+  '/:userId/reactivate',
+  requireRole(Role.OWNER),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { storeId } = req;
+      const { userId } = req.params;
+      const { role } = req.body; // Optional: new role for reactivation
+
+      console.log('[Reactivate] Attempting to reactivate user:', userId);
+
+      // Check if user exists in store and is inactive
+      const { data: userStore, error: fetchError } = await supabaseAdmin
+        .from('user_stores')
+        .select('id, role, is_active')
+        .eq('user_id', userId)
+        .eq('store_id', storeId)
+        .single();
+
+      if (fetchError || !userStore) {
+        return res.status(404).json({
+          error: 'User not found in this store'
+        });
+      }
+
+      if (userStore.is_active) {
+        return res.status(400).json({
+          error: 'User is already active in this store'
+        });
+      }
+
+      // Check user limit for subscription plan before reactivation
+      const { data: canAdd, error: canAddError } = await supabaseAdmin
+        .rpc('can_add_user_to_store', { p_store_id: storeId });
+
+      if (canAddError) {
+        console.error('[Reactivate] Error checking user limit:', canAddError);
+        return res.status(500).json({ error: 'Failed to check user limit' });
+      }
+
+      if (!canAdd) {
+        const { data: stats } = await supabaseAdmin
+          .rpc('get_store_user_stats', { p_store_id: storeId })
+          .single();
+
+        console.warn('[Reactivate] User limit reached:', stats);
+        return res.status(403).json({
+          error: 'User limit reached for your subscription plan',
+          message: 'Upgrade your plan to add more users',
+          current: stats?.current_users,
+          max: stats?.max_users,
+          plan: stats?.plan
+        });
+      }
+
+      // Validate new role if provided
+      const validRoles = ['admin', 'logistics', 'confirmador', 'contador', 'inventario'];
+      const newRole = role && validRoles.includes(role) ? role : userStore.role;
+
+      // Reactivate user
+      const { error: updateError } = await supabaseAdmin
+        .from('user_stores')
+        .update({
+          is_active: true,
+          role: newRole,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId)
+        .eq('store_id', storeId);
+
+      if (updateError) {
+        console.error('[Reactivate] Error reactivating user:', updateError);
+        return res.status(500).json({ error: 'Failed to reactivate user' });
+      }
+
+      // Fetch user details for response
+      const { data: userData } = await supabaseAdmin
+        .from('users')
+        .select('id, name, email')
+        .eq('id', userId)
+        .single();
+
+      console.log('[Reactivate] User reactivated:', { userId, role: newRole });
+      res.json({
+        success: true,
+        message: 'User reactivated successfully',
+        user: userData,
+        role: newRole
+      });
+    } catch (error) {
+      console.error('[Reactivate] Unexpected error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

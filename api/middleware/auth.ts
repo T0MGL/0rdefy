@@ -202,6 +202,7 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
   }
 
   // Verificar acceso del usuario a este store (solo para autenticación normal, no Shopify)
+  // SECURITY FIX: Also check is_active to prevent removed collaborators from accessing
   if (!req.shopifySession && req.userId) {
     try {
       const { data: userStore, error } = await supabaseAdmin
@@ -209,11 +210,12 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
         .select('role')
         .eq('user_id', req.userId)
         .eq('store_id', storeId)
+        .eq('is_active', true) // SECURITY: Prevent removed/deactivated users from accessing
         .single();
 
       if (error || !userStore) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('Store access check failed:', error?.message || 'No access found');
+          console.error('Store access check failed:', error?.message || 'No access found or user deactivated');
         }
         return res.status(403).json({ error: 'Access denied to this store' });
       }
