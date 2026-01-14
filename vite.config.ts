@@ -14,60 +14,51 @@ export default defineConfig({
   build: {
     // Generate absolute asset URLs for embedded apps
     assetsInlineLimit: 0,
-    chunkSizeWarningLimit: 1000,
-    // Disable module preload to prevent unused preload warnings
-    modulePreload: true,
+    chunkSizeWarningLimit: 1600,
+    // Enable module preload with polyfill for better chunk loading
+    modulePreload: {
+      polyfill: true,
+    },
     rollupOptions: {
       output: {
         // Ensure consistent file names
         assetFileNames: 'assets/[name]-[hash][extname]',
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
+        // Optimized chunking strategy to prevent dependency race conditions
         manualChunks: (id) => {
-          // Split vendors into logical chunks to prevent race conditions
           if (id.includes('node_modules')) {
-            // React ecosystem (most critical - loaded first)
-            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
-              return 'vendor-react';
+            // Core React bundle - keep React and React-DOM together
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) {
+              return 'react-core';
             }
 
-            // TanStack Query (used in most pages)
-            if (id.includes('@tanstack/react-query')) {
-              return 'vendor-query';
+            // React ecosystem libraries
+            if (id.includes('react-router') || id.includes('@tanstack/react-query')) {
+              return 'react-libs';
             }
 
-            // UI Libraries (shadcn/ui, radix-ui)
-            if (id.includes('@radix-ui') || id.includes('class-variance-authority') || id.includes('clsx')) {
-              return 'vendor-ui';
+            // UI framework - Radix UI components (depend on React)
+            if (id.includes('@radix-ui/')) {
+              return 'ui-framework';
             }
 
             // Charts and visualization
-            if (id.includes('recharts') || id.includes('d3-') || id.includes('victory')) {
-              return 'vendor-charts';
+            if (id.includes('recharts') || id.includes('/d3-')) {
+              return 'charts';
             }
 
-            // Forms and validation
-            if (id.includes('react-hook-form') || id.includes('zod') || id.includes('@hookform')) {
-              return 'vendor-forms';
-            }
-
-            // Animation libraries
+            // Large dependencies
             if (id.includes('framer-motion')) {
-              return 'vendor-animation';
+              return 'animation';
             }
 
-            // Date utilities
-            if (id.includes('date-fns')) {
-              return 'vendor-date';
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('xlsx') || id.includes('exceljs')) {
+              return 'document-gen';
             }
 
-            // HTTP and API
-            if (id.includes('axios')) {
-              return 'vendor-http';
-            }
-
-            // Everything else
-            return 'vendor-misc';
+            // Other vendor code
+            return 'vendor';
           }
         },
       }
@@ -80,5 +71,9 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom'],
   },
 });
