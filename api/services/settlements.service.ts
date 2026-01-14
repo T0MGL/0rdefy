@@ -2183,7 +2183,6 @@ export async function processManualReconciliation(
   // CRITICAL: Link carrier movements to this settlement
   // For manual reconciliation, movements should already exist from QR/CSV import
   // But we link them to this settlement to mark as "settled"
-  const orderIds = orders.map(o => o.order_id);
   await supabaseAdmin
     .from('carrier_account_movements')
     .update({ settlement_id: settlement.id })
