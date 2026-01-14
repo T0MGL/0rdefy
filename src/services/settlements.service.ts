@@ -10,6 +10,19 @@ import { DailySettlement } from '@/types';
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 
 // ================================================================
+// AUTH HEADERS HELPER - MUST BE FIRST
+// ================================================================
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('auth_token');
+  const storeId = localStorage.getItem('current_store_id');
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+    ...(storeId && { 'X-Store-ID': storeId }),
+  };
+}
+
+// ================================================================
 // TYPES
 // ================================================================
 
@@ -98,16 +111,6 @@ export interface ReconciliationSummary {
     actual: number;
   }>;
 }
-
-const getAuthHeaders = (): HeadersInit => {
-  const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
-  return {
-    'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-    ...(storeId && { 'X-Store-ID': storeId }),
-  };
-};
 
 // ================================================================
 // GET ALL SETTLEMENTS

@@ -167,7 +167,7 @@ const App = () => {
                               </Suspense>
                             </ErrorBoundary>
                             {/* Single Suspense boundary for all routes - prevents nesting conflicts */}
-                            <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><CardSkeleton count={3} /></div>}>
+                            <Suspense fallback={<div className="hidden" />}>
                               <Routes>
                             {/* Public routes */}
                             <Route path="/login" element={<LoginDemo />} />
