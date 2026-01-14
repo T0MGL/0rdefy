@@ -332,8 +332,6 @@ export function OrderConfirmationDialog({
       }
 
       const result = await response.json();
-      setConfirmedOrder(result.data || result);
-      setIsConfirmed(true);
 
       // Dismiss loading toast
       loadingToast.dismiss();
@@ -345,7 +343,9 @@ export function OrderConfirmationDialog({
         duration: 5000,
       });
 
+      // Close dialog immediately and notify parent
       onConfirmed();
+      onOpenChange(false);
     } catch (error: any) {
       console.error('Error confirming order:', error);
 
