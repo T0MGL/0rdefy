@@ -15,30 +15,28 @@ export default defineConfig({
     // Generate absolute asset URLs for embedded apps
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 1600,
+    // Target modern browsers to avoid circular dependency issues
+    target: 'esnext',
+    // Use esbuild for faster minification
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         // Ensure consistent file names
         assetFileNames: 'assets/[name]-[hash][extname]',
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
-        // Minimal chunking to prevent dependency race conditions
-        // Keep React and all UI components together in vendor bundle
+        // Manual chunking to control initialization order
         manualChunks: (id) => {
+          // Keep ALL dependencies in vendor to prevent circular refs
           if (id.includes('node_modules')) {
-            // Separate only heavy, standalone libraries
-            if (id.includes('recharts') || id.includes('/d3-')) {
-              return 'charts';
-            }
-
-            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('xlsx') || id.includes('exceljs')) {
-              return 'document-gen';
-            }
-
-            // Keep React, Radix UI, and all other dependencies together
-            // to ensure proper initialization order
             return 'vendor';
           }
         },
+        // CRITICAL: Use 'iife' format for better browser compatibility
+        // and to avoid ES module initialization issues
+        format: 'es',
+        // Ensure proper hoisting
+        hoistTransitiveImports: false,
       }
     }
   },
@@ -49,9 +47,25 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    // Deduplicate React to prevent multiple instances
+    dedupe: ['react', 'react-dom'],
   },
 
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router-dom'],
+    // Force pre-bundling of ALL React dependencies
+    include: [
+      'react',
+      'react/jsx-runtime',
+      'react-dom',
+      'react-dom/client',
+      'react-router-dom',
+    ],
+    // Force exclusion of problematic packages
+    exclude: [],
+    esbuildOptions: {
+      target: 'esnext',
+      // Preserve names for better debugging
+      keepNames: true,
+    },
   },
 });
