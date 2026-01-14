@@ -611,18 +611,35 @@ export async function finishPicking(
 
     if (normalizedLineItems && normalizedLineItems.length > 0) {
       console.log('📊 Creating packing records from normalized order_line_items (Shopify)');
+      // Aggregate quantities when same product appears multiple times in an order (e.g., upsells)
+      const aggregatedItems = new Map<string, { order_id: string; product_id: string; quantity: number }>();
+
       normalizedLineItems.forEach(item => {
         const productId = item.product_id;
         const quantity = parseInt(item.quantity) || 0;
         if (productId) {
-          packingRecords.push({
-            picking_session_id: sessionId,
-            order_id: item.order_id,
-            product_id: productId,
-            quantity_needed: quantity,
-            quantity_packed: 0
-          });
+          const key = `${item.order_id}_${productId}`;
+          const existing = aggregatedItems.get(key);
+          if (existing) {
+            existing.quantity += quantity;
+          } else {
+            aggregatedItems.set(key, {
+              order_id: item.order_id,
+              product_id: productId,
+              quantity: quantity
+            });
+          }
         }
+      });
+
+      aggregatedItems.forEach(item => {
+        packingRecords.push({
+          picking_session_id: sessionId,
+          order_id: item.order_id,
+          product_id: item.product_id,
+          quantity_needed: item.quantity,
+          quantity_packed: 0
+        });
       });
     } else {
       // No normalized line items - must be manual orders
@@ -635,22 +652,39 @@ export async function finishPicking(
 
       if (orderItemsError) throw orderItemsError;
 
+      // Aggregate quantities when same product appears multiple times in an order (e.g., upsells)
+      const aggregatedManualItems = new Map<string, { order_id: string; product_id: string; quantity: number }>();
+
       ordersWithItems?.forEach(order => {
         if (Array.isArray(order.line_items)) {
           order.line_items.forEach((item: any) => {
             const productId = item.product_id;
             const quantity = parseInt(item.quantity) || 0;
             if (productId) {
-              packingRecords.push({
-                picking_session_id: sessionId,
-                order_id: order.id,
-                product_id: productId,
-                quantity_needed: quantity,
-                quantity_packed: 0
-              });
+              const key = `${order.id}_${productId}`;
+              const existing = aggregatedManualItems.get(key);
+              if (existing) {
+                existing.quantity += quantity;
+              } else {
+                aggregatedManualItems.set(key, {
+                  order_id: order.id,
+                  product_id: productId,
+                  quantity: quantity
+                });
+              }
             }
           });
         }
+      });
+
+      aggregatedManualItems.forEach(item => {
+        packingRecords.push({
+          picking_session_id: sessionId,
+          order_id: item.order_id,
+          product_id: item.product_id,
+          quantity_needed: item.quantity,
+          quantity_packed: 0
+        });
       });
     }
 
