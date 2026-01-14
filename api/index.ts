@@ -134,10 +134,23 @@ const PORT = process.env.API_PORT || 3001;
 app.set('trust proxy', 1);
 
 // CORS configuration - supports multiple origins via comma-separated list
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || '')
-    .split(',')
-    .map(origin => origin.trim())
-    .filter(Boolean);
+// Default origins for Ordefy production domains
+const DEFAULT_ORIGINS = [
+    'https://app.ordefy.io',
+    'https://ordefy.io',
+    'https://api.ordefy.io',
+    'http://localhost:8080',
+    'http://localhost:5173',
+    'http://localhost:3000'
+];
+
+const ALLOWED_ORIGINS = [
+    ...DEFAULT_ORIGINS,
+    ...(process.env.CORS_ORIGIN || '')
+        .split(',')
+        .map(origin => origin.trim())
+        .filter(Boolean)
+].filter((v, i, a) => a.indexOf(v) === i); // Remove duplicates
 
 // ================================================================
 // MIDDLEWARE
