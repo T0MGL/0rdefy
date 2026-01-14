@@ -11,6 +11,7 @@
  */
 
 import { supabaseAdmin } from '../db/connection';
+import ExcelJS from 'exceljs';
 import {
   isCodPayment,
   normalizePaymentMethod,
@@ -585,6 +586,280 @@ export async function exportDispatchCSV(
   ].join('\n');
 
   return csvContent;
+}
+
+/**
+ * Export dispatch session as professional Excel file with Ordefy branding
+ * Features:
+ * - Ordefy brand colors and styling
+ * - Dropdown validation for ESTADO_ENTREGA and MOTIVO_NO_ENTREGA
+ * - Protected columns that courier shouldn't edit
+ * - Clear instructions for courier
+ * - Number formatting for amounts
+ */
+export async function exportDispatchExcel(
+  sessionId: string,
+  storeId: string
+): Promise<Buffer> {
+  const session = await getDispatchSessionById(sessionId, storeId);
+
+  // Ordefy brand colors
+  const ORDEFY_PURPLE = '8B5CF6';      // Primary purple
+  const ORDEFY_PURPLE_LIGHT = 'EDE9FE'; // Light purple background
+  const ORDEFY_DARK = '1F2937';         // Dark text
+  const ORDEFY_GREEN = '10B981';        // Success green
+  const ORDEFY_GRAY = '6B7280';         // Secondary text
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Ordefy';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Despacho', {
+    properties: { tabColor: { argb: ORDEFY_PURPLE } },
+    views: [{ state: 'frozen', ySplit: 4 }] // Freeze header rows
+  });
+
+  // ============================================================
+  // HEADER SECTION - Ordefy branding
+  // ============================================================
+
+  // Row 1: Ordefy title
+  worksheet.mergeCells('A1:L1');
+  const titleCell = worksheet.getCell('A1');
+  titleCell.value = 'ORDEFY - Planilla de Despacho';
+  titleCell.font = { name: 'Arial', size: 18, bold: true, color: { argb: ORDEFY_PURPLE } };
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  worksheet.getRow(1).height = 35;
+
+  // Row 2: Session info
+  worksheet.mergeCells('A2:F2');
+  const sessionInfoCell = worksheet.getCell('A2');
+  sessionInfoCell.value = `Código: ${session.session_code} | Transportadora: ${session.carrier_name} | Fecha: ${new Date().toLocaleDateString('es-PY')}`;
+  sessionInfoCell.font = { name: 'Arial', size: 11, color: { argb: ORDEFY_GRAY } };
+  sessionInfoCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+  // Row 2 right side: Instructions
+  worksheet.mergeCells('G2:L2');
+  const instructionsCell = worksheet.getCell('G2');
+  instructionsCell.value = 'Complete las columnas AMARILLAS y devuelva este archivo';
+  instructionsCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'B45309' } };
+  instructionsCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  worksheet.getRow(2).height = 25;
+
+  // Row 3: Empty row for spacing
+  worksheet.getRow(3).height = 10;
+
+  // ============================================================
+  // COLUMN HEADERS - Row 4
+  // ============================================================
+
+  const headers = [
+    { key: 'order_number', header: 'PEDIDO', width: 15, editable: false },
+    { key: 'customer_name', header: 'CLIENTE', width: 25, editable: false },
+    { key: 'customer_phone', header: 'TELÉFONO', width: 15, editable: false },
+    { key: 'delivery_address', header: 'DIRECCIÓN', width: 35, editable: false },
+    { key: 'delivery_city', header: 'CIUDAD', width: 15, editable: false },
+    { key: 'payment_type', header: 'TIPO PAGO', width: 12, editable: false },
+    { key: 'amount_to_collect', header: 'A COBRAR', width: 15, editable: false },
+    { key: 'carrier_fee', header: 'TARIFA', width: 12, editable: false },
+    { key: 'delivery_status', header: 'ESTADO ENTREGA', width: 18, editable: true },
+    { key: 'amount_collected', header: 'MONTO COBRADO', width: 16, editable: true },
+    { key: 'failure_reason', header: 'MOTIVO', width: 20, editable: true },
+    { key: 'notes', header: 'NOTAS', width: 25, editable: true }
+  ];
+
+  // Set column properties
+  worksheet.columns = headers.map(h => ({
+    key: h.key,
+    width: h.width
+  }));
+
+  // Add header row
+  const headerRow = worksheet.getRow(4);
+  headers.forEach((h, index) => {
+    const cell = headerRow.getCell(index + 1);
+    cell.value = h.header;
+    cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: h.editable ? 'D97706' : ORDEFY_PURPLE } // Yellow for editable, purple for fixed
+    };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = {
+      top: { style: 'thin', color: { argb: ORDEFY_DARK } },
+      left: { style: 'thin', color: { argb: ORDEFY_DARK } },
+      bottom: { style: 'thin', color: { argb: ORDEFY_DARK } },
+      right: { style: 'thin', color: { argb: ORDEFY_DARK } }
+    };
+  });
+  headerRow.height = 30;
+
+  // ============================================================
+  // DATA ROWS - Starting from row 5
+  // ============================================================
+
+  session.orders.forEach((order, index) => {
+    const rowNum = 5 + index;
+    const row = worksheet.getRow(rowNum);
+
+    const paymentType = order.is_cod ? 'COD' : 'PREPAGO';
+    const amountToCollect = getAmountToCollect(order.payment_method, order.total_price);
+
+    const rowData = [
+      order.order_number,
+      order.customer_name,
+      order.customer_phone,
+      order.delivery_address,
+      order.delivery_city,
+      paymentType,
+      amountToCollect,
+      order.carrier_fee,
+      '', // ESTADO_ENTREGA - courier fills
+      '', // MONTO_COBRADO - courier fills
+      '', // MOTIVO - courier fills
+      ''  // NOTAS - courier fills
+    ];
+
+    rowData.forEach((value, colIndex) => {
+      const cell = row.getCell(colIndex + 1);
+      cell.value = value;
+
+      const isEditable = headers[colIndex].editable;
+      const isAmountColumn = colIndex === 6 || colIndex === 7 || colIndex === 9;
+
+      // Font
+      cell.font = { name: 'Arial', size: 10, color: { argb: ORDEFY_DARK } };
+
+      // Alignment
+      cell.alignment = {
+        horizontal: isAmountColumn ? 'right' : 'left',
+        vertical: 'middle',
+        wrapText: colIndex === 3 // Wrap address column
+      };
+
+      // Background color - editable columns are light yellow
+      if (isEditable) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FEF3C7' } // Light yellow
+        };
+      } else if (index % 2 === 1) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'F9FAFB' } // Alternating row color
+        };
+      }
+
+      // Number format for amount columns
+      if (isAmountColumn && typeof value === 'number') {
+        cell.numFmt = '#,##0';
+      }
+
+      // Border
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'E5E7EB' } },
+        left: { style: 'thin', color: { argb: 'E5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'E5E7EB' } },
+        right: { style: 'thin', color: { argb: 'E5E7EB' } }
+      };
+    });
+
+    row.height = 28;
+  });
+
+  // ============================================================
+  // DATA VALIDATION - Dropdowns
+  // ============================================================
+
+  const dataStartRow = 5;
+  const dataEndRow = 4 + session.orders.length;
+
+  // ESTADO_ENTREGA dropdown (column I = 9)
+  worksheet.dataValidations.add(`I${dataStartRow}:I${dataEndRow}`, {
+    type: 'list',
+    allowBlank: true,
+    formulae: ['"ENTREGADO,NO ENTREGADO,RECHAZADO,REPROGRAMADO"'],
+    showErrorMessage: true,
+    errorTitle: 'Estado inválido',
+    error: 'Seleccione: ENTREGADO, NO ENTREGADO, RECHAZADO o REPROGRAMADO'
+  });
+
+  // MOTIVO dropdown (column K = 11)
+  worksheet.dataValidations.add(`K${dataStartRow}:K${dataEndRow}`, {
+    type: 'list',
+    allowBlank: true,
+    formulae: ['"NO CONTESTA,DIRECCION INCORRECTA,CLIENTE AUSENTE,RECHAZADO,SIN DINERO,REPROGRAMADO,OTRO"'],
+    showErrorMessage: true,
+    errorTitle: 'Motivo inválido',
+    error: 'Seleccione un motivo de la lista o deje vacío'
+  });
+
+  // ============================================================
+  // SUMMARY SECTION - Below data
+  // ============================================================
+
+  const summaryStartRow = dataEndRow + 2;
+
+  // Total orders
+  worksheet.mergeCells(`A${summaryStartRow}:C${summaryStartRow}`);
+  const totalOrdersCell = worksheet.getCell(`A${summaryStartRow}`);
+  totalOrdersCell.value = `Total de pedidos: ${session.orders.length}`;
+  totalOrdersCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: ORDEFY_DARK } };
+
+  // Total COD expected
+  worksheet.mergeCells(`D${summaryStartRow}:F${summaryStartRow}`);
+  const totalCodCell = worksheet.getCell(`D${summaryStartRow}`);
+  const totalCod = session.orders.reduce((sum, o) => sum + (o.is_cod ? o.total_price : 0), 0);
+  totalCodCell.value = `Total COD a cobrar: ${totalCod.toLocaleString('es-PY')} Gs`;
+  totalCodCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: ORDEFY_GREEN } };
+
+  // Instructions row
+  const instructionsRow = summaryStartRow + 2;
+  worksheet.mergeCells(`A${instructionsRow}:L${instructionsRow}`);
+  const instructionsFinalCell = worksheet.getCell(`A${instructionsRow}`);
+  instructionsFinalCell.value = 'Instrucciones: Complete ESTADO ENTREGA para todos los pedidos. Para entregas fallidas, indique el MOTIVO. Para COD entregados, ingrese MONTO COBRADO.';
+  instructionsFinalCell.font = { name: 'Arial', size: 10, italic: true, color: { argb: ORDEFY_GRAY } };
+  instructionsFinalCell.alignment = { wrapText: true };
+  worksheet.getRow(instructionsRow).height = 35;
+
+  // Footer with Ordefy branding
+  const footerRow = instructionsRow + 2;
+  worksheet.mergeCells(`A${footerRow}:L${footerRow}`);
+  const footerCell = worksheet.getCell(`A${footerRow}`);
+  footerCell.value = 'Generado por Ordefy | ordefy.io | Gestión de e-commerce simplificada';
+  footerCell.font = { name: 'Arial', size: 9, color: { argb: ORDEFY_PURPLE } };
+  footerCell.alignment = { horizontal: 'center' };
+
+  // ============================================================
+  // SHEET PROTECTION - Protect non-editable columns
+  // ============================================================
+
+  // Unlock editable columns before protecting sheet
+  for (let row = dataStartRow; row <= dataEndRow; row++) {
+    // Columns I, J, K, L (9, 10, 11, 12) are editable
+    [9, 10, 11, 12].forEach(col => {
+      worksheet.getCell(row, col).protection = { locked: false };
+    });
+  }
+
+  // Protect sheet with password (simple protection to prevent accidental edits)
+  await worksheet.protect('ordefy2024', {
+    selectLockedCells: true,
+    selectUnlockedCells: true,
+    formatColumns: false,
+    formatRows: false,
+    insertRows: false,
+    insertColumns: false,
+    deleteRows: false,
+    deleteColumns: false
+  });
+
+  // Generate buffer
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }
 
 /**
@@ -1329,7 +1604,7 @@ export async function getShippedOrdersGrouped(
         created_at
       `)
       .eq('store_id', storeId)
-      .eq('sleeves_status', 'shipped')
+      .in('sleeves_status', ['shipped', 'in_transit'])
       .not('courier_id', 'is', null)
       .order('shipped_at', { ascending: false });
 
@@ -1339,10 +1614,10 @@ export async function getShippedOrdersGrouped(
       return [];
     }
 
-    console.log('📦 [SETTLEMENTS] Found', orders?.length || 0, 'shipped orders');
+    console.log('📦 [SETTLEMENTS] Found', orders?.length || 0, 'shipped/in_transit orders');
 
     if (!orders || orders.length === 0) {
-      console.log('📦 [SETTLEMENTS] No shipped orders found, returning empty array');
+      console.log('📦 [SETTLEMENTS] No shipped/in_transit orders found, returning empty array');
       return [];
     }
 

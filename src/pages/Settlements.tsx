@@ -623,10 +623,14 @@ export default function Settlements() {
     }
   };
 
-  // Normalize order number for matching (handles #1315 vs 1315 vs #1315)
+  // Normalize order number for matching (handles #1315 vs 1315, ORD-XXX vs OR#XXX, etc.)
   const normalizeOrderNumber = (num: string): string => {
-    // Remove # prefix, convert to lowercase, trim whitespace
-    return num.replace(/^#/, '').toLowerCase().trim();
+    // Remove common prefixes: #, ORD-, OR#, ord-, or#
+    // Then convert to lowercase and trim
+    return num
+      .replace(/^(ORD-|OR#|ord-|or#|#)/i, '')
+      .toLowerCase()
+      .trim();
   };
 
   // Process CSV import - match with groups and apply

@@ -239,19 +239,29 @@ settlementsRouter.post('/dispatch-sessions', async (req: AuthRequest, res: Respo
 
 /**
  * GET /api/settlements/dispatch-sessions/:id/export
- * Export dispatch session as CSV for courier
+ * Export dispatch session as Excel or CSV for courier
+ * Query param: format=xlsx (default) or format=csv
  */
 settlementsRouter.get('/dispatch-sessions/:id/export', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const format = (req.query.format as string)?.toLowerCase() || 'xlsx';
 
-    const csv = await settlementsService.exportDispatchCSV(id, req.storeId!);
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="despacho-${id}.csv"`);
-    res.send('\uFEFF' + csv); // Add BOM for Excel UTF-8 compatibility
+    if (format === 'csv') {
+      // Legacy CSV export
+      const csv = await settlementsService.exportDispatchCSV(id, req.storeId!);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="despacho-${id}.csv"`);
+      res.send('\uFEFF' + csv); // Add BOM for Excel UTF-8 compatibility
+    } else {
+      // Professional Excel export (default)
+      const excelBuffer = await settlementsService.exportDispatchExcel(id, req.storeId!);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="despacho-${id}.xlsx"`);
+      res.send(excelBuffer);
+    }
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error exporting CSV:', error);
+    console.error('❌ [DISPATCH] Error exporting:', error);
     res.status(500).json({ error: error.message });
   }
 });

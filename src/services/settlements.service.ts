@@ -396,33 +396,50 @@ export const markSessionDispatched = async (id: string): Promise<DispatchSession
 };
 
 // ================================================================
-// CSV EXPORT - PARA EL COURIER
+// EXPORT - PARA EL COURIER (Excel o CSV)
 // ================================================================
 
-export const exportDispatchCSV = async (sessionId: string): Promise<Blob> => {
+export const exportDispatchFile = async (
+  sessionId: string,
+  format: 'xlsx' | 'csv' = 'xlsx'
+): Promise<Blob> => {
   const response = await fetch(
-    `${API_BASE}/api/settlements/dispatch-sessions/${sessionId}/export`,
+    `${API_BASE}/api/settlements/dispatch-sessions/${sessionId}/export?format=${format}`,
     { headers: getAuthHeaders() }
   );
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to export CSV');
+    throw new Error(error.error || 'Failed to export file');
   }
 
   return response.blob();
 };
 
-export const downloadDispatchCSV = async (sessionId: string, sessionCode: string): Promise<void> => {
-  const blob = await exportDispatchCSV(sessionId);
+// Legacy function for backwards compatibility
+export const exportDispatchCSV = async (sessionId: string): Promise<Blob> => {
+  return exportDispatchFile(sessionId, 'csv');
+};
+
+export const downloadDispatchFile = async (
+  sessionId: string,
+  sessionCode: string,
+  format: 'xlsx' | 'csv' = 'xlsx'
+): Promise<void> => {
+  const blob = await exportDispatchFile(sessionId, format);
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${sessionCode}.csv`;
+  a.download = `${sessionCode}.${format}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
+};
+
+// Legacy function for backwards compatibility
+export const downloadDispatchCSV = async (sessionId: string, sessionCode: string): Promise<void> => {
+  return downloadDispatchFile(sessionId, sessionCode, 'xlsx'); // Default to Excel now
 };
 
 // ================================================================
