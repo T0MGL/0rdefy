@@ -137,6 +137,7 @@ app.set('trust proxy', 1);
 // Default origins for Ordefy production domains
 const DEFAULT_ORIGINS = [
     'https://app.ordefy.io',
+    'https://api.ordefy.io',
     'http://localhost:8080',
     'http://localhost:5173',
     'http://localhost:3000'
