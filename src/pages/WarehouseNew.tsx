@@ -532,6 +532,37 @@ export default function WarehouseNew() {
     }
   }, [session, toast]);
 
+  const handleCancelSession = useCallback(async () => {
+    if (!session) return;
+
+    setActionLoading(true);
+    try {
+      await warehouseService.abandonSession(session.id, 'Sesión cancelada por el usuario');
+
+      // Reset to selection
+      handleReset();
+
+      // Reload confirmed orders to show restored orders
+      const data = await warehouseService.getConfirmedOrders();
+      setConfirmedOrders(data.orders);
+      setActiveSessions(data.active_sessions);
+
+      toast({
+        title: 'Sesión cancelada',
+        description: 'Los pedidos fueron restaurados al estado "Confirmado"',
+      });
+    } catch (error: any) {
+      console.error('Error cancelling session:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'No se pudo cancelar la sesión',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  }, [session, toast, handleReset]);
+
   // ==================== COMPUTED VALUES ====================
 
   const orderCount = useMemo(() => {
@@ -645,6 +676,7 @@ export default function WarehouseNew() {
             onPreviousOrder={() => setCurrentOrderIndex(i => Math.max(i - 1, 0))}
             onGoToOrder={setCurrentOrderIndex}
             onCompleteSession={handleCompleteSession}
+            onCancelSession={handleCancelSession}
             loading={actionLoading}
           />
         )}

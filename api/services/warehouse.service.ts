@@ -878,39 +878,57 @@ export async function getPackingList(
       const useNormalized = normalizedItems.length > 0;
       const orderItems = useNormalized ? normalizedItems : jsonbItems;
 
-      const items = orderItems.map((lineItem: any) => {
+      // Aggregate items by product_id (handles duplicates like upsells of same product)
+      const aggregatedItemsMap = new Map<string, {
+        product_id: string;
+        product_name: string;
+        product_image: string;
+        quantity_needed: number;
+        quantity_packed: number;
+      }>();
+
+      orderItems.forEach((lineItem: any) => {
+        const productId = lineItem.product_id;
+        if (!productId) return;
+
+        const progressKey = `${order.id}-${productId}`;
+        const progress = packingProgressMap.get(progressKey);
+
+        let productName: string;
+        let productImage: string;
+        let itemQuantity: number;
+
         if (useNormalized) {
-          // Normalized order_line_items format
-          const progressKey = `${order.id}-${lineItem.product_id}`;
-          const progress = packingProgressMap.get(progressKey);
-
-          const productName = lineItem.products?.name || lineItem.product_name;
-          const fullProductName = lineItem.variant_title
-            ? `${productName} - ${lineItem.variant_title}`
-            : productName;
-
-          return {
-            product_id: lineItem.product_id,
-            product_name: fullProductName,
-            product_image: lineItem.products?.image_url || '',
-            quantity_needed: progress?.quantity_needed || parseInt(lineItem.quantity) || 0,
-            quantity_packed: progress?.quantity_packed || 0
-          };
+          const baseName = lineItem.products?.name || lineItem.product_name;
+          productName = lineItem.variant_title
+            ? `${baseName} - ${lineItem.variant_title}`
+            : baseName;
+          productImage = lineItem.products?.image_url || '';
+          itemQuantity = parseInt(lineItem.quantity) || 0;
         } else {
-          // JSONB line_items format (manual orders)
-          const progressKey = `${order.id}-${lineItem.product_id}`;
-          const progress = packingProgressMap.get(progressKey);
-          const product = jsonbProductsMap.get(lineItem.product_id);
+          const product = jsonbProductsMap.get(productId);
+          productName = product?.name || lineItem.product_name || lineItem.name || 'Producto';
+          productImage = product?.image_url || lineItem.image_url || '';
+          itemQuantity = parseInt(lineItem.quantity) || 0;
+        }
 
-          return {
-            product_id: lineItem.product_id,
-            product_name: product?.name || lineItem.product_name || lineItem.name || 'Producto',
-            product_image: product?.image_url || lineItem.image_url || '',
-            quantity_needed: progress?.quantity_needed || parseInt(lineItem.quantity) || 0,
+        const existing = aggregatedItemsMap.get(productId);
+        if (existing) {
+          // Same product exists - add quantities
+          existing.quantity_needed += progress?.quantity_needed || itemQuantity;
+          existing.quantity_packed += progress?.quantity_packed || 0;
+        } else {
+          aggregatedItemsMap.set(productId, {
+            product_id: productId,
+            product_name: productName,
+            product_image: productImage,
+            quantity_needed: progress?.quantity_needed || itemQuantity,
             quantity_packed: progress?.quantity_packed || 0
-          };
+          });
         }
       });
+
+      const items = Array.from(aggregatedItemsMap.values());
 
       const is_complete = items.length > 0 && items.every(item => item.quantity_packed >= item.quantity_needed);
 
@@ -1061,19 +1079,29 @@ export async function updatePackingProgress(
       );
     }
 
-    // Get current packing progress
-    const { data: progress, error: progressError } = await supabaseAdmin
+    // Get current packing progress (handle multiple records for same product due to duplicates)
+    const { data: progressRecords, error: progressError } = await supabaseAdmin
       .from('packing_progress')
       .select('*')
       .eq('picking_session_id', sessionId)
       .eq('order_id', orderId)
-      .eq('product_id', productId)
-      .single();
+      .eq('product_id', productId);
 
     if (progressError) throw progressError;
 
+    if (!progressRecords || progressRecords.length === 0) {
+      throw new Error('No packing progress found for this item');
+    }
+
+    // Aggregate quantities from all records (handles duplicate product entries)
+    const totalQuantityNeeded = progressRecords.reduce((sum, p) => sum + (p.quantity_needed || 0), 0);
+    const totalQuantityPacked = progressRecords.reduce((sum, p) => sum + (p.quantity_packed || 0), 0);
+
+    // Use the first record for updates (we'll update the first one that has capacity)
+    const progress = progressRecords.find(p => p.quantity_packed < p.quantity_needed) || progressRecords[0];
+
     // Check if already fully packed
-    if (progress.quantity_packed >= progress.quantity_needed) {
+    if (totalQuantityPacked >= totalQuantityNeeded) {
       throw new Error('This item is already fully packed for this order');
     }
 
@@ -1102,13 +1130,11 @@ export async function updatePackingProgress(
       throw new Error('No more units of this item available to pack');
     }
 
-    // Increment quantity packed
+    // Increment quantity packed on the specific record that has capacity
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('packing_progress')
       .update({ quantity_packed: progress.quantity_packed + 1 })
-      .eq('picking_session_id', sessionId)
-      .eq('order_id', orderId)
-      .eq('product_id', productId)
+      .eq('id', progress.id)
       .select()
       .single();
 

@@ -16,7 +16,8 @@ import {
   User,
   Phone,
   MapPin,
-  Truck
+  Truck,
+  XCircle
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,7 @@ interface PackingOneByOneProps {
   onPreviousOrder: () => void;
   onGoToOrder: (index: number) => void;
   onCompleteSession: () => Promise<void>;
+  onCancelSession?: () => Promise<void>;
   loading?: boolean;
 }
 
@@ -57,6 +59,7 @@ export function PackingOneByOne({
   onPreviousOrder,
   onGoToOrder,
   onCompleteSession,
+  onCancelSession,
   loading,
 }: PackingOneByOneProps) {
   const { orders, availableItems } = packingData;
@@ -66,6 +69,8 @@ export function PackingOneByOne({
   const [printingOrder, setPrintingOrder] = useState(false);
   const [reportDialog, setReportDialog] = useState(false);
   const [reportReason, setReportReason] = useState('');
+  const [cancelDialog, setCancelDialog] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   // Progress calculation
   const progress = useMemo(() => {
@@ -411,15 +416,28 @@ export function PackingOneByOne({
       {/* Navigation Footer */}
       <div className="bg-card border-t p-4 shrink-0">
         <div className="flex items-center justify-between max-w-3xl mx-auto">
-          <Button
-            onClick={onPreviousOrder}
-            disabled={currentOrderIndex === 0}
-            variant="outline"
-            className="gap-2"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Anterior
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={onPreviousOrder}
+              disabled={currentOrderIndex === 0}
+              variant="outline"
+              className="gap-2"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Anterior
+            </Button>
+
+            {onCancelSession && (
+              <Button
+                onClick={() => setCancelDialog(true)}
+                variant="ghost"
+                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <XCircle className="h-4 w-4" />
+                Cancelar Sesión
+              </Button>
+            )}
+          </div>
 
           {/* Pagination Dots */}
           <div className="flex items-center gap-2">
@@ -494,6 +512,59 @@ export function PackingOneByOne({
               }}
             >
               Enviar Reporte
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Session Dialog */}
+      <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" />
+              Cancelar Sesión de Empaque
+            </DialogTitle>
+            <DialogDescription>
+              Esta acción cancelará la sesión actual y restaurará todos los pedidos al estado "Confirmado".
+              Podrás crear una nueva sesión después.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              <strong>Pedidos afectados:</strong> {orders.length} pedidos serán restaurados
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelDialog(false)} disabled={cancelling}>
+              Volver
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={cancelling}
+              onClick={async () => {
+                if (!onCancelSession) return;
+                setCancelling(true);
+                try {
+                  await onCancelSession();
+                  setCancelDialog(false);
+                } catch (error) {
+                  console.error('Error cancelling session:', error);
+                } finally {
+                  setCancelling(false);
+                }
+              }}
+            >
+              {cancelling ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Cancelando...
+                </>
+              ) : (
+                'Sí, Cancelar Sesión'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
