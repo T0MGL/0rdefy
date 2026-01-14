@@ -20,6 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import * as shippingService from '@/services/shipping.service';
 import { generateDispatchCSV } from '@/services/shipping.service';
 import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
+import { formatCurrency } from '@/utils/currency';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 
 export default function Shipping() {
@@ -397,7 +398,7 @@ export default function Shipping() {
                           <div className="flex items-center gap-2">
                             <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
                             <span className="font-semibold text-green-600 dark:text-green-400">
-                              ${order.cod_amount.toLocaleString()} COD
+                              {formatCurrency(order.cod_amount)} COD
                             </span>
                           </div>
                         )}

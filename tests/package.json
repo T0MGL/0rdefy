@@ -1,0 +1,39 @@
+{
+  "name": "ordefy-e2e-tests",
+  "version": "1.0.0",
+  "description": "E2E Test Suite for Ordefy - Production Environment",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:e2e": "vitest run --reporter=verbose",
+    "test:e2e:watch": "vitest --reporter=verbose",
+    "test:auth": "vitest run e2e/01-auth.test.ts --reporter=verbose",
+    "test:orders": "vitest run e2e/02-orders-crud.test.ts --reporter=verbose",
+    "test:inventory": "vitest run e2e/03-inventory-flow.test.ts --reporter=verbose",
+    "test:warehouse": "vitest run e2e/04-warehouse-flow.test.ts --reporter=verbose",
+    "test:returns": "vitest run e2e/05-returns-flow.test.ts --reporter=verbose",
+    "test:permissions": "vitest run e2e/06-permissions.test.ts --reporter=verbose",
+    "test:settlements": "vitest run e2e/07-settlements.test.ts --reporter=verbose",
+    "test:cleanup": "vitest run e2e/08-cleanup.test.ts --reporter=verbose",
+    "test:products": "vitest run e2e/09-products.test.ts --reporter=verbose",
+    "test:analytics": "vitest run e2e/10-analytics.test.ts --reporter=verbose",
+    "test:critical": "vitest run e2e/03-inventory-flow.test.ts --reporter=verbose",
+    "test:quick": "vitest run e2e/01-auth.test.ts e2e/02-orders-crud.test.ts --reporter=verbose",
+    "test:full": "vitest run --reporter=verbose --sequence",
+    "cleanup": "vitest run e2e/08-cleanup.test.ts --reporter=verbose",
+    "cleanup:force": "tsx scripts/force-cleanup.ts"
+  },
+  "dependencies": {
+    "vitest": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "tsx": "^4.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
