@@ -1574,6 +1574,15 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             force = false // Allow forcing certain transitions (for admin override)
         } = req.body;
 
+        // DEBUG: Log request details
+        console.log(`📋 [PATCH /orders/${id}/status] Request:`, {
+            orderId: id,
+            storeId: req.storeId,
+            userId: req.userId,
+            userRole: req.userRole,
+            targetStatus: sleeves_status
+        });
+
         const validStatuses = ['pending', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped', 'incident'];
         if (!validStatuses.includes(sleeves_status)) {
             return res.status(400).json({
@@ -1590,6 +1599,13 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
+
+        // DEBUG: Log query result
+        console.log(`📋 [PATCH /orders/${id}/status] Query result:`, {
+            found: !!currentOrder,
+            error: fetchError?.message || null,
+            errorCode: fetchError?.code || null
+        });
 
         if (fetchError || !currentOrder) {
             return res.status(404).json({
