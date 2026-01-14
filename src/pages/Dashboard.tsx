@@ -51,7 +51,7 @@ export default function Dashboard() {
   const [showSecondaryMetrics, setShowSecondaryMetrics] = useState(false);
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
-  // Global View state from context (toggle is now in Header)
+  // Global View state from context (toggle is in Header, only shown on Dashboard)
   const { stores } = useAuth();
   const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
@@ -91,16 +91,26 @@ export default function Dashboard() {
       };
 
       const useGlobalView = globalViewEnabled && hasMultipleStores;
+      console.log('📊 [Dashboard] Loading data:', { globalViewEnabled, hasMultipleStores, useGlobalView, storesCount: stores?.length });
 
       let overview: DashboardOverview | null;
       let chart: ChartData[];
 
       if (useGlobalView) {
         // Fetch unified data from all stores
+        console.log('🌍 [Dashboard] Fetching UNIFIED data from all stores...');
         const [unifiedOverview, unifiedChart] = await Promise.all([
           unifiedService.getAnalyticsOverview(dateParams),
           unifiedService.getAnalyticsChart(dateRange.days, dateParams),
         ]);
+
+        console.log('🌍 [Dashboard] Unified response:', {
+          stores: unifiedOverview.stores,
+          storeCount: unifiedOverview.storeCount,
+          hasData: !!unifiedOverview.data,
+          totalOrders: unifiedOverview.data?.totalOrders,
+          revenue: unifiedOverview.data?.revenue
+        });
 
         overview = unifiedOverview.data;
         chart = unifiedChart;
@@ -135,7 +145,7 @@ export default function Dashboard() {
         setIsLoading(false);
       }
     }
-  }, [dateRange, globalViewEnabled, hasMultipleStores]);
+  }, [dateRange, globalViewEnabled, hasMultipleStores, stores]);
 
   useEffect(() => {
     const abortController = new AbortController();

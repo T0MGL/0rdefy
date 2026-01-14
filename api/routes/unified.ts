@@ -29,8 +29,19 @@ const getUserStoreIds = async (userId: string) => {
         .eq('user_id', userId)
         .eq('is_active', true);
 
-    if (error || !userStores) return [];
-    return userStores.map(s => s.store_id);
+    if (error) {
+        console.error('[getUserStoreIds] Error fetching stores:', error);
+        return [];
+    }
+
+    if (!userStores || userStores.length === 0) {
+        console.log(`[getUserStoreIds] No stores found for user ${userId}`);
+        return [];
+    }
+
+    const storeIds = userStores.map(s => s.store_id);
+    console.log(`[getUserStoreIds] User ${userId} has access to ${storeIds.length} stores:`, storeIds);
+    return storeIds;
 };
 
 // ================================================================
@@ -359,9 +370,11 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
         }
 
         const storeIds = await getUserStoreIds(req.user.id);
+        console.log(`[GET /api/unified/analytics/overview] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
 
         if (storeIds.length === 0) {
-            return res.json({ data: null, stores: [] });
+            console.log('[GET /api/unified/analytics/overview] No stores found for user');
+            return res.json({ data: null, stores: [], storeCount: 0 });
         }
 
         const { startDate, endDate } = req.query;
@@ -664,6 +677,9 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
             costPerOrder: calculateChange(costPerOrder, prevCostPerOrder),
             averageOrderValue: calculateChange(averageOrderValue, prevAvgOrderValue),
         };
+
+        console.log(`[GET /api/unified/analytics/overview] Returning data for ${storeNames.length} stores:`, storeNames.map(s => s.name));
+        console.log(`[GET /api/unified/analytics/overview] Total Orders: ${totalOrders}, Revenue: ${currentMetrics.revenue}, Stores: ${storeIds.length}`);
 
         res.json({
             data: {

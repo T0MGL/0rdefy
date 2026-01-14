@@ -203,6 +203,146 @@ onboardingRouter.get('/is-first-visit/:moduleId', verifyToken, extractStoreId, a
 });
 
 /**
+ * POST /api/onboarding/increment-visit
+ * Increment visit count for a module (DB-backed)
+ */
+onboardingRouter.post('/increment-visit', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId;
+        const storeId = req.storeId;
+        const { moduleId } = req.body;
+
+        if (!userId || !storeId) {
+            return res.status(400).json({
+                success: false,
+                error: 'User ID and Store ID are required'
+            });
+        }
+
+        if (!moduleId || typeof moduleId !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'Module ID is required'
+            });
+        }
+
+        // Use the database function to increment visit count
+        const { data, error } = await supabaseAdmin.rpc('increment_module_visit_count', {
+            p_store_id: storeId,
+            p_user_id: userId,
+            p_module_id: moduleId
+        });
+
+        if (error) {
+            console.error('Error incrementing visit count:', error);
+            // Non-critical, return success anyway
+            return res.json({ success: true, count: 1 });
+        }
+
+        return res.json({
+            success: true,
+            count: data
+        });
+    } catch (error) {
+        console.error('Error incrementing visit count:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to increment visit count'
+        });
+    }
+});
+
+/**
+ * POST /api/onboarding/first-action
+ * Mark first action completed for a module (hides future tips)
+ */
+onboardingRouter.post('/first-action', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId;
+        const storeId = req.storeId;
+        const { moduleId } = req.body;
+
+        if (!userId || !storeId) {
+            return res.status(400).json({
+                success: false,
+                error: 'User ID and Store ID are required'
+            });
+        }
+
+        if (!moduleId || typeof moduleId !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'Module ID is required'
+            });
+        }
+
+        // Use the database function to mark first action
+        const { error } = await supabaseAdmin.rpc('mark_first_action_completed', {
+            p_store_id: storeId,
+            p_user_id: userId,
+            p_module_id: moduleId
+        });
+
+        if (error) {
+            console.error('Error marking first action:', error);
+            // Non-critical, return success anyway
+        }
+
+        return res.json({
+            success: true,
+            message: 'First action marked as completed'
+        });
+    } catch (error) {
+        console.error('Error marking first action:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to mark first action'
+        });
+    }
+});
+
+/**
+ * GET /api/onboarding/should-show-tip/:moduleId
+ * Check if tip should be shown for a module (combines all conditions)
+ */
+onboardingRouter.get('/should-show-tip/:moduleId', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId;
+        const storeId = req.storeId;
+        const { moduleId } = req.params;
+
+        if (!userId || !storeId) {
+            return res.status(400).json({
+                success: false,
+                error: 'User ID and Store ID are required'
+            });
+        }
+
+        // Use the database function to check
+        const { data, error } = await supabaseAdmin.rpc('should_show_module_tip', {
+            p_store_id: storeId,
+            p_user_id: userId,
+            p_module_id: moduleId,
+            p_max_visits: 3
+        });
+
+        if (error) {
+            console.error('Error checking should show tip:', error);
+            // Default to showing tip if we can't check
+            return res.json({ shouldShow: true });
+        }
+
+        return res.json({ shouldShow: data });
+    } catch (error) {
+        console.error('Error checking should show tip:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to check if tip should show'
+        });
+    }
+});
+
+/**
  * POST /api/onboarding/reset
  * Reset onboarding progress (for testing/dev)
  */
@@ -277,12 +417,12 @@ async function computeProgressManually(storeId: string, userId: string, userRole
             .eq('store_id', storeId)
             .limit(1);
 
-        // Check Shopify integration
+        // Check Shopify integration (uses 'status' column, not 'is_active')
         const { data: shopify } = await supabaseAdmin
             .from('shopify_integrations')
             .select('id')
             .eq('store_id', storeId)
-            .eq('is_active', true)
+            .eq('status', 'active')
             .limit(1);
 
         // Check if dismissed
@@ -300,14 +440,25 @@ async function computeProgressManually(storeId: string, userId: string, userRole
         const hasShopify = shopify && shopify.length > 0;
         const hasDismissed = progress?.checklist_dismissed || false;
 
+        // Customer step is complete if has customer OR has Shopify (auto-creates customers)
+        const customerStepComplete = hasCustomer || hasShopify;
+
         let completedCount = 0;
         if (hasCarrier) completedCount++;
         if (hasProduct) completedCount++;
-        if (hasCustomer) completedCount++;
+        if (customerStepComplete) completedCount++;
         if (hasOrder) completedCount++;
 
         const totalCount = 4;
         const percentage = Math.round((completedCount / totalCount) * 100);
+
+        // Dynamic customer step title/description based on Shopify status
+        const customerStepTitle = hasShopify ? 'Clientes de Shopify' : 'Agregar cliente';
+        const customerStepDescription = hasShopify && hasCustomer
+            ? 'Clientes importados automáticamente desde Shopify'
+            : hasShopify
+            ? 'Los clientes se crearán al recibir pedidos de Shopify'
+            : 'Registra tu primer cliente para crear pedidos';
 
         const steps = [
             {
@@ -330,9 +481,9 @@ async function computeProgressManually(storeId: string, userId: string, userRole
             },
             {
                 id: 'add-customer',
-                title: 'Agregar cliente',
-                description: 'Registra tu primer cliente para crear pedidos',
-                completed: hasCustomer,
+                title: customerStepTitle,
+                description: customerStepDescription,
+                completed: customerStepComplete,
                 route: '/customers',
                 priority: 3,
                 category: 'setup'

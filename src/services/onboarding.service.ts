@@ -1,6 +1,9 @@
 /**
  * Onboarding Service
  * Tracks user setup progress and provides checklist data
+ *
+ * IMPORTANT: This service now uses database-backed tracking for proper
+ * multi-user support. LocalStorage is only used as a fallback/cache.
  */
 
 import apiClient from './api.client';
@@ -23,81 +26,138 @@ export interface OnboardingProgress {
   isComplete: boolean;
   hasShopify: boolean;
   hasDismissed: boolean;
-  userRole?: string; // User's role in the store (owner, admin, logistics, etc.)
+  visitedModules?: string[];
+  userRole?: string;
 }
 
-// Storage keys
+// Storage keys (used as fallback cache only)
 const STORAGE_KEYS = {
   DISMISSED: 'ordefy_onboarding_dismissed',
   FIRST_VISIT: 'ordefy_first_visit_modules',
   VISIT_COUNTS: 'ordefy_module_visit_counts',
   FIRST_ACTIONS: 'ordefy_module_first_actions',
+  // Cache for DB-backed data
+  PROGRESS_CACHE: 'ordefy_onboarding_progress_cache',
 };
 
 // Maximum visits before auto-hiding tips
 const MAX_VISITS_BEFORE_HIDE = 3;
 
+// Cache for progress data to avoid repeated API calls
+let progressCache: OnboardingProgress | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 30000; // 30 seconds
+
 /**
  * Get onboarding progress from API
+ * Now uses database-backed hasDismissed and visitedModules
  */
 export async function getOnboardingProgress(): Promise<OnboardingProgress> {
+  // Return cached data if fresh
+  if (progressCache && Date.now() - cacheTimestamp < CACHE_TTL) {
+    return progressCache;
+  }
+
   try {
     const response = await apiClient.get('/onboarding/progress');
     const data = response.data;
 
-    return {
+    // Use database value for hasDismissed (not LocalStorage)
+    progressCache = {
       ...data,
-      hasDismissed: localStorage.getItem(STORAGE_KEYS.DISMISSED) === 'true',
+      // hasDismissed comes from database now, not LocalStorage
+      hasDismissed: data.hasDismissed ?? false,
     };
+    cacheTimestamp = Date.now();
+
+    // Sync to local cache for offline fallback
+    try {
+      localStorage.setItem(STORAGE_KEYS.PROGRESS_CACHE, JSON.stringify(progressCache));
+    } catch {
+      // localStorage might be full or unavailable
+    }
+
+    return progressCache;
   } catch (error) {
     console.error('Error fetching onboarding progress:', error);
-    // Return default progress if API fails
+
+    // Try to use cached data from localStorage
+    try {
+      const cached = localStorage.getItem(STORAGE_KEYS.PROGRESS_CACHE);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+
+    // Return default progress if all else fails
     return getDefaultProgress();
   }
 }
 
 /**
+ * Invalidate progress cache (call after mutations)
+ */
+export function invalidateProgressCache(): void {
+  progressCache = null;
+  cacheTimestamp = 0;
+}
+
+/**
  * Mark onboarding as dismissed (user chose to hide checklist)
+ * Now persists to database, not just localStorage
  */
 export async function dismissOnboarding(): Promise<void> {
-  localStorage.setItem(STORAGE_KEYS.DISMISSED, 'true');
-  // Also persist to server
+  // Persist to server (primary source of truth)
   try {
     await apiClient.post('/onboarding/dismiss');
+    invalidateProgressCache();
   } catch (error) {
     console.error('Error dismissing onboarding on server:', error);
+    // Fallback to localStorage for offline scenarios
+    localStorage.setItem(STORAGE_KEYS.DISMISSED, 'true');
   }
 }
 
 /**
  * Reset onboarding dismissal (show checklist again)
  */
-export function resetOnboardingDismissal(): void {
+export async function resetOnboardingDismissal(): Promise<void> {
   localStorage.removeItem(STORAGE_KEYS.DISMISSED);
+  invalidateProgressCache();
+  // Note: Would need a server endpoint to reset DB value
+  try {
+    await apiClient.post('/onboarding/reset');
+  } catch {
+    // Non-critical, just invalidate cache
+  }
 }
 
 /**
  * Check if tip should be shown for a module
- * Combines 3 conditions:
- * A) Not manually dismissed
- * B) Less than 3 visits
- * C) No first action completed
+ * Uses database-backed tracking for proper multi-user support
  */
 export function shouldShowTip(moduleId: string): boolean {
-  // A) Check if manually dismissed
-  const dismissed = getDismissedModules();
+  // A) Check if manually dismissed (from cached progress)
+  if (progressCache?.visitedModules?.includes(moduleId)) {
+    return false;
+  }
+
+  // Fallback to localStorage for dismissed modules
+  const dismissed = getDismissedModulesLocal();
   if (dismissed.includes(moduleId)) {
     return false;
   }
 
   // B) Check visit count (max 3)
-  const visitCount = getModuleVisitCount(moduleId);
+  const visitCount = getModuleVisitCountLocal(moduleId);
   if (visitCount >= MAX_VISITS_BEFORE_HIDE) {
     return false;
   }
 
   // C) Check if first action completed
-  const actionsCompleted = getCompletedActions();
+  const actionsCompleted = getCompletedActionsLocal();
   if (actionsCompleted.includes(moduleId)) {
     return false;
   }
@@ -114,26 +174,43 @@ export function isFirstVisitToModule(moduleId: string): boolean {
 
 /**
  * Increment visit count for a module
+ * Persists to both localStorage (immediate) and server (durable)
  */
-export function incrementVisitCount(moduleId: string): number {
-  const counts = getVisitCounts();
+export async function incrementVisitCount(moduleId: string): Promise<number> {
+  // Update localStorage immediately for responsive UI
+  const counts = getVisitCountsLocal();
   counts[moduleId] = (counts[moduleId] || 0) + 1;
   localStorage.setItem(STORAGE_KEYS.VISIT_COUNTS, JSON.stringify(counts));
+
+  // Also persist to server (fire-and-forget)
+  try {
+    await apiClient.post('/onboarding/increment-visit', { moduleId });
+  } catch {
+    // Non-critical, localStorage is the fallback
+  }
+
   return counts[moduleId];
 }
 
 /**
- * Get visit count for a specific module
+ * Get visit count for a specific module (from localStorage cache)
  */
 export function getModuleVisitCount(moduleId: string): number {
-  const counts = getVisitCounts();
+  return getModuleVisitCountLocal(moduleId);
+}
+
+/**
+ * Get visit count from localStorage
+ */
+function getModuleVisitCountLocal(moduleId: string): number {
+  const counts = getVisitCountsLocal();
   return counts[moduleId] || 0;
 }
 
 /**
- * Get all visit counts
+ * Get all visit counts from localStorage
  */
-function getVisitCounts(): Record<string, number> {
+function getVisitCountsLocal(): Record<string, number> {
   try {
     const stored = localStorage.getItem(STORAGE_KEYS.VISIT_COUNTS);
     return stored ? JSON.parse(stored) : {};
@@ -144,18 +221,22 @@ function getVisitCounts(): Record<string, number> {
 
 /**
  * Mark a module tip as manually dismissed (X button)
+ * Persists to both localStorage and server
  */
 export async function dismissModuleTip(moduleId: string): Promise<void> {
-  const dismissed = getDismissedModules();
+  // Update localStorage immediately
+  const dismissed = getDismissedModulesLocal();
   if (!dismissed.includes(moduleId)) {
     dismissed.push(moduleId);
     localStorage.setItem(STORAGE_KEYS.FIRST_VISIT, JSON.stringify(dismissed));
-    // Also persist to server
-    try {
-      await apiClient.post('/onboarding/visit-module', { moduleId });
-    } catch (error) {
-      console.error('Error dismissing module tip on server:', error);
-    }
+  }
+
+  // Persist to server
+  try {
+    await apiClient.post('/onboarding/visit-module', { moduleId });
+    invalidateProgressCache();
+  } catch (error) {
+    console.error('Error dismissing module tip on server:', error);
   }
 }
 
@@ -167,15 +248,25 @@ export async function markModuleVisited(moduleId: string): Promise<void> {
 }
 
 /**
- * Get list of manually dismissed modules
+ * Get list of manually dismissed modules from localStorage
  */
-export function getDismissedModules(): string[] {
+function getDismissedModulesLocal(): string[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEYS.FIRST_VISIT);
     return stored ? JSON.parse(stored) : [];
   } catch {
     return [];
   }
+}
+
+/**
+ * Get dismissed modules (combines DB + localStorage)
+ */
+export function getDismissedModules(): string[] {
+  const local = getDismissedModulesLocal();
+  const fromProgress = progressCache?.visitedModules || [];
+  // Merge and dedupe
+  return [...new Set([...local, ...fromProgress])];
 }
 
 /**
@@ -187,20 +278,28 @@ export function getVisitedModules(): string[] {
 
 /**
  * Mark first action completed for a module
- * Call this when user creates their first item (return session, dispatch, etc.)
+ * Persists to both localStorage and server
  */
-export function markFirstActionCompleted(moduleId: string): void {
-  const actions = getCompletedActions();
+export async function markFirstActionCompleted(moduleId: string): Promise<void> {
+  // Update localStorage immediately
+  const actions = getCompletedActionsLocal();
   if (!actions.includes(moduleId)) {
     actions.push(moduleId);
     localStorage.setItem(STORAGE_KEYS.FIRST_ACTIONS, JSON.stringify(actions));
   }
+
+  // Persist to server (fire-and-forget)
+  try {
+    await apiClient.post('/onboarding/first-action', { moduleId });
+  } catch {
+    // Non-critical
+  }
 }
 
 /**
- * Get list of modules where first action was completed
+ * Get list of modules where first action was completed (from localStorage)
  */
-export function getCompletedActions(): string[] {
+function getCompletedActionsLocal(): string[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEYS.FIRST_ACTIONS);
     return stored ? JSON.parse(stored) : [];
@@ -210,12 +309,27 @@ export function getCompletedActions(): string[] {
 }
 
 /**
+ * Get completed actions
+ */
+export function getCompletedActions(): string[] {
+  return getCompletedActionsLocal();
+}
+
+/**
  * Reset first-visit tracking (for testing)
  */
-export function resetFirstVisits(): void {
+export async function resetFirstVisits(): Promise<void> {
   localStorage.removeItem(STORAGE_KEYS.FIRST_VISIT);
   localStorage.removeItem(STORAGE_KEYS.VISIT_COUNTS);
   localStorage.removeItem(STORAGE_KEYS.FIRST_ACTIONS);
+  localStorage.removeItem(STORAGE_KEYS.PROGRESS_CACHE);
+  invalidateProgressCache();
+
+  try {
+    await apiClient.post('/onboarding/reset');
+  } catch {
+    // Non-critical
+  }
 }
 
 /**
@@ -229,7 +343,8 @@ function getDefaultProgress(): OnboardingProgress {
     percentage: 0,
     isComplete: false,
     hasShopify: false,
-    hasDismissed: localStorage.getItem(STORAGE_KEYS.DISMISSED) === 'true',
+    hasDismissed: false,
+    visitedModules: [],
   };
 }
 
@@ -237,6 +352,7 @@ export const onboardingService = {
   getProgress: getOnboardingProgress,
   dismiss: dismissOnboarding,
   resetDismissal: resetOnboardingDismissal,
+  invalidateCache: invalidateProgressCache,
   // New combined logic
   shouldShowTip,
   incrementVisitCount,

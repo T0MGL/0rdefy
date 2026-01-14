@@ -11,7 +11,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { Module, Permission } from '../permissions';
-import { sanitizeSearchInput } from '../utils/sanitize';
+import { sanitizeSearchInput, validateUUIDParam } from '../utils/sanitize';
 
 export const customersRouter = Router();
 
@@ -95,7 +95,7 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/customers/:id - Get single customer
 // ================================================================
-customersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+customersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -125,7 +125,7 @@ customersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/customers/:id/orders - Get customer order history
 // ================================================================
-customersRouter.get('/:id/orders', async (req: AuthRequest, res: Response) => {
+customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { limit = '20', offset = '0' } = req.query;
@@ -237,7 +237,7 @@ customersRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/customers/:id - Update customer
 // ================================================================
-customersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+customersRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -411,7 +411,7 @@ customersRouter.get('/search', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/customers/:id - Delete customer
 // ================================================================
-customersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+customersRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 

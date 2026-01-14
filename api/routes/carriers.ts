@@ -15,6 +15,7 @@ import {
   getTopCouriers,
   getUnderperformingCouriers
 } from '../utils/courier-stats';
+import { validateUUIDParam } from '../utils/sanitize';
 
 export const carriersRouter = Router();
 
@@ -87,7 +88,7 @@ carriersRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/carriers/:id - Get single carrier
 // ================================================================
-carriersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+carriersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -117,7 +118,7 @@ carriersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/carriers/:id/zones - Get carrier zones with rates
 // ================================================================
-carriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
+carriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -233,7 +234,7 @@ carriersRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/carriers/:id - Update carrier
 // ================================================================
-carriersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+carriersRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -289,7 +290,7 @@ carriersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/carriers/:id - Delete carrier
 // ================================================================
-carriersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+carriersRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -323,7 +324,7 @@ carriersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PATCH /api/carriers/:id/toggle - Toggle carrier active status
 // ================================================================
-carriersRouter.patch('/:id/toggle', async (req: AuthRequest, res: Response) => {
+carriersRouter.patch('/:id/toggle', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -377,7 +378,7 @@ carriersRouter.patch('/:id/toggle', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/carriers/:id/performance - Get courier performance metrics
 // ================================================================
-carriersRouter.get('/:id/performance', async (req: AuthRequest, res: Response) => {
+carriersRouter.get('/:id/performance', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 

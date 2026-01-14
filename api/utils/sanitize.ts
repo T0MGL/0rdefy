@@ -101,3 +101,68 @@ export function sanitizeInteger(
 
     return Math.max(min, Math.min(max, parsed));
 }
+
+/**
+ * Express middleware factory to validate UUID parameters
+ *
+ * @param paramName - The name of the route parameter to validate (default: 'id')
+ * @returns Express middleware function
+ *
+ * Usage:
+ *   router.get('/:id', validateUUIDParam(), handler);
+ *   router.get('/:orderId', validateUUIDParam('orderId'), handler);
+ */
+export function validateUUIDParam(paramName: string = 'id') {
+    return (req: any, res: any, next: any) => {
+        const id = req.params[paramName];
+
+        if (!id) {
+            return res.status(400).json({
+                error: 'Bad Request',
+                message: `Missing required parameter: ${paramName}`
+            });
+        }
+
+        if (!isValidUUID(id)) {
+            return res.status(400).json({
+                error: 'Bad Request',
+                message: `Invalid ${paramName} format. Expected UUID.`
+            });
+        }
+
+        next();
+    };
+}
+
+/**
+ * Validates multiple UUID parameters at once
+ *
+ * @param paramNames - Array of parameter names to validate
+ * @returns Express middleware function
+ *
+ * Usage:
+ *   router.delete('/:sessionId/orders/:orderId', validateUUIDParams(['sessionId', 'orderId']), handler);
+ */
+export function validateUUIDParams(paramNames: string[]) {
+    return (req: any, res: any, next: any) => {
+        for (const paramName of paramNames) {
+            const id = req.params[paramName];
+
+            if (!id) {
+                return res.status(400).json({
+                    error: 'Bad Request',
+                    message: `Missing required parameter: ${paramName}`
+                });
+            }
+
+            if (!isValidUUID(id)) {
+                return res.status(400).json({
+                    error: 'Bad Request',
+                    message: `Invalid ${paramName} format. Expected UUID.`
+                });
+            }
+        }
+
+        next();
+    };
+}

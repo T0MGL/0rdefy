@@ -47,6 +47,7 @@ import { externalWebhooksRouter } from './routes/external-webhooks';
 import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
+import { requestLoggerMiddleware } from './utils/logger';
 
 // Load environment variables
 dotenv.config();
@@ -353,15 +354,8 @@ app.use((req: any, res: Response, next: NextFunction) => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging middleware
-app.use((req: Request, res: Response, next: NextFunction) => {
-    const start = Date.now();
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
-    });
-    next();
-});
+// Request logging middleware with correlation IDs and PII redaction
+app.use(requestLoggerMiddleware);
 
 // ================================================================
 // ROUTES
@@ -413,6 +407,16 @@ app.use('/api/orders/:id/cancel', deliveryTokenLimiter);
 // Apply delivery token limiter to public incident endpoints
 app.use('/api/incidents/order/', deliveryTokenLimiter);
 app.use('/api/incidents/retry/', deliveryTokenLimiter);
+
+// Apply rate limiter to collaborator public endpoints (invitation validation/acceptance)
+// SECURITY: Prevents token enumeration and brute force attacks
+app.use('/api/collaborators/validate-token/', deliveryTokenLimiter);
+app.use('/api/collaborators/accept-invitation', deliveryTokenLimiter);
+
+// Apply rate limiter to billing public endpoints
+app.use('/api/billing/plans', apiLimiter);
+app.use('/api/billing/referral/', deliveryTokenLimiter);
+app.use('/api/billing/discount/validate', deliveryTokenLimiter);
 
 // Apply write operations limiter to all API routes
 app.use('/api/', writeOperationsLimiter);

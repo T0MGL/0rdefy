@@ -10,6 +10,7 @@ import { requireFeature } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import * as warehouseService from '../services/warehouse.service';
 import { noOrdersSelected, serverError, missingRequiredFields } from '../utils/errorResponses';
+import { validateUUIDParam, validateUUIDParams } from '../utils/sanitize';
 
 const router = Router();
 
@@ -108,7 +109,7 @@ router.post('/sessions', async (req, res) => {
  * GET /api/warehouse/sessions/:sessionId/picking-list
  * Gets the aggregated picking list for a session
  */
-router.get('/sessions/:sessionId/picking-list', async (req, res) => {
+router.get('/sessions/:sessionId/picking-list', validateUUIDParam('sessionId'), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -134,7 +135,7 @@ router.get('/sessions/:sessionId/picking-list', async (req, res) => {
  * Updates picking progress for a specific product
  * Body: { productId: string, quantityPicked: number }
  */
-router.post('/sessions/:sessionId/picking-progress', async (req, res) => {
+router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionId'), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -175,7 +176,7 @@ router.post('/sessions/:sessionId/picking-progress', async (req, res) => {
  * POST /api/warehouse/sessions/:sessionId/finish-picking
  * Finishes picking phase and transitions to packing
  */
-router.post('/sessions/:sessionId/finish-picking', async (req, res) => {
+router.post('/sessions/:sessionId/finish-picking', validateUUIDParam('sessionId'), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -204,7 +205,7 @@ router.post('/sessions/:sessionId/finish-picking', async (req, res) => {
  * GET /api/warehouse/sessions/:sessionId/packing-list
  * Gets the packing list with order details and progress
  */
-router.get('/sessions/:sessionId/packing-list', async (req, res) => {
+router.get('/sessions/:sessionId/packing-list', validateUUIDParam('sessionId'), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -233,7 +234,7 @@ router.get('/sessions/:sessionId/packing-list', async (req, res) => {
  * Assigns one unit of a product to an order
  * Body: { orderId: string, productId: string }
  */
-router.post('/sessions/:sessionId/packing-progress', async (req, res) => {
+router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionId'), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -270,7 +271,7 @@ router.post('/sessions/:sessionId/packing-progress', async (req, res) => {
  * POST /api/warehouse/sessions/:sessionId/complete
  * Completes a picking session
  */
-router.post('/sessions/:sessionId/complete', async (req, res) => {
+router.post('/sessions/:sessionId/complete', validateUUIDParam('sessionId'), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -300,7 +301,7 @@ router.post('/sessions/:sessionId/complete', async (req, res) => {
  * Abandons a picking session and restores orders to confirmed status
  * Body: { reason?: string }
  */
-router.post('/sessions/:sessionId/abandon', async (req, res) => {
+router.post('/sessions/:sessionId/abandon', validateUUIDParam('sessionId'), async (req, res) => {
   try {
     const storeId = req.storeId;
     const userId = req.userId;
@@ -335,7 +336,7 @@ router.post('/sessions/:sessionId/abandon', async (req, res) => {
  * DELETE /api/warehouse/sessions/:sessionId/orders/:orderId
  * Removes a single order from a session and restores it to confirmed
  */
-router.delete('/sessions/:sessionId/orders/:orderId', async (req, res) => {
+router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessionId', 'orderId']), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId, orderId } = req.params;

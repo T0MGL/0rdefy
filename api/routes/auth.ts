@@ -11,8 +11,12 @@ import {
     logPasswordChange,
     logAccountDeleted
 } from '../services/security.service';
+import { logger } from '../utils/logger';
 
 export const authRouter = Router();
+
+// Create child logger for auth module
+const log = logger.child('AUTH');
 
 // JWT Configuration Constants (must match middleware/auth.ts)
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -29,13 +33,15 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     try {
         const { email, password, name, referralCode } = req.body;
 
-        console.log('📝 [REGISTER] Request received:', { email, name, hasPassword: !!password, referralCode: referralCode || 'none' });
+        // Log without exposing email - logger auto-sanitizes PII
+        log.info('Register request received', { hasEmail: !!email, name, hasPassword: !!password, hasReferral: !!referralCode });
 
         if (!email || !password || !name) {
-            console.warn('⚠️ [REGISTER] Missing required fields');
+            log.warn('Missing required fields for registration');
             return res.status(400).json({
                 success: false,
                 error: 'Email, password, and name are required',
+                code: 'MISSING_FIELDS',
                 details: {
                     email: !!email,
                     password: !!password,
@@ -46,14 +52,15 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 
         // Validate password length
         if (password.length < 8) {
-            console.warn('⚠️ [REGISTER] Password too short');
+            log.warn('Password too short');
             return res.status(400).json({
                 success: false,
-                error: 'La contraseña debe tener al menos 8 caracteres'
+                error: 'La contraseña debe tener al menos 8 caracteres',
+                code: 'PASSWORD_TOO_SHORT'
             });
         }
 
-        console.log('🔍 [REGISTER] Checking for existing user...');
+        log.debug('Checking for existing user');
         const { data: existingUser, error: checkError } = await supabaseAdmin
             .from('users')
             .select('id')
@@ -61,26 +68,28 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             .single();
 
         if (checkError && checkError.code !== 'PGRST116') {
-            console.error('❌ [REGISTER] Error checking existing user:', checkError);
+            log.error('Database error checking existing user', checkError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Database error checking user',
-                details: process.env.NODE_ENV === 'production' ? undefined : checkError.message
+                error: 'An error occurred',
+                code: 'DATABASE_ERROR'
             });
         }
 
         if (existingUser) {
-            console.warn('⚠️ [REGISTER] Email already registered:', email);
+            // Security: Don't reveal if email exists in production (prevents enumeration)
+            log.security('Registration attempt with existing email', { userId: existingUser.id });
             return res.status(400).json({
                 success: false,
-                error: 'Este email ya está registrado'
+                error: 'Este email ya está registrado',
+                code: 'EMAIL_EXISTS'
             });
         }
 
         // Validate referral code if provided
         let referrerUserId: string | null = null;
         if (referralCode) {
-            console.log('🎁 [REGISTER] Validating referral code:', referralCode);
+            log.debug('Validating referral code');
             const { data: referralData, error: referralError } = await supabaseAdmin
                 .from('referral_codes')
                 .select('user_id, is_active')
@@ -88,20 +97,20 @@ authRouter.post('/register', async (req: Request, res: Response) => {
                 .single();
 
             if (referralError || !referralData) {
-                console.warn('⚠️ [REGISTER] Invalid referral code:', referralCode);
+                log.warn('Invalid referral code provided');
                 // Don't block registration, just ignore invalid code
             } else if (!referralData.is_active) {
-                console.warn('⚠️ [REGISTER] Referral code is inactive:', referralCode);
+                log.warn('Inactive referral code provided');
             } else {
                 referrerUserId = referralData.user_id;
-                console.log('✅ [REGISTER] Valid referral code from user:', referrerUserId);
+                log.info('Valid referral code', { referrerUserId });
             }
         }
 
-        console.log('🔒 [REGISTER] Hashing password...');
+        log.debug('Hashing password');
         const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
 
-        console.log('📝 [REGISTER] Creating user...');
+        log.debug('Creating user');
         const { data: newUser, error: userError } = await supabaseAdmin
             .from('users')
             .insert({
@@ -114,23 +123,23 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             .single();
 
         if (userError || !newUser) {
-            console.error('❌ [REGISTER] Error creating user:', userError);
+            log.error('Failed to create user', userError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to create user',
-                details: process.env.NODE_ENV === 'production' ? undefined : userError?.message
+                error: 'An error occurred',
+                code: 'USER_CREATION_FAILED'
             });
         }
 
-        console.log('✅ [REGISTER] User created successfully:', newUser.id);
+        log.info('User created successfully', { userId: newUser.id });
 
         // Track referral if valid code was provided
         if (referrerUserId) {
             // SECURITY: Prevent self-referrals
             if (referrerUserId === newUser.id) {
-                console.warn('⚠️ [REGISTER] User attempted to refer themselves - ignoring referral code');
+                log.security('Self-referral attempt detected', { userId: newUser.id });
             } else {
-                console.log('🎁 [REGISTER] Creating referral record...');
+                log.debug('Creating referral record');
                 const { error: referralInsertError } = await supabaseAdmin
                     .from('referrals')
                     .insert({
@@ -141,10 +150,10 @@ authRouter.post('/register', async (req: Request, res: Response) => {
                     });
 
                 if (referralInsertError) {
-                    console.error('⚠️ [REGISTER] Error creating referral record:', referralInsertError);
+                    log.warn('Failed to create referral record', referralInsertError);
                     // Don't fail registration
                 } else {
-                    console.log('✅ [REGISTER] Referral tracked successfully');
+                    log.info('Referral tracked successfully', { referrerUserId, newUserId: newUser.id });
                 }
             }
         }
@@ -159,7 +168,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             audience: JWT_AUDIENCE
         });
 
-        console.log('🎫 [REGISTER] JWT token generated');
+        log.info('Registration completed', { userId: newUser.id });
 
         res.status(201).json({
             success: true,
@@ -175,11 +184,11 @@ authRouter.post('/register', async (req: Request, res: Response) => {
             referralApplied: !!referrerUserId
         });
     } catch (error: any) {
-        console.error('💥 [REGISTER] Unexpected error:', error);
+        log.error('Unexpected error during registration', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Registration failed',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });
@@ -189,16 +198,16 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 // ================================================================
 authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) => {
     try {
-        console.log('🚪 [LOGOUT] Request received for user:', req.userId);
+        log.info('Logout request', { userId: req.userId });
 
         const token = req.headers.authorization?.replace('Bearer ', '');
         if (token) {
             // Terminate the session
             try {
                 await terminateSessionByToken(token);
-                console.log('✅ [LOGOUT] Session terminated');
+                log.debug('Session terminated');
             } catch (err) {
-                console.error('⚠️ [LOGOUT] Failed to terminate session:', err);
+                log.warn('Failed to terminate session', err);
             }
 
             // Log logout activity
@@ -207,7 +216,7 @@ authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) 
                 const userAgent = req.headers['user-agent'] || 'unknown';
                 await logLogout(req.userId!, ipAddress, userAgent);
             } catch (err) {
-                console.error('⚠️ [LOGOUT] Failed to log logout:', err);
+                log.warn('Failed to log logout activity', err);
             }
         }
 
@@ -216,10 +225,11 @@ authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) 
             message: 'Logged out successfully'
         });
     } catch (error: any) {
-        console.error('💥 [LOGOUT] Unexpected error:', error);
+        log.error('Unexpected error during logout', error);
         return res.status(500).json({
             success: false,
-            error: 'Logout failed'
+            error: 'Logout failed',
+            code: 'LOGOUT_FAILED'
         });
     }
 });
@@ -228,17 +238,19 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
 
-        console.log('🔐 [LOGIN] Request received:', email);
+        // Don't log email directly - just log that we received a request
+        log.info('Login request received');
 
         if (!email || !password) {
-            console.warn('⚠️ [LOGIN] Missing credentials');
+            log.warn('Missing credentials');
             return res.status(400).json({
                 success: false,
-                error: 'Email and password are required'
+                error: 'Email and password are required',
+                code: 'MISSING_CREDENTIALS'
             });
         }
 
-        console.log('🔍 [LOGIN] Looking up user...');
+        log.debug('Looking up user');
         const { data: user, error: userError } = await supabaseAdmin
             .from('users')
             .select('*')
@@ -246,26 +258,29 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             .single();
 
         if (userError || !user) {
-            console.warn('⚠️ [LOGIN] User not found:', email);
+            // Security: Log failed login attempt without exposing email
+            log.security('Login failed - user not found');
             return res.status(401).json({
                 success: false,
-                error: 'Invalid credentials'
+                error: 'Invalid credentials',
+                code: 'INVALID_CREDENTIALS'
             });
         }
 
         if (!user.is_active) {
-            console.warn('⚠️ [LOGIN] User account is inactive:', email);
+            log.security('Login attempt on inactive account', { userId: user.id });
             return res.status(401).json({
                 success: false,
-                error: 'Account is inactive'
+                error: 'Account is inactive',
+                code: 'ACCOUNT_INACTIVE'
             });
         }
 
-        console.log('🔒 [LOGIN] Verifying password...');
+        log.debug('Verifying password');
         const passwordValid = await bcrypt.compare(password, user.password_hash);
 
         if (!passwordValid) {
-            console.warn('⚠️ [LOGIN] Invalid password for:', email);
+            log.security('Login failed - invalid password', { userId: user.id });
 
             // Log failed login attempt
             try {
@@ -273,16 +288,17 @@ authRouter.post('/login', async (req: Request, res: Response) => {
                 const userAgent = req.headers['user-agent'] || 'unknown';
                 await logLogin(user.id, ipAddress, userAgent, false);
             } catch (err) {
-                console.error('⚠️ [LOGIN] Failed to log failed login:', err);
+                log.warn('Failed to log failed login', err);
             }
 
             return res.status(401).json({
                 success: false,
-                error: 'Invalid credentials'
+                error: 'Invalid credentials',
+                code: 'INVALID_CREDENTIALS'
             });
         }
 
-        console.log('🏪 [LOGIN] Fetching user stores...');
+        log.debug('Fetching user stores');
         const { data: userStoresData, error: storesError } = await supabaseAdmin
             .from('user_stores')
             .select(`
@@ -301,7 +317,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             .eq('is_active', true); // Only fetch active store memberships
 
         if (storesError) {
-            console.error('❌ [LOGIN] Error fetching stores:', storesError);
+            log.error('Error fetching stores', storesError);
         }
 
         const stores = userStoresData?.map((us: any) => ({
@@ -313,7 +329,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             role: us.role
         })) || [];
 
-        console.log(`🏪 [LOGIN] Found ${stores.length} active store(s) for user`);
+        log.debug('Found stores for user', { storeCount: stores.length });
 
         // Check if user was removed from all stores
         if (stores.length === 0) {
@@ -324,23 +340,22 @@ authRouter.post('/login', async (req: Request, res: Response) => {
                 .eq('user_id', user.id);
 
             if (allStores && allStores.length > 0) {
-                console.warn('⚠️ [LOGIN] User has no active stores (was removed):', email);
+                log.security('Login attempt by user with revoked access', { userId: user.id });
                 return res.status(403).json({
                     success: false,
                     error: 'Tu acceso ha sido revocado. Contacta al administrador de tu tienda para más información.',
-                    errorCode: 'ACCESS_REVOKED'
+                    code: 'ACCESS_REVOKED'
                 });
             }
         }
 
         // User completed onboarding if they have at least one store and a name
-        // Phone is optional as older users might not have it
         let onboardingCompleted = false;
         if (stores.length > 0 && user.name) {
             onboardingCompleted = true;
-            console.log('✅ [LOGIN] User has completed onboarding');
+            log.debug('User has completed onboarding');
         } else {
-            console.log('⚠️ [LOGIN] User needs to complete onboarding - stores:', stores.length, 'name:', !!user.name);
+            log.debug('User needs to complete onboarding', { hasStores: stores.length > 0, hasName: !!user.name });
         }
 
         const token = jwt.sign({
@@ -372,13 +387,11 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
             // Log successful login
             await logLogin(user.id, ipAddress, userAgent, true);
-            console.log('✅ [LOGIN] Session created and login logged');
+            log.info('Login successful', { userId: user.id, storeCount: stores.length });
         } catch (sessionError) {
             // Don't fail login if session creation fails
-            console.error('⚠️ [LOGIN] Failed to create session:', sessionError);
+            log.warn('Failed to create session', sessionError);
         }
-
-        console.log('✅ [LOGIN] Login successful');
 
         res.json({
             success: true,
@@ -393,11 +406,11 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             onboardingCompleted
         });
     } catch (error: any) {
-        console.error('💥 [LOGIN] Unexpected error:', error);
+        log.error('Unexpected error during login', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Login failed',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });
@@ -406,19 +419,17 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
     try {
         const { userName, userPhone, storeName, storeCountry, storeCurrency, taxRate, adminFee } = req.body;
 
-        console.log('📝 [ONBOARDING] Request received:', {
+        log.info('Onboarding request', {
             userId: req.userId,
-            userName,
-            userPhone,
+            hasUserName: !!userName,
+            hasUserPhone: !!userPhone,
             storeName,
             storeCountry,
-            storeCurrency,
-            taxRate,
-            adminFee
+            storeCurrency
         });
 
         if (!userName || !userPhone || !storeName || !storeCountry || !storeCurrency) {
-            console.warn('⚠️ [ONBOARDING] Missing required fields:', {
+            log.warn('Missing required fields for onboarding', {
                 userName: !!userName,
                 userPhone: !!userPhone,
                 storeName: !!storeName,
@@ -428,6 +439,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             return res.status(400).json({
                 success: false,
                 error: 'Todos los campos son requeridos',
+                code: 'MISSING_FIELDS',
                 details: {
                     userName: !!userName,
                     userPhone: !!userPhone,
@@ -439,7 +451,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
         }
 
         // Check if phone number is already registered to another user
-        console.log('📱 [ONBOARDING] Checking if phone is already registered...');
+        log.debug('Checking if phone is already registered');
         const { data: existingPhone, error: phoneCheckError } = await supabaseAdmin
             .from('users')
             .select('id, email')
@@ -448,7 +460,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             .single();
 
         if (existingPhone) {
-            console.warn('⚠️ [ONBOARDING] Phone already registered to another user:', userPhone);
+            log.security('Phone already registered to another user', { userId: req.userId });
             return res.status(409).json({
                 success: false,
                 error: 'Este número de teléfono ya está registrado con otra cuenta',
@@ -456,7 +468,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             });
         }
 
-        console.log('📝 [ONBOARDING] Updating user profile...');
+        log.debug('Updating user profile');
         const { data: updatedUser, error: userError } = await supabaseAdmin
             .from('users')
             .update({
@@ -469,7 +481,7 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             .single();
 
         if (userError) {
-            console.error('❌ [ONBOARDING] Error updating user:', userError);
+            log.error('Error updating user', userError);
 
             // Handle duplicate phone constraint error
             if (userError.code === '23505' && userError.message?.includes('phone')) {
@@ -482,12 +494,12 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
 
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update user profile',
-                details: process.env.NODE_ENV === 'production' ? undefined : userError.message
+                error: 'An error occurred',
+                code: 'USER_UPDATE_FAILED'
             });
         }
 
-        console.log('🏪 [ONBOARDING] Creating store...');
+        log.debug('Creating store');
         const { data: store, error: storeError } = await supabaseAdmin
             .from('stores')
             .insert({
@@ -501,15 +513,15 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             .single();
 
         if (storeError || !store) {
-            console.error('❌ [ONBOARDING] Error creating store:', storeError);
+            log.error('Error creating store', storeError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to create store',
-                details: process.env.NODE_ENV === 'production' ? undefined : storeError?.message
+                error: 'An error occurred',
+                code: 'STORE_CREATION_FAILED'
             });
         }
 
-        console.log('🔗 [ONBOARDING] Linking user to store...');
+        log.debug('Linking user to store');
         const { error: linkError } = await supabaseAdmin
             .from('user_stores')
             .insert({
@@ -519,16 +531,16 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             });
 
         if (linkError) {
-            console.error('❌ [ONBOARDING] Error linking user to store:', linkError);
+            log.error('Error linking user to store', linkError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to link user to store',
-                details: process.env.NODE_ENV === 'production' ? undefined : linkError.message
+                error: 'An error occurred',
+                code: 'STORE_LINK_FAILED'
             });
         }
 
         // Create default subscription for the store (free plan)
-        console.log('💳 [ONBOARDING] Creating default subscription...');
+        log.debug('Creating default subscription');
         const { error: subscriptionError } = await supabaseAdmin
             .from('subscriptions')
             .insert({
@@ -539,10 +551,10 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
 
         if (subscriptionError) {
             // Log but don't fail - subscription can be created later
-            console.warn('⚠️ [ONBOARDING] Could not create subscription:', subscriptionError.message);
+            log.warn('Could not create subscription', subscriptionError);
         }
 
-        console.log('✅ [ONBOARDING] Onboarding completed successfully');
+        log.info('Onboarding completed', { userId: req.userId, storeId: store.id });
 
         res.json({
             success: true,
@@ -568,11 +580,11 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             }
         });
     } catch (error: any) {
-        console.error('💥 [ONBOARDING] Unexpected error:', error);
+        log.error('Unexpected error during onboarding', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Onboarding failed',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });
@@ -582,15 +594,16 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
     try {
         const { userName, userPhone, storeName, storeId } = req.body;
 
-        console.log('📝 [PROFILE] Update request:', {
-            userName,
-            userPhone,
-            storeName,
+        log.info('Profile update request', {
+            userId: req.userId,
+            hasUserName: !!userName,
+            hasUserPhone: !!userPhone,
+            hasStoreName: !!storeName,
             storeId
         });
 
         if (userName || userPhone) {
-            console.log('👤 [PROFILE] Updating user profile...');
+            log.debug('Updating user profile');
             const updateData: any = {
                 updated_at: new Date().toISOString()
             };
@@ -604,13 +617,13 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
                 .eq('id', req.userId);
 
             if (userError) {
-                console.error('❌ [PROFILE] Error updating user:', userError);
+                log.error('Error updating user', userError);
                 throw new Error('Failed to update user profile');
             }
         }
 
         if (storeName && storeId) {
-            console.log('🏪 [PROFILE] Updating store name...');
+            log.debug('Updating store name', { storeId });
 
             const { data: hasAccess, error: accessError } = await supabaseAdmin
                 .from('user_stores')
@@ -620,7 +633,7 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
                 .single();
 
             if (accessError || !hasAccess) {
-                console.warn('⚠️ [PROFILE] User does not have access to this store');
+                log.security('Unauthorized store access attempt', { userId: req.userId, storeId });
                 throw new Error('You do not have access to this store');
             }
 
@@ -633,12 +646,12 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
                 .eq('id', storeId);
 
             if (storeError) {
-                console.error('❌ [PROFILE] Error updating store:', storeError);
+                log.error('Error updating store', storeError);
                 throw new Error('Failed to update store name');
             }
         }
 
-        console.log('✅ [PROFILE] Profile updated successfully');
+        log.info('Profile updated successfully', { userId: req.userId });
 
         const { data: updatedUser } = await supabaseAdmin
             .from('users')
@@ -691,8 +704,13 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('💥 [PROFILE] Error:', error);
-        return res.status(500).json({ error: 'Profile update failed', message: error.message });
+        log.error('Profile update error', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Profile update failed',
+            code: 'PROFILE_UPDATE_FAILED',
+            message: error.message
+        });
     }
 };
 
@@ -706,26 +724,28 @@ authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: R
     try {
         const { currentPassword, newPassword } = req.body;
 
-        console.log('🔐 [CHANGE-PASSWORD] Request received for user:', req.userId);
+        log.info('Password change request', { userId: req.userId });
 
         if (!currentPassword || !newPassword) {
-            console.warn('⚠️ [CHANGE-PASSWORD] Missing required fields');
+            log.warn('Missing password fields');
             return res.status(400).json({
                 success: false,
-                error: 'Current password and new password are required'
+                error: 'Current password and new password are required',
+                code: 'MISSING_FIELDS'
             });
         }
 
         if (newPassword.length < 8) {
-            console.warn('⚠️ [CHANGE-PASSWORD] New password too short');
+            log.warn('New password too short');
             return res.status(400).json({
                 success: false,
-                error: 'La contraseña debe tener al menos 8 caracteres'
+                error: 'La contraseña debe tener al menos 8 caracteres',
+                code: 'PASSWORD_TOO_SHORT'
             });
         }
 
         // Get user with current password
-        console.log('🔍 [CHANGE-PASSWORD] Looking up user...');
+        log.debug('Looking up user');
         const { data: user, error: userError } = await supabaseAdmin
             .from('users')
             .select('password_hash')
@@ -733,31 +753,33 @@ authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: R
             .single();
 
         if (userError || !user) {
-            console.error('❌ [CHANGE-PASSWORD] User not found:', userError);
+            log.error('User not found', userError);
             return res.status(404).json({
                 success: false,
-                error: 'User not found'
+                error: 'User not found',
+                code: 'USER_NOT_FOUND'
             });
         }
 
         // Verify current password
-        console.log('🔒 [CHANGE-PASSWORD] Verifying current password...');
+        log.debug('Verifying current password');
         const passwordValid = await bcrypt.compare(currentPassword, user.password_hash);
 
         if (!passwordValid) {
-            console.warn('⚠️ [CHANGE-PASSWORD] Current password incorrect');
+            log.security('Password change failed - wrong current password', { userId: req.userId });
             return res.status(401).json({
                 success: false,
-                error: 'Current password is incorrect'
+                error: 'Current password is incorrect',
+                code: 'INVALID_PASSWORD'
             });
         }
 
         // Hash new password
-        console.log('🔒 [CHANGE-PASSWORD] Hashing new password...');
+        log.debug('Hashing new password');
         const newPasswordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
         // Update password
-        console.log('📝 [CHANGE-PASSWORD] Updating password...');
+        log.debug('Updating password');
         const { error: updateError } = await supabaseAdmin
             .from('users')
             .update({
@@ -767,11 +789,11 @@ authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: R
             .eq('id', req.userId);
 
         if (updateError) {
-            console.error('❌ [CHANGE-PASSWORD] Error updating password:', updateError);
+            log.error('Error updating password', updateError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update password',
-                details: process.env.NODE_ENV === 'production' ? undefined : updateError.message
+                error: 'An error occurred',
+                code: 'PASSWORD_UPDATE_FAILED'
             });
         }
 
@@ -781,21 +803,21 @@ authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: R
             const userAgent = req.headers['user-agent'] || 'unknown';
             await logPasswordChange(req.userId!, ipAddress, userAgent);
         } catch (logError) {
-            console.error('⚠️ [CHANGE-PASSWORD] Failed to log activity:', logError);
+            log.warn('Failed to log password change activity', logError);
         }
 
-        console.log('✅ [CHANGE-PASSWORD] Password changed successfully');
+        log.info('Password changed successfully', { userId: req.userId });
 
         res.json({
             success: true,
             message: 'Password changed successfully'
         });
     } catch (error: any) {
-        console.error('💥 [CHANGE-PASSWORD] Unexpected error:', error);
+        log.error('Unexpected error during password change', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to change password',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });
@@ -807,18 +829,19 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
     try {
         const { password } = req.body;
 
-        console.log('🗑️ [DELETE-ACCOUNT] Request received for user:', req.userId);
+        log.info('Account deletion request', { userId: req.userId });
 
         if (!password) {
-            console.warn('⚠️ [DELETE-ACCOUNT] Missing password');
+            log.warn('Missing password for account deletion');
             return res.status(400).json({
                 success: false,
-                error: 'Password is required to delete account'
+                error: 'Password is required to delete account',
+                code: 'MISSING_PASSWORD'
             });
         }
 
         // Get user with password
-        console.log('🔍 [DELETE-ACCOUNT] Looking up user...');
+        log.debug('Looking up user');
         const { data: user, error: userError } = await supabaseAdmin
             .from('users')
             .select('password_hash, email')
@@ -826,22 +849,24 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
             .single();
 
         if (userError || !user) {
-            console.error('❌ [DELETE-ACCOUNT] User not found:', userError);
+            log.error('User not found', userError);
             return res.status(404).json({
                 success: false,
-                error: 'User not found'
+                error: 'User not found',
+                code: 'USER_NOT_FOUND'
             });
         }
 
         // Verify password
-        console.log('🔒 [DELETE-ACCOUNT] Verifying password...');
+        log.debug('Verifying password');
         const passwordValid = await bcrypt.compare(password, user.password_hash);
 
         if (!passwordValid) {
-            console.warn('⚠️ [DELETE-ACCOUNT] Password incorrect');
+            log.security('Account deletion failed - wrong password', { userId: req.userId });
             return res.status(401).json({
                 success: false,
-                error: 'Password is incorrect'
+                error: 'Password is incorrect',
+                code: 'INVALID_PASSWORD'
             });
         }
 
@@ -851,37 +876,37 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
             const userAgent = req.headers['user-agent'] || 'unknown';
             await logAccountDeleted(req.userId!, ipAddress, userAgent);
         } catch (logError) {
-            console.error('⚠️ [DELETE-ACCOUNT] Failed to log activity:', logError);
+            log.warn('Failed to log account deletion activity', logError);
         }
 
         // Delete user (cascade will delete user_stores relationships)
-        console.log('🗑️ [DELETE-ACCOUNT] Deleting user account...');
+        log.info('Deleting user account', { userId: req.userId });
         const { error: deleteError } = await supabaseAdmin
             .from('users')
             .delete()
             .eq('id', req.userId);
 
         if (deleteError) {
-            console.error('❌ [DELETE-ACCOUNT] Error deleting account:', deleteError);
+            log.error('Error deleting account', deleteError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to delete account',
-                details: process.env.NODE_ENV === 'production' ? undefined : deleteError.message
+                error: 'An error occurred',
+                code: 'ACCOUNT_DELETION_FAILED'
             });
         }
 
-        console.log('✅ [DELETE-ACCOUNT] Account deleted successfully:', user.email);
+        log.info('Account deleted successfully', { userId: req.userId });
 
         res.json({
             success: true,
             message: 'Account deleted successfully'
         });
     } catch (error: any) {
-        console.error('💥 [DELETE-ACCOUNT] Unexpected error:', error);
+        log.error('Unexpected error during account deletion', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to delete account',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });
@@ -892,13 +917,14 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
  */
 authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) => {
     try {
-        console.log('🏪 [GET-STORES] Fetching stores for user:', req.userId);
+        log.debug('Fetching stores', { userId: req.userId });
 
         if (!req.userId) {
-            console.error('❌ [GET-STORES] No userId in request');
+            log.error('No userId in request');
             return res.status(401).json({
                 success: false,
-                error: 'Unauthorized'
+                error: 'Unauthorized',
+                code: 'UNAUTHORIZED'
             });
         }
 
@@ -921,11 +947,11 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
             .eq('user_id', req.userId);
 
         if (storesError) {
-            console.error('❌ [GET-STORES] Error fetching stores:', storesError);
+            log.error('Error fetching stores', storesError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to fetch stores',
-                details: process.env.NODE_ENV === 'production' ? undefined : storesError.message
+                error: 'An error occurred',
+                code: 'STORES_FETCH_FAILED'
             });
         }
 
@@ -940,18 +966,18 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
             role: us.role
         })) || [];
 
-        console.log(`✅ [GET-STORES] Found ${stores.length} store(s) for user`);
+        log.debug('Found stores', { userId: req.userId, storeCount: stores.length });
 
         res.json({
             success: true,
             stores
         });
     } catch (error: any) {
-        console.error('💥 [GET-STORES] Unexpected error:', error);
+        log.error('Unexpected error fetching stores', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to fetch stores',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });
@@ -965,13 +991,14 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
         const { storeId } = req.params;
         const { timezone } = req.body;
 
-        console.log('🌍 [UPDATE-TIMEZONE] Updating timezone for store:', storeId);
+        log.info('Timezone update request', { storeId, timezone });
 
         if (!timezone) {
-            console.error('❌ [UPDATE-TIMEZONE] Missing timezone');
+            log.warn('Missing timezone');
             return res.status(400).json({
                 success: false,
-                error: 'Timezone is required'
+                error: 'Timezone is required',
+                code: 'MISSING_TIMEZONE'
             });
         }
 
@@ -984,10 +1011,11 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
             .single();
 
         if (accessError || !userStore) {
-            console.error('❌ [UPDATE-TIMEZONE] User does not have access to store');
+            log.security('Unauthorized timezone update attempt', { userId: req.userId, storeId });
             return res.status(403).json({
                 success: false,
-                error: 'Access denied'
+                error: 'Access denied',
+                code: 'ACCESS_DENIED'
             });
         }
 
@@ -1000,26 +1028,26 @@ authRouter.put('/stores/:storeId/timezone', verifyToken, async (req: AuthRequest
             .single();
 
         if (updateError || !updatedStore) {
-            console.error('❌ [UPDATE-TIMEZONE] Error updating timezone:', updateError);
+            log.error('Error updating timezone', updateError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update timezone',
-                details: process.env.NODE_ENV === 'production' ? undefined : updateError?.message
+                error: 'An error occurred',
+                code: 'TIMEZONE_UPDATE_FAILED'
             });
         }
 
-        console.log('✅ [UPDATE-TIMEZONE] Timezone updated successfully:', timezone);
+        log.info('Timezone updated', { storeId, timezone });
 
         res.json({
             success: true,
             timezone: updatedStore.timezone
         });
     } catch (error: any) {
-        console.error('💥 [UPDATE-TIMEZONE] Unexpected error:', error);
+        log.error('Unexpected error updating timezone', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update timezone',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });
@@ -1033,22 +1061,24 @@ authRouter.put('/stores/:storeId/currency', verifyToken, async (req: AuthRequest
         const { storeId } = req.params;
         const { currency } = req.body;
 
-        console.log('💰 [UPDATE-CURRENCY] Updating currency for store:', storeId);
+        log.info('Currency update request', { storeId, currency });
 
         if (!currency) {
-            console.error('❌ [UPDATE-CURRENCY] Missing currency');
+            log.warn('Missing currency');
             return res.status(400).json({
                 success: false,
-                error: 'Currency is required'
+                error: 'Currency is required',
+                code: 'MISSING_CURRENCY'
             });
         }
 
         // Validate currency code (should be 3 characters)
         if (currency.length !== 3) {
-            console.error('❌ [UPDATE-CURRENCY] Invalid currency code');
+            log.warn('Invalid currency code', { currency });
             return res.status(400).json({
                 success: false,
-                error: 'Currency code must be 3 characters (e.g., PYG, USD, ARS)'
+                error: 'Currency code must be 3 characters (e.g., PYG, USD, ARS)',
+                code: 'INVALID_CURRENCY_FORMAT'
             });
         }
 
@@ -1061,10 +1091,11 @@ authRouter.put('/stores/:storeId/currency', verifyToken, async (req: AuthRequest
             .single();
 
         if (accessError || !userStore) {
-            console.error('❌ [UPDATE-CURRENCY] User does not have access to store');
+            log.security('Unauthorized currency update attempt', { userId: req.userId, storeId });
             return res.status(403).json({
                 success: false,
-                error: 'Access denied'
+                error: 'Access denied',
+                code: 'ACCESS_DENIED'
             });
         }
 
@@ -1077,26 +1108,26 @@ authRouter.put('/stores/:storeId/currency', verifyToken, async (req: AuthRequest
             .single();
 
         if (updateError || !updatedStore) {
-            console.error('❌ [UPDATE-CURRENCY] Error updating currency:', updateError);
+            log.error('Error updating currency', updateError);
             return res.status(500).json({
                 success: false,
-                error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update currency',
-                details: process.env.NODE_ENV === 'production' ? undefined : updateError?.message
+                error: 'An error occurred',
+                code: 'CURRENCY_UPDATE_FAILED'
             });
         }
 
-        console.log('✅ [UPDATE-CURRENCY] Currency updated successfully:', currency);
+        log.info('Currency updated', { storeId, currency: currency.toUpperCase() });
 
         res.json({
             success: true,
             currency: updatedStore.currency
         });
     } catch (error: any) {
-        console.error('💥 [UPDATE-CURRENCY] Unexpected error:', error);
+        log.error('Unexpected error updating currency', error);
         return res.status(500).json({
             success: false,
-            error: process.env.NODE_ENV === 'production' ? 'An error occurred' : 'Failed to update currency',
-            details: process.env.NODE_ENV === 'production' ? undefined : error.message
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
         });
     }
 });

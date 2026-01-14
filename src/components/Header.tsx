@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { formatTimeAgo } from '@/utils/timeUtils';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { Bell, ChevronDown, Calendar } from 'lucide-react';
@@ -37,7 +38,6 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
 import { StoreSwitcher } from './StoreSwitcher';
-import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -50,13 +50,16 @@ const dateRanges = [
 
 export function Header() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { signOut, user, stores } = useAuth();
   const { hasFeature } = useSubscription();
   const { selectedRange, setSelectedRange, customRange, setCustomRange } = useDateRange();
   const { globalViewEnabled, setGlobalViewEnabled } = useGlobalView();
 
-  // Check if user has multiple stores (2 or more)
+  // Show Global View toggle only on Dashboard and when user has 2+ stores
+  const isDashboard = location.pathname === '/' || location.pathname === '/dashboard';
   const hasMultipleStores = (stores?.length || 0) >= 2;
+  const showGlobalViewToggle = isDashboard && hasMultipleStores;
 
   // Check if user has smart alerts feature (Growth+ plan)
   const hasSmartAlerts = hasFeature('smart_alerts');
@@ -225,8 +228,8 @@ export function Header() {
 
         {/* Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Global View Toggle - Only shows for users with 2+ stores - Hidden on mobile */}
-          {hasMultipleStores && (
+          {/* Global View Toggle - Only shows on Dashboard for users with 2+ stores */}
+          {showGlobalViewToggle && (
             <div className="hidden md:block">
               <GlobalViewToggle
                 enabled={globalViewEnabled}

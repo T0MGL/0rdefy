@@ -13,7 +13,7 @@ import { extractUserRole, requireModule, requirePermission, PermissionRequest } 
 import { checkProductLimit, PlanLimitRequest } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { ShopifyProductSyncService } from '../services/shopify-product-sync.service';
-import { sanitizeSearchInput } from '../utils/sanitize';
+import { sanitizeSearchInput, validateUUIDParam } from '../utils/sanitize';
 
 export const productsRouter = Router();
 
@@ -176,7 +176,7 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/products/:id - Get single product
 // ================================================================
-productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+productsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -534,7 +534,7 @@ productsRouter.post('/from-shopify', requirePermission(Module.PRODUCTS, Permissi
 // ================================================================
 // PUT /api/products/:id - Update product
 // ================================================================
-productsRouter.put('/:id', requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -794,7 +794,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
 //   - hard_delete: 'true' | 'false' (default: 'false' for soft delete)
 //   - delete_from_shopify: 'true' | 'false' (default: 'false', only applies if hard_delete=true)
 // ================================================================
-productsRouter.delete('/:id', requirePermission(Module.PRODUCTS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+productsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { hard_delete = 'false', delete_from_shopify = 'false' } = req.query;

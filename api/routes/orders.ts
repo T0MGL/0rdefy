@@ -14,6 +14,7 @@ import { checkOrderLimit, PlanLimitRequest } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
+import { isValidUUID, validateUUIDParam } from '../utils/sanitize';
 
 /**
  * Safely parse a number, returning 0 for invalid values.
@@ -461,7 +462,7 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
 
 // POST /api/orders/:id/rate-delivery - Customer rates delivery (public)
 // This endpoint is accessible without auth for customer feedback
-ordersRouter.post('/:id/rate-delivery', async (req: Request, res: Response) => {
+ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const { rating, comment } = req.body;
@@ -551,7 +552,7 @@ ordersRouter.post('/:id/rate-delivery', async (req: Request, res: Response) => {
 
 // POST /api/orders/:id/cancel - Cancel order after failed delivery (public)
 // This endpoint is accessible without auth for courier/customer to cancel after retry decision
-ordersRouter.post('/:id/cancel', async (req: Request, res: Response) => {
+ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -840,7 +841,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/orders/:id - Get single order
 // ================================================================
-ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -1207,7 +1208,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
 // PUT /api/orders/:id - Update order
 // ================================================================
 // Supports optimistic locking via 'version' field to prevent race conditions
-ordersRouter.put('/:id', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -1862,7 +1863,7 @@ ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/orders/:id - Delete order (soft delete for non-owners, hard delete for owner)
 // ================================================================
-ordersRouter.delete('/:id', requirePermission(Module.ORDERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const userRole = req.userRole;

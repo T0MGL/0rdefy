@@ -124,24 +124,33 @@ export const unifiedService = {
             if (params?.startDate) queryParams.append('startDate', params.startDate);
             if (params?.endDate) queryParams.append('endDate', params.endDate);
 
-            const response = await fetch(`${API_BASE_URL}/unified/analytics/overview?${queryParams}`, {
+            const url = `${API_BASE_URL}/unified/analytics/overview?${queryParams}`;
+            console.log('🌍 [unifiedService] Fetching unified analytics from:', url);
+
+            const response = await fetch(url, {
                 headers: getHeaders(),
             });
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                console.error('Unified Analytics API Error:', errorData);
+                console.error('🌍 [unifiedService] API Error:', errorData);
                 throw new Error(errorData.details || 'Failed to fetch unified analytics');
             }
 
             const result = await response.json();
+            console.log('🌍 [unifiedService] Response received:', {
+                hasData: !!result.data,
+                storeCount: result.storeCount,
+                stores: result.stores?.map((s: any) => s.name)
+            });
+
             return {
                 data: result.data || null,
                 stores: result.stores || [],
                 storeCount: result.storeCount || 0,
             };
         } catch (error) {
-            console.error('Unified Analytics Error:', error);
+            console.error('🌍 [unifiedService] Error:', error);
             return { data: null, stores: [], storeCount: 0 };
         }
     },
