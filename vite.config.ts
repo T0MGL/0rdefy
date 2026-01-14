@@ -15,49 +15,27 @@ export default defineConfig({
     // Generate absolute asset URLs for embedded apps
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 1600,
-    // Enable module preload with polyfill for better chunk loading
-    modulePreload: {
-      polyfill: true,
-    },
     rollupOptions: {
       output: {
         // Ensure consistent file names
         assetFileNames: 'assets/[name]-[hash][extname]',
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
-        // Optimized chunking strategy to prevent dependency race conditions
+        // Minimal chunking to prevent dependency race conditions
+        // Keep React and all UI components together in vendor bundle
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
-            // Core React bundle - keep React and React-DOM together
-            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) {
-              return 'react-core';
-            }
-
-            // React ecosystem libraries
-            if (id.includes('react-router') || id.includes('@tanstack/react-query')) {
-              return 'react-libs';
-            }
-
-            // UI framework - Radix UI components (depend on React)
-            if (id.includes('@radix-ui/')) {
-              return 'ui-framework';
-            }
-
-            // Charts and visualization
+            // Separate only heavy, standalone libraries
             if (id.includes('recharts') || id.includes('/d3-')) {
               return 'charts';
-            }
-
-            // Large dependencies
-            if (id.includes('framer-motion')) {
-              return 'animation';
             }
 
             if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('xlsx') || id.includes('exceljs')) {
               return 'document-gen';
             }
 
-            // Other vendor code
+            // Keep React, Radix UI, and all other dependencies together
+            // to ensure proper initialization order
             return 'vendor';
           }
         },
