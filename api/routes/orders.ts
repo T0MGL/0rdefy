@@ -2506,7 +2506,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 // Get current line_items from order (JSONB field used by inventory trigger)
                 const { data: currentOrder } = await supabaseAdmin
                     .from('orders')
-                    .select('line_items, total_price')
+                    .select('line_items, total_price, cod_amount, payment_gateway')
                     .eq('id', id)
                     .single();
 
@@ -2542,15 +2542,29 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     updatedLineItems = [...currentLineItems, upsellLineItem];
                 }
 
-                // Update order total and line_items
+                // Update order total, cod_amount (if COD), and line_items
                 const upsellTotal = unitPrice * upsell_quantity;
+                const newTotalPrice = (currentOrder?.total_price || data.total_price || 0) + upsellTotal;
+
+                // Check if this is a COD order (payment_gateway is 'cash_on_delivery' or cod_amount > 0)
+                const isCodOrder = currentOrder?.payment_gateway === 'cash_on_delivery' ||
+                                   (currentOrder?.cod_amount && currentOrder.cod_amount > 0);
+
+                const updateFields: any = {
+                    total_price: newTotalPrice,
+                    line_items: updatedLineItems,
+                    updated_at: new Date().toISOString()
+                };
+
+                // Also update cod_amount for COD orders so the shipping label shows the correct amount
+                if (isCodOrder) {
+                    updateFields.cod_amount = newTotalPrice;
+                    console.log(`💰 [ORDERS] Updated COD amount to ${newTotalPrice} for order ${id}`);
+                }
+
                 await supabaseAdmin
                     .from('orders')
-                    .update({
-                        total_price: (currentOrder?.total_price || data.total_price || 0) + upsellTotal,
-                        line_items: updatedLineItems,
-                        updated_at: new Date().toISOString()
-                    })
+                    .update(updateFields)
                     .eq('id', id);
 
                 console.log(`✅ [ORDERS] Updated order ${id} line_items with upsell product for inventory tracking`);
