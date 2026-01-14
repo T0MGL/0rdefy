@@ -2138,171 +2138,499 @@ export async function processManualReconciliation(
 }
 
 // ============================================================
-// EXCEL EXPORT WITH PROFESSIONAL STYLING
+// CARRIER ACCOUNT SYSTEM
 // ============================================================
+// Unified system for tracking money flow between store and carriers
+// Works with both dispatch/CSV flow AND direct QR marking flow
 
-import ExcelJS from 'exceljs';
-
-/**
- * Export dispatch session as professional Excel file
- */
-export async function exportDispatchExcel(
-  sessionId: string,
-  storeId: string
-): Promise<Buffer> {
-  const session = await getDispatchSessionById(sessionId, storeId);
-
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Ordefy';
-  workbook.created = new Date();
-
-  // SHEET 1: INSTRUCCIONES
-  const instructionsSheet = workbook.addWorksheet('Instrucciones', {
-    properties: { tabColor: { argb: '3B82F6' } }
-  });
-
-  instructionsSheet.mergeCells('A1:F1');
-  const titleCell = instructionsSheet.getCell('A1');
-  titleCell.value = 'ORDEFY';
-  titleCell.font = { size: 28, bold: true, color: { argb: '3B82F6' } };
-  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  instructionsSheet.getRow(1).height = 45;
-
-  instructionsSheet.mergeCells('A2:F2');
-  instructionsSheet.getCell('A2').value = 'Sistema de Gestión de Entregas';
-  instructionsSheet.getCell('A2').font = { size: 12, italic: true, color: { argb: '6B7280' } };
-  instructionsSheet.getCell('A2').alignment = { horizontal: 'center' };
-
-  instructionsSheet.mergeCells('A4:F4');
-  const instrHeader = instructionsSheet.getCell('A4');
-  instrHeader.value = 'INSTRUCCIONES PARA EL COURIER';
-  instrHeader.font = { size: 16, bold: true };
-  instrHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
-
-  const instructions = [
-    '',
-    '1. Complete la columna "ESTADO_ENTREGA" con:',
-    '   • ENTREGADO - Pedido entregado exitosamente',
-    '   • NO ENTREGADO - No se pudo entregar',
-    '   • RECHAZADO - El cliente rechazó el pedido',
-    '',
-    '2. Para pedidos COD: Complete "MONTO_COBRADO"',
-    '',
-    '3. Para NO ENTREGADOS: Complete "MOTIVO_NO_ENTREGA"',
-    '',
-    '4. TIPO_PAGO: COD = Cobrar, PREPAGO = Ya pagado',
-  ];
-
-  instructions.forEach((text, index) => {
-    instructionsSheet.getRow(5 + index).getCell(1).value = text;
-  });
-
-  instructionsSheet.getColumn(1).width = 60;
-
-  // SHEET 2: PEDIDOS
-  const ordersSheet = workbook.addWorksheet('Pedidos', {
-    properties: { tabColor: { argb: '10B981' } }
-  });
-
-  ordersSheet.mergeCells('A1:K1');
-  const headerCell = ordersSheet.getCell('A1');
-  headerCell.value = `DESPACHO: ${session.session_code}  •  ${session.carrier_name}`;
-  headerCell.font = { size: 14, bold: true, color: { argb: 'FFFFFF' } };
-  headerCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '3B82F6' } };
-  headerCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  ordersSheet.getRow(1).height = 35;
-
-  ordersSheet.mergeCells('A2:K2');
-  const summaryCell = ordersSheet.getCell('A2');
-  summaryCell.value = `Total: ${session.orders.length} pedidos  •  COD: ${formatCurrencyGs(session.total_cod_expected)}  •  Prepago: ${session.total_prepaid}`;
-  summaryCell.font = { size: 11, italic: true };
-  summaryCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EBF5FF' } };
-  summaryCell.alignment = { horizontal: 'center' };
-
-  const headers = ['N° PEDIDO', 'CLIENTE', 'TELÉFONO', 'DIRECCIÓN', 'CIUDAD', 'TIPO_PAGO', 'A_COBRAR', 'ESTADO_ENTREGA', 'MONTO_COBRADO', 'MOTIVO_NO_ENTREGA', 'OBSERVACIONES'];
-
-  const headerRow = ordersSheet.getRow(4);
-  headers.forEach((header, index) => {
-    const cell = headerRow.getCell(index + 1);
-    cell.value = header;
-    cell.font = { bold: true, color: { argb: 'FFFFFF' }, size: 10 };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1F2937' } };
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
-    cell.border = {
-      top: { style: 'thin' }, left: { style: 'thin' },
-      bottom: { style: 'thin' }, right: { style: 'thin' },
-    };
-  });
-  headerRow.height = 25;
-
-  session.orders.forEach((order, index) => {
-    const paymentType = order.is_cod ? 'COD' : 'PREPAGO';
-    const amountToCollect = getAmountToCollect(order.payment_method, order.total_price);
-
-    const row = ordersSheet.getRow(5 + index);
-    const rowData = [
-      order.order_number, order.customer_name, order.customer_phone,
-      order.delivery_address, order.delivery_city, paymentType,
-      amountToCollect, '', '', '', '',
-    ];
-
-    rowData.forEach((value, colIndex) => {
-      const cell = row.getCell(colIndex + 1);
-      cell.value = value;
-      cell.font = { size: 10 };
-      cell.alignment = { vertical: 'middle' };
-
-      const fillColor = order.is_cod ? { argb: 'DCFCE7' } : { argb: 'DBEAFE' };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: fillColor };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'D1D5DB' } },
-        left: { style: 'thin', color: { argb: 'D1D5DB' } },
-        bottom: { style: 'thin', color: { argb: 'D1D5DB' } },
-        right: { style: 'thin', color: { argb: 'D1D5DB' } },
-      };
-    });
-
-    row.getCell(7).numFmt = '#,##0';
-    row.getCell(9).numFmt = '#,##0';
-  });
-
-  ordersSheet.columns = [
-    { width: 14 }, { width: 22 }, { width: 14 }, { width: 35 }, { width: 14 },
-    { width: 10 }, { width: 14 }, { width: 16 }, { width: 14 }, { width: 18 }, { width: 25 },
-  ];
-
-  const lastDataRow = 4 + session.orders.length;
-
-  // Add dropdown validation for ESTADO_ENTREGA column
-  for (let i = 5; i <= lastDataRow; i++) {
-    ordersSheet.getCell(`H${i}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: ['"ENTREGADO,NO ENTREGADO,RECHAZADO"'],
-    };
-  }
-
-  // Add dropdown validation for MOTIVO_NO_ENTREGA column
-  for (let i = 5; i <= lastDataRow; i++) {
-    ordersSheet.getCell(`J${i}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: ['"No contesta,Ausente,Dirección incorrecta,Sin fondos,Rechazado,Otro"'],
-    };
-  }
-
-  ordersSheet.headerFooter.oddFooter = '&C&"Calibri,Italic"&8Generado por Ordefy - ordefy.io&R&P de &N';
-
-  ordersSheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4, topLeftCell: 'A5', activeCell: 'H5' }];
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
+export interface CarrierAccountMovement {
+  id: string;
+  store_id: string;
+  carrier_id: string;
+  movement_type: 'cod_collected' | 'delivery_fee' | 'failed_attempt_fee' | 'payment_received' | 'payment_sent' | 'adjustment_credit' | 'adjustment_debit' | 'discount' | 'refund';
+  amount: number;
+  order_id: string | null;
+  order_number: string | null;
+  dispatch_session_id: string | null;
+  settlement_id: string | null;
+  payment_record_id: string | null;
+  description: string | null;
+  metadata: Record<string, any>;
+  movement_date: string;
+  created_at: string;
+  created_by: string | null;
 }
 
-function formatCurrencyGs(amount: number): string {
-  return new Intl.NumberFormat('es-PY', {
-    style: 'decimal',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount) + ' Gs';
+export interface CarrierPaymentRecord {
+  id: string;
+  store_id: string;
+  carrier_id: string;
+  payment_code: string;
+  direction: 'from_carrier' | 'to_carrier';
+  amount: number;
+  period_start: string | null;
+  period_end: string | null;
+  settlement_ids: string[];
+  movement_ids: string[];
+  payment_method: 'cash' | 'bank_transfer' | 'mobile_payment' | 'check' | 'deduction' | 'other';
+  payment_reference: string | null;
+  status: 'pending' | 'completed' | 'cancelled' | 'disputed';
+  notes: string | null;
+  payment_date: string;
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface CarrierBalance {
+  carrier_id: string;
+  carrier_name: string;
+  settlement_type: 'net' | 'gross' | 'salary';
+  charges_failed_attempts: boolean;
+  payment_schedule: string;
+  total_cod_collected: number;
+  total_delivery_fees: number;
+  total_failed_fees: number;
+  total_payments_received: number;
+  total_payments_sent: number;
+  total_adjustments: number;
+  net_balance: number;  // Positive = carrier owes store, Negative = store owes carrier
+  unsettled_balance: number;
+  unsettled_orders: number;
+  last_movement_date: string | null;
+  last_payment_date: string | null;
+}
+
+export interface CarrierBalanceSummary {
+  carrier_id: string;
+  carrier_name: string;
+  settlement_type: string;
+  period_start: string;
+  period_end: string;
+  cod_collected: number;
+  delivery_fees: number;
+  failed_fees: number;
+  payments_received: number;
+  payments_sent: number;
+  adjustments: number;
+  gross_balance: number;
+  net_balance: number;
+  orders_count: number;
+  delivered_count: number;
+  failed_count: number;
+}
+
+/**
+ * Get all carrier balances for a store
+ */
+export async function getCarrierBalances(storeId: string): Promise<CarrierBalance[]> {
+  const { data, error } = await supabaseAdmin
+    .from('v_carrier_account_balance')
+    .select('*')
+    .eq('store_id', storeId)
+    .order('net_balance', { ascending: false });
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error fetching balances:', error);
+    throw new Error('Failed to fetch carrier balances');
+  }
+
+  return (data || []).map(row => ({
+    carrier_id: row.carrier_id,
+    carrier_name: row.carrier_name,
+    settlement_type: row.settlement_type || 'gross',
+    charges_failed_attempts: row.charges_failed_attempts || false,
+    payment_schedule: row.payment_schedule || 'weekly',
+    total_cod_collected: parseFloat(row.total_cod_collected) || 0,
+    total_delivery_fees: parseFloat(row.total_delivery_fees) || 0,
+    total_failed_fees: parseFloat(row.total_failed_fees) || 0,
+    total_payments_received: parseFloat(row.total_payments_received) || 0,
+    total_payments_sent: parseFloat(row.total_payments_sent) || 0,
+    total_adjustments: parseFloat(row.total_adjustments) || 0,
+    net_balance: parseFloat(row.net_balance) || 0,
+    unsettled_balance: parseFloat(row.unsettled_balance) || 0,
+    unsettled_orders: parseInt(row.unsettled_orders) || 0,
+    last_movement_date: row.last_movement_date,
+    last_payment_date: row.last_payment_date,
+  }));
+}
+
+/**
+ * Get detailed balance summary for a specific carrier
+ */
+export async function getCarrierBalanceSummary(
+  carrierId: string,
+  fromDate?: string,
+  toDate?: string
+): Promise<CarrierBalanceSummary | null> {
+  const { data, error } = await supabaseAdmin.rpc('get_carrier_balance_summary', {
+    p_carrier_id: carrierId,
+    p_from_date: fromDate || null,
+    p_to_date: toDate || null,
+  });
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error fetching balance summary:', error);
+    throw new Error('Failed to fetch carrier balance summary');
+  }
+
+  if (!data || data.length === 0) {
+    return null;
+  }
+
+  const row = data[0];
+  return {
+    carrier_id: row.carrier_id,
+    carrier_name: row.carrier_name,
+    settlement_type: row.settlement_type || 'gross',
+    period_start: row.period_start,
+    period_end: row.period_end,
+    cod_collected: parseFloat(row.cod_collected) || 0,
+    delivery_fees: parseFloat(row.delivery_fees) || 0,
+    failed_fees: parseFloat(row.failed_fees) || 0,
+    payments_received: parseFloat(row.payments_received) || 0,
+    payments_sent: parseFloat(row.payments_sent) || 0,
+    adjustments: parseFloat(row.adjustments) || 0,
+    gross_balance: parseFloat(row.gross_balance) || 0,
+    net_balance: parseFloat(row.net_balance) || 0,
+    orders_count: parseInt(row.orders_count) || 0,
+    delivered_count: parseInt(row.delivered_count) || 0,
+    failed_count: parseInt(row.failed_count) || 0,
+  };
+}
+
+/**
+ * Get unsettled movements for a carrier
+ */
+export async function getUnsettledMovements(
+  storeId: string,
+  carrierId?: string
+): Promise<CarrierAccountMovement[]> {
+  let query = supabaseAdmin
+    .from('v_unsettled_carrier_movements')
+    .select('*')
+    .eq('store_id', storeId)
+    .order('movement_date', { ascending: false });
+
+  if (carrierId) {
+    query = query.eq('carrier_id', carrierId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
+    throw new Error('Failed to fetch unsettled movements');
+  }
+
+  return data || [];
+}
+
+/**
+ * Get movement history for a carrier
+ */
+export async function getCarrierMovements(
+  storeId: string,
+  carrierId: string,
+  options: {
+    fromDate?: string;
+    toDate?: string;
+    movementType?: string;
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<{ data: CarrierAccountMovement[]; count: number }> {
+  let query = supabaseAdmin
+    .from('carrier_account_movements')
+    .select('*', { count: 'exact' })
+    .eq('store_id', storeId)
+    .eq('carrier_id', carrierId)
+    .order('movement_date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (options.fromDate) {
+    query = query.gte('movement_date', options.fromDate);
+  }
+  if (options.toDate) {
+    query = query.lte('movement_date', options.toDate);
+  }
+  if (options.movementType) {
+    query = query.eq('movement_type', options.movementType);
+  }
+
+  const limit = options.limit || 50;
+  const offset = options.offset || 0;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error fetching movements:', error);
+    throw new Error('Failed to fetch carrier movements');
+  }
+
+  return { data: data || [], count: count || 0 };
+}
+
+/**
+ * Create manual adjustment movement
+ */
+export async function createAdjustmentMovement(
+  storeId: string,
+  carrierId: string,
+  amount: number,
+  type: 'credit' | 'debit',
+  description: string,
+  createdBy?: string
+): Promise<CarrierAccountMovement> {
+  const movementType = type === 'credit' ? 'adjustment_credit' : 'adjustment_debit';
+  // Credits reduce what carrier owes (negative), debits increase (positive)
+  const adjustedAmount = type === 'credit' ? -Math.abs(amount) : Math.abs(amount);
+
+  const { data, error } = await supabaseAdmin
+    .from('carrier_account_movements')
+    .insert({
+      store_id: storeId,
+      carrier_id: carrierId,
+      movement_type: movementType,
+      amount: adjustedAmount,
+      description,
+      movement_date: new Date().toISOString().split('T')[0],
+      created_by: createdBy,
+      metadata: { manual_adjustment: true },
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error creating adjustment:', error);
+    throw new Error('Failed to create adjustment');
+  }
+
+  return data;
+}
+
+/**
+ * Register a payment to/from carrier
+ */
+export async function registerCarrierPayment(
+  storeId: string,
+  carrierId: string,
+  amount: number,
+  direction: 'from_carrier' | 'to_carrier',
+  paymentMethod: string,
+  options: {
+    paymentReference?: string;
+    notes?: string;
+    settlementIds?: string[];
+    movementIds?: string[];
+    createdBy?: string;
+  } = {}
+): Promise<{ paymentId: string; paymentCode: string }> {
+  const { data, error } = await supabaseAdmin.rpc('register_carrier_payment', {
+    p_store_id: storeId,
+    p_carrier_id: carrierId,
+    p_amount: amount,
+    p_direction: direction,
+    p_payment_method: paymentMethod,
+    p_payment_reference: options.paymentReference || null,
+    p_notes: options.notes || null,
+    p_settlement_ids: options.settlementIds || null,
+    p_movement_ids: options.movementIds || null,
+    p_created_by: options.createdBy || null,
+  });
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error registering payment:', error);
+    throw new Error('Failed to register payment');
+  }
+
+  // Get the payment code
+  const { data: payment } = await supabaseAdmin
+    .from('carrier_payment_records')
+    .select('payment_code')
+    .eq('id', data)
+    .single();
+
+  return {
+    paymentId: data,
+    paymentCode: payment?.payment_code || '',
+  };
+}
+
+/**
+ * Get payment history for a carrier
+ */
+export async function getCarrierPayments(
+  storeId: string,
+  carrierId?: string,
+  options: {
+    fromDate?: string;
+    toDate?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<{ data: CarrierPaymentRecord[]; count: number }> {
+  let query = supabaseAdmin
+    .from('carrier_payment_records')
+    .select(`
+      *,
+      carriers!inner(name)
+    `, { count: 'exact' })
+    .eq('store_id', storeId)
+    .order('payment_date', { ascending: false });
+
+  if (carrierId) {
+    query = query.eq('carrier_id', carrierId);
+  }
+  if (options.fromDate) {
+    query = query.gte('payment_date', options.fromDate);
+  }
+  if (options.toDate) {
+    query = query.lte('payment_date', options.toDate);
+  }
+  if (options.status) {
+    query = query.eq('status', options.status);
+  }
+
+  const limit = options.limit || 50;
+  const offset = options.offset || 0;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error fetching payments:', error);
+    throw new Error('Failed to fetch carrier payments');
+  }
+
+  return {
+    data: (data || []).map((p: any) => ({
+      ...p,
+      carrier_name: p.carriers?.name,
+    })),
+    count: count || 0,
+  };
+}
+
+/**
+ * Update carrier configuration
+ */
+export async function updateCarrierConfig(
+  carrierId: string,
+  storeId: string,
+  config: {
+    settlement_type?: 'net' | 'gross' | 'salary';
+    charges_failed_attempts?: boolean;
+    payment_schedule?: string;
+  }
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('carriers')
+    .update({
+      ...config,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', carrierId)
+    .eq('store_id', storeId);
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error updating carrier config:', error);
+    throw new Error('Failed to update carrier configuration');
+  }
+}
+
+/**
+ * Get carrier configuration
+ */
+export async function getCarrierConfig(
+  carrierId: string,
+  storeId: string
+): Promise<{
+  settlement_type: string;
+  charges_failed_attempts: boolean;
+  payment_schedule: string;
+} | null> {
+  const { data, error } = await supabaseAdmin
+    .from('carriers')
+    .select('settlement_type, charges_failed_attempts, payment_schedule')
+    .eq('id', carrierId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return {
+    settlement_type: data.settlement_type || 'gross',
+    charges_failed_attempts: data.charges_failed_attempts || false,
+    payment_schedule: data.payment_schedule || 'weekly',
+  };
+}
+
+/**
+ * Backfill movements for existing delivered orders (run once after migration)
+ */
+export async function backfillCarrierMovements(storeId?: string): Promise<{
+  ordersProcessed: number;
+  movementsCreated: number;
+}> {
+  const { data, error } = await supabaseAdmin.rpc('backfill_carrier_movements', {
+    p_store_id: storeId || null,
+  });
+
+  if (error) {
+    console.error('❌ [CARRIER ACCOUNTS] Error backfilling movements:', error);
+    throw new Error('Failed to backfill carrier movements');
+  }
+
+  const result = data?.[0] || { orders_processed: 0, movements_created: 0 };
+  return {
+    ordersProcessed: result.orders_processed,
+    movementsCreated: result.movements_created,
+  };
+}
+
+/**
+ * Get carrier account summary for dashboard cards
+ */
+export async function getCarrierAccountSummary(storeId: string): Promise<{
+  totalCarriersWithBalance: number;
+  totalOwedByCarriers: number;  // Positive balances (they owe us)
+  totalOwedToCarriers: number;  // Negative balances (we owe them)
+  netPosition: number;
+  pendingSettlements: number;
+}> {
+  const balances = await getCarrierBalances(storeId);
+
+  let totalOwedByCarriers = 0;
+  let totalOwedToCarriers = 0;
+  let carriersWithBalance = 0;
+
+  for (const balance of balances) {
+    if (Math.abs(balance.net_balance) > 0.01) {
+      carriersWithBalance++;
+      if (balance.net_balance > 0) {
+        totalOwedByCarriers += balance.net_balance;
+      } else {
+        totalOwedToCarriers += Math.abs(balance.net_balance);
+      }
+    }
+  }
+
+  // Count pending settlements
+  const { count: pendingSettlements } = await supabaseAdmin
+    .from('daily_settlements')
+    .select('*', { count: 'exact', head: true })
+    .eq('store_id', storeId)
+    .in('status', ['pending', 'partial']);
+
+  return {
+    totalCarriersWithBalance: carriersWithBalance,
+    totalOwedByCarriers,
+    totalOwedToCarriers,
+    netPosition: totalOwedByCarriers - totalOwedToCarriers,
+    pendingSettlements: pendingSettlements || 0,
+  };
 }

@@ -743,6 +743,20 @@ export const settlementsService = {
     getPendingByCarrier: getPendingByCarrier,
   },
 
+  // Carrier accounts (unified system)
+  carrierAccounts: {
+    getBalances: getCarrierBalances,
+    getSummary: getCarrierAccountSummary,
+    getDetail: getCarrierDetail,
+    getMovements: getCarrierMovements,
+    getUnsettled: getCarrierUnsettled,
+    updateConfig: updateCarrierConfig,
+    createAdjustment: createCarrierAdjustment,
+    registerPayment: registerCarrierPayment,
+    getPayments: getCarrierPayments,
+    backfillMovements: backfillCarrierMovements,
+  },
+
   // Utilities
   utils: {
     formatCurrency,
@@ -751,4 +765,315 @@ export const settlementsService = {
     translateStatus,
     translateDeliveryResult,
   },
+};
+
+// ================================================================
+// CARRIER ACCOUNT TYPES
+// ================================================================
+
+export interface CarrierBalance {
+  carrier_id: string;
+  carrier_name: string;
+  settlement_type: 'net' | 'gross' | 'salary';
+  charges_failed_attempts: boolean;
+  payment_schedule: string;
+  total_cod_collected: number;
+  total_delivery_fees: number;
+  total_failed_fees: number;
+  total_payments_received: number;
+  total_payments_sent: number;
+  total_adjustments: number;
+  net_balance: number;
+  unsettled_balance: number;
+  unsettled_orders: number;
+  last_movement_date: string | null;
+  last_payment_date: string | null;
+}
+
+export interface CarrierAccountSummary {
+  totalCarriersWithBalance: number;
+  totalOwedByCarriers: number;
+  totalOwedToCarriers: number;
+  netPosition: number;
+  pendingSettlements: number;
+}
+
+export interface CarrierMovement {
+  id: string;
+  store_id: string;
+  carrier_id: string;
+  carrier_name?: string;
+  movement_type: string;
+  amount: number;
+  order_id: string | null;
+  order_number: string | null;
+  dispatch_session_id: string | null;
+  dispatch_session_code?: string;
+  settlement_id: string | null;
+  payment_record_id: string | null;
+  description: string | null;
+  metadata: Record<string, any>;
+  movement_date: string;
+  created_at: string;
+  days_pending?: number;
+}
+
+export interface CarrierPayment {
+  id: string;
+  store_id: string;
+  carrier_id: string;
+  carrier_name?: string;
+  payment_code: string;
+  direction: 'from_carrier' | 'to_carrier';
+  amount: number;
+  period_start: string | null;
+  period_end: string | null;
+  payment_method: string;
+  payment_reference: string | null;
+  status: string;
+  notes: string | null;
+  payment_date: string;
+  created_at: string;
+}
+
+// ================================================================
+// CARRIER ACCOUNT FUNCTIONS
+// ================================================================
+
+export const getCarrierBalances = async (): Promise<CarrierBalance[]> => {
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-accounts`,
+    { headers: getAuthHeaders() }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to fetch carrier balances');
+  }
+
+  const result = await response.json();
+  return result.data;
+};
+
+export const getCarrierAccountSummary = async (): Promise<CarrierAccountSummary> => {
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-accounts/summary`,
+    { headers: getAuthHeaders() }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to fetch account summary');
+  }
+
+  const result = await response.json();
+  return result.data;
+};
+
+export const getCarrierDetail = async (
+  carrierId: string,
+  fromDate?: string,
+  toDate?: string
+): Promise<any> => {
+  const params = new URLSearchParams();
+  if (fromDate) params.append('from_date', fromDate);
+  if (toDate) params.append('to_date', toDate);
+
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-accounts/${carrierId}?${params.toString()}`,
+    { headers: getAuthHeaders() }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to fetch carrier detail');
+  }
+
+  const result = await response.json();
+  return result.data;
+};
+
+export const getCarrierMovements = async (
+  carrierId: string,
+  options?: {
+    fromDate?: string;
+    toDate?: string;
+    movementType?: string;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{ data: CarrierMovement[]; count: number }> => {
+  const params = new URLSearchParams();
+  if (options?.fromDate) params.append('from_date', options.fromDate);
+  if (options?.toDate) params.append('to_date', options.toDate);
+  if (options?.movementType) params.append('movement_type', options.movementType);
+  if (options?.limit) params.append('limit', options.limit.toString());
+  if (options?.offset) params.append('offset', options.offset.toString());
+
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-accounts/${carrierId}/movements?${params.toString()}`,
+    { headers: getAuthHeaders() }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to fetch movements');
+  }
+
+  return response.json();
+};
+
+export const getCarrierUnsettled = async (
+  carrierId: string
+): Promise<CarrierMovement[]> => {
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-accounts/${carrierId}/unsettled`,
+    { headers: getAuthHeaders() }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to fetch unsettled movements');
+  }
+
+  const result = await response.json();
+  return result.data;
+};
+
+export const updateCarrierConfig = async (
+  carrierId: string,
+  config: {
+    settlement_type?: 'net' | 'gross' | 'salary';
+    charges_failed_attempts?: boolean;
+    payment_schedule?: string;
+  }
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-accounts/${carrierId}/config`,
+    {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(config),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to update config');
+  }
+};
+
+export const createCarrierAdjustment = async (
+  carrierId: string,
+  amount: number,
+  type: 'credit' | 'debit',
+  description: string
+): Promise<CarrierMovement> => {
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-accounts/${carrierId}/adjustment`,
+    {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ amount, type, description }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to create adjustment');
+  }
+
+  const result = await response.json();
+  return result.data;
+};
+
+export const registerCarrierPayment = async (
+  carrierId: string,
+  amount: number,
+  direction: 'from_carrier' | 'to_carrier',
+  paymentMethod: string,
+  options?: {
+    paymentReference?: string;
+    notes?: string;
+    settlementIds?: string[];
+    movementIds?: string[];
+  }
+): Promise<{ paymentId: string; paymentCode: string }> => {
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-payments`,
+    {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        carrier_id: carrierId,
+        amount,
+        direction,
+        payment_method: paymentMethod,
+        payment_reference: options?.paymentReference,
+        notes: options?.notes,
+        settlement_ids: options?.settlementIds,
+        movement_ids: options?.movementIds,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to register payment');
+  }
+
+  const result = await response.json();
+  return result.data;
+};
+
+export const getCarrierPayments = async (
+  carrierId?: string,
+  options?: {
+    fromDate?: string;
+    toDate?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{ data: CarrierPayment[]; count: number }> => {
+  const params = new URLSearchParams();
+  if (carrierId) params.append('carrier_id', carrierId);
+  if (options?.fromDate) params.append('from_date', options.fromDate);
+  if (options?.toDate) params.append('to_date', options.toDate);
+  if (options?.status) params.append('status', options.status);
+  if (options?.limit) params.append('limit', options.limit.toString());
+  if (options?.offset) params.append('offset', options.offset.toString());
+
+  const response = await fetch(
+    `${API_BASE}/api/settlements/carrier-payments?${params.toString()}`,
+    { headers: getAuthHeaders() }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to fetch payments');
+  }
+
+  return response.json();
+};
+
+export const backfillCarrierMovements = async (): Promise<{
+  ordersProcessed: number;
+  movementsCreated: number;
+}> => {
+  const response = await fetch(
+    `${API_BASE}/api/settlements/backfill-movements`,
+    {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to backfill movements');
+  }
+
+  const result = await response.json();
+  return result.data;
 };

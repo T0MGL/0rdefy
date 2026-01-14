@@ -916,3 +916,282 @@ settlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ================================================================
+// CARRIER ACCOUNT SYSTEM ENDPOINTS
+// ================================================================
+// Unified system for tracking money flow between store and carriers
+// Works with both dispatch/CSV flow AND direct QR marking flow
+
+// ================================================================
+// GET /api/settlements/carrier-accounts - Get all carrier balances
+// ================================================================
+settlementsRouter.get('/carrier-accounts', async (req: AuthRequest, res: Response) => {
+  try {
+    console.log('💰 [CARRIER ACCOUNTS] Fetching balances for store:', req.storeId);
+
+    const balances = await settlementsService.getCarrierBalances(req.storeId!);
+
+    res.json({ data: balances });
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch carrier balances' });
+  }
+});
+
+// ================================================================
+// GET /api/settlements/carrier-accounts/summary - Get dashboard summary
+// ================================================================
+settlementsRouter.get('/carrier-accounts/summary', async (req: AuthRequest, res: Response) => {
+  try {
+    console.log('💰 [CARRIER ACCOUNTS] Fetching summary for store:', req.storeId);
+
+    const summary = await settlementsService.getCarrierAccountSummary(req.storeId!);
+
+    res.json({ data: summary });
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch account summary' });
+  }
+});
+
+// ================================================================
+// GET /api/settlements/carrier-accounts/:carrierId - Get carrier detail
+// ================================================================
+settlementsRouter.get('/carrier-accounts/:carrierId', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrierId } = req.params;
+    const { from_date, to_date } = req.query;
+
+    console.log('💰 [CARRIER ACCOUNTS] Fetching detail for carrier:', carrierId);
+
+    const [summary, config] = await Promise.all([
+      settlementsService.getCarrierBalanceSummary(
+        carrierId,
+        from_date as string,
+        to_date as string
+      ),
+      settlementsService.getCarrierConfig(carrierId, req.storeId!),
+    ]);
+
+    if (!summary) {
+      return res.status(404).json({ error: 'Carrier not found' });
+    }
+
+    res.json({ data: { ...summary, config } });
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch carrier detail' });
+  }
+});
+
+// ================================================================
+// GET /api/settlements/carrier-accounts/:carrierId/movements - Get movements
+// ================================================================
+settlementsRouter.get('/carrier-accounts/:carrierId/movements', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrierId } = req.params;
+    const { from_date, to_date, movement_type, limit, offset } = req.query;
+
+    console.log('💰 [CARRIER ACCOUNTS] Fetching movements for carrier:', carrierId);
+
+    const result = await settlementsService.getCarrierMovements(
+      req.storeId!,
+      carrierId,
+      {
+        fromDate: from_date as string,
+        toDate: to_date as string,
+        movementType: movement_type as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined,
+      }
+    );
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch movements' });
+  }
+});
+
+// ================================================================
+// GET /api/settlements/carrier-accounts/:carrierId/unsettled - Get unsettled
+// ================================================================
+settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrierId } = req.params;
+
+    console.log('💰 [CARRIER ACCOUNTS] Fetching unsettled for carrier:', carrierId);
+
+    const movements = await settlementsService.getUnsettledMovements(req.storeId!, carrierId);
+
+    res.json({ data: movements });
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch unsettled movements' });
+  }
+});
+
+// ================================================================
+// PATCH /api/settlements/carrier-accounts/:carrierId/config - Update config
+// ================================================================
+settlementsRouter.patch('/carrier-accounts/:carrierId/config', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrierId } = req.params;
+    const { settlement_type, charges_failed_attempts, payment_schedule } = req.body;
+
+    console.log('💰 [CARRIER ACCOUNTS] Updating config for carrier:', carrierId);
+
+    await settlementsService.updateCarrierConfig(carrierId, req.storeId!, {
+      settlement_type,
+      charges_failed_attempts,
+      payment_schedule,
+    });
+
+    res.json({ message: 'Configuration updated' });
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update configuration' });
+  }
+});
+
+// ================================================================
+// POST /api/settlements/carrier-accounts/:carrierId/adjustment - Create adjustment
+// ================================================================
+settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrierId } = req.params;
+    const { amount, type, description } = req.body;
+
+    if (!amount || !type || !description) {
+      return res.status(400).json({ error: 'amount, type, and description are required' });
+    }
+
+    if (!['credit', 'debit'].includes(type)) {
+      return res.status(400).json({ error: 'type must be "credit" or "debit"' });
+    }
+
+    console.log('💰 [CARRIER ACCOUNTS] Creating adjustment for carrier:', carrierId);
+
+    const movement = await settlementsService.createAdjustmentMovement(
+      req.storeId!,
+      carrierId,
+      parseFloat(amount),
+      type,
+      description,
+      req.userId
+    );
+
+    res.status(201).json({ data: movement });
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create adjustment' });
+  }
+});
+
+// ================================================================
+// POST /api/settlements/carrier-payments - Register payment
+// ================================================================
+settlementsRouter.post('/carrier-payments', async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      carrier_id,
+      amount,
+      direction,
+      payment_method,
+      payment_reference,
+      notes,
+      settlement_ids,
+      movement_ids,
+    } = req.body;
+
+    if (!carrier_id || !amount || !direction || !payment_method) {
+      return res.status(400).json({
+        error: 'carrier_id, amount, direction, and payment_method are required'
+      });
+    }
+
+    if (!['from_carrier', 'to_carrier'].includes(direction)) {
+      return res.status(400).json({
+        error: 'direction must be "from_carrier" or "to_carrier"'
+      });
+    }
+
+    console.log('💰 [CARRIER PAYMENTS] Registering payment:', {
+      carrier_id,
+      amount,
+      direction,
+    });
+
+    const result = await settlementsService.registerCarrierPayment(
+      req.storeId!,
+      carrier_id,
+      parseFloat(amount),
+      direction,
+      payment_method,
+      {
+        paymentReference: payment_reference,
+        notes,
+        settlementIds: settlement_ids,
+        movementIds: movement_ids,
+        createdBy: req.userId,
+      }
+    );
+
+    console.log('✅ [CARRIER PAYMENTS] Payment registered:', result.paymentCode);
+
+    res.status(201).json({ data: result });
+  } catch (error: any) {
+    console.error('💥 [CARRIER PAYMENTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to register payment' });
+  }
+});
+
+// ================================================================
+// GET /api/settlements/carrier-payments - List payments
+// ================================================================
+settlementsRouter.get('/carrier-payments', async (req: AuthRequest, res: Response) => {
+  try {
+    const { carrier_id, from_date, to_date, status, limit, offset } = req.query;
+
+    console.log('💰 [CARRIER PAYMENTS] Fetching payments');
+
+    const result = await settlementsService.getCarrierPayments(
+      req.storeId!,
+      carrier_id as string,
+      {
+        fromDate: from_date as string,
+        toDate: to_date as string,
+        status: status as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined,
+      }
+    );
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('💥 [CARRIER PAYMENTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch payments' });
+  }
+});
+
+// ================================================================
+// POST /api/settlements/backfill-movements - Backfill movements (admin)
+// ================================================================
+settlementsRouter.post('/backfill-movements', async (req: AuthRequest, res: Response) => {
+  try {
+    console.log('💰 [CARRIER ACCOUNTS] Backfilling movements for store:', req.storeId);
+
+    const result = await settlementsService.backfillCarrierMovements(req.storeId!);
+
+    console.log('✅ [CARRIER ACCOUNTS] Backfill complete:', result);
+
+    res.json({
+      message: 'Backfill completed',
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to backfill movements' });
+  }
+});

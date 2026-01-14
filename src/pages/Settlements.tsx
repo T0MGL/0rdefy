@@ -1,15 +1,14 @@
 /**
- * Settlements Page - Conciliaciones (Redesigned)
- * Manual reconciliation workflow for courier deliveries
+ * Settlements Page - Conciliaciones, Cuentas y Pagos
+ * Unified carrier account management with reconciliation workflow
  *
- * Flow:
- * 1. selection - View cards grouped by courier/date, select one
- * 2. reconciliation - Mark deliveries with checkboxes, enter amount
- * 3. review - Review summary and confirm
- * 4. complete - Settlement completed
+ * Tabs:
+ * 1. Conciliaciones - Manual reconciliation workflow for courier deliveries
+ * 2. Cuentas - Carrier account balances (what each carrier owes or is owed)
+ * 3. Pagos - Payment history and registration
  *
  * @author Bright Idea
- * @date 2026-01-09
+ * @date 2026-01-13
  */
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
@@ -46,7 +45,48 @@ import {
   Package,
   AlertTriangle,
   FileUp,
+  Wallet,
+  CreditCard,
+  TrendingUp,
+  TrendingDown,
+  ArrowUpRight,
+  ArrowDownRight,
+  MoreHorizontal,
+  Eye,
+  Plus,
+  Settings,
+  History,
+  BanknoteIcon,
 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  getCarrierBalances,
+  getCarrierAccountSummary,
+  getCarrierMovements,
+  getCarrierPayments,
+  registerCarrierPayment,
+  createCarrierAdjustment,
+  updateCarrierConfig,
+  type CarrierBalance,
+  type CarrierAccountSummary,
+  type CarrierMovement,
+  type CarrierPayment,
+} from '@/services/settlements.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -330,12 +370,18 @@ const formatCurrency = (amount: number): string => {
 const DEFAULT_CARRIER_FEE = 25000;
 const FAILED_ATTEMPT_FEE_RATE = 0.5;
 
+// Main tab type
+type MainTab = 'conciliaciones' | 'cuentas' | 'pagos';
+
 export default function Settlements() {
   const { toast } = useToast();
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // State
+  // Main tab state
+  const [activeTab, setActiveTab] = useState<MainTab>('conciliaciones');
+
+  // State for Conciliaciones tab
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [groups, setGroups] = useState<CourierDateGroup[]>([]);
@@ -353,6 +399,35 @@ export default function Settlements() {
   const [csvImportData, setCsvImportData] = useState<CSVImportResult | null>(null);
   const [csvFileName, setCsvFileName] = useState('');
   const [csvProcessing, setCsvProcessing] = useState(false);
+
+  // Carrier Accounts state (Cuentas tab)
+  const [carrierBalances, setCarrierBalances] = useState<CarrierBalance[]>([]);
+  const [accountSummary, setAccountSummary] = useState<CarrierAccountSummary | null>(null);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [selectedCarrier, setSelectedCarrier] = useState<CarrierBalance | null>(null);
+  const [carrierMovements, setCarrierMovements] = useState<CarrierMovement[]>([]);
+  const [movementsLoading, setMovementsLoading] = useState(false);
+
+  // Payments state (Pagos tab)
+  const [payments, setPayments] = useState<CarrierPayment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
+  const [paymentCarrier, setPaymentCarrier] = useState<CarrierBalance | null>(null);
+
+  // Payment form state
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDirection, setPaymentDirection] = useState<'from_carrier' | 'to_carrier'>('from_carrier');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+
+  // Adjustment form state
+  const [adjustmentAmount, setAdjustmentAmount] = useState('');
+  const [adjustmentType, setAdjustmentType] = useState<'credit' | 'debit'>('credit');
+  const [adjustmentDescription, setAdjustmentDescription] = useState('');
+  const [adjustmentProcessing, setAdjustmentProcessing] = useState(false);
 
   // Load groups
   const loadGroups = useCallback(async () => {
@@ -379,12 +454,84 @@ export default function Settlements() {
     }
   }, [toast]);
 
+  // Load carrier account balances
+  const loadCarrierAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    try {
+      const [balances, summary] = await Promise.all([
+        getCarrierBalances(),
+        getCarrierAccountSummary(),
+      ]);
+      setCarrierBalances(balances);
+      setAccountSummary(summary);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'No se pudieron cargar las cuentas',
+      });
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, [toast]);
+
+  // Load carrier movements
+  const loadCarrierMovements = useCallback(async (carrierId: string) => {
+    setMovementsLoading(true);
+    try {
+      const result = await getCarrierMovements(carrierId, { limit: 50 });
+      setCarrierMovements(result.data);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'No se pudieron cargar los movimientos',
+      });
+    } finally {
+      setMovementsLoading(false);
+    }
+  }, [toast]);
+
+  // Load all payments
+  const loadPayments = useCallback(async () => {
+    setPaymentsLoading(true);
+    try {
+      const result = await getCarrierPayments(undefined, { limit: 50 });
+      setPayments(result.data);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'No se pudieron cargar los pagos',
+      });
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }, [toast]);
+
   const hasWarehouseFeature = hasFeature('warehouse');
 
+  // Load data based on active tab
   useEffect(() => {
     if (!hasWarehouseFeature) return;
-    loadGroups();
-  }, [loadGroups, hasWarehouseFeature]);
+
+    if (activeTab === 'conciliaciones') {
+      loadGroups();
+    } else if (activeTab === 'cuentas') {
+      loadCarrierAccounts();
+    } else if (activeTab === 'pagos') {
+      loadPayments();
+    }
+  }, [activeTab, loadGroups, loadCarrierAccounts, loadPayments, hasWarehouseFeature]);
+
+  // Load movements when a carrier is selected
+  useEffect(() => {
+    if (selectedCarrier) {
+      loadCarrierMovements(selectedCarrier.carrier_id);
+    } else {
+      setCarrierMovements([]);
+    }
+  }, [selectedCarrier, loadCarrierMovements]);
 
   // Calculate stats - MUST be before early returns to follow React Hooks rules
   const stats = useMemo(() => {
