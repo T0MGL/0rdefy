@@ -14,29 +14,18 @@ export default defineConfig({
   build: {
     // Generate absolute asset URLs for embedded apps
     assetsInlineLimit: 0,
-    chunkSizeWarningLimit: 1600,
-    // Target modern browsers to avoid circular dependency issues
-    target: 'esnext',
-    // Use esbuild for faster minification
-    minify: 'esbuild',
+    chunkSizeWarningLimit: 10000,
+    // Use ES2015 for maximum compatibility
+    target: 'es2015',
+    // CRITICAL: Disable minification to prevent TDZ errors
+    minify: false,
     rollupOptions: {
       output: {
         // Ensure consistent file names
         assetFileNames: 'assets/[name]-[hash][extname]',
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
-        // Manual chunking to control initialization order
-        manualChunks: (id) => {
-          // Keep ALL dependencies in vendor to prevent circular refs
-          if (id.includes('node_modules')) {
-            return 'vendor';
-          }
-        },
-        // CRITICAL: Use 'iife' format for better browser compatibility
-        // and to avoid ES module initialization issues
         format: 'es',
-        // Ensure proper hoisting
-        hoistTransitiveImports: false,
       }
     }
   },
@@ -48,7 +37,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
     // Deduplicate React to prevent multiple instances
-    dedupe: ['react', 'react-dom'],
+    dedupe: ['react', 'react-dom', 'react/jsx-runtime'],
   },
 
   optimizeDeps: {
@@ -60,12 +49,17 @@ export default defineConfig({
       'react-dom/client',
       'react-router-dom',
     ],
-    // Force exclusion of problematic packages
-    exclude: [],
     esbuildOptions: {
-      target: 'esnext',
-      // Preserve names for better debugging
-      keepNames: true,
+      target: 'es2015',
+      // Ensure proper module format
+      format: 'esm',
     },
+  },
+
+  // Critical: Ensure all modules are treated as ES modules
+  esbuild: {
+    target: 'es2015',
+    // Keep function and class names for better debugging
+    keepNames: true,
   },
 });

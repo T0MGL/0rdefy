@@ -216,6 +216,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // CRITICAL: Define signOut BEFORE any useEffect that uses it
+  const signOut = useCallback(async () => {
+    console.log('👋 [AUTH] Signing out');
+
+    // Call backend to terminate session
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        await axios.post(`${API_URL}/logout`, {}, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        console.log('✅ [AUTH] Session terminated on server');
+      }
+    } catch (err) {
+      console.error('⚠️ [AUTH] Failed to terminate session on server:', err);
+      // Continue with client-side logout even if server call fails
+    }
+
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('current_store_id');
+    localStorage.removeItem('onboarding_completed');
+
+    setUser(null);
+    setStores([]);
+    setCurrentStore(null);
+
+    console.log('✅ [AUTH] Signed out successfully');
+  }, []); // No dependencies - uses setters which are stable
+
   useEffect(() => {
     console.log('🔄 [AUTH] Initializing auth state...');
 
@@ -382,38 +414,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
   };
-
-  const signOut = useCallback(async () => {
-    console.log('👋 [AUTH] Signing out');
-
-    // Call backend to terminate session
-    try {
-      const token = localStorage.getItem('auth_token');
-      if (token) {
-        await axios.post(`${API_URL}/logout`, {}, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        console.log('✅ [AUTH] Session terminated on server');
-      }
-    } catch (err) {
-      console.error('⚠️ [AUTH] Failed to terminate session on server:', err);
-      // Continue with client-side logout even if server call fails
-    }
-
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('current_store_id');
-    localStorage.removeItem('onboarding_completed');
-
-    setUser(null);
-    setStores([]);
-    setCurrentStore(null);
-
-    console.log('✅ [AUTH] Signed out successfully');
-  }, []); // No dependencies - uses setters which are stable
-
 
   // Inject query client for manual invalidation
   const queryClient = useQueryClient();
