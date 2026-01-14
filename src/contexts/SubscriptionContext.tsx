@@ -174,8 +174,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch subscription data
-  const fetchSubscription = useCallback(async () => {
+  // Fetch subscription data with AbortController to prevent setState after unmount
+  const fetchSubscription = useCallback(async (signal?: AbortSignal) => {
     if (!currentStore) {
       setLoading(false);
       return;
@@ -186,10 +186,23 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setError(null);
       // Use getStorePlan which is accessible to ALL users (not just billing module)
       const data = await billingService.getStorePlan();
+
+      // Check if request was aborted before setting state
+      if (signal?.aborted) {
+        console.log('[SubscriptionContext] Request aborted, skipping state update');
+        return;
+      }
+
       setSubscription(data.subscription);
       setUsage(data.usage);
       setAllPlans(data.allPlans);
     } catch (err: any) {
+      // Don't set error if request was aborted
+      if (signal?.aborted) {
+        console.log('[SubscriptionContext] Request aborted during error handling');
+        return;
+      }
+
       console.error('Failed to fetch subscription:', err);
       setError(err.message || 'Error al cargar suscripción');
       // Set default free plan on error
@@ -202,12 +215,21 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         trialEndsAt: null,
       });
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, [currentStore]);
 
   useEffect(() => {
-    fetchSubscription();
+    const abortController = new AbortController();
+
+    fetchSubscription(abortController.signal);
+
+    return () => {
+      // Abort in-flight request on unmount or currentStore change
+      abortController.abort();
+    };
   }, [fetchSubscription]);
 
   // ================================================================

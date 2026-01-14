@@ -33,6 +33,7 @@ import { shopifyComplianceRouter } from './routes/shopify-compliance';
 import { deliveryAttemptsRouter } from './routes/delivery-attempts';
 import { settlementsRouter } from './routes/settlements';
 import { carrierSettlementsRouter } from './routes/carrier-settlements';
+import { carrierAccountsRouter } from './routes/carrier-accounts';
 import { codMetricsRouter } from './routes/cod-metrics';
 import warehouseRouter from './routes/warehouse';
 import shippingRouter from './routes/shipping';
@@ -467,6 +468,7 @@ app.use('/api/delivery-attempts', deliveryAttemptsRouter);
 app.use('/api/incidents', incidentsRouter); // Delivery incidents and retry system
 app.use('/api/settlements', settlementsRouter);
 app.use('/api/carrier-settlements', carrierSettlementsRouter); // Carrier deferred payments
+app.use('/api/carrier-accounts', carrierAccountsRouter); // Unified carrier account system (movements, balances, payments)
 app.use('/api/cod-metrics', codMetricsRouter);
 
 // Warehouse routes

@@ -62,7 +62,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       // Merge with defaults to ensure all fields are present
@@ -87,7 +87,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || [];
@@ -108,7 +108,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return { ...defaultConfirmationMetrics, ...result.data };
@@ -129,7 +129,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || [];
@@ -150,7 +150,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || [];
@@ -169,7 +169,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || null;
@@ -188,7 +188,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || null;
@@ -209,7 +209,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || null;
@@ -230,7 +230,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || null;
@@ -251,7 +251,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || null;
@@ -272,7 +272,7 @@ export const analyticsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || null;

@@ -38,7 +38,7 @@ export const getCODMetrics = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch COD metrics');
+    throw new Error(error.error || 'Error al obtener métricas COD');
   }
 
   return response.json();
@@ -77,7 +77,7 @@ export const getCODDailyBreakdown = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch daily breakdown');
+    throw new Error(error.error || 'Error al obtener desglose diario');
   }
 
   return response.json();
@@ -105,7 +105,7 @@ export const getCODMetricsByCarrier = async (): Promise<{
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch carrier metrics');
+    throw new Error(error.error || 'Error al obtener métricas de transportista');
   }
 
   return response.json();

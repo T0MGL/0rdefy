@@ -28,7 +28,7 @@ export const suppliersService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data || [];
@@ -45,7 +45,7 @@ export const suppliersService = {
       });
       if (!response.ok) {
         if (response.status === 404) return undefined;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const data = await response.json();
       return data;
@@ -64,7 +64,7 @@ export const suppliersService = {
       });
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data;
@@ -83,7 +83,7 @@ export const suppliersService = {
       });
       if (!response.ok) {
         if (response.status === 404) return undefined;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return result.data;
@@ -103,9 +103,9 @@ export const suppliersService = {
         if (response.status === 404) return false;
         if (response.status === 409) {
           const errorData = await response.json();
-          throw new Error(errorData.message || 'Supplier has products assigned');
+          throw new Error(errorData.message || 'El proveedor tiene productos asignados');
         }
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       return true;
     } catch (error) {

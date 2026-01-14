@@ -131,8 +131,14 @@ export function useSmartPolling<T>({
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const isPollingRef = useRef(false);
+  const isPageVisibleRef = useRef(isPageVisible);
 
-  // Fetch data function
+  // Keep ref in sync with state
+  useEffect(() => {
+    isPageVisibleRef.current = isPageVisible;
+  }, [isPageVisible]);
+
+  // Fetch data function - using ref for isPageVisible to prevent effect dependencies cascade
   const fetchData = useCallback(async () => {
     // Don't fetch if component is unmounted
     if (!isMountedRef.current) {
@@ -140,8 +146,8 @@ export function useSmartPolling<T>({
       return;
     }
 
-    // Don't fetch if page is not visible
-    if (!document.hidden && !isPageVisible) {
+    // Don't fetch if page is not visible (use ref to avoid dependency)
+    if (!document.hidden && !isPageVisibleRef.current) {
       console.log('[SmartPolling] Skipped fetch: page not visible');
       return;
     }
@@ -182,7 +188,7 @@ export function useSmartPolling<T>({
         setIsLoading(false);
       }
     }
-  }, [queryFn, onSuccess, onError, isPageVisible]);
+  }, [queryFn, onSuccess, onError]); // Removed isPageVisible from dependencies
 
   // Start polling
   const startPolling = useCallback(() => {
@@ -236,7 +242,14 @@ export function useSmartPolling<T>({
     }
   }, [onPollingStop]);
 
+  // Store enabled in ref to avoid effect dependencies
+  const enabledRef = useRef(enabled);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
   // Handle visibility change (tab active/inactive, window minimized)
+  // Using refs to prevent effect re-runs and listener churn
   useEffect(() => {
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
@@ -244,7 +257,7 @@ export function useSmartPolling<T>({
 
       if (isVisible) {
         console.log('[SmartPolling] 👀 Page visible - resuming polling');
-        if (enabled && isPollingRef.current) {
+        if (enabledRef.current && isPollingRef.current) {
           // Fetch immediately on becoming visible
           fetchData();
         }
@@ -253,12 +266,13 @@ export function useSmartPolling<T>({
       }
     };
 
+    // Add listener once, never remove until unmount
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [enabled, fetchData]);
+  }, [fetchData]); // Only fetchData (now stable) in dependencies
 
   // Handle enabled state change
   useEffect(() => {

@@ -104,9 +104,8 @@ const AppLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
     <div className="flex-1 flex flex-col min-w-0">
       <Header />
       <main id="main-content" className="flex-1 p-4 sm:p-6 overflow-auto" tabIndex={-1}>
-        <Suspense fallback={<CardSkeleton count={3} />}>
-          {children}
-        </Suspense>
+        {/* Removed Suspense - handled at Routes level to prevent nesting */}
+        {children}
       </main>
     </div>
   </div>
@@ -161,11 +160,15 @@ const App = () => {
                         <ErrorBoundary>
                           <OnboardingGuard>
                             {/* Demo Tour - interactive onboarding experience (lazy loaded) */}
-                            <Suspense fallback={null}>
-                              <DemoTour autoStart={true} />
-                            </Suspense>
-                        <Suspense fallback={<CardSkeleton count={1} />}>
-                          <Routes>
+                            {/* ErrorBoundary wraps DemoTour to prevent crashes from breaking the app */}
+                            <ErrorBoundary fallback={<div />}>
+                              <Suspense fallback={<div className="hidden" />}>
+                                <DemoTour autoStart={true} />
+                              </Suspense>
+                            </ErrorBoundary>
+                            {/* Single Suspense boundary for all routes - prevents nesting conflicts */}
+                            <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><CardSkeleton count={3} /></div>}>
+                              <Routes>
                             {/* Public routes */}
                             <Route path="/login" element={<LoginDemo />} />
                             <Route path="/signup" element={<SignUp />} />

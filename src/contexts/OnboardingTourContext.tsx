@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 
 // Tour step definition
 export interface TourStep {
@@ -71,6 +71,18 @@ export function OnboardingTourProvider({ children }: OnboardingTourProviderProps
     justFinished: null,
   });
 
+  // Track transition timeouts for cleanup on unmount
+  const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup transition timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Check if tour was already completed on mount
   useEffect(() => {
     const completed = localStorage.getItem(TOUR_COMPLETED_KEY);
@@ -117,9 +129,15 @@ export function OnboardingTourProvider({ children }: OnboardingTourProviderProps
       };
     });
 
+    // Clear previous timeout if exists
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+
     // Reset transitioning state after animation
-    setTimeout(() => {
+    transitionTimeoutRef.current = setTimeout(() => {
       setState(prev => ({ ...prev, isTransitioning: false }));
+      transitionTimeoutRef.current = null;
     }, 300);
   }, []);
 
@@ -134,9 +152,15 @@ export function OnboardingTourProvider({ children }: OnboardingTourProviderProps
       };
     });
 
+    // Clear previous timeout if exists
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+
     // Reset transitioning state after animation
-    setTimeout(() => {
+    transitionTimeoutRef.current = setTimeout(() => {
       setState(prev => ({ ...prev, isTransitioning: false }));
+      transitionTimeoutRef.current = null;
     }, 300);
   }, []);
 
@@ -183,9 +207,15 @@ export function OnboardingTourProvider({ children }: OnboardingTourProviderProps
       };
     });
 
+    // Clear previous timeout if exists
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+
     // Reset transitioning state after animation
-    setTimeout(() => {
+    transitionTimeoutRef.current = setTimeout(() => {
       setState(prev => ({ ...prev, isTransitioning: false }));
+      transitionTimeoutRef.current = null;
     }, 300);
   }, []);
 

@@ -43,7 +43,7 @@ export const getShopifyIntegration = async (): Promise<{
     );
 
     if (!response.ok) {
-      throw new Error('Failed to check Shopify integration status');
+      throw new Error('Error al verificar estado de integración con Shopify');
     }
 
     return response.json();
@@ -75,7 +75,7 @@ export const getShopifyIntegrationByShop = async (shop: string): Promise<{
     );
 
     if (!response.ok) {
-      throw new Error('Failed to check Shopify integration status');
+      throw new Error('Error al verificar estado de integración con Shopify');
     }
 
     return response.json();
@@ -102,7 +102,7 @@ export const disconnectShopify = async (shop: string): Promise<void> => {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to disconnect Shopify');
+      throw new Error(error.message || 'Error al desconectar Shopify');
     }
   } catch (error: unknown) {
     console.error('[SHOPIFY-SERVICE] Error disconnecting:', error);
@@ -183,7 +183,7 @@ export const syncOrdersFromShopify = async (): Promise<{
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to sync orders from Shopify');
+      throw new Error(errorData.error || 'Error al sincronizar pedidos desde Shopify');
     }
 
     return response.json();

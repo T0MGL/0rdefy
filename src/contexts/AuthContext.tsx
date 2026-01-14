@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { safeJsonParse } from '@/lib/utils';
@@ -265,7 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
     };
-  }, []);
+  }, [signOut]); // Include signOut in dependencies to prevent stale closure
 
   // NO periodic check - token validation happens ONLY in API interceptor
   // This saves resources and is sufficient for 7-day tokens
@@ -383,7 +383,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     console.log('👋 [AUTH] Signing out');
 
     // Call backend to terminate session
@@ -412,7 +412,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCurrentStore(null);
 
     console.log('✅ [AUTH] Signed out successfully');
-  };
+  }, []); // No dependencies - uses setters which are stable
 
 
   // Inject query client for manual invalidation

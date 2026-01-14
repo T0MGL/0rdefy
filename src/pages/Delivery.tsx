@@ -166,7 +166,7 @@ export default function Delivery() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to confirm delivery');
+        throw new Error(errorData.message || 'Error al confirmar entrega');
       }
 
       toast({
@@ -223,7 +223,7 @@ export default function Delivery() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to report failure');
+        throw new Error(errorData.message || 'Error al reportar falla');
       }
 
       toast({
@@ -275,7 +275,7 @@ export default function Delivery() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || 'Failed to submit rating');
+        throw new Error(error.message || 'Error al enviar calificación');
       }
 
       const result = await response.json();
@@ -529,7 +529,7 @@ export default function Delivery() {
                       });
                       fetchOrderByToken(token!);
                     } else {
-                      throw new Error('Failed to reactivate order');
+                      throw new Error('Error al reactivar pedido');
                     }
                   } catch (error) {
                     console.error('Error reactivating order:', error);
@@ -574,7 +574,7 @@ export default function Delivery() {
                           message: 'Este pedido ha sido cancelado',
                         });
                       } else {
-                        throw new Error('Failed to cancel order');
+                        throw new Error('Error al cancelar pedido');
                       }
                     } catch (error) {
                       console.error('Error cancelling order:', error);

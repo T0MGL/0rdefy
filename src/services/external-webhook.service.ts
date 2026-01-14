@@ -111,7 +111,7 @@ export const getExternalWebhookConfig = async (): Promise<{
     );
 
     if (!response.ok) {
-      throw new Error('Failed to get webhook configuration');
+      throw new Error('Error al obtener configuración de webhook');
     }
 
     const data = await response.json();
@@ -149,7 +149,7 @@ export const setupExternalWebhook = async (options?: {
     const data = await response.json();
 
     if (!response.ok) {
-      return { success: false, error: data.error || data.message || 'Failed to setup webhook' };
+      return { success: false, error: data.error || data.message || 'Error al configurar webhook' };
     }
 
     return data;
@@ -179,7 +179,7 @@ export const regenerateApiKey = async (): Promise<{
     const data = await response.json();
 
     if (!response.ok) {
-      return { success: false, error: data.error || 'Failed to regenerate API key' };
+      return { success: false, error: data.error || 'Error al regenerar clave API' };
     }
 
     return data;
@@ -208,7 +208,7 @@ export const disableExternalWebhook = async (permanent: boolean = false): Promis
     const data = await response.json();
 
     if (!response.ok) {
-      return { success: false, error: data.error || 'Failed to disable webhook' };
+      return { success: false, error: data.error || 'Error al desactivar webhook' };
     }
 
     return { success: true };
@@ -240,7 +240,7 @@ export const getWebhookLogs = async (page: number = 1, limit: number = 20): Prom
     const data = await response.json();
 
     if (!response.ok) {
-      return { success: false, error: data.error || 'Failed to get logs' };
+      return { success: false, error: data.error || 'Error al obtener registros' };
     }
 
     return data;
@@ -269,7 +269,7 @@ export const getLogDetails = async (logId: string): Promise<{
     const data = await response.json();
 
     if (!response.ok) {
-      return { success: false, error: data.error || 'Failed to get log details' };
+      return { success: false, error: data.error || 'Error al obtener detalles de registro' };
     }
 
     return data;
@@ -299,7 +299,7 @@ export const getPayloadExample = async (): Promise<{
     const data = await response.json();
 
     if (!response.ok) {
-      return { success: false, error: data.error || 'Failed to get payload example' };
+      return { success: false, error: data.error || 'Error al obtener ejemplo de payload' };
     }
 
     return data;

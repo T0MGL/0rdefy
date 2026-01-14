@@ -62,43 +62,57 @@ export const TestData = {
 
   /**
    * Generate test carrier data
+   * Note: API uses 'carrier_name' field, not 'name'
    */
   carrier: (overrides: Partial<CarrierData> = {}): CarrierData => ({
-    name: `${TEST_PREFIXES.carrier}${uniqueId()}`,
-    phone: `+595982${String(Math.floor(Math.random() * 1000000)).padStart(6, '0')}`,
-    email: `carrier_e2e_${uniqueId()}@test.ordefy.io`,
+    carrier_name: `${TEST_PREFIXES.carrier}${uniqueId()}`,
+    contact_phone: `+595982${String(Math.floor(Math.random() * 1000000)).padStart(6, '0')}`,
+    contact_email: `carrier_e2e_${uniqueId()}@test.ordefy.io`,
     is_active: true,
-    notes: `E2E Test Carrier - Run ${TEST_RUN_ID}`,
+    coverage_zones: ['Asuncion', 'Central'],
+    settings: { notes: `E2E Test Carrier - Run ${TEST_RUN_ID}` },
     ...overrides
   }),
 
   /**
    * Generate test order data
+   *
+   * API expects:
+   * - Customer fields directly (customer_phone, customer_first_name, etc.)
+   * - courier_id (not carrier_id)
+   * - line_items array (not items)
    */
   order: (
-    customerId: string,
-    carrierId: string,
-    items: OrderItem[],
+    customer: CustomerData,
+    courierId: string,
+    lineItems: OrderLineItem[],
     overrides: Partial<OrderData> = {}
   ): OrderData => ({
-    customer_id: customerId,
-    carrier_id: carrierId,
-    items,
+    customer_phone: customer.phone,
+    customer_email: customer.email,
+    customer_first_name: customer.name.split(' ')[0],
+    customer_last_name: customer.name.split(' ').slice(1).join(' ') || 'Test',
+    customer_address: customer.address,
+    courier_id: courierId,
+    line_items: lineItems,
     payment_method: 'cash',
-    notes: `${CONFIG.testPrefix}Orden de prueba E2E - Run ${TEST_RUN_ID}`,
-    shipping_address: `Direccion de envio E2E - ${uniqueId()}`,
+    total_price: lineItems.reduce((sum, item) => sum + (item.quantity * item.price), 0),
     ...overrides
   }),
 
   /**
-   * Generate a simple order item
+   * Generate a simple order line item
+   *
+   * API expects: product_id, name, quantity, price
    */
   orderItem: (
     productId: string,
+    productName: string,
     quantity: number = 1,
     price: number = 50000
-  ): OrderItem => ({
+  ): OrderLineItem => ({
     product_id: productId,
+    name: productName,
     quantity,
     price
   }),
@@ -185,27 +199,39 @@ export interface CustomerData {
 }
 
 export interface CarrierData {
-  name: string;
-  phone?: string;
-  email?: string;
+  carrier_name: string;
+  contact_phone?: string;
+  contact_email?: string;
   is_active?: boolean;
-  notes?: string;
+  coverage_zones?: string[];
+  settings?: Record<string, any>;
+  api_key?: string;
 }
 
-export interface OrderItem {
+export interface OrderLineItem {
   product_id: string;
+  name: string;
   quantity: number;
   price: number;
+  variant_title?: string;
+  sku?: string;
 }
 
+// Legacy alias for backward compatibility
+export type OrderItem = OrderLineItem;
+
 export interface OrderData {
-  customer_id: string;
-  carrier_id: string;
-  items: OrderItem[];
+  customer_phone: string;
+  customer_email?: string;
+  customer_first_name: string;
+  customer_last_name?: string;
+  customer_address: string;
+  courier_id: string;
+  line_items: OrderLineItem[];
   payment_method?: string;
-  notes?: string;
-  shipping_address?: string;
   total_price?: number;
+  shipping_address?: string;
+  notes?: string;
 }
 
 export interface SupplierData {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 /**
@@ -11,6 +11,27 @@ import { useSearchParams } from 'react-router-dom';
 export function useHighlight() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Track mounted state to prevent setState after unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Memoize clearHighlight to use in setTimeout without stale closure
+  const clearHighlight = useCallback(() => {
+    if (!isMountedRef.current) {
+      return; // Prevent setState after unmount
+    }
+    setHighlightId(null);
+    // Remove highlight param from URL
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('highlight');
+    setSearchParams(newParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     const id = searchParams.get('highlight');
@@ -36,16 +57,7 @@ export function useHighlight() {
         clearTimeout(clearTimer);
       };
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
-  const clearHighlight = () => {
-    setHighlightId(null);
-    // Remove highlight param from URL
-    const newParams = new URLSearchParams(searchParams);
-    newParams.delete('highlight');
-    setSearchParams(newParams, { replace: true });
-  };
+  }, [searchParams, clearHighlight]); // Now includes clearHighlight in dependencies
 
   const isHighlighted = (id: string) => highlightId === id;
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
@@ -83,48 +83,50 @@ export function Header() {
     return unsubscribe;
   }, []);
 
-  // Load data for notifications and alerts
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [ordersResponse, productsData, adsData, carriersData, overviewData] = await Promise.all([
-          ordersService.getAll(),
-          productsService.getAll(),
-          adsService.getAll(),
-          carriersService.getAll(),
-          analyticsService.getOverview(),
-        ]);
-        setOrders(ordersResponse.data || []);
-        setCarriers(carriersData);
-        setOverview(overviewData);
+  // Load data for notifications and alerts - memoized to prevent stale closures
+  const loadData = useCallback(async () => {
+    try {
+      const [ordersResponse, productsData, adsData, carriersData, overviewData] = await Promise.all([
+        ordersService.getAll(),
+        productsService.getAll(),
+        adsService.getAll(),
+        carriersService.getAll(),
+        analyticsService.getOverview(),
+      ]);
+      setOrders(ordersResponse.data || []);
+      setCarriers(carriersData);
+      setOverview(overviewData);
 
-        // Update notifications service with new data (only if user has smart_alerts feature)
-        if (hasSmartAlerts) {
-          notificationsService.updateNotifications({
-            orders: ordersResponse.data || [],
-            products: productsData,
-            ads: adsData,
-            carriers: carriersData,
-          });
+      // Update notifications service with new data (only if user has smart_alerts feature)
+      if (hasSmartAlerts) {
+        notificationsService.updateNotifications({
+          orders: ordersResponse.data || [],
+          products: productsData,
+          ads: adsData,
+          carriers: carriersData,
+        });
 
-          // Get updated notifications
-          setNotifications(notificationsService.getAll());
-          setUnreadCount(notificationsService.getUnreadCount());
-        } else {
-          // Clear notifications for users without smart_alerts
-          setNotifications([]);
-          setUnreadCount(0);
-        }
-      } catch (error) {
-        console.error('Error loading header data:', error);
+        // Get updated notifications
+        setNotifications(notificationsService.getAll());
+        setUnreadCount(notificationsService.getUnreadCount());
+      } else {
+        // Clear notifications for users without smart_alerts
+        setNotifications([]);
+        setUnreadCount(0);
       }
-    };
+    } catch (error) {
+      console.error('Error loading header data:', error);
+    }
+  }, [hasSmartAlerts]);
+
+  // Load data on mount and every 5 minutes
+  useEffect(() => {
     loadData();
 
     // Refresh data every 5 minutes (optimized from 30 seconds)
     const interval = setInterval(loadData, 300000);
     return () => clearInterval(interval);
-  }, [hasSmartAlerts]);
+  }, [loadData]); // Now properly tracks loadData changes
 
   // Only generate alerts if user has smart_alerts feature
   const alerts = (hasSmartAlerts && overview)
@@ -250,52 +252,55 @@ export function Header() {
 
           {/* Date Selector - Simplified on mobile */}
           <div className="flex items-center gap-2">
-            <Popover open={showCalendar} onOpenChange={setShowCalendar}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1 sm:gap-2 h-10 min-h-[44px] px-2 sm:px-3 bg-card">
-                    <Calendar size={16} className="text-muted-foreground" />
-                    <span className="text-sm hidden sm:inline">
-                      {selectedRange === 'custom' && customRange
-                        ? getCustomLabel()
-                        : dateRanges.find((r) => r.value === selectedRange)?.label
-                      }
-                    </span>
-                    <ChevronDown size={14} className="text-muted-foreground hidden sm:block" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  {dateRanges.filter(r => r.value !== 'custom').map((range) => (
-                    <DropdownMenuItem
-                      key={range.value}
-                      onClick={() => handleDateRangeChange(range.value)}
-                      className={cn(
-                        'cursor-pointer',
-                        selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
-                      )}
-                    >
-                      {range.label}
-                    </DropdownMenuItem>
-                  ))}
-                  <PopoverTrigger asChild>
-                    <DropdownMenuItem
-                      className={cn(
-                        'cursor-pointer',
-                        selectedRange === 'custom' && 'bg-primary/10 text-primary font-medium'
-                      )}
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        setSelectedRange('custom');
-                        setShowCalendar(true);
-                      }}
-                    >
-                      Personalizado
-                    </DropdownMenuItem>
-                  </PopoverTrigger>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1 sm:gap-2 h-10 min-h-[44px] px-2 sm:px-3 bg-card">
+                  <Calendar size={16} className="text-muted-foreground" />
+                  <span className="text-sm hidden sm:inline">
+                    {selectedRange === 'custom' && customRange
+                      ? getCustomLabel()
+                      : dateRanges.find((r) => r.value === selectedRange)?.label
+                    }
+                  </span>
+                  <ChevronDown size={14} className="text-muted-foreground hidden sm:block" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                {dateRanges.filter(r => r.value !== 'custom').map((range) => (
+                  <DropdownMenuItem
+                    key={range.value}
+                    onClick={() => handleDateRangeChange(range.value)}
+                    className={cn(
+                      'cursor-pointer',
+                      selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
+                    )}
+                  >
+                    {range.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuItem
+                  className={cn(
+                    'cursor-pointer',
+                    selectedRange === 'custom' && 'bg-primary/10 text-primary font-medium'
+                  )}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setSelectedRange('custom');
+                    // Esperar a que el dropdown se cierre antes de abrir el popover
+                    setTimeout(() => setShowCalendar(true), 100);
+                  }}
+                >
+                  Personalizado
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-              {/* Custom Date Picker Popover */}
+            {/* Custom Date Picker Popover - Outside DropdownMenu */}
+            <Popover open={showCalendar} onOpenChange={setShowCalendar}>
+              <PopoverTrigger asChild>
+                {/* Hidden trigger - opened programmatically */}
+                <div className="hidden" />
+              </PopoverTrigger>
               <PopoverContent className="w-auto p-4 bg-card border-border shadow-xl" align="end">
                 <div className="space-y-4">
                   <div>

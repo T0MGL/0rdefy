@@ -33,7 +33,7 @@ export const unifiedService = {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 console.error('Unified Warehouse API Error:', errorData);
-                throw new Error(errorData.details || 'Failed to fetch unified warehouse data');
+                throw new Error(errorData.details || 'Error al obtener datos de almacén unificado');
             }
             const result = await response.json();
             return result.data || [];
@@ -51,7 +51,7 @@ export const unifiedService = {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 console.error('Unified Sessions API Error:', errorData);
-                throw new Error(errorData.details || 'Failed to fetch unified sessions');
+                throw new Error(errorData.details || 'Error al obtener sesiones unificadas');
             }
             const result = await response.json();
             return result.data || [];
@@ -83,7 +83,7 @@ export const unifiedService = {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 console.error('Unified Orders API Error:', errorData);
-                throw new Error(errorData.details || 'Failed to fetch unified orders');
+                throw new Error(errorData.details || 'Error al obtener pedidos unificados');
             }
             const result = await response.json();
             return {
@@ -104,7 +104,7 @@ export const unifiedService = {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 console.error('Unified Dispatch API Error:', errorData);
-                throw new Error(errorData.details || 'Failed to fetch unified dispatch data');
+                throw new Error(errorData.details || 'Error al obtener datos de despacho unificado');
             }
             const result = await response.json();
             return result.data || [];
@@ -134,7 +134,7 @@ export const unifiedService = {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 console.error('🌍 [unifiedService] API Error:', errorData);
-                throw new Error(errorData.details || 'Failed to fetch unified analytics');
+                throw new Error(errorData.details || 'Error al obtener análisis unificado');
             }
 
             const result = await response.json();
@@ -172,7 +172,7 @@ export const unifiedService = {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 console.error('Unified Chart API Error:', errorData);
-                throw new Error(errorData.details || 'Failed to fetch unified chart data');
+                throw new Error(errorData.details || 'Error al obtener datos de gráfico unificado');
             }
 
             const result = await response.json();

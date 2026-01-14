@@ -30,7 +30,7 @@ export const recurringAdditionalValuesService = {
             const response = await fetch(`${API_URL}/api/recurring-values`, {
                 headers: getAuthHeaders(),
             });
-            if (!response.ok) throw new Error('Failed to fetch recurring values');
+            if (!response.ok) throw new Error('Error al obtener valores recurrentes');
             return await response.json();
         } catch (error) {
             console.error('Error fetching recurring values:', error);
@@ -47,7 +47,7 @@ export const recurringAdditionalValuesService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to create recurring value');
+            throw new Error(error.message || 'Error al crear valor recurrente');
         }
 
         return await response.json();
@@ -62,7 +62,7 @@ export const recurringAdditionalValuesService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to create subscription');
+            throw new Error(error.message || 'Error al crear suscripción');
         }
 
         return await response.json();
@@ -77,7 +77,7 @@ export const recurringAdditionalValuesService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to update recurring value');
+            throw new Error(error.message || 'Error al actualizar valor recurrente');
         }
 
         return await response.json();
@@ -91,7 +91,7 @@ export const recurringAdditionalValuesService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Failed to delete recurring value');
+            throw new Error(error.message || 'Error al eliminar valor recurrente');
         }
 
         return true;

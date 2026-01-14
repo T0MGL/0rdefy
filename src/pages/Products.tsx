@@ -242,7 +242,7 @@ export default function Products() {
       const success = await productsService.delete(productToDelete.id, deleteFromShopify);
 
       if (!success) {
-        throw new Error('Failed to delete product');
+        throw new Error('Error al eliminar producto');
       }
 
       // Only update UI after successful server response

@@ -127,7 +127,7 @@ export default function Merchandise() {
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to create shipment',
+        description: error.message || 'Error al crear envío',
         variant: 'destructive',
       });
     } finally {
@@ -149,7 +149,7 @@ export default function Merchandise() {
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to receive shipment',
+        description: error.message || 'Error al recibir envío',
         variant: 'destructive',
       });
     } finally {

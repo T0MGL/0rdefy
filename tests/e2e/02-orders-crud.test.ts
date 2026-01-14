@@ -17,6 +17,9 @@ describe('Orders CRUD', () => {
   let testCustomer: any;
   let testOrder: any;
 
+  // Helper to extract data from API response
+  const extractData = (response: any) => response?.data || response;
+
   beforeAll(async () => {
     api = new ProductionApiClient();
     await api.login();
@@ -24,17 +27,20 @@ describe('Orders CRUD', () => {
     console.log('\n📦 Setting up test data for Orders CRUD tests...\n');
 
     // Create carrier first (no dependencies)
-    testCarrier = await api.request('POST', '/carriers', TestData.carrier());
+    const carrierResponse = await api.request('POST', '/carriers', TestData.carrier());
+    testCarrier = extractData(carrierResponse);
     api.trackResource('carriers', testCarrier.id);
-    console.log(`  ✓ Created carrier: ${testCarrier.name}`);
+    console.log(`  ✓ Created carrier: ${testCarrier.carrier_name || testCarrier.name}`);
 
     // Create product
-    testProduct = await api.request('POST', '/products', TestData.product({ stock: 100 }));
+    const productResponse = await api.request('POST', '/products', TestData.product({ stock: 100 }));
+    testProduct = extractData(productResponse);
     api.trackResource('products', testProduct.id);
     console.log(`  ✓ Created product: ${testProduct.name}`);
 
     // Create customer
-    testCustomer = await api.request('POST', '/customers', TestData.customer());
+    const customerResponse = await api.request('POST', '/customers', TestData.customer());
+    testCustomer = extractData(customerResponse);
     api.trackResource('customers', testCustomer.id);
     console.log(`  ✓ Created customer: ${testCustomer.name}`);
 
@@ -53,7 +59,8 @@ describe('Orders CRUD', () => {
         [TestData.orderItem(testProduct.id, 5, testProduct.price)]
       );
 
-      testOrder = await api.request('POST', '/orders', orderData);
+      const orderResponse = await api.request('POST', '/orders', orderData);
+      testOrder = extractData(orderResponse);
       api.trackResource('orders', testOrder.id);
 
       expect(testOrder.id).toBeDefined();
@@ -79,7 +86,8 @@ describe('Orders CRUD', () => {
 
     test('Create order with multiple items', async () => {
       // Create another product for multi-item order
-      const product2 = await api.request('POST', '/products', TestData.product({ stock: 50 }));
+      const product2Response = await api.request('POST', '/products', TestData.product({ stock: 50 }));
+      const product2 = extractData(product2Response);
       api.trackResource('products', product2.id);
 
       const orderData = TestData.order(
@@ -91,7 +99,8 @@ describe('Orders CRUD', () => {
         ]
       );
 
-      const multiItemOrder = await api.request('POST', '/orders', orderData);
+      const multiItemOrderResponse = await api.request('POST', '/orders', orderData);
+      const multiItemOrder = extractData(multiItemOrderResponse);
       api.trackResource('orders', multiItemOrder.id);
 
       expect(multiItemOrder.id).toBeDefined();

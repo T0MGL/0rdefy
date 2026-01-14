@@ -33,7 +33,8 @@ describe('Dispatch & Settlements Flow', () => {
     console.log('\n🚀 Setting up dispatch & settlements test environment...\n');
 
     // Create carrier with zones
-    testCarrier = await api.request('POST', '/carriers', TestData.carrier());
+    const carrierResponse = await api.request('POST', '/carriers', TestData.carrier());
+    testCarrier = carrierResponse.data || carrierResponse;
     api.trackResource('carriers', testCarrier.id);
 
     // Try to create carrier zone
@@ -52,16 +53,18 @@ describe('Dispatch & Settlements Flow', () => {
     }
 
     // Create customer
-    testCustomer = await api.request('POST', '/customers', TestData.customer({
+    const customerResponse = await api.request('POST', '/customers', TestData.customer({
       city: 'Asuncion'
     }));
+    testCustomer = customerResponse.data || customerResponse;
     api.trackResource('customers', testCustomer.id);
 
     // Create product
-    testProduct = await api.request('POST', '/products', TestData.product({
+    const productResponse = await api.request('POST', '/products', TestData.product({
       stock: INITIAL_STOCK,
       name: `${CONFIG.testPrefix}Settlement_Product_${Date.now()}`
     }));
+    testProduct = productResponse.data || productResponse;
     api.trackResource('products', testProduct.id);
 
     // Create orders and progress to ready_to_ship
@@ -76,7 +79,8 @@ describe('Dispatch & Settlements Flow', () => {
         }
       );
 
-      const order = await api.request('POST', '/orders', orderData);
+      const orderResponse = await api.request('POST', '/orders', orderData);
+      const order = orderResponse.data || orderResponse;
       api.trackResource('orders', order.id);
 
       // Progress to ready_to_ship
@@ -171,15 +175,28 @@ describe('Dispatch & Settlements Flow', () => {
     });
   });
 
-  describe('Export CSV', () => {
-    test('Can export dispatch session to CSV', async () => {
+  describe('Export', () => {
+    test('Can export dispatch session (default Excel)', async () => {
       const response = await api.requestRaw('GET',
         `/settlements/dispatch-sessions/${dispatchSession.id}/export`
       );
 
       expect(response.status).toBe(200);
 
-      // Check content type if available
+      // Default format is XLSX
+      const contentType = response.headers.get('content-type');
+      if (contentType) {
+        expect(contentType).toContain('spreadsheet');
+      }
+    });
+
+    test('Can export dispatch session to CSV', async () => {
+      const response = await api.requestRaw('GET',
+        `/settlements/dispatch-sessions/${dispatchSession.id}/export?format=csv`
+      );
+
+      expect(response.status).toBe(200);
+
       const contentType = response.headers.get('content-type');
       if (contentType) {
         expect(contentType).toContain('csv');

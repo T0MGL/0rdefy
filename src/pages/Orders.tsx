@@ -366,7 +366,7 @@ export default function Orders() {
       } else {
         // Revert optimistic update on failure
         setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
-        throw new Error('Failed to confirm order');
+        throw new Error('Error al confirmar pedido');
       }
     } catch (error) {
       // Revert optimistic update on error
@@ -403,7 +403,7 @@ export default function Orders() {
       } else {
         // Revert optimistic update on failure
         setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
-        throw new Error('Failed to reject order');
+        throw new Error('Error al rechazar pedido');
       }
     } catch (error) {
       // Revert optimistic update on error
@@ -479,7 +479,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
       } else {
         // Revert optimistic update on failure
         setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
-        throw new Error('Failed to update status');
+        throw new Error('Error al actualizar estado');
       }
     } catch (error: any) {
       // Revert optimistic update on error

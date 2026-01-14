@@ -42,7 +42,7 @@ export const getDeliveryAttempts = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch delivery attempts');
+    throw new Error(error.error || 'Error al obtener intentos de entrega');
   }
 
   return response.json();
@@ -58,7 +58,7 @@ export const getDeliveryAttemptById = async (id: string): Promise<DeliveryAttemp
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch delivery attempt');
+    throw new Error(error.error || 'Error al obtener intento de entrega');
   }
 
   return response.json();
@@ -78,7 +78,7 @@ export const createDeliveryAttempt = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to create delivery attempt');
+    throw new Error(error.error || 'Error al crear intento de entrega');
   }
 
   const result = await response.json();
@@ -100,7 +100,7 @@ export const updateDeliveryAttempt = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to update delivery attempt');
+    throw new Error(error.error || 'Error al actualizar intento de entrega');
   }
 
   const result = await response.json();
@@ -128,7 +128,7 @@ export const markDeliveryAttemptDelivered = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to mark as delivered');
+    throw new Error(error.error || 'Error al marcar como entregado');
   }
 
   const result = await response.json();
@@ -156,7 +156,7 @@ export const markDeliveryAttemptFailed = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to mark as failed');
+    throw new Error(error.error || 'Error al marcar como fallido');
   }
 
   const result = await response.json();
@@ -174,7 +174,7 @@ export const deleteDeliveryAttempt = async (id: string): Promise<void> => {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to delete delivery attempt');
+    throw new Error(error.error || 'Error al eliminar intento de entrega');
   }
 };
 

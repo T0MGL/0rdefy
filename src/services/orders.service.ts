@@ -50,7 +50,7 @@ export const ordersService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       return {
@@ -70,7 +70,7 @@ export const ordersService = {
       });
       if (!response.ok) {
         if (response.status === 404) return undefined;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const data = await response.json();
       return data;
@@ -122,7 +122,7 @@ export const ordersService = {
       if (!response.ok) {
         const errorData = await response.json();
         console.error('❌ [ORDERS SERVICE] Backend error:', errorData);
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -192,7 +192,7 @@ export const ordersService = {
       if (!response.ok) {
         if (response.status === 404) return undefined;
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
       const updatedOrder = await response.json();
@@ -215,7 +215,7 @@ export const ordersService = {
       if (!response.ok) {
         if (response.status === 404) return false;
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
       return true;
     } catch (error) {
@@ -232,7 +232,7 @@ export const ordersService = {
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
       return true;
     } catch (error) {
@@ -250,7 +250,7 @@ export const ordersService = {
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
       return true;
     } catch (error) {
@@ -272,7 +272,7 @@ export const ordersService = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -318,7 +318,7 @@ export const ordersService = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -368,7 +368,7 @@ export const ordersService = {
       }));
 
       // Create an error object that includes the response data
-      const error: any = new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      const error: any = new Error(errorData.message || `Error HTTP: ${response.status}`);
       error.response = {
         status: response.status,
         data: errorData
@@ -414,7 +414,7 @@ export const ordersService = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -434,7 +434,7 @@ export const ordersService = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       return true;
@@ -457,7 +457,7 @@ export const ordersService = {
         });
         // Validate response - fetch only rejects on network errors, not HTTP errors
         if (!response.ok) {
-          throw new Error(`Failed to reconcile order ${id}: HTTP ${response.status}`);
+          throw new Error(`Error al conciliar pedido ${id}: HTTP ${response.status}`);
         }
         return response;
       });

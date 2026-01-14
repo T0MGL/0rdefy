@@ -59,40 +59,71 @@ export async function setup() {
     throw new Error('API connectivity check failed');
   }
 
-  // Verify credentials
+  // Verify credentials with retry for rate limiting
   console.log('🔑 Verifying test credentials...');
 
-  try {
-    const response = await fetch(`${CONFIG.apiUrl}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: CONFIG.credentials.email,
-        password: CONFIG.credentials.password
-      }),
-      signal: AbortSignal.timeout(10000)
-    });
+  const maxRetries = 3;
+  let lastError: Error | null = null;
 
-    if (!response.ok) {
-      throw new Error(`Login failed with status ${response.status}`);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const waitTime = 15000 * attempt; // 15s, 30s
+        console.log(`   ⏳ Rate limited, waiting ${waitTime / 1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+
+      const response = await fetch(`${CONFIG.apiUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: CONFIG.credentials.email,
+          password: CONFIG.credentials.password
+        }),
+        signal: AbortSignal.timeout(15000)
+      });
+
+      if (response.status === 429) {
+        lastError = new Error('Rate limited (429)');
+        continue; // Retry
+      }
+
+      if (!response.ok) {
+        throw new Error(`Login failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.token) {
+        throw new Error('Login response missing token');
+      }
+
+      console.log(`   ✓ Credentials valid for: ${data.user?.email}`);
+      console.log(`   ✓ Store access: ${data.user?.stores?.[0]?.name || 'Available'}\n`);
+      lastError = null;
+      break; // Success
+    } catch (error) {
+      lastError = error as Error;
+      if (!(error as Error).message.includes('429')) {
+        break; // Non-rate-limit error, don't retry
+      }
     }
+  }
 
-    const data = await response.json();
-
-    if (!data.token) {
-      throw new Error('Login response missing token');
+  if (lastError) {
+    if (lastError.message.includes('429')) {
+      console.warn('   ⚠️  Rate limited - will retry login in individual tests');
+      console.warn('   ⚠️  Tests may fail until rate limit resets (15 min)\n');
+      // Don't throw - let tests try on their own
+    } else {
+      console.error('   ✗ Credentials verification failed!');
+      console.error(`     Error: ${lastError.message}`);
+      console.error('\n   Please verify:');
+      console.error(`   1. Email: ${CONFIG.credentials.email}`);
+      console.error('   2. Password is correct');
+      console.error('   3. Account has not been locked\n');
+      throw new Error('Credentials verification failed');
     }
-
-    console.log(`   ✓ Credentials valid for: ${data.user?.email}`);
-    console.log(`   ✓ Store access: ${data.user?.stores?.[0]?.name || 'Available'}\n`);
-  } catch (error) {
-    console.error('   ✗ Credentials verification failed!');
-    console.error(`     Error: ${(error as Error).message}`);
-    console.error('\n   Please verify:');
-    console.error(`   1. Email: ${CONFIG.credentials.email}`);
-    console.error('   2. Password is correct');
-    console.error('   3. Account has not been locked\n');
-    throw new Error('Credentials verification failed');
   }
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

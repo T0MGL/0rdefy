@@ -18,7 +18,6 @@ export function Spotlight({ padding = 8, borderRadius = 12 }: SpotlightProps) {
   const { isActive, currentTour, currentStepIndex, isTransitioning } = useOnboardingTour();
   const [targetRect, setTargetRect] = useState<SpotlightRect | null>(null);
   const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
-  const animationRef = useRef<number>();
 
   // Get current step
   const currentStep = currentTour?.steps[currentStepIndex];
@@ -46,8 +45,18 @@ export function Spotlight({ padding = 8, borderRadius = 12 }: SpotlightProps) {
 
     let retryCount = 0;
     const maxRetries = 30; // Max 30 retries (~500ms with RAF)
+    let rafId: number | null = null;
+    let lastUpdateTime = 0;
+    const UPDATE_INTERVAL = 100; // ms between position updates
 
-    const updateTargetRect = () => {
+    const updateTargetRect = (timestamp: number = performance.now()) => {
+      // Throttle updates to 100ms to prevent excessive DOM queries
+      if (timestamp - lastUpdateTime < UPDATE_INTERVAL) {
+        rafId = requestAnimationFrame(updateTargetRect);
+        return;
+      }
+      lastUpdateTime = timestamp;
+
       // Handle center placement (no specific target)
       if (currentStep.placement === 'center' || currentStep.target === 'center') {
         setTargetRect(null);
@@ -82,11 +91,14 @@ export function Spotlight({ padding = 8, borderRadius = 12 }: SpotlightProps) {
           });
         }
         retryCount = 0; // Reset on success
+
+        // Continue updating position for layout changes
+        rafId = requestAnimationFrame(updateTargetRect);
       } else {
         // Element not found, retry with limit
         retryCount++;
         if (retryCount < maxRetries) {
-          animationRef.current = requestAnimationFrame(updateTargetRect);
+          rafId = requestAnimationFrame(updateTargetRect);
         } else {
           // Fallback: show center overlay if element never found
           console.warn(`[Tour] Element not found after ${maxRetries} retries: ${currentStep.target}`);
@@ -96,15 +108,12 @@ export function Spotlight({ padding = 8, borderRadius = 12 }: SpotlightProps) {
     };
 
     // Initial update
-    updateTargetRect();
-
-    // Keep updating position in case of layout changes
-    const interval = setInterval(updateTargetRect, 100);
+    rafId = requestAnimationFrame(updateTargetRect);
 
     return () => {
-      clearInterval(interval);
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+      // Cleanup RAF on unmount or step change
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
       }
     };
   }, [isActive, currentStep, currentStepIndex, padding]);
@@ -293,17 +302,35 @@ export function useSpotlightRect() {
       return;
     }
 
-    const updateRect = () => {
+    let rafId: number | null = null;
+    let lastUpdateTime = 0;
+    const UPDATE_INTERVAL = 100; // ms between updates
+
+    const updateRect = (timestamp: number = performance.now()) => {
+      // Throttle updates to prevent excessive DOM queries
+      if (timestamp - lastUpdateTime < UPDATE_INTERVAL) {
+        rafId = requestAnimationFrame(updateRect);
+        return;
+      }
+      lastUpdateTime = timestamp;
+
       const element = document.querySelector(currentStep.target);
       if (element) {
         setTargetRect(element.getBoundingClientRect());
       }
+
+      // Continue tracking position changes
+      rafId = requestAnimationFrame(updateRect);
     };
 
-    updateRect();
-    const interval = setInterval(updateRect, 100);
+    // Start tracking
+    rafId = requestAnimationFrame(updateRect);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
   }, [isActive, currentStep, currentStepIndex]);
 
   return targetRect;

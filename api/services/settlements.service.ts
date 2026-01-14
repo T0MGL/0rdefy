@@ -995,6 +995,46 @@ export async function importDispatchResults(
         })
         .eq('id', sessionOrder.order_id);
     }
+
+    // CRITICAL: Create carrier account movements for delivered/failed orders
+    // This ensures balances are updated in real-time from CSV import
+    if (deliveryStatus === 'delivered') {
+      // Call SQL function to create movements (COD + delivery fee)
+      try {
+        const { error: movementError } = await supabaseAdmin.rpc('create_delivery_movements', {
+          p_order_id: sessionOrder.order_id,
+          p_amount_collected: amountCollected,
+          p_dispatch_session_id: sessionId,
+          p_created_by: null
+        });
+
+        if (movementError) {
+          console.error(`⚠️ [CSV IMPORT] Failed to create movements for ${row.order_number}:`, movementError);
+          warnings.push(`Pedido ${row.order_number} actualizado pero no se pudo registrar en cuentas del transportista`);
+        } else {
+          console.log(`✅ [CSV IMPORT] Created carrier movements for ${row.order_number}`);
+        }
+      } catch (movementError) {
+        console.error(`⚠️ [CSV IMPORT] Exception creating movements for ${row.order_number}:`, movementError);
+      }
+    } else if (['not_delivered', 'rejected', 'returned'].includes(deliveryStatus)) {
+      // Create failed attempt fee movement (if carrier charges for failures)
+      try {
+        const { error: movementError } = await supabaseAdmin.rpc('create_failed_delivery_movement', {
+          p_order_id: sessionOrder.order_id,
+          p_dispatch_session_id: sessionId,
+          p_created_by: null
+        });
+
+        if (movementError) {
+          console.error(`⚠️ [CSV IMPORT] Failed to create failed movement for ${row.order_number}:`, movementError);
+        } else {
+          console.log(`✅ [CSV IMPORT] Created failed attempt fee for ${row.order_number}`);
+        }
+      } catch (movementError) {
+        console.error(`⚠️ [CSV IMPORT] Exception creating failed movement:`, movementError);
+      }
+    }
   }
 
   // Update session status
@@ -1177,6 +1217,16 @@ export async function processSettlement(
       settled_at: new Date().toISOString()
     })
     .eq('id', sessionId);
+
+  // CRITICAL: Link carrier movements to this settlement
+  // This marks movements as "settled" so they don't appear in unsettled balance
+  await supabaseAdmin
+    .from('carrier_account_movements')
+    .update({ settlement_id: settlement.id })
+    .eq('dispatch_session_id', sessionId)
+    .is('settlement_id', null);
+
+  console.log(`✅ [SETTLEMENT] Linked carrier movements to settlement ${settlement.id}`);
 
   // Update order statuses in main orders table
   for (const order of session.orders) {
@@ -2129,6 +2179,18 @@ export async function processManualReconciliation(
     cod_collected: stats.total_cod_collected,
     net_receivable: netReceivable,
   });
+
+  // CRITICAL: Link carrier movements to this settlement
+  // For manual reconciliation, movements should already exist from QR/CSV import
+  // But we link them to this settlement to mark as "settled"
+  const orderIds = orders.map(o => o.order_id);
+  await supabaseAdmin
+    .from('carrier_account_movements')
+    .update({ settlement_id: settlement.id })
+    .in('order_id', orderIds)
+    .is('settlement_id', null);
+
+  console.log(`✅ [RECONCILIATION] Linked carrier movements to settlement ${settlement.id}`);
 
   return {
     ...settlement,

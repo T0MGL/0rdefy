@@ -105,14 +105,23 @@ apiClient.interceptors.response.use(
 
         if (isShopifyEmbedded()) {
           // IN EMBEDDED MODE: Do NOT redirect, try to refresh token
+          // Prevent infinite retry loop
+          const originalRequest = error.config;
+
+          // Check if we already retried this request
+          if (originalRequest._retryCount >= 1) {
+            console.error('❌ [API] Token refresh failed after retry. Please refresh the page.');
+            return Promise.reject(error);
+          }
+
           const shopifyApp = (window as any).shopify;
           const freshToken = await safeGetShopifyToken(shopifyApp);
 
           if (freshToken) {
             localStorage.setItem('shopify_session_token', freshToken);
 
-            // Retry the original request with the fresh token
-            const originalRequest = error.config;
+            // Mark request as retried to prevent infinite loop
+            originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
             originalRequest.headers.Authorization = `Bearer ${freshToken}`;
             originalRequest.headers['X-Shopify-Session'] = 'true';
 
