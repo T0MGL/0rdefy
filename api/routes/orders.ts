@@ -1765,7 +1765,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .update(updateData)
             .eq('id', id)
             .eq('store_id', req.storeId)
-            .select('*, carriers(name), order_line_items(id, quantity, product_id, product_name, title, sku, variant_title, price)')
+            .select('*, carriers(name), order_line_items(id, quantity, product_id, product_name, sku, variant_title, unit_price, image_url)')
             .single();
 
         // DEBUG: Log update result
