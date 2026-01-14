@@ -2436,7 +2436,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             }
         }
 
-        // Add upsell product as a line item if provided (adds to order, doesn't replace existing items)
+        // Add upsell product as a line item if provided (adds to order or increases quantity if same product)
         if (upsell_added && upsell_product_id) {
             console.log(`📦 [ORDERS] Adding upsell product ${upsell_product_id} (qty: ${upsell_quantity}) to order ${id}`);
 
@@ -2449,61 +2449,111 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 .single();
 
             if (product) {
-                // Insert as new line item with is_upsell flag (normalized table)
                 const unitPrice = product.price || upsell_product_price || 0;
-                const { error: lineItemError } = await supabaseAdmin
+                const productName = product.name || upsell_product_name || 'Producto sin nombre';
+
+                // Check if this product already exists in the order (order_line_items table)
+                const { data: existingLineItem } = await supabaseAdmin
                     .from('order_line_items')
-                    .insert({
-                        order_id: id,
-                        product_id: product.id,
-                        product_name: product.name || upsell_product_name,
-                        quantity: upsell_quantity,
-                        unit_price: unitPrice,
-                        total_price: unitPrice * upsell_quantity,
-                        image_url: product.image_url,
-                        sku: product.sku,
-                        is_upsell: true, // Mark as upsell for tracking
-                        created_at: new Date().toISOString()
-                    });
+                    .select('id, quantity, total_price')
+                    .eq('order_id', id)
+                    .eq('product_id', product.id)
+                    .single();
 
-                if (lineItemError) {
-                    console.error('[ORDERS] Error adding upsell line item:', lineItemError);
-                    // Don't fail the confirmation, just log the error
+                if (existingLineItem) {
+                    // Product already exists - increase quantity instead of creating duplicate
+                    const newQuantity = (existingLineItem.quantity || 0) + upsell_quantity;
+                    const newTotalPrice = unitPrice * newQuantity;
+
+                    const { error: updateError } = await supabaseAdmin
+                        .from('order_line_items')
+                        .update({
+                            quantity: newQuantity,
+                            total_price: newTotalPrice,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', existingLineItem.id);
+
+                    if (updateError) {
+                        console.error('[ORDERS] Error updating existing line item quantity:', updateError);
+                    } else {
+                        console.log(`✅ [ORDERS] Increased quantity of existing product in order ${id} (new qty: ${newQuantity})`);
+                    }
                 } else {
-                    console.log(`✅ [ORDERS] Upsell product added successfully to order ${id}`);
+                    // Product doesn't exist - insert as new line item
+                    const { error: lineItemError } = await supabaseAdmin
+                        .from('order_line_items')
+                        .insert({
+                            order_id: id,
+                            product_id: product.id,
+                            product_name: productName,
+                            quantity: upsell_quantity,
+                            unit_price: unitPrice,
+                            total_price: unitPrice * upsell_quantity,
+                            image_url: product.image_url,
+                            sku: product.sku,
+                            is_upsell: true,
+                            created_at: new Date().toISOString()
+                        });
 
-                    // Get current line_items from order (JSONB field used by inventory trigger)
-                    const { data: currentOrder } = await supabaseAdmin
-                        .from('orders')
-                        .select('line_items, total_price')
-                        .eq('id', id)
-                        .single();
+                    if (lineItemError) {
+                        console.error('[ORDERS] Error adding upsell line item:', lineItemError);
+                    } else {
+                        console.log(`✅ [ORDERS] Upsell product added successfully to order ${id}`);
+                    }
+                }
 
-                    // Add upsell to line_items JSONB array (for inventory deduction)
-                    const currentLineItems = currentOrder?.line_items || [];
+                // Get current line_items from order (JSONB field used by inventory trigger)
+                const { data: currentOrder } = await supabaseAdmin
+                    .from('orders')
+                    .select('line_items, total_price')
+                    .eq('id', id)
+                    .single();
+
+                // Update JSONB line_items - also aggregate if same product exists
+                const currentLineItems: any[] = currentOrder?.line_items || [];
+                const existingJsonbIndex = currentLineItems.findIndex(
+                    (item: any) => item.product_id === product.id
+                );
+
+                let updatedLineItems;
+                if (existingJsonbIndex >= 0) {
+                    // Product exists in JSONB - increase quantity
+                    updatedLineItems = currentLineItems.map((item: any, index: number) => {
+                        if (index === existingJsonbIndex) {
+                            return {
+                                ...item,
+                                quantity: (item.quantity || 0) + upsell_quantity,
+                                product_name: productName // Ensure name is always set
+                            };
+                        }
+                        return item;
+                    });
+                } else {
+                    // Product doesn't exist in JSONB - add new item
                     const upsellLineItem = {
                         product_id: product.id,
-                        product_name: product.name || upsell_product_name,
+                        product_name: productName,
                         quantity: upsell_quantity,
                         price: unitPrice,
                         sku: product.sku,
                         is_upsell: true
                     };
-                    const updatedLineItems = [...currentLineItems, upsellLineItem];
-
-                    // Update order total and line_items to include upsell
-                    const upsellTotal = unitPrice * upsell_quantity;
-                    await supabaseAdmin
-                        .from('orders')
-                        .update({
-                            total_price: (currentOrder?.total_price || data.total_price || 0) + upsellTotal,
-                            line_items: updatedLineItems,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('id', id);
-
-                    console.log(`✅ [ORDERS] Updated order ${id} line_items with upsell product for inventory tracking`);
+                    updatedLineItems = [...currentLineItems, upsellLineItem];
                 }
+
+                // Update order total and line_items
+                const upsellTotal = unitPrice * upsell_quantity;
+                await supabaseAdmin
+                    .from('orders')
+                    .update({
+                        total_price: (currentOrder?.total_price || data.total_price || 0) + upsellTotal,
+                        line_items: updatedLineItems,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', id);
+
+                console.log(`✅ [ORDERS] Updated order ${id} line_items with upsell product for inventory tracking`);
             } else {
                 console.warn(`[ORDERS] Upsell product not found: ${upsell_product_id}`);
             }
