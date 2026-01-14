@@ -688,15 +688,25 @@ export class ShopifyWebhookService {
       });
 
       // Buscar producto en la base de datos local
-      const { data: existingProduct, error: fetchError } = await this.supabaseAdmin
+      // Use order + limit to handle potential duplicates (take most recent)
+      const { data: products, error: fetchError } = await this.supabaseAdmin
         .from('products')
         .select('*')
         .eq('shopify_product_id', shopifyProduct.id.toString())
         .eq('store_id', storeId)
-        .maybeSingle();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
       if (fetchError) {
         throw new Error(`Error buscando producto: ${fetchError.message}`);
+      }
+
+      const existingProduct = products && products.length > 0 ? products[0] : null;
+
+      // Log warning if duplicates were found (should not happen with unique constraint)
+      if (products && products.length > 1) {
+        console.warn(`⚠️ Found ${products.length} duplicate products with shopify_product_id=${shopifyProduct.id} for store_id=${storeId}`);
+        console.warn(`   Using most recent product (created_at=${existingProduct?.created_at})`);
       }
 
       // Preparar datos del producto actualizados
