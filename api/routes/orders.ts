@@ -2355,7 +2355,8 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             longitude,
             google_maps_link,
             delivery_zone,
-            shipping_cost
+            shipping_cost,
+            discount_amount
         } = req.body;
 
         console.log(`✅ [ORDERS] Confirming order ${id} with courier ${courier_id}`);
@@ -2403,6 +2404,12 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         // Update shipping cost and delivery zone
         if (delivery_zone) updateData.delivery_zone = delivery_zone;
         if (shipping_cost !== undefined) updateData.shipping_cost = Number(shipping_cost) || 0;
+
+        // Apply discount if provided - updates total_discounts and recalculates total_price
+        if (discount_amount !== undefined && Number(discount_amount) > 0) {
+            updateData.total_discounts = Number(discount_amount);
+            // Note: total_price will be recalculated after we get the current order data
+        }
 
         const { data, error } = await supabaseAdmin
             .from('orders')
@@ -2506,7 +2513,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 // Get current line_items from order (JSONB field used by inventory trigger)
                 const { data: currentOrder } = await supabaseAdmin
                     .from('orders')
-                    .select('line_items, total_price, cod_amount, payment_gateway')
+                    .select('line_items, total_price, cod_amount, payment_gateway, financial_status')
                     .eq('id', id)
                     .single();
 
@@ -2542,12 +2549,17 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     updatedLineItems = [...currentLineItems, upsellLineItem];
                 }
 
-                // Update order total, cod_amount (if COD), and line_items
+                // Update order total, cod_amount, and line_items
                 const upsellTotal = unitPrice * upsell_quantity;
                 const newTotalPrice = (currentOrder?.total_price || data.total_price || 0) + upsellTotal;
 
-                // Check if this is a COD order (payment_gateway is 'cash_on_delivery' or cod_amount > 0)
-                const isCodOrder = currentOrder?.payment_gateway === 'cash_on_delivery' ||
+                // CRITICAL: Determine if order was PAID online via Shopify
+                const financialStatus = currentOrder?.financial_status?.toLowerCase() || '';
+                const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+                const paymentGateway = currentOrder?.payment_gateway?.toLowerCase() || '';
+                const isCodOrder = paymentGateway === 'cash_on_delivery' ||
+                                   paymentGateway === 'cod' ||
+                                   paymentGateway === 'manual' ||
                                    (currentOrder?.cod_amount && currentOrder.cod_amount > 0);
 
                 const updateFields: any = {
@@ -2556,10 +2568,18 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     updated_at: new Date().toISOString()
                 };
 
-                // Also update cod_amount for COD orders so the shipping label shows the correct amount
-                if (isCodOrder) {
+                // CRITICAL: Calculate cod_amount correctly based on payment status
+                // - If order was PAID online (Shopify Payments, etc) => cod_amount = ONLY the upsell price
+                // - If order is COD => cod_amount = full new total price
+                if (isPaidOnline) {
+                    // Order was already paid, only charge for the upsell
+                    const currentCodAmount = currentOrder?.cod_amount || 0;
+                    updateFields.cod_amount = currentCodAmount + upsellTotal;
+                    console.log(`💰 [ORDERS] PAID order - Adding only upsell (${upsellTotal}) to cod_amount. New cod_amount: ${updateFields.cod_amount}`);
+                } else if (isCodOrder) {
+                    // COD order - charge full amount
                     updateFields.cod_amount = newTotalPrice;
-                    console.log(`💰 [ORDERS] Updated COD amount to ${newTotalPrice} for order ${id}`);
+                    console.log(`💰 [ORDERS] COD order - Updated COD amount to full total: ${newTotalPrice}`);
                 }
 
                 await supabaseAdmin
@@ -2573,6 +2593,47 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             }
         }
 
+        // Apply discount if provided (separate from upsell logic)
+        if (discount_amount !== undefined && Number(discount_amount) > 0) {
+            const discountValue = Number(discount_amount);
+            console.log(`💰 [ORDERS] Applying discount of ${discountValue} to order ${id}`);
+
+            // Get current order total
+            const { data: orderForDiscount } = await supabaseAdmin
+                .from('orders')
+                .select('total_price, cod_amount, payment_gateway, financial_status')
+                .eq('id', id)
+                .single();
+
+            if (orderForDiscount) {
+                const currentTotal = orderForDiscount.total_price || 0;
+                const newTotal = Math.max(0, currentTotal - discountValue);
+
+                const discountUpdateFields: any = {
+                    total_price: newTotal,
+                    total_discounts: discountValue,
+                    updated_at: new Date().toISOString()
+                };
+
+                // Update COD amount if applicable
+                const financialStatus = orderForDiscount.financial_status?.toLowerCase() || '';
+                const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+
+                if (!isPaidOnline && orderForDiscount.cod_amount !== null) {
+                    // COD order - update cod_amount to new total
+                    discountUpdateFields.cod_amount = newTotal;
+                    console.log(`💰 [ORDERS] COD order - Updated COD amount to: ${newTotal}`);
+                }
+
+                await supabaseAdmin
+                    .from('orders')
+                    .update(discountUpdateFields)
+                    .eq('id', id);
+
+                console.log(`✅ [ORDERS] Discount applied to order ${id}. New total: ${newTotal}`);
+            }
+        }
+
         // Log status change to history
         await supabaseAdmin
             .from('order_status_history')
@@ -2583,9 +2644,18 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 new_status: 'confirmed',
                 changed_by: req.userId || 'confirmador',
                 change_source: 'dashboard',
-                notes: upsell_added && upsell_product_id
-                    ? `Order confirmed with upsell: ${upsell_product_name || 'product'} x${upsell_quantity}`
-                    : (upsell_added ? 'Order confirmed with upsell added' : 'Order confirmed')
+                notes: (() => {
+                    const parts = ['Order confirmed'];
+                    if (upsell_added && upsell_product_id) {
+                        parts.push(`with upsell: ${upsell_product_name || 'product'} x${upsell_quantity}`);
+                    } else if (upsell_added) {
+                        parts.push('with upsell added');
+                    }
+                    if (discount_amount && Number(discount_amount) > 0) {
+                        parts.push(`with discount: Gs. ${Number(discount_amount).toLocaleString()}`);
+                    }
+                    return parts.join(' ');
+                })()
             });
 
         res.json({

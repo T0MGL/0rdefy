@@ -19,6 +19,7 @@ interface LabelData {
   carrierName?: string;
   codAmount?: number;
   totalPrice?: number; // Fallback when codAmount is 0
+  discountAmount?: number; // Discount applied to the order
   paymentMethod?: string;
   paymentGateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
@@ -67,35 +68,58 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
     errorCorrectionLevel: 'M'
   });
 
-  // Determine payment status
-  const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
+  // ============================================================================
+  // CRITICAL: Payment status determination - THIS CANNOT FAIL
+  // ============================================================================
+
+  // 1. Check if order was paid online (Shopify Payments, PayPal, etc.)
+  const isPaidOnline = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
+
+  // 2. Check if payment gateway indicates COD
   const isCODGateway = data.paymentGateway === 'cash_on_delivery' ||
                        data.paymentGateway === 'cod' ||
-                       data.paymentGateway === 'manual';
+                       data.paymentGateway === 'manual' ||
+                       data.paymentGateway === 'pending';
   const isCODMethod = data.paymentMethod === 'cash' ||
                       data.paymentMethod === 'efectivo' ||
                       data.paymentMethod === 'cod' ||
                       data.paymentMethod === 'cash_on_delivery';
 
-  // Get amount to collect - use codAmount if available, otherwise totalPrice
-  const amountToCollect = (data.codAmount && data.codAmount > 0) ? data.codAmount : (data.totalPrice || 0);
-  const hasAmountToCollect = amountToCollect > 0;
+  // 3. CRITICAL: cod_amount is the SOURCE OF TRUTH from backend
+  //    - cod_amount = 0 or undefined → nothing to collect (fully paid)
+  //    - cod_amount > 0 → collect this exact amount (COD or upsell on paid order)
+  const codAmountFromBackend = data.codAmount ?? 0;
 
-  // COD logic: gateway says COD, OR has amount AND not paid online
-  const isCOD = !isPaidByShopify && (isCODGateway || isCODMethod || hasAmountToCollect);
+  // 4. Determine amount to collect:
+  //    - If cod_amount > 0, use it (backend explicitly set this)
+  //    - If NOT paid online AND gateway is COD, use totalPrice as fallback
+  //    - Otherwise, collect nothing (PAGADO)
+  let amountToCollect = 0;
+  if (codAmountFromBackend > 0) {
+    // Backend says collect this exact amount
+    amountToCollect = codAmountFromBackend;
+  } else if (!isPaidOnline && (isCODGateway || isCODMethod)) {
+    // Legacy fallback for orders without cod_amount set
+    amountToCollect = data.totalPrice || 0;
+  }
+  // If paid online and no cod_amount > 0, amountToCollect = 0 → PAGADO
 
-  console.log('🔍 [PDF] Payment check:', {
-    paymentGateway: data.paymentGateway,
+  // 5. MASTER DECISION: COBRAR only if amountToCollect > 0
+  const isCOD = amountToCollect > 0;
+
+  console.log('🏷️ [LABEL] Payment determination:', {
     financialStatus: data.financialStatus,
-    codAmount: data.codAmount,
+    paymentGateway: data.paymentGateway,
+    isPaidOnline,
+    codAmountFromBackend,
     totalPrice: data.totalPrice,
     amountToCollect,
     isCOD,
-    isPaidByShopify
+    RESULT: isCOD ? `COBRAR Gs. ${amountToCollect.toLocaleString()}` : 'PAGADO'
   });
 
   // Draw label
-  drawLabel(pdf, data, qrDataUrl, isCOD, amountToCollect);
+  drawLabel(pdf, data, qrDataUrl, isCOD, amountToCollect, data.discountAmount);
 
   return pdf.output('blob');
 }
@@ -108,7 +132,8 @@ function drawLabel(
   data: LabelData,
   qrDataUrl: string,
   isCOD: boolean,
-  amountToCollect: number
+  amountToCollect: number,
+  discountAmount?: number
 ) {
   const PAGE_WIDTH = 4;
   const PAGE_HEIGHT = 6;
@@ -273,20 +298,29 @@ function drawLabel(
     pdf.text(`Gs. ${amountToCollect.toLocaleString('es-PY')}`, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.52, { align: 'center' });
 
     pdf.setTextColor(0, 0, 0);
+
+    // Show discount badge if applicable
+    if (discountAmount && discountAmount > 0) {
+      const discountBadgeY = paymentBoxY + paymentBoxHeight + 0.08;
+      pdf.setFillColor(255, 140, 0); // Orange
+      pdf.rect(paymentBoxX, discountBadgeY, paymentBoxWidth, 0.32, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(9);
+      pdf.text('DESC. APLICADO', paymentBoxX + paymentBoxWidth / 2, discountBadgeY + 0.12, { align: 'center' });
+      pdf.setFontSize(10);
+      pdf.text(`-Gs. ${discountAmount.toLocaleString('es-PY')}`, paymentBoxX + paymentBoxWidth / 2, discountBadgeY + 0.26, { align: 'center' });
+      pdf.setTextColor(0, 0, 0);
+    }
   } else {
-    // PAID - Outlined box
-    pdf.setLineWidth(0.03);
-    pdf.rect(paymentBoxX, paymentBoxY, paymentBoxWidth, paymentBoxHeight);
+    // PAID - Green filled box (more visible)
+    pdf.setFillColor(34, 139, 34); // Forest green
+    pdf.rect(paymentBoxX, paymentBoxY, paymentBoxWidth, paymentBoxHeight, 'F');
 
+    pdf.setTextColor(255, 255, 255);
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(18);
-    pdf.text('PAGADO', paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.35, { align: 'center' });
-
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(10);
-    const statusText = data.financialStatus === 'authorized' ? 'AUTORIZADO' :
-                       data.financialStatus === 'paid' ? 'CONFIRMADO' : 'STANDARD';
-    pdf.text(statusText, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.55, { align: 'center' });
+    pdf.setFontSize(20);
+    pdf.text('PAGADO', paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.42, { align: 'center' });
+    pdf.setTextColor(0, 0, 0);
   }
 
   // Carrier info
@@ -369,20 +403,27 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
       errorCorrectionLevel: 'M'
     });
 
-    const isPaidByShopify = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
+    // Same logic as generateLabelPDF - CRITICAL: cod_amount is source of truth
+    const isPaidOnline = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
     const isCODGateway = data.paymentGateway === 'cash_on_delivery' ||
                          data.paymentGateway === 'cod' ||
-                         data.paymentGateway === 'manual';
+                         data.paymentGateway === 'manual' ||
+                         data.paymentGateway === 'pending';
     const isCODMethod = data.paymentMethod === 'cash' ||
                         data.paymentMethod === 'efectivo' ||
                         data.paymentMethod === 'cod' ||
                         data.paymentMethod === 'cash_on_delivery';
 
-    const amountToCollect = (data.codAmount && data.codAmount > 0) ? data.codAmount : (data.totalPrice || 0);
-    const hasAmountToCollect = amountToCollect > 0;
-    const isCOD = !isPaidByShopify && (isCODGateway || isCODMethod || hasAmountToCollect);
+    const codAmountFromBackend = data.codAmount ?? 0;
+    let amountToCollect = 0;
+    if (codAmountFromBackend > 0) {
+      amountToCollect = codAmountFromBackend;
+    } else if (!isPaidOnline && (isCODGateway || isCODMethod)) {
+      amountToCollect = data.totalPrice || 0;
+    }
+    const isCOD = amountToCollect > 0;
 
-    drawLabel(pdf, data, qrDataUrl, isCOD, amountToCollect);
+    drawLabel(pdf, data, qrDataUrl, isCOD, amountToCollect, data.discountAmount);
   }
 
   return pdf.output('blob');

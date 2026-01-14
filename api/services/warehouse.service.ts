@@ -62,6 +62,7 @@ export interface OrderForPacking {
   carrier_name?: string;
   cod_amount?: number;
   payment_method?: string;
+  payment_gateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
   printed?: boolean;
   printed_at?: string;
@@ -768,6 +769,7 @@ export async function getPackingList(
           courier_id,
           cod_amount,
           payment_method,
+          payment_gateway,
           financial_status,
           printed,
           printed_at
@@ -946,6 +948,7 @@ export async function getPackingList(
         carrier_name: order.courier_id ? carrierMap.get(order.courier_id) : undefined,
         cod_amount: order.cod_amount,
         payment_method: order.payment_method,
+        payment_gateway: order.payment_gateway,
         financial_status: order.financial_status,
         printed: order.printed,
         printed_at: order.printed_at,

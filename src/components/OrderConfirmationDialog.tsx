@@ -33,7 +33,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useCarriers } from '@/hooks/useCarriers';
 import { productsService } from '@/services/products.service';
-import { Loader2, CheckCircle2, Printer, Check, ChevronsUpDown, Package } from 'lucide-react';
+import { Loader2, CheckCircle2, Printer, Check, ChevronsUpDown, Package, Percent } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { printLabelPDF } from '@/components/printing/printLabelPDF';
@@ -86,6 +86,8 @@ export function OrderConfirmationDialog({
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [loadingZones, setLoadingZones] = useState(false);
   const [openZoneCombobox, setOpenZoneCombobox] = useState(false);
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState<number>(0);
 
   // Fetch products when dialog opens
   useEffect(() => {
@@ -177,6 +179,8 @@ export function OrderConfirmationDialog({
       setUpsellProductId('');
       setUpsellQuantity(1);
       setOpenProductCombobox(false);
+      setDiscountEnabled(false);
+      setDiscountAmount(0);
 
       // Pre-fill address if order has one
       if (order?.address) {
@@ -314,6 +318,11 @@ export function OrderConfirmationDialog({
 
       if (googleMapsLink && googleMapsLink !== order.google_maps_link) {
         payload.google_maps_link = googleMapsLink;
+      }
+
+      // Add discount if enabled
+      if (discountEnabled && discountAmount > 0) {
+        payload.discount_amount = discountAmount;
       }
 
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}/confirm`, {
@@ -671,6 +680,61 @@ export function OrderConfirmationDialog({
                         </div>
                         <p className="text-xs text-muted-foreground">
                           Este producto se agregará al pedido (no reemplaza los productos existentes)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Discount Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between space-x-2">
+                  <Label htmlFor="discount" className="flex flex-col space-y-1">
+                    <span className="flex items-center gap-2">
+                      <Percent className="h-4 w-4" />
+                      ¿Aplicar descuento?
+                    </span>
+                    <span className="font-normal text-xs text-muted-foreground">
+                      Descuento por promoción o negociación con el cliente
+                    </span>
+                  </Label>
+                  <Switch
+                    id="discount"
+                    checked={discountEnabled}
+                    onCheckedChange={(checked) => {
+                      setDiscountEnabled(checked);
+                      if (!checked) {
+                        setDiscountAmount(0);
+                      }
+                    }}
+                  />
+                </div>
+
+                {discountEnabled && (
+                  <div className="space-y-2 pl-4 border-l-2 border-orange-500/30">
+                    <Label htmlFor="discount-amount">
+                      Monto del descuento (Gs.)
+                    </Label>
+                    <Input
+                      id="discount-amount"
+                      type="number"
+                      min={0}
+                      value={discountAmount || ''}
+                      onChange={(e) => setDiscountAmount(Math.max(0, parseInt(e.target.value) || 0))}
+                      placeholder="Ej: 10000"
+                      className="max-w-[200px]"
+                    />
+                    {discountAmount > 0 && order && (
+                      <div className="p-3 rounded-lg border bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800">
+                        <p className="text-sm text-orange-900 dark:text-orange-100">
+                          <span className="font-medium">Total original:</span> Gs. {(order.total ?? 0).toLocaleString()}
+                        </p>
+                        <p className="text-sm text-orange-900 dark:text-orange-100">
+                          <span className="font-medium">Descuento:</span> -Gs. {discountAmount.toLocaleString()}
+                        </p>
+                        <p className="text-sm font-bold text-orange-900 dark:text-orange-100 mt-1 pt-1 border-t border-orange-300 dark:border-orange-700">
+                          Nuevo total: Gs. {Math.max(0, (order.total ?? 0) - discountAmount).toLocaleString()}
                         </p>
                       </div>
                     )}

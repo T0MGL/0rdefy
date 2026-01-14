@@ -723,6 +723,138 @@ export default function Settlements() {
     }
   };
 
+  // Open payment dialog for a carrier
+  const openPaymentDialog = (carrier: CarrierBalance) => {
+    setPaymentCarrier(carrier);
+    setPaymentAmount(Math.abs(carrier.net_balance).toString());
+    setPaymentDirection(carrier.net_balance > 0 ? 'from_carrier' : 'to_carrier');
+    setPaymentMethod('cash');
+    setPaymentReference('');
+    setPaymentNotes('');
+    setPaymentDialogOpen(true);
+  };
+
+  // Open adjustment dialog for a carrier
+  const openAdjustmentDialog = (carrier: CarrierBalance) => {
+    setPaymentCarrier(carrier);
+    setAdjustmentAmount('');
+    setAdjustmentType('credit');
+    setAdjustmentDescription('');
+    setAdjustmentDialogOpen(true);
+  };
+
+  // Handle payment registration
+  const handleRegisterPayment = async () => {
+    if (!paymentCarrier || !paymentAmount) return;
+
+    const amount = parseFloat(paymentAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Ingresa un monto valido',
+      });
+      return;
+    }
+
+    setPaymentProcessing(true);
+    try {
+      const result = await registerCarrierPayment(
+        paymentCarrier.carrier_id,
+        amount,
+        paymentDirection,
+        paymentMethod,
+        {
+          paymentReference: paymentReference || undefined,
+          notes: paymentNotes || undefined,
+        }
+      );
+
+      toast({
+        title: 'Pago registrado',
+        description: `Pago ${result.paymentCode} registrado exitosamente`,
+      });
+
+      setPaymentDialogOpen(false);
+      loadCarrierAccounts();
+      loadPayments();
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'No se pudo registrar el pago',
+      });
+    } finally {
+      setPaymentProcessing(false);
+    }
+  };
+
+  // Handle adjustment creation
+  const handleCreateAdjustment = async () => {
+    if (!paymentCarrier || !adjustmentAmount || !adjustmentDescription) return;
+
+    const amount = parseFloat(adjustmentAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Ingresa un monto valido',
+      });
+      return;
+    }
+
+    setAdjustmentProcessing(true);
+    try {
+      await createCarrierAdjustment(
+        paymentCarrier.carrier_id,
+        amount,
+        adjustmentType,
+        adjustmentDescription
+      );
+
+      toast({
+        title: 'Ajuste registrado',
+        description: `Ajuste de ${formatCurrency(amount)} registrado exitosamente`,
+      });
+
+      setAdjustmentDialogOpen(false);
+      loadCarrierAccounts();
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'No se pudo registrar el ajuste',
+      });
+    } finally {
+      setAdjustmentProcessing(false);
+    }
+  };
+
+  // Get movement type label in Spanish
+  const getMovementTypeLabel = (type: string): string => {
+    const labels: Record<string, string> = {
+      'cod_collected': 'COD Cobrado',
+      'delivery_fee': 'Tarifa de Entrega',
+      'failed_attempt_fee': 'Tarifa Intento Fallido',
+      'payment_received': 'Pago Recibido',
+      'payment_sent': 'Pago Enviado',
+      'adjustment_credit': 'Ajuste (Credito)',
+      'adjustment_debit': 'Ajuste (Debito)',
+    };
+    return labels[type] || type;
+  };
+
+  // Get movement type color
+  const getMovementTypeColor = (type: string): string => {
+    if (type.includes('cod') || type.includes('credit') || type === 'payment_received') {
+      return 'text-green-600 dark:text-green-400';
+    }
+    if (type.includes('fee') || type.includes('debit') || type === 'payment_sent') {
+      return 'text-red-600 dark:text-red-400';
+    }
+    return 'text-muted-foreground';
+  };
+
   // CSV Import - Read and parse file
   // Handles both UTF-8 and Latin-1 (Windows-1252) encodings
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -925,7 +1057,7 @@ export default function Settlements() {
   const totalCod = groups.reduce((sum, g) => sum + g.total_cod_expected, 0);
 
   // ============================================================
-  // RENDER: SELECTION STEP
+  // RENDER: SELECTION STEP (with Tabs)
   // ============================================================
   if (currentStep === 'selection') {
     return (
@@ -940,31 +1072,54 @@ export default function Settlements() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Conciliaciones</h1>
+            <h1 className="text-3xl font-bold">Liquidaciones</h1>
             <p className="text-muted-foreground">
-              Selecciona un despacho para conciliar los resultados de entrega
+              Gestiona conciliaciones, cuentas de transportadoras y pagos
             </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={loadGroups} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-              Actualizar
-            </Button>
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="h-4 w-4 mr-2" />
-              Importar CSV
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              onChange={handleImportCSV}
-              className="hidden"
-            />
           </div>
         </div>
 
-        {/* Summary Cards */}
+        {/* Main Tabs */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as MainTab)}>
+          <TabsList className="grid w-full max-w-md grid-cols-3">
+            <TabsTrigger value="conciliaciones" className="gap-2">
+              <Truck className="h-4 w-4" />
+              Conciliaciones
+            </TabsTrigger>
+            <TabsTrigger value="cuentas" className="gap-2">
+              <Wallet className="h-4 w-4" />
+              Cuentas
+            </TabsTrigger>
+            <TabsTrigger value="pagos" className="gap-2">
+              <CreditCard className="h-4 w-4" />
+              Pagos
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ============================================================ */}
+          {/* TAB: CONCILIACIONES */}
+          {/* ============================================================ */}
+          <TabsContent value="conciliaciones" className="space-y-6 mt-6">
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3">
+              <Button variant="outline" onClick={loadGroups} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="h-4 w-4 mr-2" />
+                Importar CSV
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleImportCSV}
+                className="hidden"
+              />
+            </div>
+
+            {/* Summary Cards */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1175,6 +1330,468 @@ export default function Settlements() {
                     <CheckCircle2 className="h-4 w-4" />
                     Procesar Importacion
                   </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+          </TabsContent>
+
+          {/* ============================================================ */}
+          {/* TAB: CUENTAS (Carrier Accounts) */}
+          {/* ============================================================ */}
+          <TabsContent value="cuentas" className="space-y-6 mt-6">
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3">
+              <Button variant="outline" onClick={loadCarrierAccounts} disabled={accountsLoading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${accountsLoading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+            </div>
+
+            {/* Summary Cards */}
+            {accountSummary && (
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Transportadoras</CardTitle>
+                    <Truck className="h-4 w-4 text-blue-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{accountSummary.totalCarriersWithBalance}</div>
+                    <p className="text-xs text-muted-foreground">Con saldo activo</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Te Deben</CardTitle>
+                    <ArrowDownRight className="h-4 w-4 text-green-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-green-600">
+                      {formatCurrency(accountSummary.totalOwedByCarriers)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">COD por cobrar</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Debes</CardTitle>
+                    <ArrowUpRight className="h-4 w-4 text-red-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-red-600">
+                      {formatCurrency(accountSummary.totalOwedToCarriers)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Tarifas pendientes</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Posicion Neta</CardTitle>
+                    <DollarSign className={`h-4 w-4 ${accountSummary.netPosition >= 0 ? 'text-green-600' : 'text-red-600'}`} />
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-2xl font-bold ${accountSummary.netPosition >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(Math.abs(accountSummary.netPosition))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {accountSummary.netPosition >= 0 ? 'A favor tuyo' : 'A favor de couriers'}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Carrier Balances Table */}
+            {accountsLoading ? (
+              <TableSkeleton columns={6} rows={5} />
+            ) : carrierBalances.length === 0 ? (
+              <EmptyState
+                icon={Wallet}
+                title="Sin cuentas activas"
+                description="Los saldos apareceran cuando se registren entregas con transportadoras"
+              />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Saldos por Transportadora</CardTitle>
+                  <CardDescription>
+                    Balance actual de cada transportadora. Verde = te deben, Rojo = debes.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Transportadora</TableHead>
+                        <TableHead>Tipo Liquidacion</TableHead>
+                        <TableHead className="text-right">COD Cobrado</TableHead>
+                        <TableHead className="text-right">Tarifas</TableHead>
+                        <TableHead className="text-right">Balance Neto</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {carrierBalances.map((carrier) => (
+                        <TableRow key={carrier.carrier_id} className="cursor-pointer hover:bg-muted/50">
+                          <TableCell>
+                            <div className="font-medium">{carrier.carrier_name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {carrier.unsettled_orders} pedidos sin liquidar
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {carrier.settlement_type === 'net' ? 'Neto' : carrier.settlement_type === 'gross' ? 'Bruto' : 'Salario'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right text-green-600 font-medium">
+                            +{formatCurrency(carrier.total_cod_collected)}
+                          </TableCell>
+                          <TableCell className="text-right text-red-600 font-medium">
+                            -{formatCurrency(carrier.total_delivery_fees + carrier.total_failed_fees)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className={`font-bold ${carrier.net_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {carrier.net_balance >= 0 ? '+' : ''}{formatCurrency(carrier.net_balance)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setSelectedCarrier(carrier)}>
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  Ver Movimientos
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openPaymentDialog(carrier)}>
+                                  <BanknoteIcon className="h-4 w-4 mr-2" />
+                                  Registrar Pago
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => openAdjustmentDialog(carrier)}>
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  Crear Ajuste
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Carrier Movements Dialog */}
+            <Dialog open={!!selectedCarrier} onOpenChange={(open) => !open && setSelectedCarrier(null)}>
+              <DialogContent className="max-w-3xl max-h-[80vh]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <History className="h-5 w-5" />
+                    Movimientos - {selectedCarrier?.carrier_name}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Historial de transacciones y movimientos de cuenta
+                  </DialogDescription>
+                </DialogHeader>
+
+                {movementsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : carrierMovements.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No hay movimientos registrados
+                  </div>
+                ) : (
+                  <ScrollArea className="h-96">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Fecha</TableHead>
+                          <TableHead>Tipo</TableHead>
+                          <TableHead>Pedido</TableHead>
+                          <TableHead className="text-right">Monto</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {carrierMovements.map((movement) => (
+                          <TableRow key={movement.id}>
+                            <TableCell className="text-sm">
+                              {format(new Date(movement.movement_date), 'dd/MM/yyyy HH:mm', { locale: es })}
+                            </TableCell>
+                            <TableCell>
+                              <span className={getMovementTypeColor(movement.movement_type)}>
+                                {getMovementTypeLabel(movement.movement_type)}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              {movement.order_number ? (
+                                <span className="font-mono text-xs">{movement.order_number}</span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              <span className={movement.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                {movement.amount >= 0 ? '+' : ''}{formatCurrency(movement.amount)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                )}
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setSelectedCarrier(null)}>
+                    Cerrar
+                  </Button>
+                  {selectedCarrier && (
+                    <Button onClick={() => openPaymentDialog(selectedCarrier)}>
+                      <BanknoteIcon className="h-4 w-4 mr-2" />
+                      Registrar Pago
+                    </Button>
+                  )}
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+
+          {/* ============================================================ */}
+          {/* TAB: PAGOS (Payments) */}
+          {/* ============================================================ */}
+          <TabsContent value="pagos" className="space-y-6 mt-6">
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3">
+              <Button variant="outline" onClick={loadPayments} disabled={paymentsLoading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${paymentsLoading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+            </div>
+
+            {/* Payments Table */}
+            {paymentsLoading ? (
+              <TableSkeleton columns={6} rows={5} />
+            ) : payments.length === 0 ? (
+              <EmptyState
+                icon={CreditCard}
+                title="Sin pagos registrados"
+                description="Los pagos apareceran aqui cuando registres transacciones con transportadoras"
+              />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Historial de Pagos</CardTitle>
+                  <CardDescription>
+                    Registro de todos los pagos realizados a y desde transportadoras
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Codigo</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Transportadora</TableHead>
+                        <TableHead>Direccion</TableHead>
+                        <TableHead>Metodo</TableHead>
+                        <TableHead className="text-right">Monto</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payments.map((payment) => (
+                        <TableRow key={payment.id}>
+                          <TableCell className="font-mono text-xs">
+                            {payment.payment_code}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {format(new Date(payment.payment_date), 'dd/MM/yyyy', { locale: es })}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {payment.carrier_name}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={payment.direction === 'from_carrier' ? 'default' : 'secondary'}>
+                              {payment.direction === 'from_carrier' ? 'Recibido' : 'Enviado'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {payment.payment_method === 'cash' ? 'Efectivo' :
+                              payment.payment_method === 'bank_transfer' ? 'Transferencia' :
+                                payment.payment_method === 'mobile_payment' ? 'Pago Movil' :
+                                  payment.payment_method === 'check' ? 'Cheque' :
+                                    payment.payment_method === 'deduction' ? 'Deduccion' : payment.payment_method}
+                          </TableCell>
+                          <TableCell className="text-right font-bold">
+                            <span className={payment.direction === 'from_carrier' ? 'text-green-600' : 'text-red-600'}>
+                              {payment.direction === 'from_carrier' ? '+' : '-'}{formatCurrency(payment.amount)}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {/* Payment Registration Dialog */}
+        <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Registrar Pago</DialogTitle>
+              <DialogDescription>
+                Registrar pago {paymentDirection === 'from_carrier' ? 'recibido de' : 'enviado a'} {paymentCarrier?.carrier_name}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Direccion del Pago</Label>
+                <Select value={paymentDirection} onValueChange={(v) => setPaymentDirection(v as 'from_carrier' | 'to_carrier')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="from_carrier">Recibido del Courier (COD)</SelectItem>
+                    <SelectItem value="to_carrier">Enviado al Courier (Tarifas)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Monto (Gs)</Label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Metodo de Pago</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Efectivo</SelectItem>
+                    <SelectItem value="bank_transfer">Transferencia Bancaria</SelectItem>
+                    <SelectItem value="mobile_payment">Pago Movil (Tigo, etc)</SelectItem>
+                    <SelectItem value="check">Cheque</SelectItem>
+                    <SelectItem value="deduction">Deducido del COD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Referencia (opcional)</Label>
+                <Input
+                  placeholder="Numero de transferencia, cheque, etc."
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Notas (opcional)</Label>
+                <Textarea
+                  placeholder="Notas adicionales..."
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPaymentDialogOpen(false)} disabled={paymentProcessing}>
+                Cancelar
+              </Button>
+              <Button onClick={handleRegisterPayment} disabled={paymentProcessing || !paymentAmount}>
+                {paymentProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  'Registrar Pago'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Adjustment Dialog */}
+        <Dialog open={adjustmentDialogOpen} onOpenChange={setAdjustmentDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Crear Ajuste</DialogTitle>
+              <DialogDescription>
+                Ajuste manual para {paymentCarrier?.carrier_name}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Tipo de Ajuste</Label>
+                <Select value={adjustmentType} onValueChange={(v) => setAdjustmentType(v as 'credit' | 'debit')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="credit">Credito (A favor del courier)</SelectItem>
+                    <SelectItem value="debit">Debito (A favor tuyo)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Monto (Gs)</Label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={adjustmentAmount}
+                  onChange={(e) => setAdjustmentAmount(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Descripcion</Label>
+                <Textarea
+                  placeholder="Motivo del ajuste..."
+                  value={adjustmentDescription}
+                  onChange={(e) => setAdjustmentDescription(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAdjustmentDialogOpen(false)} disabled={adjustmentProcessing}>
+                Cancelar
+              </Button>
+              <Button onClick={handleCreateAdjustment} disabled={adjustmentProcessing || !adjustmentAmount || !adjustmentDescription}>
+                {adjustmentProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  'Crear Ajuste'
                 )}
               </Button>
             </DialogFooter>

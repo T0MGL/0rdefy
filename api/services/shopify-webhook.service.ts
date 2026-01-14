@@ -1291,6 +1291,29 @@ export class ShopifyWebhookService {
                           shopifyOrder.gateway ||
                           (shopifyOrder.financial_status === 'pending' ? 'pending' : 'unknown');
 
+    // CRITICAL: Calculate cod_amount based on payment status
+    // - If order is PAID in Shopify (paid, authorized) => cod_amount = 0 (nothing to collect)
+    // - If order is COD (cash_on_delivery, manual, pending) => cod_amount = total_price
+    const totalPrice = parseFloat(shopifyOrder.total_price);
+    const financialStatus = shopifyOrder.financial_status?.toLowerCase() || 'pending';
+    const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+    const isCashOnDelivery = paymentGateway === 'cash_on_delivery' ||
+                             paymentGateway === 'cod' ||
+                             paymentGateway === 'manual' ||
+                             financialStatus === 'pending';
+
+    // cod_amount = 0 if already paid online, otherwise full total_price
+    const codAmount = isPaidOnline ? 0 : totalPrice;
+
+    console.log(`💰 [SHOPIFY] Order ${shopifyOrder.id} payment mapping:`, {
+      financialStatus,
+      paymentGateway,
+      isPaidOnline,
+      isCashOnDelivery,
+      totalPrice,
+      codAmount
+    });
+
     return {
       store_id: storeId,
       customer_id: customerId,
@@ -1322,7 +1345,7 @@ export class ShopifyWebhookService {
       line_items: shopifyOrder.line_items,
 
       // Pricing
-      total_price: parseFloat(shopifyOrder.total_price),
+      total_price: totalPrice,
       subtotal_price: parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price),
       total_tax: parseFloat(shopifyOrder.total_tax || '0'),
       total_discounts: parseFloat(shopifyOrder.total_discounts || '0'),
@@ -1332,9 +1355,11 @@ export class ShopifyWebhookService {
       // Payment
       payment_gateway: paymentGateway,
       payment_method: this.mapPaymentGatewayToMethod(paymentGateway),
+      // CRITICAL: cod_amount - 0 if paid online, total_price if COD
+      cod_amount: codAmount,
 
       // Status
-      financial_status: shopifyOrder.financial_status || 'pending',
+      financial_status: financialStatus,
       fulfillment_status: shopifyOrder.fulfillment_status,
       cancel_reason: shopifyOrder.cancel_reason || null,
 

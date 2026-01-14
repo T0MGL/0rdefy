@@ -421,7 +421,10 @@ export default function WarehouseNew() {
         addressReference: order.address_reference,
         carrierName: order.carrier_name,
         codAmount: order.cod_amount,
+        totalPrice: order.total_price,
+        discountAmount: order.total_discounts,
         paymentMethod: order.payment_method,
+        paymentGateway: order.payment_gateway, // Critical for COD detection
         financialStatus: order.financial_status,
         deliveryToken: order.delivery_link_token || '',
         items: order.items.map(item => ({
@@ -471,6 +474,8 @@ export default function WarehouseNew() {
         addressReference: order.address_reference,
         carrierName: order.carrier_name,
         codAmount: order.cod_amount,
+        totalPrice: order.total_price,
+        discountAmount: order.total_discounts,
         paymentMethod: order.payment_method,
         financialStatus: order.financial_status,
         deliveryToken: order.delivery_link_token || '',

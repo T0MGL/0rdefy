@@ -924,6 +924,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
         totalPrice: order.total || (order as any).total_price, // Fallback for COD amount
+        discountAmount: (order as any).total_discounts, // Discount applied to order
         paymentMethod: (order as any).payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
         financialStatus: (order as any).financial_status,
@@ -986,6 +987,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         carrierName: getCarrierName(order.carrier),
         codAmount: (order as any).cod_amount,
         totalPrice: order.total || (order as any).total_price, // Fallback for COD amount
+        discountAmount: (order as any).total_discounts, // Discount applied to order
         paymentMethod: (order as any).payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
         financialStatus: (order as any).financial_status,
