@@ -135,7 +135,7 @@ export const getSettlements = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch settlements');
+    throw new Error(error.error || 'Error al obtener liquidaciones');
   }
 
   return response.json();
@@ -163,7 +163,7 @@ export const getTodaySettlement = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch today settlement');
+    throw new Error(error.error || 'Error al obtener liquidación de hoy');
   }
 
   return response.json();
@@ -179,7 +179,7 @@ export const getSettlementById = async (id: string): Promise<DailySettlement & {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch settlement');
+    throw new Error(error.error || 'Error al obtener liquidación');
   }
 
   return response.json();
@@ -204,7 +204,7 @@ export const createSettlement = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to create settlement');
+    throw new Error(error.error || 'Error al crear liquidación');
   }
 
   const result = await response.json();
@@ -226,7 +226,7 @@ export const updateSettlement = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to update settlement');
+    throw new Error(error.error || 'Error al actualizar liquidación');
   }
 
   const result = await response.json();
@@ -251,7 +251,7 @@ export const completeSettlement = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to complete settlement');
+    throw new Error(error.error || 'Error al completar liquidación');
   }
 
   const result = await response.json();
@@ -285,7 +285,7 @@ export const getSettlementStats = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch settlement stats');
+    throw new Error(error.error || 'Error al obtener estadísticas de liquidaciones');
   }
 
   return response.json();
@@ -302,7 +302,7 @@ export const deleteSettlement = async (id: string): Promise<void> => {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to delete settlement');
+    throw new Error(error.error || 'Error al eliminar liquidación');
   }
 };
 
@@ -333,7 +333,7 @@ export const getDispatchSessions = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch dispatch sessions');
+    throw new Error(error.error || 'Error al obtener sesiones de despacho');
   }
 
   return response.json();
@@ -350,7 +350,7 @@ export const getDispatchSessionById = async (id: string): Promise<{
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch dispatch session');
+    throw new Error(error.error || 'Error al obtener sesión de despacho');
   }
 
   return response.json();
@@ -370,7 +370,7 @@ export const createDispatchSession = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to create dispatch session');
+    throw new Error(error.error || 'Error al crear sesión de despacho');
   }
 
   const result = await response.json();
@@ -388,7 +388,7 @@ export const markSessionDispatched = async (id: string): Promise<DispatchSession
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to mark session as dispatched');
+    throw new Error(error.error || 'Error al marcar sesión como despachada');
   }
 
   const result = await response.json();
@@ -410,7 +410,7 @@ export const exportDispatchFile = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to export file');
+    throw new Error(error.error || 'Error al exportar archivo');
   }
 
   return response.blob();
@@ -461,7 +461,7 @@ export const importDeliveryResults = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to import delivery results');
+    throw new Error(error.error || 'Error al importar resultados de entrega');
   }
 
   return response.json();
@@ -558,7 +558,7 @@ export const processDispatchSettlement = async (sessionId: string): Promise<{
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to process settlement');
+    throw new Error(error.error || 'Error al procesar liquidación');
   }
 
   return response.json();
@@ -579,7 +579,7 @@ export const markSettlementPaid = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to mark settlement as paid');
+    throw new Error(error.error || 'Error al marcar liquidación como pagada');
   }
 
   const result = await response.json();
@@ -628,7 +628,7 @@ export const getSettlementsSummary = async (params?: {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch settlements summary');
+    throw new Error(error.error || 'Error al obtener resumen de liquidaciones');
   }
 
   return response.json();
@@ -648,7 +648,7 @@ export const getPendingByCarrier = async (): Promise<Array<{
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch pending by carrier');
+    throw new Error(error.error || 'Error al obtener pendientes por transportista');
   }
 
   return response.json();
@@ -848,7 +848,7 @@ export const getCarrierBalances = async (): Promise<CarrierBalance[]> => {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch carrier balances');
+    throw new Error(error.error || 'Error al obtener saldos de transportistas');
   }
 
   const result = await response.json();
@@ -863,7 +863,7 @@ export const getCarrierAccountSummary = async (): Promise<CarrierAccountSummary>
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch account summary');
+    throw new Error(error.error || 'Error al obtener resumen de cuenta');
   }
 
   const result = await response.json();
@@ -886,7 +886,7 @@ export const getCarrierDetail = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch carrier detail');
+    throw new Error(error.error || 'Error al obtener detalle del transportista');
   }
 
   const result = await response.json();
@@ -917,7 +917,7 @@ export const getCarrierMovements = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch movements');
+    throw new Error(error.error || 'Error al obtener movimientos');
   }
 
   return response.json();
@@ -933,7 +933,7 @@ export const getCarrierUnsettled = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch unsettled movements');
+    throw new Error(error.error || 'Error al obtener movimientos no liquidados');
   }
 
   const result = await response.json();
@@ -959,7 +959,7 @@ export const updateCarrierConfig = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to update config');
+    throw new Error(error.error || 'Error al actualizar configuración');
   }
 };
 
@@ -980,7 +980,7 @@ export const createCarrierAdjustment = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to create adjustment');
+    throw new Error(error.error || 'Error al crear ajuste');
   }
 
   const result = await response.json();
@@ -1019,7 +1019,7 @@ export const registerCarrierPayment = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to register payment');
+    throw new Error(error.error || 'Error al registrar pago');
   }
 
   const result = await response.json();
@@ -1051,7 +1051,7 @@ export const getCarrierPayments = async (
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch payments');
+    throw new Error(error.error || 'Error al obtener pagos');
   }
 
   return response.json();
@@ -1071,7 +1071,7 @@ export const backfillCarrierMovements = async (): Promise<{
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to backfill movements');
+    throw new Error(error.error || 'Error al procesar movimientos históricos');
   }
 
   const result = await response.json();

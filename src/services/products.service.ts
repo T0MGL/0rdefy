@@ -51,7 +51,7 @@ export const productsService = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result = await response.json();
       // API returns {data: [], pagination: {...}}, transform backend format to frontend
@@ -86,7 +86,7 @@ export const productsService = {
       });
       if (!response.ok) {
         if (response.status === 404) return undefined;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const data = await response.json();
       // Transform backend format to frontend
@@ -138,7 +138,7 @@ export const productsService = {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -192,7 +192,7 @@ export const productsService = {
       if (!response.ok) {
         if (response.status === 404) return undefined;
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -236,7 +236,7 @@ export const productsService = {
       });
       if (!response.ok) {
         if (response.status === 404) return false;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       return true;
     } catch (error) {
@@ -255,7 +255,7 @@ export const productsService = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -284,7 +284,7 @@ export const productsService = {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
@@ -322,7 +322,7 @@ export const productsService = {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || errorData.details || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.error || errorData.details || `Error HTTP: ${response.status}`);
       }
 
       return true;

@@ -1528,7 +1528,7 @@ export default function Settlements() {
                         {carrierMovements.map((movement) => (
                           <TableRow key={movement.id}>
                             <TableCell className="text-sm">
-                              {format(new Date(movement.movement_date), 'dd/MM/yyyy HH:mm', { locale: es })}
+                              {format(new Date(movement.movement_date + 'T12:00:00'), 'dd/MM/yyyy', { locale: es })}
                             </TableCell>
                             <TableCell>
                               <span className={getMovementTypeColor(movement.movement_type)}>

@@ -43,7 +43,7 @@ export const customersService = {
         headers: getAuthHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result: ApiListResponse = await response.json();
       // API returns {data: [], pagination: {...}}, extract the data array
@@ -61,7 +61,7 @@ export const customersService = {
       });
       if (!response.ok) {
         if (response.status === 404) return undefined;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const data: Customer = await response.json();
       return data;
@@ -80,7 +80,7 @@ export const customersService = {
       });
       if (!response.ok) {
         const errorData: ApiErrorResponse = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
       const result: ApiSingleResponse = await response.json();
       return result.data;
@@ -99,7 +99,7 @@ export const customersService = {
       });
       if (!response.ok) {
         if (response.status === 404) return undefined;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result: ApiSingleResponse = await response.json();
       return result.data;
@@ -119,9 +119,9 @@ export const customersService = {
         if (response.status === 404) return false;
         if (response.status === 409) {
           const errorData: ApiErrorResponse = await response.json();
-          throw new Error(errorData.message || 'Customer has existing orders');
+          throw new Error(errorData.message || 'El cliente tiene pedidos existentes');
         }
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       return true;
     } catch (error: unknown) {
@@ -136,7 +136,7 @@ export const customersService = {
         headers: getAuthHeaders(),
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
       const result: ApiListResponse = await response.json();
       return result.data || [];

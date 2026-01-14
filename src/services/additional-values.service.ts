@@ -20,7 +20,7 @@ export const additionalValuesService = {
       const response = await fetch(`${API_URL}/api/additional-values`, {
         headers: getAuthHeaders(),
       });
-      if (!response.ok) throw new Error('Failed to fetch additional values');
+      if (!response.ok) throw new Error('Error al obtener valores adicionales');
       const data = await response.json();
       return data.data || [];
     } catch (error) {
@@ -48,7 +48,7 @@ export const additionalValuesService = {
       const response = await fetch(`${API_URL}/api/additional-values/summary`, {
         headers: getAuthHeaders(),
       });
-      if (!response.ok) throw new Error('Failed to fetch summary');
+      if (!response.ok) throw new Error('Error al obtener resumen');
       return await response.json();
     } catch (error) {
       console.error('Error fetching summary:', error);
@@ -65,7 +65,7 @@ export const additionalValuesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to create additional value');
+      throw new Error(error.message || 'Error al crear valor adicional');
     }
 
     const result = await response.json();
@@ -81,7 +81,7 @@ export const additionalValuesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to update additional value');
+      throw new Error(error.message || 'Error al actualizar valor adicional');
     }
 
     const result = await response.json();
@@ -96,7 +96,7 @@ export const additionalValuesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to delete additional value');
+      throw new Error(error.message || 'Error al eliminar valor adicional');
     }
 
     return true;

@@ -111,6 +111,8 @@ export interface Order {
   // Cash on Delivery (COD)
   payment_method?: string; // 'cash', 'online', 'card', 'transfer', 'yape', 'plin', 'efectivo', etc.
   cod_amount?: number; // Monto que debe cobrar la transportadora en efectivo
+  // Discounts
+  total_discounts?: number; // Descuento aplicado al pedido
   // Geolocation for map
   latitude?: number;
   longitude?: number;

@@ -20,7 +20,7 @@ export const adsService = {
       const response = await fetch(`${API_URL}/api/campaigns`, {
         headers: getAuthHeaders(),
       });
-      if (!response.ok) throw new Error('Failed to fetch campaigns');
+      if (!response.ok) throw new Error('Error al obtener campañas');
       const data = await response.json();
       return data.data || [];
     } catch (error) {
@@ -51,7 +51,7 @@ export const adsService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to create campaign');
+      throw new Error(error.message || 'Error al crear campaña');
     }
 
     const result = await response.json();
@@ -67,7 +67,7 @@ export const adsService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to update campaign');
+      throw new Error(error.message || 'Error al actualizar campaña');
     }
 
     const result = await response.json();
@@ -82,7 +82,7 @@ export const adsService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to delete campaign');
+      throw new Error(error.message || 'Error al eliminar campaña');
     }
 
     return true;
@@ -97,7 +97,7 @@ export const adsService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to update campaign status');
+      throw new Error(error.message || 'Error al actualizar estado de campaña');
     }
 
     const result = await response.json();

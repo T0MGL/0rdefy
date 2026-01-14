@@ -51,7 +51,7 @@ export const carriersService = {
       const response = await fetch(`${API_URL}/api/couriers`, {
         headers: getHeaders(),
       });
-      if (!response.ok) throw new Error('Failed to fetch couriers');
+      if (!response.ok) throw new Error('Error al obtener transportistas');
       const data = await response.json();
       return data.data || [];
     } catch (error) {
@@ -83,7 +83,7 @@ export const carriersService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to create courier');
+      throw new Error(error.message || 'Error al crear transportista');
     }
 
     const result = await response.json();
@@ -99,7 +99,7 @@ export const carriersService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to update courier');
+      throw new Error(error.message || 'Error al actualizar transportista');
     }
 
     const result = await response.json();
@@ -114,7 +114,7 @@ export const carriersService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to delete courier');
+      throw new Error(error.message || 'Error al eliminar transportista');
     }
 
     return true;
@@ -128,7 +128,7 @@ export const carriersService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to toggle courier status');
+      throw new Error(error.message || 'Error al cambiar estado del transportista');
     }
 
     const result = await response.json();

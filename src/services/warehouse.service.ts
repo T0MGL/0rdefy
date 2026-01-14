@@ -51,6 +51,8 @@ export interface OrderForPacking {
   carrier_id?: string;
   carrier_name?: string;
   cod_amount?: number;
+  total_price?: number;
+  total_discounts?: number;
   payment_method?: string;
   payment_gateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
@@ -62,6 +64,7 @@ export interface OrderForPacking {
     product_image: string;
     quantity_needed: number;
     quantity_packed: number;
+    unit_price?: number;
   }>;
   is_complete: boolean;
 }

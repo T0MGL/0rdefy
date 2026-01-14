@@ -50,7 +50,7 @@ export const carrierZonesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to fetch carrier zones');
+      throw new Error(error.message || 'Error al obtener zonas del transportista');
     }
 
     return response.json();
@@ -73,7 +73,7 @@ export const carrierZonesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to create zone');
+      throw new Error(error.message || 'Error al crear zona');
     }
 
     const result = await response.json();
@@ -97,7 +97,7 @@ export const carrierZonesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to update zone');
+      throw new Error(error.message || 'Error al actualizar zona');
     }
 
     const result = await response.json();
@@ -115,7 +115,7 @@ export const carrierZonesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to delete zone');
+      throw new Error(error.message || 'Error al eliminar zona');
     }
   },
 
@@ -138,7 +138,7 @@ export const carrierZonesService = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Failed to calculate shipping cost');
+      throw new Error(error.message || 'Error al calcular costo de envío');
     }
 
     return response.json();

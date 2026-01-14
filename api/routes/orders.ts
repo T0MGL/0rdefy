@@ -2594,11 +2594,11 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         }
 
         // Apply discount if provided (separate from upsell logic)
+        // This runs AFTER upsell is added, so it applies to the final total
         if (discount_amount !== undefined && Number(discount_amount) > 0) {
             const discountValue = Number(discount_amount);
-            console.log(`💰 [ORDERS] Applying discount of ${discountValue} to order ${id}`);
 
-            // Get current order total
+            // Get current order total (may include upsell if just added)
             const { data: orderForDiscount } = await supabaseAdmin
                 .from('orders')
                 .select('total_price, cod_amount, payment_gateway, financial_status')
@@ -2607,11 +2607,20 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
 
             if (orderForDiscount) {
                 const currentTotal = orderForDiscount.total_price || 0;
-                const newTotal = Math.max(0, currentTotal - discountValue);
+
+                // Validate discount doesn't exceed total
+                if (discountValue > currentTotal) {
+                    console.warn(`⚠️ [ORDERS] Discount (${discountValue}) exceeds total (${currentTotal}). Capping at total.`);
+                }
+
+                const effectiveDiscount = Math.min(discountValue, currentTotal);
+                const newTotal = Math.max(0, currentTotal - effectiveDiscount);
+
+                console.log(`💰 [ORDERS] Applying discount of ${effectiveDiscount} to order ${id}. Total: ${currentTotal} → ${newTotal}`);
 
                 const discountUpdateFields: any = {
                     total_price: newTotal,
-                    total_discounts: discountValue,
+                    total_discounts: effectiveDiscount,
                     updated_at: new Date().toISOString()
                 };
 

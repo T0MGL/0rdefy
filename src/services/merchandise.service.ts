@@ -79,7 +79,7 @@ export const merchandiseService = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       const result: ApiListResponse = await response.json();
@@ -101,7 +101,7 @@ export const merchandiseService = {
 
       if (!response.ok) {
         if (response.status === 404) return undefined;
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       const data: InboundShipment = await response.json();
@@ -125,7 +125,7 @@ export const merchandiseService = {
 
       if (!response.ok) {
         const errorData: ApiErrorResponse = await response.json();
-        throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || errorData.error || `Error HTTP: ${response.status}`);
       }
 
       const data: InboundShipment = await response.json();
@@ -150,7 +150,7 @@ export const merchandiseService = {
       if (!response.ok) {
         if (response.status === 404) return undefined;
         const errorData: ApiErrorResponse = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
       const result: InboundShipment = await response.json();
@@ -175,9 +175,9 @@ export const merchandiseService = {
         if (response.status === 404) return false;
         if (response.status === 400) {
           const errorData: ApiErrorResponse = await response.json();
-          throw new Error(errorData.message || 'Cannot delete received shipments');
+          throw new Error(errorData.message || 'No se pueden eliminar envíos recibidos');
         }
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       return true;
@@ -201,7 +201,7 @@ export const merchandiseService = {
 
       if (!response.ok) {
         const errorData: ApiErrorResponse = await response.json();
-        throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || errorData.error || `Error HTTP: ${response.status}`);
       }
 
       const result: ApiReceiveResponse = await response.json();
@@ -222,7 +222,7 @@ export const merchandiseService = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Error HTTP: ${response.status}`);
       }
 
       const data: ApiStatsResponse = await response.json();
