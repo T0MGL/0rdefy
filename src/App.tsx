@@ -104,8 +104,9 @@ const AppLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
     <div className="flex-1 flex flex-col min-w-0">
       <Header />
       <main id="main-content" className="flex-1 p-4 sm:p-6 overflow-auto" tabIndex={-1}>
-        {/* Removed Suspense - handled at Routes level to prevent nesting */}
-        {children}
+        <Suspense fallback={<div className="hidden" />}>
+          {children}
+        </Suspense>
       </main>
     </div>
   </div>
@@ -166,19 +167,18 @@ const App = () => {
                                 <DemoTour autoStart={true} />
                               </Suspense>
                             </ErrorBoundary>
-                            {/* Single Suspense boundary for all routes - prevents nesting conflicts */}
-                            <Suspense fallback={<div className="hidden" />}>
+                            {/* Suspense now handled inside AppLayout to keep Sidebar/Header visible during page transitions */}
                               <Routes>
-                            {/* Public routes */}
-                            <Route path="/login" element={<LoginDemo />} />
-                            <Route path="/signup" element={<SignUp />} />
-                            <Route path="/onboarding" element={<Onboarding />} />
-                            <Route path="/i/:token" element={<AcceptInvitation />} />
-                            <Route path="/accept-invite/:token" element={<AcceptInvitation />} />
-                            <Route path="/delivery/:token" element={<Delivery />} />
-                            <Route path="/shopify-oauth-callback" element={<ShopifyOAuthCallback />} />
-                            <Route path="/r/:code" element={<Referral />} />
-                            <Route path="/onboarding/plan" element={<PrivateRoute><OnboardingPlan /></PrivateRoute>} />
+                            {/* Public routes - wrapped in Suspense for lazy loading */}
+                            <Route path="/login" element={<Suspense fallback={<div className="hidden" />}><LoginDemo /></Suspense>} />
+                            <Route path="/signup" element={<Suspense fallback={<div className="hidden" />}><SignUp /></Suspense>} />
+                            <Route path="/onboarding" element={<Suspense fallback={<div className="hidden" />}><Onboarding /></Suspense>} />
+                            <Route path="/i/:token" element={<Suspense fallback={<div className="hidden" />}><AcceptInvitation /></Suspense>} />
+                            <Route path="/accept-invite/:token" element={<Suspense fallback={<div className="hidden" />}><AcceptInvitation /></Suspense>} />
+                            <Route path="/delivery/:token" element={<Suspense fallback={<div className="hidden" />}><Delivery /></Suspense>} />
+                            <Route path="/shopify-oauth-callback" element={<Suspense fallback={<div className="hidden" />}><ShopifyOAuthCallback /></Suspense>} />
+                            <Route path="/r/:code" element={<Suspense fallback={<div className="hidden" />}><Referral /></Suspense>} />
+                            <Route path="/onboarding/plan" element={<PrivateRoute><Suspense fallback={<div className="hidden" />}><OnboardingPlan /></Suspense></PrivateRoute>} />
 
                             {/* Protected routes with layout and permission checks */}
                             {/* Dashboard - accessible to all authenticated users */}
@@ -235,7 +235,6 @@ const App = () => {
                             {/* Billing module - Owner only */}
                             <Route path="/billing" element={<PermissionLayout module={Module.BILLING} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}><Billing /></PermissionLayout>} />
                           </Routes>
-                          </Suspense>
                         </OnboardingGuard>
                         </ErrorBoundary>
                         </DemoTourProvider>

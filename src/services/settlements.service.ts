@@ -713,64 +713,6 @@ export const translateDeliveryResult = (result: DeliveryResult): string => {
 };
 
 // ================================================================
-// EXPORT ALL
-// ================================================================
-export const settlementsService = {
-  // Legacy settlements (v1)
-  getAll: getSettlements,
-  getToday: getTodaySettlement,
-  getById: getSettlementById,
-  create: createSettlement,
-  update: updateSettlement,
-  complete: completeSettlement,
-  getStats: getSettlementStats,
-  delete: deleteSettlement,
-
-  // Dispatch sessions (new)
-  dispatch: {
-    getAll: getDispatchSessions,
-    getById: getDispatchSessionById,
-    create: createDispatchSession,
-    markDispatched: markSessionDispatched,
-    exportCSV: exportDispatchCSV,
-    downloadCSV: downloadDispatchCSV,
-    importResults: importDeliveryResults,
-    parseCSV: parseDeliveryResultsCSV,
-    settle: processDispatchSettlement,
-  },
-
-  // V2 settlements
-  v2: {
-    markPaid: markSettlementPaid,
-    getSummary: getSettlementsSummary,
-    getPendingByCarrier: getPendingByCarrier,
-  },
-
-  // Carrier accounts (unified system)
-  carrierAccounts: {
-    getBalances: getCarrierBalances,
-    getSummary: getCarrierAccountSummary,
-    getDetail: getCarrierDetail,
-    getMovements: getCarrierMovements,
-    getUnsettled: getCarrierUnsettled,
-    updateConfig: updateCarrierConfig,
-    createAdjustment: createCarrierAdjustment,
-    registerPayment: registerCarrierPayment,
-    getPayments: getCarrierPayments,
-    backfillMovements: backfillCarrierMovements,
-  },
-
-  // Utilities
-  utils: {
-    formatCurrency,
-    getStatusColor,
-    getDeliveryResultColor,
-    translateStatus,
-    translateDeliveryResult,
-  },
-};
-
-// ================================================================
 // CARRIER ACCOUNT TYPES
 // ================================================================
 
@@ -1079,4 +1021,62 @@ export const backfillCarrierMovements = async (): Promise<{
 
   const result = await response.json();
   return result.data;
+};
+
+// ================================================================
+// EXPORT ALL - Must be at the end after all functions are defined
+// ================================================================
+export const settlementsService = {
+  // Legacy settlements (v1)
+  getAll: getSettlements,
+  getToday: getTodaySettlement,
+  getById: getSettlementById,
+  create: createSettlement,
+  update: updateSettlement,
+  complete: completeSettlement,
+  getStats: getSettlementStats,
+  delete: deleteSettlement,
+
+  // Dispatch sessions (new)
+  dispatch: {
+    getAll: getDispatchSessions,
+    getById: getDispatchSessionById,
+    create: createDispatchSession,
+    markDispatched: markSessionDispatched,
+    exportCSV: exportDispatchCSV,
+    downloadCSV: downloadDispatchCSV,
+    importResults: importDeliveryResults,
+    parseCSV: parseDeliveryResultsCSV,
+    settle: processDispatchSettlement,
+  },
+
+  // V2 settlements
+  v2: {
+    markPaid: markSettlementPaid,
+    getSummary: getSettlementsSummary,
+    getPendingByCarrier: getPendingByCarrier,
+  },
+
+  // Carrier accounts (unified system)
+  carrierAccounts: {
+    getBalances: getCarrierBalances,
+    getSummary: getCarrierAccountSummary,
+    getDetail: getCarrierDetail,
+    getMovements: getCarrierMovements,
+    getUnsettled: getCarrierUnsettled,
+    updateConfig: updateCarrierConfig,
+    createAdjustment: createCarrierAdjustment,
+    registerPayment: registerCarrierPayment,
+    getPayments: getCarrierPayments,
+    backfillMovements: backfillCarrierMovements,
+  },
+
+  // Utilities
+  utils: {
+    formatCurrency,
+    getStatusColor,
+    getDeliveryResultColor,
+    translateStatus,
+    translateDeliveryResult,
+  },
 };
