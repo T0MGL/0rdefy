@@ -52,6 +52,7 @@ interface DemoTourActions {
   prevStep: () => void;
   goToStep: (index: number) => void;
   skipTour: () => void;
+  pauseTour: () => void; // Pause without marking as completed (for external flows like OAuth)
   completeTour: () => void;
   updateDemoData: (data: Partial<DemoData>) => void;
   cleanupDemoData: () => Promise<void>;
@@ -587,6 +588,17 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
     }));
   }, []);
 
+  // Pause tour temporarily without marking as completed
+  // Use this when user needs to interact with external flows (like Shopify OAuth)
+  const pauseTour = useCallback(() => {
+    // Don't mark as completed, just deactivate - user can resume later
+    setState(prev => ({
+      ...prev,
+      isActive: false,
+    }));
+    // Note: Progress is preserved in localStorage, user can restart from Settings
+  }, []);
+
   const cleanupDemoData = useCallback(async () => {
     const { order, pickingSessionId, dispatchSessionId } = state.demoData;
     const token = localStorage.getItem('auth_token');
@@ -687,6 +699,7 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
     prevStep,
     goToStep,
     skipTour,
+    pauseTour,
     completeTour,
     updateDemoData,
     cleanupDemoData,

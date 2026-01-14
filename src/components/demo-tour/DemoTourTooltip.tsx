@@ -12,6 +12,7 @@ import {
   Wrench,
   Loader2,
 } from 'lucide-react';
+import { shopifyService } from '@/services/shopify.service';
 
 // Lazy load interactive step components - only loaded when tour is active
 const CarrierStep = lazy(() => import('./steps/CarrierStep').then(m => ({ default: m.CarrierStep })));
@@ -72,12 +73,35 @@ export function DemoTourTooltip() {
   } = useDemoTour();
 
   const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition>({});
+  const [isShopifyConnected, setIsShopifyConnected] = useState<boolean | null>(null);
+  const [isCheckingShopify, setIsCheckingShopify] = useState(false);
+
   const isFirstStep = currentStepIndex === 0;
   const isLastStep = currentStepIndex === totalSteps - 1;
   // Welcome step with path selection (only for owners/admins who need to choose Shopify vs Manual)
   const isWelcomeStepWithPathSelection = currentStep?.id === 'welcome' && path === null;
   // Welcome step for collaborators (shows simple welcome without path selection)
   const isCollaboratorWelcome = currentStep?.id === 'welcome' && path === 'collaborator';
+
+  // Check if Shopify is already connected (for welcome step)
+  useEffect(() => {
+    if (!isWelcomeStepWithPathSelection) return;
+    if (isShopifyConnected !== null) return; // Already checked
+
+    const checkShopifyConnection = async () => {
+      setIsCheckingShopify(true);
+      try {
+        const response = await shopifyService.getIntegration();
+        setIsShopifyConnected(response.success && !!response.integration);
+      } catch (error) {
+        setIsShopifyConnected(false);
+      } finally {
+        setIsCheckingShopify(false);
+      }
+    };
+
+    checkShopifyConnection();
+  }, [isWelcomeStepWithPathSelection, isShopifyConnected]);
 
   // Calculate tooltip position
   useEffect(() => {
@@ -225,6 +249,31 @@ export function DemoTourTooltip() {
 
   // Welcome step with path selection (for owners/admins)
   if (isWelcomeStepWithPathSelection) {
+    // Show loading while checking Shopify connection
+    if (isCheckingShopify) {
+      return (
+        <AnimatePresence mode="wait">
+          <motion.div
+            key="welcome-loading"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)]"
+            style={{
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+            }}
+          >
+            <div className="bg-card border border-border rounded-2xl shadow-2xl p-8 flex items-center justify-center gap-3">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+              <span className="text-sm text-muted-foreground">Cargando...</span>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      );
+    }
+
     return (
       <AnimatePresence mode="wait">
         <motion.div
@@ -256,29 +305,51 @@ export function DemoTourTooltip() {
           {/* Path selection */}
           <div className="p-6 pt-4 space-y-3">
             <p className="text-sm font-medium text-card-foreground mb-4 text-center">
-              ¿Cómo quieres empezar?
+              {isShopifyConnected ? '¿Qué quieres aprender?' : '¿Cómo quieres empezar?'}
             </p>
 
-            {/* Shopify option */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setPath('shopify')}
-              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all text-left"
-            >
-              <div className="w-12 h-12 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
-                <Store className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex-1">
-                <h4 className="font-semibold text-card-foreground">
-                  Conectar Shopify
-                </h4>
-                <p className="text-sm text-muted-foreground">
-                  Importa productos, clientes y pedidos automáticamente
-                </p>
-              </div>
-              <ArrowRight className="w-5 h-5 text-primary flex-shrink-0" />
-            </motion.button>
+            {/* Shopify option - Show connected state or connect option */}
+            {isShopifyConnected ? (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setPath('shopify')}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all text-left"
+              >
+                <div className="w-12 h-12 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 className="w-6 h-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-card-foreground">
+                    Shopify Conectado
+                  </h4>
+                  <p className="text-sm text-muted-foreground">
+                    Aprende a gestionar pedidos sincronizados
+                  </p>
+                </div>
+                <ArrowRight className="w-5 h-5 text-primary flex-shrink-0" />
+              </motion.button>
+            ) : (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setPath('shopify')}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all text-left"
+              >
+                <div className="w-12 h-12 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                  <Store className="w-6 h-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-card-foreground">
+                    Conectar Shopify
+                  </h4>
+                  <p className="text-sm text-muted-foreground">
+                    Importa productos, clientes y pedidos automáticamente
+                  </p>
+                </div>
+                <ArrowRight className="w-5 h-5 text-primary flex-shrink-0" />
+              </motion.button>
+            )}
 
             {/* Manual option */}
             <motion.button
@@ -292,10 +363,13 @@ export function DemoTourTooltip() {
               </div>
               <div className="flex-1">
                 <h4 className="font-semibold text-card-foreground">
-                  Configurar manualmente
+                  {isShopifyConnected ? 'Tour completo' : 'Configurar manualmente'}
                 </h4>
                 <p className="text-sm text-muted-foreground">
-                  Te guiamos paso a paso para crear tu primera operación
+                  {isShopifyConnected
+                    ? 'Aprende el flujo completo desde crear pedido hasta despacho'
+                    : 'Te guiamos paso a paso para crear tu primera operación'
+                  }
                 </p>
               </div>
               <ArrowRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />

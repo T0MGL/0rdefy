@@ -1,35 +1,58 @@
 // ShopifyStep - Interactive step to connect Shopify
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useDemoTour } from '../DemoTourProvider';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import {
   Store,
   ArrowRight,
-  Check,
   Sparkles,
   ExternalLink,
   Package,
   Users,
   ShoppingCart,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react';
+import { shopifyService } from '@/services/shopify.service';
 
 interface ShopifyStepProps {
   onComplete?: () => void;
 }
 
 export function ShopifyStep({ onComplete }: ShopifyStepProps) {
-  const { nextStep, skipTour } = useDemoTour();
+  const { nextStep, pauseTour } = useDemoTour();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(true);
+  const [isAlreadyConnected, setIsAlreadyConnected] = useState(false);
+
+  // Check if Shopify is already connected
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const response = await shopifyService.getIntegration();
+        if (response.success && response.integration) {
+          setIsAlreadyConnected(true);
+        }
+      } catch (error) {
+        // If error, assume not connected
+        console.log('[ShopifyStep] Error checking connection, assuming not connected');
+      } finally {
+        setIsCheckingConnection(false);
+      }
+    };
+
+    checkConnection();
+  }, []);
 
   const handleConnect = () => {
     setIsConnecting(true);
-    // Close the tour modal and let user interact with the actual Shopify integration
-    // We'll skip the tour for now since Shopify connection is a separate flow
+    // Pause the tour (not complete!) - user is going to connect Shopify
+    // After OAuth completes, they can resume the tour from where they left off
     setTimeout(() => {
-      skipTour();
+      // Just pause - don't mark as completed. The tour will resume when user returns.
+      pauseTour();
       // Open the Shopify connection by clicking the button programmatically
       const shopifyButton = document.querySelector('[data-integration="shopify"]') as HTMLButtonElement;
       if (shopifyButton) {
@@ -47,6 +70,92 @@ export function ShopifyStep({ onComplete }: ShopifyStepProps) {
     nextStep();
   };
 
+  const handleContinue = () => {
+    // Shopify already connected, continue to next step
+    onComplete?.();
+    nextStep();
+  };
+
+  // Show loading state while checking connection
+  if (isCheckingConnection) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="fixed z-[10002] w-[520px] max-w-[calc(100vw-32px)]"
+        style={{
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+        }}
+      >
+        <div className="bg-card border border-border rounded-2xl shadow-2xl p-8 flex items-center justify-center gap-3">
+          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+          <span className="text-sm text-muted-foreground">Verificando conexión...</span>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // If Shopify is already connected, show success state
+  if (isAlreadyConnected) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="fixed z-[10002] w-[520px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-64px)]"
+        style={{
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+        }}
+      >
+        <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-y-auto max-h-[calc(100vh-64px)]">
+          {/* Header */}
+          <div className="bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+                <CheckCircle2 className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-card-foreground">
+                  Shopify Conectado
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Tu tienda ya está sincronizada
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="p-6 space-y-5">
+            <div className="flex items-start gap-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+              <Sparkles className="w-4 h-4 text-primary mt-0.5" />
+              <p className="text-xs text-primary">
+                Tu tienda Shopify ya está conectada. Los productos, clientes y pedidos se sincronizan automáticamente.
+              </p>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 pb-6">
+            <Button
+              onClick={handleContinue}
+              className="w-full gap-2 h-11"
+            >
+              Continuar
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Default: Show connect Shopify prompt
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -61,10 +170,10 @@ export function ShopifyStep({ onComplete }: ShopifyStepProps) {
     >
       <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-y-auto max-h-[calc(100vh-64px)]">
         {/* Header */}
-        <div className="bg-gradient-to-br from-green-500/15 via-green-500/5 to-transparent p-6">
+        <div className="bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center">
-              <Store className="w-6 h-6 text-green-600 dark:text-green-400" />
+            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+              <Store className="w-6 h-6 text-primary" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-card-foreground">
@@ -86,9 +195,9 @@ export function ShopifyStep({ onComplete }: ShopifyStepProps) {
             </p>
             <div className="grid gap-2">
               {[
-                { icon: Package, label: 'Todos tus productos con precios y stock', color: 'text-blue-500' },
-                { icon: Users, label: 'Tu base de clientes', color: 'text-purple-500' },
-                { icon: ShoppingCart, label: 'Pedidos pendientes y recientes', color: 'text-orange-500' },
+                { icon: Package, label: 'Todos tus productos con precios y stock' },
+                { icon: Users, label: 'Tu base de clientes' },
+                { icon: ShoppingCart, label: 'Pedidos pendientes y recientes' },
               ].map((item, index) => (
                 <motion.div
                   key={item.label}
@@ -97,8 +206,8 @@ export function ShopifyStep({ onComplete }: ShopifyStepProps) {
                   transition={{ delay: index * 0.1 }}
                   className="flex items-center gap-3 p-2"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-muted/50 flex items-center justify-center">
-                    <item.icon className={cn('w-4 h-4', item.color)} />
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <item.icon className="w-4 h-4 text-primary" />
                   </div>
                   <span className="text-sm">{item.label}</span>
                 </motion.div>
@@ -107,9 +216,9 @@ export function ShopifyStep({ onComplete }: ShopifyStepProps) {
           </div>
 
           {/* Info box */}
-          <div className="flex items-start gap-3 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
-            <Sparkles className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5" />
-            <p className="text-xs text-green-700 dark:text-green-300">
+          <div className="flex items-start gap-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+            <Sparkles className="w-4 h-4 text-primary mt-0.5" />
+            <p className="text-xs text-primary">
               La sincronización es bidireccional. Los cambios en Ordefy se reflejan en Shopify automáticamente.
             </p>
           </div>
@@ -120,7 +229,7 @@ export function ShopifyStep({ onComplete }: ShopifyStepProps) {
           <Button
             onClick={handleConnect}
             disabled={isConnecting}
-            className="w-full gap-2 h-11 bg-green-600 hover:bg-green-700 text-white"
+            className="w-full gap-2 h-11"
           >
             {isConnecting ? (
               <>Abriendo conexión...</>

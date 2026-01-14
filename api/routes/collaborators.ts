@@ -372,6 +372,13 @@ collaboratorsRouter.get(
       // Email is masked for privacy but shown so user can confirm it's for them
       const maskedEmail = maskEmail(invitation.invited_email);
 
+      // Check if user already exists (needed to show correct password prompt)
+      const { data: existingUser } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', invitation.invited_email)
+        .single();
+
       res.json({
         valid: true,
         invitation: {
@@ -379,7 +386,8 @@ collaboratorsRouter.get(
           email: maskedEmail, // Masked email for privacy (e.g., j***@example.com)
           // role intentionally omitted - revealed after password set
           storeName: invitation.store.name,
-          expiresAt: invitation.expires_at
+          expiresAt: invitation.expires_at,
+          userExists: !!existingUser // Indicates if user needs to enter existing password
         }
       });
     } catch (error) {
@@ -493,8 +501,15 @@ collaboratorsRouter.post(
         // Verify password matches (they should login with existing password)
         const passwordMatch = await bcrypt.compare(password, existingUser.password_hash);
         if (!passwordMatch) {
+          // IMPORTANT: Rollback invitation claim so user can try again
+          console.log('[AcceptInvitation] Password mismatch, rolling back invitation claim');
+          await supabaseAdmin
+            .from('collaborator_invitations')
+            .update({ used: false, used_at: null })
+            .eq('id', invitation.id);
+
           return res.status(401).json({
-            error: 'Invalid password. Use your existing account password.'
+            error: 'Contraseña incorrecta. Usa la contraseña de tu cuenta existente.'
           });
         }
       } else {
@@ -515,6 +530,11 @@ collaboratorsRouter.post(
 
         if (userError || !newUser) {
           console.error('[AcceptInvitation] Error creating user:', userError);
+          // IMPORTANT: Rollback invitation claim so it can be tried again
+          await supabaseAdmin
+            .from('collaborator_invitations')
+            .update({ used: false, used_at: null })
+            .eq('id', invitation.id);
           return res.status(500).json({ error: 'Failed to create user' });
         }
 
@@ -587,7 +607,7 @@ collaboratorsRouter.post(
         .from('user_stores')
         .select(`
           role,
-          store:stores(id, name, country, timezone)
+          store:stores(id, name, country, currency, timezone)
         `)
         .eq('user_id', userId)
         .eq('is_active', true);
@@ -596,6 +616,7 @@ collaboratorsRouter.post(
         id: us.store.id,
         name: us.store.name,
         country: us.store.country,
+        currency: us.store.currency,
         timezone: us.store.timezone,
         role: us.role
       })) || [];
