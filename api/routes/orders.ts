@@ -1768,9 +1768,19 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .select('*, carriers(name), order_line_items(id, quantity, product_id, product_name, title, sku, variant_title, price)')
             .single();
 
+        // DEBUG: Log update result
+        console.log(`📋 [PATCH /orders/${id}/status] Update result:`, {
+            success: !!data,
+            error: error?.message || null,
+            errorCode: error?.code || null,
+            errorDetails: error?.details || null
+        });
+
         if (error || !data) {
+            console.error(`❌ [PATCH /orders/${id}/status] Update failed:`, error);
             return res.status(404).json({
-                error: 'Order not found'
+                error: 'Order not found',
+                details: error?.message
             });
         }
 
