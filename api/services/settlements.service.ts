@@ -119,6 +119,103 @@ export interface ImportRow {
 }
 
 // ============================================================
+// ATOMIC CODE GENERATION HELPERS
+// ============================================================
+// These functions use RPC calls with advisory locks to prevent
+// race conditions when generating settlement/dispatch codes.
+// They include retry logic for constraint violations.
+
+const MAX_CODE_GENERATION_RETRIES = 3;
+
+/**
+ * Generate settlement code atomically using database RPC
+ * Includes retry logic for constraint violations
+ */
+async function generateSettlementCodeWithRetry(storeId: string): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_CODE_GENERATION_RETRIES; attempt++) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .rpc('generate_settlement_code_atomic', { p_store_id: storeId });
+
+      if (error) {
+        // Check if it's a constraint violation (23505 = unique_violation)
+        if (error.code === '23505') {
+          console.warn(`⚠️ [SETTLEMENT] Code collision on attempt ${attempt}, retrying...`);
+          lastError = new Error(error.message);
+          // Small delay before retry
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+          continue;
+        }
+        throw new Error(`Error generando código de liquidación: ${error.message}`);
+      }
+
+      if (!data) {
+        throw new Error('No se recibió código de liquidación del servidor');
+      }
+
+      console.log(`✅ [SETTLEMENT] Generated code: ${data} (attempt ${attempt})`);
+      return data as string;
+    } catch (err: any) {
+      lastError = err;
+      // Only retry on constraint violations
+      if (!err.message?.includes('unique') && !err.message?.includes('duplicate')) {
+        throw err;
+      }
+      console.warn(`⚠️ [SETTLEMENT] Error on attempt ${attempt}:`, err.message);
+      await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+    }
+  }
+
+  throw lastError || new Error('No se pudo generar un código único de liquidación después de varios intentos');
+}
+
+/**
+ * Generate dispatch session code atomically using database RPC
+ * Includes retry logic for constraint violations
+ */
+async function generateDispatchCodeWithRetry(storeId: string): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_CODE_GENERATION_RETRIES; attempt++) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .rpc('generate_dispatch_code_atomic', { p_store_id: storeId });
+
+      if (error) {
+        // Check if it's a constraint violation (23505 = unique_violation)
+        if (error.code === '23505') {
+          console.warn(`⚠️ [DISPATCH] Code collision on attempt ${attempt}, retrying...`);
+          lastError = new Error(error.message);
+          // Small delay before retry
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+          continue;
+        }
+        throw new Error(`Error generando código de despacho: ${error.message}`);
+      }
+
+      if (!data) {
+        throw new Error('No se recibió código de despacho del servidor');
+      }
+
+      console.log(`✅ [DISPATCH] Generated code: ${data} (attempt ${attempt})`);
+      return data as string;
+    } catch (err: any) {
+      lastError = err;
+      // Only retry on constraint violations
+      if (!err.message?.includes('unique') && !err.message?.includes('duplicate')) {
+        throw err;
+      }
+      console.warn(`⚠️ [DISPATCH] Error on attempt ${attempt}:`, err.message);
+      await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+    }
+  }
+
+  throw lastError || new Error('No se pudo generar un código único de despacho después de varios intentos');
+}
+
+// ============================================================
 // DISPATCH SESSIONS
 // ============================================================
 
@@ -316,24 +413,9 @@ export async function createDispatchSession(
     throw new Error(`${duplicateOrders.length} orden(es) ya están en sesiones activas: ${duplicateIds}`);
   }
 
-  // Generate session code (3-digit format for 999/day capacity)
+  // Generate session code atomically using RPC (prevents race conditions)
   const today = new Date();
-  const dateStr = today.toLocaleDateString('es-PY', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  }).replace(/\//g, '');
-
-  // Count existing sessions today
-  const { count } = await supabaseAdmin
-    .from('dispatch_sessions')
-    .select('*', { count: 'exact', head: true })
-    .eq('store_id', storeId)
-    .eq('dispatch_date', today.toISOString().split('T')[0]);
-
-  // Changed from 2 to 3 digits (supports 999 sessions/day)
-  const sessionNumber = ((count || 0) + 1).toString().padStart(3, '0');
-  const sessionCode = `DISP-${dateStr}-${sessionNumber}`;
+  const sessionCode = await generateDispatchCodeWithRetry(storeId);
 
   // ============================================================
   // VALIDATION 2: Get carrier zones and validate (BLOCKING)
@@ -1145,23 +1227,9 @@ export async function processSettlement(
     }
   }
 
-  // Generate settlement code
+  // Generate settlement code atomically using RPC (prevents race conditions)
   const today = new Date();
-  const dateStr = today.toLocaleDateString('es-PY', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  }).replace(/\//g, '');
-
-  const { count } = await supabaseAdmin
-    .from('daily_settlements')
-    .select('*', { count: 'exact', head: true })
-    .eq('store_id', storeId)
-    .eq('settlement_date', today.toISOString().split('T')[0]);
-
-  // Changed from 2 to 3 digits (supports 999 settlements/day)
-  const settlementNumber = ((count || 0) + 1).toString().padStart(3, '0');
-  const settlementCode = `LIQ-${dateStr}-${settlementNumber}`;
+  const settlementCode = await generateSettlementCodeWithRetry(storeId);
 
   // Calculate net receivable
   // CORRECT FORMULA:
@@ -2087,48 +2155,8 @@ export async function processManualReconciliation(
   // SETTLEMENT CREATION PHASE
   // ============================================================
 
-  const today = new Date();
-  const dateStr = today.toLocaleDateString('es-PY', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  }).replace(/\//g, '');
-
-  // Generate unique settlement code with retry for race conditions
-  let settlementCode: string = '';
-  let attempts = 0;
-  const maxAttempts = 5;
-  let codeGenerated = false;
-
-  while (attempts < maxAttempts) {
-    const { count } = await supabaseAdmin
-      .from('daily_settlements')
-      .select('*', { count: 'exact', head: true })
-      .eq('store_id', storeId)
-      .eq('settlement_date', today.toISOString().split('T')[0]);
-
-    // Changed from 2 to 3 digits (supports 999 settlements/day)
-    const settlementNumber = ((count || 0) + 1 + attempts).toString().padStart(3, '0');
-    settlementCode = `LIQ-${dateStr}-${settlementNumber}`;
-
-    // Check if code already exists
-    const { data: existing } = await supabaseAdmin
-      .from('daily_settlements')
-      .select('id')
-      .eq('settlement_code', settlementCode)
-      .single();
-
-    if (!existing) {
-      codeGenerated = true;
-      break; // Code is unique
-    }
-
-    attempts++;
-  }
-
-  if (!codeGenerated) {
-    throw new Error('No se pudo generar un código único para la liquidación. Intente nuevamente.');
-  }
+  // Generate settlement code atomically using RPC (prevents race conditions)
+  const settlementCode = await generateSettlementCodeWithRetry(storeId);
 
   // Calculate net receivable
   // Formula: COD collected - carrier fees for delivered - failed attempt fees
@@ -2146,7 +2174,7 @@ export async function processManualReconciliation(
     .insert({
       store_id: storeId,
       carrier_id: carrier_id,
-      settlement_code: settlementCode!,
+      settlement_code: settlementCode,
       settlement_date: dispatch_date,
       total_dispatched: stats.total_dispatched,
       total_delivered: stats.total_delivered,

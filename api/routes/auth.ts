@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, AuthRequest } from '../middleware/auth';
 import {
@@ -14,6 +15,74 @@ import {
 import { logger } from '../utils/logger';
 
 export const authRouter = Router();
+
+// ================================================================
+// Rate Limiting Configuration for Auth Endpoints
+// ================================================================
+const isDevelopment = process.env.NODE_ENV === 'development';
+
+// Helper to calculate remaining time in minutes
+const getRemainingMinutes = (windowMs: number): number => {
+    const minutes = Math.ceil(windowMs / 60000);
+    return Math.max(1, minutes);
+};
+
+// Shared rate limit configuration factory
+const createRateLimiter = (config: {
+    windowMs: number;
+    max: number;
+    devMax?: number;
+    message: string;
+}) => {
+    return rateLimit({
+        windowMs: config.windowMs,
+        max: isDevelopment ? (config.devMax ?? 100) : config.max,
+        standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
+        legacyHeaders: true, // Return `X-RateLimit-*` headers for backwards compatibility
+        skipFailedRequests: false, // Count failed requests
+        // Use default keyGenerator which properly handles IPv6 via req.ip
+        // Express 5 and trust proxy settings handle X-Forwarded-For automatically
+        handler: (req, res) => {
+            const minutes = getRemainingMinutes(config.windowMs);
+            res.status(429).json({
+                success: false,
+                error: `${config.message} Please try again in ${minutes} minute${minutes > 1 ? 's' : ''}.`,
+                code: 'RATE_LIMIT_EXCEEDED',
+                retryAfter: minutes
+            });
+        },
+        // Disable the keyGenerator IPv6 validation since we're using the default
+        validate: { xForwardedForHeader: false }
+    });
+};
+
+// Login: 5 attempts per 15 minutes per IP
+const loginRateLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5,
+    message: 'Too many login attempts.'
+});
+
+// Register: 10 attempts per hour per IP
+const registerRateLimiter = createRateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10,
+    message: 'Too many registration attempts.'
+});
+
+// Change Password: 3 attempts per 15 minutes per IP
+const changePasswordRateLimiter = createRateLimiter({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 3,
+    message: 'Too many password change attempts.'
+});
+
+// Forgot Password: 3 attempts per hour per IP (for future use)
+export const forgotPasswordRateLimiter = createRateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 3,
+    message: 'Too many password reset attempts.'
+});
 
 // Create child logger for auth module
 const log = logger.child('AUTH');
@@ -29,7 +98,7 @@ const JWT_AUDIENCE = 'ordefy-app';
 const TOKEN_EXPIRY = '7d';
 const SALT_ROUNDS = 10;
 
-authRouter.post('/register', async (req: Request, res: Response) => {
+authRouter.post('/register', registerRateLimiter, async (req: Request, res: Response) => {
     try {
         const { email, password, name, referralCode } = req.body;
 
@@ -234,7 +303,7 @@ authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) 
     }
 });
 
-authRouter.post('/login', async (req: Request, res: Response) => {
+authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
 
@@ -720,7 +789,7 @@ authRouter.put('/profile', verifyToken, handleProfileUpdate);
 // ================================================================
 // POST /api/auth/change-password - Change user password
 // ================================================================
-authRouter.post('/change-password', verifyToken, async (req: AuthRequest, res: Response) => {
+authRouter.post('/change-password', changePasswordRateLimiter, verifyToken, async (req: AuthRequest, res: Response) => {
     try {
         const { currentPassword, newPassword } = req.body;
 

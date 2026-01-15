@@ -2340,6 +2340,8 @@ ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Respon
 // ================================================================
 // POST /api/orders/:id/confirm - Confirm order (Confirmador action)
 // ================================================================
+// Uses atomic RPC (confirm_order_atomic) to prevent inconsistent states
+// All critical operations happen in a single database transaction
 ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
@@ -2348,7 +2350,6 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             upsell_product_id,
             upsell_quantity = 1,
             upsell_product_name,
-            upsell_product_price,
             courier_id,
             address,
             latitude,
@@ -2359,7 +2360,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             discount_amount
         } = req.body;
 
-        console.log(`✅ [ORDERS] Confirming order ${id} with courier ${courier_id}`);
+        console.log(`✅ [ORDERS] Confirming order ${id} with courier ${courier_id} (atomic)`);
 
         // Validate courier_id is provided
         if (!courier_id) {
@@ -2369,310 +2370,171 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             });
         }
 
-        // Verify courier exists and belongs to the store
-        const { data: courier, error: carrierError } = await supabaseAdmin
-            .from('carriers')
-            .select('id, name')
-            .eq('id', courier_id)
-            .eq('store_id', req.storeId)
-            .eq('is_active', true)
-            .single();
+        // ================================================================
+        // ATOMIC CONFIRMATION via RPC
+        // All critical operations in a single transaction with row locking
+        // ================================================================
+        const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('confirm_order_atomic', {
+            p_order_id: id,
+            p_store_id: req.storeId,
+            p_confirmed_by: req.userId || 'confirmador',
+            p_courier_id: courier_id,
+            p_address: address || null,
+            p_latitude: latitude !== undefined ? Number(latitude) : null,
+            p_longitude: longitude !== undefined ? Number(longitude) : null,
+            p_google_maps_link: google_maps_link || null,
+            p_delivery_zone: delivery_zone || null,
+            p_shipping_cost: shipping_cost !== undefined ? Number(shipping_cost) : null,
+            p_upsell_product_id: upsell_added && upsell_product_id ? upsell_product_id : null,
+            p_upsell_quantity: upsell_added ? (upsell_quantity || 1) : 1,
+            p_discount_amount: discount_amount !== undefined ? Number(discount_amount) : null
+        });
 
-        if (carrierError || !courier) {
-            return res.status(404).json({
-                error: 'Courier not found or inactive'
+        if (rpcError) {
+            console.error('[ORDERS] Atomic confirmation failed:', rpcError);
+
+            // Parse PostgreSQL error codes for user-friendly messages
+            const errorMessage = rpcError.message || '';
+
+            if (errorMessage.includes('ORDER_NOT_FOUND')) {
+                return res.status(404).json({
+                    error: 'Order not found',
+                    message: 'El pedido no existe o no pertenece a esta tienda',
+                    code: 'ORDER_NOT_FOUND'
+                });
+            }
+
+            if (errorMessage.includes('INVALID_STATUS')) {
+                const statusMatch = errorMessage.match(/already (\w+)/);
+                const currentStatus = statusMatch ? statusMatch[1] : 'procesado';
+                return res.status(400).json({
+                    error: 'Invalid order status',
+                    message: `El pedido ya está ${currentStatus}. Solo se pueden confirmar pedidos pendientes.`,
+                    code: 'INVALID_STATUS'
+                });
+            }
+
+            if (errorMessage.includes('CARRIER_NOT_FOUND')) {
+                return res.status(404).json({
+                    error: 'Carrier not found',
+                    message: 'El transportista no existe o está inactivo',
+                    code: 'CARRIER_NOT_FOUND'
+                });
+            }
+
+            if (errorMessage.includes('PRODUCT_NOT_FOUND')) {
+                return res.status(404).json({
+                    error: 'Upsell product not found',
+                    message: 'El producto de upsell no existe en esta tienda',
+                    code: 'PRODUCT_NOT_FOUND'
+                });
+            }
+
+            // Generic error
+            return res.status(500).json({
+                error: 'Confirmation failed',
+                message: 'Error al confirmar el pedido. Por favor, intente nuevamente.',
+                details: errorMessage
             });
         }
 
-        // Update order
-        const updateData: any = {
-            sleeves_status: 'confirmed',
-            confirmed_at: new Date().toISOString(),
-            confirmed_by: req.userId || 'confirmador',
-            confirmation_method: 'dashboard',
-            courier_id,
-            upsell_added,
-            updated_at: new Date().toISOString()
+        // Parse the result (RPC returns JSON)
+        const result = rpcResult as {
+            success: boolean;
+            order: any;
+            upsell_applied: boolean;
+            upsell_total: number;
+            discount_applied: boolean;
+            discount_amount: number;
+            new_total_price: number;
+            new_cod_amount: number;
+            carrier_name: string;
         };
 
-        // Update address/location if provided
-        if (address) updateData.customer_address = address;
-        if (google_maps_link) updateData.google_maps_link = google_maps_link;
-        if (latitude !== undefined) updateData.latitude = latitude;
-        if (longitude !== undefined) updateData.longitude = longitude;
-
-        // Update shipping cost and delivery zone
-        if (delivery_zone) updateData.delivery_zone = delivery_zone;
-        if (shipping_cost !== undefined) updateData.shipping_cost = Number(shipping_cost) || 0;
-
-        // Apply discount if provided - updates total_discounts and recalculates total_price
-        if (discount_amount !== undefined && Number(discount_amount) > 0) {
-            updateData.total_discounts = Number(discount_amount);
-            // Note: total_price will be recalculated after we get the current order data
-        }
-
-        const { data, error } = await supabaseAdmin
-            .from('orders')
-            .update(updateData)
-            .eq('id', id)
-            .eq('store_id', req.storeId)
-            .select()
-            .single();
-
-        if (error || !data) {
-            console.error('[ORDERS] Update error:', error);
-            return res.status(404).json({
-                error: 'Order not found'
+        if (!result?.success || !result?.order) {
+            return res.status(500).json({
+                error: 'Confirmation failed',
+                message: 'La confirmación no retornó datos válidos'
             });
         }
 
-        // Generate QR code for delivery link
-        let qrCodeDataUrl = data.qr_code_url;
-        if (data.delivery_link_token && !qrCodeDataUrl) {
-            try {
-                qrCodeDataUrl = await generateDeliveryQRCode(data.delivery_link_token);
+        const confirmedOrder = result.order;
 
-                // Save QR code URL to database
+        // Log successful atomic operations
+        if (result.upsell_applied) {
+            console.log(`📦 [ORDERS] Upsell applied atomically: +${result.upsell_total} to order ${id}`);
+        }
+        if (result.discount_applied) {
+            console.log(`💰 [ORDERS] Discount applied atomically: -${result.discount_amount} to order ${id}`);
+        }
+        console.log(`✅ [ORDERS] Order ${id} confirmed atomically. Total: ${result.new_total_price}, COD: ${result.new_cod_amount}`);
+
+        // ================================================================
+        // NON-CRITICAL OPERATIONS (outside transaction)
+        // These can fail without rolling back the confirmation
+        // ================================================================
+
+        // Generate QR code for delivery link
+        let qrCodeDataUrl = confirmedOrder.qr_code_url;
+        if (confirmedOrder.delivery_link_token && !qrCodeDataUrl) {
+            try {
+                qrCodeDataUrl = await generateDeliveryQRCode(confirmedOrder.delivery_link_token);
+
+                // Save QR code URL to database (non-blocking)
                 await supabaseAdmin
                     .from('orders')
                     .update({ qr_code_url: qrCodeDataUrl })
                     .eq('id', id);
+
+                console.log(`🔗 [ORDERS] QR code generated for order ${id}`);
             } catch (qrError) {
-                console.error('[ORDERS] Failed to generate QR code:', qrError);
+                console.error('[ORDERS] Failed to generate QR code (non-blocking):', qrError);
                 // Continue without QR code, don't fail the confirmation
             }
         }
 
-        // Add upsell product as a line item if provided (adds to order or increases quantity if same product)
-        if (upsell_added && upsell_product_id) {
-            console.log(`📦 [ORDERS] Adding upsell product ${upsell_product_id} (qty: ${upsell_quantity}) to order ${id}`);
-
-            // Get product details
-            const { data: product } = await supabaseAdmin
-                .from('products')
-                .select('id, name, price, image_url, sku')
-                .eq('id', upsell_product_id)
-                .eq('store_id', req.storeId)
-                .single();
-
-            if (product) {
-                const unitPrice = product.price || upsell_product_price || 0;
-                const productName = product.name || upsell_product_name || 'Producto sin nombre';
-
-                // Check if this product already exists in the order (order_line_items table)
-                const { data: existingLineItem } = await supabaseAdmin
-                    .from('order_line_items')
-                    .select('id, quantity, total_price')
-                    .eq('order_id', id)
-                    .eq('product_id', product.id)
-                    .single();
-
-                if (existingLineItem) {
-                    // Product already exists - increase quantity instead of creating duplicate
-                    const newQuantity = (existingLineItem.quantity || 0) + upsell_quantity;
-                    const newTotalPrice = unitPrice * newQuantity;
-
-                    const { error: updateError } = await supabaseAdmin
-                        .from('order_line_items')
-                        .update({
-                            quantity: newQuantity,
-                            total_price: newTotalPrice,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('id', existingLineItem.id);
-
-                    if (updateError) {
-                        console.error('[ORDERS] Error updating existing line item quantity:', updateError);
-                    } else {
-                        console.log(`✅ [ORDERS] Increased quantity of existing product in order ${id} (new qty: ${newQuantity})`);
-                    }
-                } else {
-                    // Product doesn't exist - insert as new line item
-                    const { error: lineItemError } = await supabaseAdmin
-                        .from('order_line_items')
-                        .insert({
-                            order_id: id,
-                            product_id: product.id,
-                            product_name: productName,
-                            quantity: upsell_quantity,
-                            unit_price: unitPrice,
-                            total_price: unitPrice * upsell_quantity,
-                            image_url: product.image_url,
-                            sku: product.sku,
-                            is_upsell: true,
-                            created_at: new Date().toISOString()
-                        });
-
-                    if (lineItemError) {
-                        console.error('[ORDERS] Error adding upsell line item:', lineItemError);
-                    } else {
-                        console.log(`✅ [ORDERS] Upsell product added successfully to order ${id}`);
-                    }
-                }
-
-                // Get current line_items from order (JSONB field used by inventory trigger)
-                const { data: currentOrder } = await supabaseAdmin
-                    .from('orders')
-                    .select('line_items, total_price, cod_amount, payment_gateway, financial_status')
-                    .eq('id', id)
-                    .single();
-
-                // Update JSONB line_items - also aggregate if same product exists
-                const currentLineItems: any[] = currentOrder?.line_items || [];
-                const existingJsonbIndex = currentLineItems.findIndex(
-                    (item: any) => item.product_id === product.id
-                );
-
-                let updatedLineItems;
-                if (existingJsonbIndex >= 0) {
-                    // Product exists in JSONB - increase quantity
-                    updatedLineItems = currentLineItems.map((item: any, index: number) => {
-                        if (index === existingJsonbIndex) {
-                            return {
-                                ...item,
-                                quantity: (item.quantity || 0) + upsell_quantity,
-                                product_name: productName // Ensure name is always set
-                            };
+        // Log status change to history (audit, non-blocking)
+        try {
+            await supabaseAdmin
+                .from('order_status_history')
+                .insert({
+                    order_id: id,
+                    store_id: req.storeId,
+                    previous_status: 'pending',
+                    new_status: 'confirmed',
+                    changed_by: req.userId || 'confirmador',
+                    change_source: 'dashboard',
+                    notes: (() => {
+                        const parts = ['Order confirmed (atomic)'];
+                        if (result.upsell_applied) {
+                            parts.push(`with upsell: ${upsell_product_name || 'product'} x${upsell_quantity} (+${result.upsell_total})`);
                         }
-                        return item;
-                    });
-                } else {
-                    // Product doesn't exist in JSONB - add new item
-                    const upsellLineItem = {
-                        product_id: product.id,
-                        product_name: productName,
-                        quantity: upsell_quantity,
-                        price: unitPrice,
-                        sku: product.sku,
-                        is_upsell: true
-                    };
-                    updatedLineItems = [...currentLineItems, upsellLineItem];
-                }
-
-                // Update order total, cod_amount, and line_items
-                const upsellTotal = unitPrice * upsell_quantity;
-                const newTotalPrice = (currentOrder?.total_price || data.total_price || 0) + upsellTotal;
-
-                // CRITICAL: Determine if order was PAID online via Shopify
-                const financialStatus = currentOrder?.financial_status?.toLowerCase() || '';
-                const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
-                const paymentGateway = currentOrder?.payment_gateway?.toLowerCase() || '';
-                const isCodOrder = paymentGateway === 'cash_on_delivery' ||
-                                   paymentGateway === 'cod' ||
-                                   paymentGateway === 'manual' ||
-                                   (currentOrder?.cod_amount && currentOrder.cod_amount > 0);
-
-                const updateFields: any = {
-                    total_price: newTotalPrice,
-                    line_items: updatedLineItems,
-                    updated_at: new Date().toISOString()
-                };
-
-                // CRITICAL: Calculate cod_amount correctly based on payment status
-                // - If order was PAID online (Shopify Payments, etc) => cod_amount = ONLY the upsell price
-                // - If order is COD => cod_amount = full new total price
-                if (isPaidOnline) {
-                    // Order was already paid, only charge for the upsell
-                    const currentCodAmount = currentOrder?.cod_amount || 0;
-                    updateFields.cod_amount = currentCodAmount + upsellTotal;
-                    console.log(`💰 [ORDERS] PAID order - Adding only upsell (${upsellTotal}) to cod_amount. New cod_amount: ${updateFields.cod_amount}`);
-                } else if (isCodOrder) {
-                    // COD order - charge full amount
-                    updateFields.cod_amount = newTotalPrice;
-                    console.log(`💰 [ORDERS] COD order - Updated COD amount to full total: ${newTotalPrice}`);
-                }
-
-                await supabaseAdmin
-                    .from('orders')
-                    .update(updateFields)
-                    .eq('id', id);
-
-                console.log(`✅ [ORDERS] Updated order ${id} line_items with upsell product for inventory tracking`);
-            } else {
-                console.warn(`[ORDERS] Upsell product not found: ${upsell_product_id}`);
-            }
+                        if (result.discount_applied) {
+                            parts.push(`with discount: -Gs. ${result.discount_amount.toLocaleString()}`);
+                        }
+                        return parts.join(' ');
+                    })()
+                });
+        } catch (historyError) {
+            console.error('[ORDERS] Failed to log status history (non-blocking):', historyError);
+            // Continue, this is just audit logging
         }
-
-        // Apply discount if provided (separate from upsell logic)
-        // This runs AFTER upsell is added, so it applies to the final total
-        if (discount_amount !== undefined && Number(discount_amount) > 0) {
-            const discountValue = Number(discount_amount);
-
-            // Get current order total (may include upsell if just added)
-            const { data: orderForDiscount } = await supabaseAdmin
-                .from('orders')
-                .select('total_price, cod_amount, payment_gateway, financial_status')
-                .eq('id', id)
-                .single();
-
-            if (orderForDiscount) {
-                const currentTotal = orderForDiscount.total_price || 0;
-
-                // Validate discount doesn't exceed total
-                if (discountValue > currentTotal) {
-                    console.warn(`⚠️ [ORDERS] Discount (${discountValue}) exceeds total (${currentTotal}). Capping at total.`);
-                }
-
-                const effectiveDiscount = Math.min(discountValue, currentTotal);
-                const newTotal = Math.max(0, currentTotal - effectiveDiscount);
-
-                console.log(`💰 [ORDERS] Applying discount of ${effectiveDiscount} to order ${id}. Total: ${currentTotal} → ${newTotal}`);
-
-                const discountUpdateFields: any = {
-                    total_price: newTotal,
-                    total_discounts: effectiveDiscount,
-                    updated_at: new Date().toISOString()
-                };
-
-                // Update COD amount if applicable
-                const financialStatus = orderForDiscount.financial_status?.toLowerCase() || '';
-                const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
-
-                if (!isPaidOnline && orderForDiscount.cod_amount !== null) {
-                    // COD order - update cod_amount to new total
-                    discountUpdateFields.cod_amount = newTotal;
-                    console.log(`💰 [ORDERS] COD order - Updated COD amount to: ${newTotal}`);
-                }
-
-                await supabaseAdmin
-                    .from('orders')
-                    .update(discountUpdateFields)
-                    .eq('id', id);
-
-                console.log(`✅ [ORDERS] Discount applied to order ${id}. New total: ${newTotal}`);
-            }
-        }
-
-        // Log status change to history
-        await supabaseAdmin
-            .from('order_status_history')
-            .insert({
-                order_id: id,
-                store_id: req.storeId,
-                previous_status: 'pending_confirmation',
-                new_status: 'confirmed',
-                changed_by: req.userId || 'confirmador',
-                change_source: 'dashboard',
-                notes: (() => {
-                    const parts = ['Order confirmed'];
-                    if (upsell_added && upsell_product_id) {
-                        parts.push(`with upsell: ${upsell_product_name || 'product'} x${upsell_quantity}`);
-                    } else if (upsell_added) {
-                        parts.push('with upsell added');
-                    }
-                    if (discount_amount && Number(discount_amount) > 0) {
-                        parts.push(`with discount: Gs. ${Number(discount_amount).toLocaleString()}`);
-                    }
-                    return parts.join(' ');
-                })()
-            });
 
         res.json({
             message: 'Order confirmed successfully',
             data: {
-                ...data,
-                delivery_link: `${process.env.FRONTEND_URL || 'http://localhost:8080'}/delivery/${data.delivery_link_token}`,
-                qr_code_url: qrCodeDataUrl
+                ...confirmedOrder,
+                delivery_link: `${process.env.FRONTEND_URL || 'http://localhost:8080'}/delivery/${confirmedOrder.delivery_link_token}`,
+                qr_code_url: qrCodeDataUrl,
+                carrier_name: result.carrier_name
+            },
+            meta: {
+                upsell_applied: result.upsell_applied,
+                upsell_total: result.upsell_total,
+                discount_applied: result.discount_applied,
+                discount_amount: result.discount_amount,
+                final_total: result.new_total_price,
+                final_cod_amount: result.new_cod_amount
             }
         });
     } catch (error: any) {

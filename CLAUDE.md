@@ -378,8 +378,14 @@ If negative: Store owes courier (common with prepaid orders)
 ```
 
 **Tables:** dispatch_sessions, dispatch_session_orders, carrier_zones, daily_settlements
-**Functions:** generate_dispatch_session_code, process_dispatch_settlement_atomic, check_orders_not_in_active_session, validate_carrier_has_zones, get_carrier_fee_for_zone, calculate_shipping_cost, suggest_carrier_for_order, reassign_carrier_orders
+**Functions:** generate_dispatch_code_atomic, generate_settlement_code_atomic, process_dispatch_settlement_atomic, check_orders_not_in_active_session, validate_carrier_has_zones, get_carrier_fee_for_zone, calculate_shipping_cost, suggest_carrier_for_order, reassign_carrier_orders
 **Views:** v_dispatch_session_health, v_settlement_discrepancies, v_carrier_health, v_orders_without_carrier, v_carrier_zone_coverage_gaps
+
+**Code Generation Race Fix (Migration 066):**
+- ✅ UNIQUE constraints on dispatch_sessions(store_id, session_code) and daily_settlements(store_id, settlement_code)
+- ✅ `generate_dispatch_code_atomic()` - Advisory lock-based dispatch code generation
+- ✅ `generate_settlement_code_atomic()` - Advisory lock-based settlement code generation
+- ✅ Retry logic in service layer for constraint violations (max 3 attempts)
 
 **Production Fixes (Migration 059):**
 - ✅ Duplicate order dispatch prevention (trigger + validation)
@@ -830,3 +836,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 059: **NEW:** Dispatch & Settlements production fixes (duplicate prevention, 999/day codes, status validation)
 - 062: **NEW:** Merchandise production fixes (race-condition safe references, delta-based stock, audit trail, duplicate prevention)
 - 063: **NEW:** Carrier system production fixes (deletion protection, zone validation blocking, calculate_shipping_cost, carrier health monitoring)
+- 066: **NEW:** Settlement & Dispatch code race condition fix (atomic code generation with advisory locks, UNIQUE constraints)

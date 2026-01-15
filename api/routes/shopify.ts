@@ -667,6 +667,10 @@ shopifyRouter.post('/webhooks/orders-create', ordersCreateHandler);
 // POST /api/shopify/webhook/orders-updated OR /webhooks/orders-updated
 // Webhook para actualizacion de pedidos
 const ordersUpdatedHandler = async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  let integrationId: string | null = null;
+  let storeId: string | null = null;
+
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -694,18 +698,25 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    integrationId = integration.id;
+    storeId = integration.store_id;
+
+    // Initialize webhook manager for metrics
+    const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
+
+    // Record metric: received
+    await webhookManager.recordMetric(integrationId!, storeId!, 'received');
+
     // Get correct webhook secret based on integration type (OAuth vs Custom App)
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
       console.error('❌ Webhook secret not configured for orders/updated');
+      await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
     console.log(`🔐 Using secret from: ${secretSource} for orders/updated`);
-    console.log(`🔍 [DEBUG HMAC] Secret length: ${webhookSecret.length}, HMAC header length: ${hmacHeader.length}`);
-    console.log(`🔍 [DEBUG HMAC] Raw body length: ${rawBody.length}, First 50 chars: ${rawBody.substring(0, 50)}`);
-    console.log(`🔍 [DEBUG HMAC] HMAC header: ${hmacHeader}`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -715,9 +726,26 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       console.error('❌ HMAC verification failed for orders/updated');
-      console.error(`   Secret used: ${webhookSecret.substring(0, 10)}...`);
-      console.error(`   HMAC received: ${hmacHeader.substring(0, 20)}...`);
+      await webhookManager.recordMetric(
+        integrationId!,
+        storeId!,
+        'failed',
+        Date.now() - startTime,
+        '401'
+      );
       return res.status(401).json({ error: 'Invalid HMAC signature' });
+    }
+
+    // Check for replay attacks - reject webhooks older than 5 minutes
+    const webhookTimestamp = req.body.updated_at || req.body.created_at;
+    if (webhookTimestamp) {
+      const webhookDate = new Date(webhookTimestamp);
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      if (webhookDate < fiveMinutesAgo) {
+        console.warn('⚠️ Webhook rejected: older than 5 minutes (orders/updated)');
+        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
+        return res.status(200).json({ success: true, message: 'Webhook too old' });
+      }
     }
 
     const webhookService = new ShopifyWebhookService(supabaseAdmin);
@@ -728,11 +756,30 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       integration // Pass full integration to detect Custom App
     );
 
+    // Record success metric
+    await webhookManager.recordMetric(integrationId!, storeId!, 'processed', Date.now() - startTime);
+
     res.json(result);
 
   } catch (error: any) {
     console.error('Error procesando webhook de actualizacion:', error);
-    res.status(500).json({ error: error.message });
+
+    if (integrationId && storeId) {
+      const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
+      await webhookManager.recordMetric(
+        integrationId,
+        storeId,
+        'failed',
+        Date.now() - startTime,
+        '500'
+      );
+    }
+
+    // Return 200 to prevent Shopify infinite retries
+    res.status(200).json({
+      success: false,
+      error: 'Internal error - will retry',
+    });
   }
 };
 
@@ -742,6 +789,10 @@ shopifyRouter.post('/webhooks/orders-updated', ordersUpdatedHandler);
 // POST /api/shopify/webhook/products-update OR /webhooks/products-update
 // Webhook para productos actualizados en Shopify
 const productsUpdateHandler = async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  let integrationId: string | null = null;
+  let storeId: string | null = null;
+
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -769,11 +820,21 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    integrationId = integration.id;
+    storeId = integration.store_id;
+
+    // Initialize webhook manager for metrics
+    const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
+
+    // Record metric: received
+    await webhookManager.recordMetric(integrationId!, storeId!, 'received');
+
     // Get correct webhook secret based on integration type (OAuth vs Custom App)
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
       console.error('❌ Webhook secret not configured for products/update');
+      await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
@@ -787,7 +848,26 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       console.error('❌ HMAC verification failed for products/update');
+      await webhookManager.recordMetric(
+        integrationId!,
+        storeId!,
+        'failed',
+        Date.now() - startTime,
+        '401'
+      );
       return res.status(401).json({ error: 'Invalid HMAC signature' });
+    }
+
+    // Check for replay attacks - reject webhooks older than 5 minutes
+    const webhookTimestamp = req.body.updated_at || req.body.created_at;
+    if (webhookTimestamp) {
+      const webhookDate = new Date(webhookTimestamp);
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      if (webhookDate < fiveMinutesAgo) {
+        console.warn('⚠️ Webhook rejected: older than 5 minutes (products/update)');
+        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
+        return res.status(200).json({ success: true, message: 'Webhook too old' });
+      }
     }
 
     const webhookService = new ShopifyWebhookService(supabaseAdmin);
@@ -797,11 +877,30 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       integration.id
     );
 
+    // Record success metric
+    await webhookManager.recordMetric(integrationId!, storeId!, 'processed', Date.now() - startTime);
+
     res.json(result);
 
   } catch (error: any) {
     console.error('Error procesando webhook de actualización de producto:', error);
-    res.status(500).json({ error: error.message });
+
+    if (integrationId && storeId) {
+      const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
+      await webhookManager.recordMetric(
+        integrationId,
+        storeId,
+        'failed',
+        Date.now() - startTime,
+        '500'
+      );
+    }
+
+    // Return 200 to prevent Shopify infinite retries
+    res.status(200).json({
+      success: false,
+      error: 'Internal error - will retry',
+    });
   }
 };
 
@@ -811,6 +910,10 @@ shopifyRouter.post('/webhooks/products-update', productsUpdateHandler);
 // POST /api/shopify/webhook/products-delete OR /webhooks/products-delete
 // Webhook para productos eliminados en Shopify
 const productsDeleteHandler = async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  let integrationId: string | null = null;
+  let storeId: string | null = null;
+
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -838,11 +941,21 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    integrationId = integration.id;
+    storeId = integration.store_id;
+
+    // Initialize webhook manager for metrics
+    const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
+
+    // Record metric: received
+    await webhookManager.recordMetric(integrationId!, storeId!, 'received');
+
     // Get correct webhook secret based on integration type (OAuth vs Custom App)
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
       console.error('❌ Webhook secret not configured for products/delete');
+      await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
       return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
@@ -856,7 +969,27 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       console.error('❌ HMAC verification failed for products/delete');
+      await webhookManager.recordMetric(
+        integrationId!,
+        storeId!,
+        'failed',
+        Date.now() - startTime,
+        '401'
+      );
       return res.status(401).json({ error: 'Invalid HMAC signature' });
+    }
+
+    // Check for replay attacks - reject webhooks older than 5 minutes
+    // Note: products/delete webhook may have limited timestamp info
+    const webhookTimestamp = req.body.updated_at || req.body.created_at;
+    if (webhookTimestamp) {
+      const webhookDate = new Date(webhookTimestamp);
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      if (webhookDate < fiveMinutesAgo) {
+        console.warn('⚠️ Webhook rejected: older than 5 minutes (products/delete)');
+        await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
+        return res.status(200).json({ success: true, message: 'Webhook too old' });
+      }
     }
 
     const webhookService = new ShopifyWebhookService(supabaseAdmin);
@@ -866,11 +999,30 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       integration.id
     );
 
+    // Record success metric
+    await webhookManager.recordMetric(integrationId!, storeId!, 'processed', Date.now() - startTime);
+
     res.json(result);
 
   } catch (error: any) {
     console.error('Error procesando webhook de eliminacion:', error);
-    res.status(500).json({ error: error.message });
+
+    if (integrationId && storeId) {
+      const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
+      await webhookManager.recordMetric(
+        integrationId,
+        storeId,
+        'failed',
+        Date.now() - startTime,
+        '500'
+      );
+    }
+
+    // Return 200 to prevent Shopify infinite retries
+    res.status(200).json({
+      success: false,
+      error: 'Internal error - will retry',
+    });
   }
 };
 

@@ -231,7 +231,7 @@ router.get('/sessions/:sessionId/packing-list', validateUUIDParam('sessionId'), 
 
 /**
  * POST /api/warehouse/sessions/:sessionId/packing-progress
- * Assigns one unit of a product to an order
+ * Assigns one unit of a product to an order (using atomic RPC with row locking)
  * Body: { orderId: string, productId: string }
  */
 router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionId'), async (req, res) => {
@@ -250,7 +250,9 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
       });
     }
 
-    const updated = await warehouseService.updatePackingProgress(
+    // Use atomic function with row locking to prevent lost updates
+    // when two users pack the same product simultaneously
+    const updated = await warehouseService.updatePackingProgressAtomic(
       sessionId,
       orderId,
       productId,
@@ -260,7 +262,17 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
     res.json(updated);
   } catch (error) {
     console.error('Error updating packing progress:', error);
-    res.status(500).json({
+
+    // Provide user-friendly error messages for common validation errors
+    const isValidationError = error.message?.includes('not found') ||
+                              error.message?.includes('completed') ||
+                              error.message?.includes('cancelled') ||
+                              error.message?.includes('rejected') ||
+                              error.message?.includes('fully packed') ||
+                              error.message?.includes('No more units') ||
+                              error.message?.includes('packing status');
+
+    res.status(isValidationError ? 400 : 500).json({
       error: 'Failed to update packing progress',
       details: error.message
     });
