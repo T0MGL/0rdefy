@@ -102,7 +102,7 @@ export class ShopifyInventorySyncService {
 
       return {
         success: false,
-        error: error.message || 'Failed to sync inventory'
+        error: error.message || 'Error al sincronizar inventario'
       };
     }
   }

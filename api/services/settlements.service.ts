@@ -11,7 +11,7 @@
  */
 
 import { supabaseAdmin } from '../db/connection';
-import ExcelJS from 'exceljs';
+import { generateDispatchExcel, DispatchOrder } from '../utils/excel-export';
 import {
   isCodPayment,
   normalizePaymentMethod,
@@ -19,6 +19,8 @@ import {
   getAmountToCollect,
   validateAmountCollected
 } from '../utils/payment';
+import { isValidUUID } from '../utils/sanitize';
+import { logger } from '../utils/logger';
 
 // ============================================================
 // TYPES
@@ -43,6 +45,8 @@ export interface DispatchSession {
   created_by: string | null;
   // Joined fields
   carrier_name?: string;
+  // Carrier fee configuration
+  failed_attempt_fee_percent?: number;
 }
 
 export interface DispatchSessionOrder {
@@ -142,7 +146,7 @@ async function generateSettlementCodeWithRetry(storeId: string): Promise<string>
       if (error) {
         // Check if it's a constraint violation (23505 = unique_violation)
         if (error.code === '23505') {
-          console.warn(`⚠️ [SETTLEMENT] Code collision on attempt ${attempt}, retrying...`);
+          logger.warn('SETTLEMENTS', `Code collision on attempt ${attempt}, retrying...`);
           lastError = new Error(error.message);
           // Small delay before retry
           await new Promise(resolve => setTimeout(resolve, 100 * attempt));
@@ -155,7 +159,7 @@ async function generateSettlementCodeWithRetry(storeId: string): Promise<string>
         throw new Error('No se recibió código de liquidación del servidor');
       }
 
-      console.log(`✅ [SETTLEMENT] Generated code: ${data} (attempt ${attempt})`);
+      logger.info('SETTLEMENTS', `Generated code: ${data} (attempt ${attempt})`);
       return data as string;
     } catch (err: any) {
       lastError = err;
@@ -163,7 +167,7 @@ async function generateSettlementCodeWithRetry(storeId: string): Promise<string>
       if (!err.message?.includes('unique') && !err.message?.includes('duplicate')) {
         throw err;
       }
-      console.warn(`⚠️ [SETTLEMENT] Error on attempt ${attempt}:`, err.message);
+      logger.warn('SETTLEMENTS', `Error on attempt ${attempt}`, { error: err.message });
       await new Promise(resolve => setTimeout(resolve, 100 * attempt));
     }
   }
@@ -186,7 +190,7 @@ async function generateDispatchCodeWithRetry(storeId: string): Promise<string> {
       if (error) {
         // Check if it's a constraint violation (23505 = unique_violation)
         if (error.code === '23505') {
-          console.warn(`⚠️ [DISPATCH] Code collision on attempt ${attempt}, retrying...`);
+          logger.warn('SETTLEMENTS', `[DISPATCH] Code collision on attempt ${attempt}, retrying...`);
           lastError = new Error(error.message);
           // Small delay before retry
           await new Promise(resolve => setTimeout(resolve, 100 * attempt));
@@ -199,7 +203,7 @@ async function generateDispatchCodeWithRetry(storeId: string): Promise<string> {
         throw new Error('No se recibió código de despacho del servidor');
       }
 
-      console.log(`✅ [DISPATCH] Generated code: ${data} (attempt ${attempt})`);
+      logger.info('SETTLEMENTS', `[DISPATCH] Generated code: ${data} (attempt ${attempt})`);
       return data as string;
     } catch (err: any) {
       lastError = err;
@@ -207,7 +211,7 @@ async function generateDispatchCodeWithRetry(storeId: string): Promise<string> {
       if (!err.message?.includes('unique') && !err.message?.includes('duplicate')) {
         throw err;
       }
-      console.warn(`⚠️ [DISPATCH] Error on attempt ${attempt}:`, err.message);
+      logger.warn('SETTLEMENTS', `[DISPATCH] Error on attempt ${attempt}`, { error: err.message });
       await new Promise(resolve => setTimeout(resolve, 100 * attempt));
     }
   }
@@ -348,19 +352,19 @@ export async function getDispatchSessionById(
   sessionId: string,
   storeId: string
 ): Promise<DispatchSession & { orders: DispatchSessionOrder[] }> {
-  // Get session
+  // Get session with carrier info including failed_attempt_fee_percent
   const { data: session, error: sessionError } = await supabaseAdmin
     .from('dispatch_sessions')
     .select(`
       *,
-      carriers!inner(name)
+      carriers!inner(name, failed_attempt_fee_percent)
     `)
     .eq('id', sessionId)
     .eq('store_id', storeId)
     .single();
 
   if (sessionError) throw sessionError;
-  if (!session) throw new Error('Dispatch session not found');
+  if (!session) throw new Error('Sesión de despacho no encontrada');
 
   // Get orders
   const { data: orders, error: ordersError } = await supabaseAdmin
@@ -374,6 +378,8 @@ export async function getDispatchSessionById(
   return {
     ...session,
     carrier_name: session.carriers?.name,
+    // Default to 50% if not set (backwards compatibility)
+    failed_attempt_fee_percent: session.carriers?.failed_attempt_fee_percent ?? 50,
     carriers: undefined,
     orders: orders || []
   };
@@ -457,7 +463,7 @@ export async function createDispatchSession(
 
   // Warning if no default zone (but allow dispatch)
   if (!hasDefaultZone) {
-    console.warn(`⚠️ [DISPATCH] Carrier ${carrierId} has no fallback zone (default/otros/interior/general). Orders to unconfigured cities will have 0 fees.`);
+    logger.warn('SETTLEMENTS', `[DISPATCH] Carrier ${carrierId} has no fallback zone (default/otros/interior/general). Orders to unconfigured cities will have 0 fees.`);
   }
 
   // Get orders with customer and product info
@@ -495,7 +501,7 @@ export async function createDispatchSession(
     const details = invalidStatusOrders.map(o =>
       `${o.order_number || o.id.slice(0, 8)} (${o.sleeves_status})`
     ).join(', ');
-    console.warn(`⚠️ [DISPATCH] ${invalidStatusOrders.length} orden(es) con estado inesperado: ${details}`);
+    logger.warn('SETTLEMENTS', `[DISPATCH] ${invalidStatusOrders.length} orden(es) con estado inesperado: ${details}`);
   }
 
   // Create session
@@ -538,8 +544,13 @@ export async function createDispatchSession(
     }
     rate = rate || 0;
 
+    // Check if already paid online (financial_status from Shopify)
+    const financialStatus = (order.financial_status || '').toLowerCase();
+    const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+
     // Use centralized payment utilities for COD determination
-    const isCod = isCodPayment(order.payment_method);
+    // BUT: if financial_status is 'paid', it's NOT COD regardless of payment_method
+    const isCod = !isPaidOnline && isCodPayment(order.payment_method);
     const normalizedMethod = normalizePaymentMethod(order.payment_method);
 
     if (isCod) {
@@ -566,7 +577,7 @@ export async function createDispatchSession(
     };
   });
 
-  console.log(`📦 [DISPATCH] Creating session with ${orders.length} orders:`, {
+  logger.info('SETTLEMENTS', `[DISPATCH] Creating session with ${orders.length} orders`, {
     total_cod_orders: sessionOrders.filter(o => o.is_cod).length,
     total_prepaid_orders: totalPrepaid,
     total_cod_expected: totalCodExpected,
@@ -672,12 +683,6 @@ export async function exportDispatchCSV(
 
 /**
  * Export dispatch session as professional Excel file with Ordefy branding
- * Features:
- * - Ordefy brand colors and styling
- * - Dropdown validation for ESTADO_ENTREGA and MOTIVO_NO_ENTREGA
- * - Protected columns that courier shouldn't edit
- * - Clear instructions for courier
- * - Number formatting for amounts
  */
 export async function exportDispatchExcel(
   sessionId: string,
@@ -685,267 +690,27 @@ export async function exportDispatchExcel(
 ): Promise<Buffer> {
   const session = await getDispatchSessionById(sessionId, storeId);
 
-  // Ordefy brand colors
-  const ORDEFY_PURPLE = '8B5CF6';      // Primary purple
-  const ORDEFY_PURPLE_LIGHT = 'EDE9FE'; // Light purple background
-  const ORDEFY_DARK = '1F2937';         // Dark text
-  const ORDEFY_GREEN = '10B981';        // Success green
-  const ORDEFY_GRAY = '6B7280';         // Secondary text
+  const sessionInfo = `Código: ${session.session_code} | Transportadora: ${session.carrier_name} | Fecha: ${new Date().toLocaleDateString('es-PY')}`;
 
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Ordefy';
-  workbook.created = new Date();
-
-  const worksheet = workbook.addWorksheet('Despacho', {
-    properties: { tabColor: { argb: ORDEFY_PURPLE } },
-    views: [{ state: 'frozen', ySplit: 4 }] // Freeze header rows
-  });
-
-  // ============================================================
-  // HEADER SECTION - Ordefy branding
-  // ============================================================
-
-  // Row 1: Ordefy title
-  worksheet.mergeCells('A1:L1');
-  const titleCell = worksheet.getCell('A1');
-  titleCell.value = 'ORDEFY - Planilla de Despacho';
-  titleCell.font = { name: 'Arial', size: 18, bold: true, color: { argb: ORDEFY_PURPLE } };
-  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  worksheet.getRow(1).height = 35;
-
-  // Row 2: Session info
-  worksheet.mergeCells('A2:F2');
-  const sessionInfoCell = worksheet.getCell('A2');
-  sessionInfoCell.value = `Código: ${session.session_code} | Transportadora: ${session.carrier_name} | Fecha: ${new Date().toLocaleDateString('es-PY')}`;
-  sessionInfoCell.font = { name: 'Arial', size: 11, color: { argb: ORDEFY_GRAY } };
-  sessionInfoCell.alignment = { horizontal: 'left', vertical: 'middle' };
-
-  // Row 2 right side: Instructions
-  worksheet.mergeCells('G2:L2');
-  const instructionsCell = worksheet.getCell('G2');
-  instructionsCell.value = 'Complete las columnas AMARILLAS y devuelva este archivo';
-  instructionsCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'B45309' } };
-  instructionsCell.alignment = { horizontal: 'right', vertical: 'middle' };
-  worksheet.getRow(2).height = 25;
-
-  // Row 3: Empty row for spacing
-  worksheet.getRow(3).height = 10;
-
-  // ============================================================
-  // COLUMN HEADERS - Row 4
-  // ============================================================
-
-  const headers = [
-    { key: 'order_number', header: 'PEDIDO', width: 15, editable: false },
-    { key: 'customer_name', header: 'CLIENTE', width: 25, editable: false },
-    { key: 'customer_phone', header: 'TELÉFONO', width: 15, editable: false },
-    { key: 'delivery_address', header: 'DIRECCIÓN', width: 35, editable: false },
-    { key: 'delivery_city', header: 'CIUDAD', width: 15, editable: false },
-    { key: 'payment_type', header: 'TIPO PAGO', width: 12, editable: false },
-    { key: 'amount_to_collect', header: 'A COBRAR', width: 15, editable: false },
-    { key: 'carrier_fee', header: 'TARIFA', width: 12, editable: false },
-    { key: 'delivery_status', header: 'ESTADO ENTREGA', width: 18, editable: true },
-    { key: 'amount_collected', header: 'MONTO COBRADO', width: 16, editable: true },
-    { key: 'failure_reason', header: 'MOTIVO', width: 20, editable: true },
-    { key: 'notes', header: 'NOTAS', width: 25, editable: true }
-  ];
-
-  // Set column properties
-  worksheet.columns = headers.map(h => ({
-    key: h.key,
-    width: h.width
+  const orders: DispatchOrder[] = session.orders.map(order => ({
+    orderNumber: order.order_number,
+    customerName: order.customer_name,
+    customerPhone: order.customer_phone,
+    deliveryAddress: order.delivery_address,
+    deliveryCity: order.delivery_city,
+    paymentType: order.is_cod ? 'COD' : '✓ PAGADO',
+    amountToCollect: order.is_cod ? order.total_price : 0,
+    carrierFee: order.carrier_fee
   }));
 
-  // Add header row
-  const headerRow = worksheet.getRow(4);
-  headers.forEach((h, index) => {
-    const cell = headerRow.getCell(index + 1);
-    cell.value = h.header;
-    cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFF' } };
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: h.editable ? 'D97706' : ORDEFY_PURPLE } // Yellow for editable, purple for fixed
-    };
-    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    cell.border = {
-      top: { style: 'thin', color: { argb: ORDEFY_DARK } },
-      left: { style: 'thin', color: { argb: ORDEFY_DARK } },
-      bottom: { style: 'thin', color: { argb: ORDEFY_DARK } },
-      right: { style: 'thin', color: { argb: ORDEFY_DARK } }
-    };
-  });
-  headerRow.height = 30;
-
-  // ============================================================
-  // DATA ROWS - Starting from row 5
-  // ============================================================
-
-  session.orders.forEach((order, index) => {
-    const rowNum = 5 + index;
-    const row = worksheet.getRow(rowNum);
-
-    const paymentType = order.is_cod ? 'COD' : 'PREPAGO';
-    const amountToCollect = getAmountToCollect(order.payment_method, order.total_price);
-
-    const rowData = [
-      order.order_number,
-      order.customer_name,
-      order.customer_phone,
-      order.delivery_address,
-      order.delivery_city,
-      paymentType,
-      amountToCollect,
-      order.carrier_fee,
-      '', // ESTADO_ENTREGA - courier fills
-      '', // MONTO_COBRADO - courier fills
-      '', // MOTIVO - courier fills
-      ''  // NOTAS - courier fills
-    ];
-
-    rowData.forEach((value, colIndex) => {
-      const cell = row.getCell(colIndex + 1);
-      cell.value = value;
-
-      const isEditable = headers[colIndex].editable;
-      const isAmountColumn = colIndex === 6 || colIndex === 7 || colIndex === 9;
-
-      // Font
-      cell.font = { name: 'Arial', size: 10, color: { argb: ORDEFY_DARK } };
-
-      // Alignment
-      cell.alignment = {
-        horizontal: isAmountColumn ? 'right' : 'left',
-        vertical: 'middle',
-        wrapText: colIndex === 3 // Wrap address column
-      };
-
-      // Background color - editable columns are light yellow
-      if (isEditable) {
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FEF3C7' } // Light yellow
-        };
-      } else if (index % 2 === 1) {
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'F9FAFB' } // Alternating row color
-        };
-      }
-
-      // Number format for amount columns
-      if (isAmountColumn && typeof value === 'number') {
-        cell.numFmt = '#,##0';
-      }
-
-      // Border
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'E5E7EB' } },
-        left: { style: 'thin', color: { argb: 'E5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'E5E7EB' } },
-        right: { style: 'thin', color: { argb: 'E5E7EB' } }
-      };
-    });
-
-    row.height = 28;
-  });
-
-  // ============================================================
-  // DATA VALIDATION - Dropdowns
-  // ============================================================
-
-  const dataStartRow = 5;
-  const dataEndRow = 4 + session.orders.length;
-
-  // ESTADO_ENTREGA dropdown (column I = 9)
-  worksheet.dataValidations.add(`I${dataStartRow}:I${dataEndRow}`, {
-    type: 'list',
-    allowBlank: true,
-    formulae: ['"ENTREGADO,NO ENTREGADO,RECHAZADO,REPROGRAMADO"'],
-    showErrorMessage: true,
-    errorTitle: 'Estado inválido',
-    error: 'Seleccione: ENTREGADO, NO ENTREGADO, RECHAZADO o REPROGRAMADO'
-  });
-
-  // MOTIVO dropdown (column K = 11)
-  worksheet.dataValidations.add(`K${dataStartRow}:K${dataEndRow}`, {
-    type: 'list',
-    allowBlank: true,
-    formulae: ['"NO CONTESTA,DIRECCION INCORRECTA,CLIENTE AUSENTE,RECHAZADO,SIN DINERO,REPROGRAMADO,OTRO"'],
-    showErrorMessage: true,
-    errorTitle: 'Motivo inválido',
-    error: 'Seleccione un motivo de la lista o deje vacío'
-  });
-
-  // ============================================================
-  // SUMMARY SECTION - Below data
-  // ============================================================
-
-  const summaryStartRow = dataEndRow + 2;
-
-  // Total orders
-  worksheet.mergeCells(`A${summaryStartRow}:C${summaryStartRow}`);
-  const totalOrdersCell = worksheet.getCell(`A${summaryStartRow}`);
-  totalOrdersCell.value = `Total de pedidos: ${session.orders.length}`;
-  totalOrdersCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: ORDEFY_DARK } };
-
-  // Total COD expected
-  worksheet.mergeCells(`D${summaryStartRow}:F${summaryStartRow}`);
-  const totalCodCell = worksheet.getCell(`D${summaryStartRow}`);
-  const totalCod = session.orders.reduce((sum, o) => sum + (o.is_cod ? o.total_price : 0), 0);
-  totalCodCell.value = `Total COD a cobrar: ${totalCod.toLocaleString('es-PY')} Gs`;
-  totalCodCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: ORDEFY_GREEN } };
-
-  // Instructions row
-  const instructionsRow = summaryStartRow + 2;
-  worksheet.mergeCells(`A${instructionsRow}:L${instructionsRow}`);
-  const instructionsFinalCell = worksheet.getCell(`A${instructionsRow}`);
-  instructionsFinalCell.value = 'Instrucciones: Complete ESTADO ENTREGA para todos los pedidos. Para entregas fallidas, indique el MOTIVO. Para COD entregados, ingrese MONTO COBRADO.';
-  instructionsFinalCell.font = { name: 'Arial', size: 10, italic: true, color: { argb: ORDEFY_GRAY } };
-  instructionsFinalCell.alignment = { wrapText: true };
-  worksheet.getRow(instructionsRow).height = 35;
-
-  // Footer with Ordefy branding
-  const footerRow = instructionsRow + 2;
-  worksheet.mergeCells(`A${footerRow}:L${footerRow}`);
-  const footerCell = worksheet.getCell(`A${footerRow}`);
-  footerCell.value = 'Generado por Ordefy | ordefy.io | Gestión de e-commerce simplificada';
-  footerCell.font = { name: 'Arial', size: 9, color: { argb: ORDEFY_PURPLE } };
-  footerCell.alignment = { horizontal: 'center' };
-
-  // ============================================================
-  // SHEET PROTECTION - Protect non-editable columns
-  // ============================================================
-
-  // Unlock editable columns before protecting sheet
-  for (let row = dataStartRow; row <= dataEndRow; row++) {
-    // Columns I, J, K, L (9, 10, 11, 12) are editable
-    [9, 10, 11, 12].forEach(col => {
-      worksheet.getCell(row, col).protection = { locked: false };
-    });
-  }
-
-  // Protect sheet with password (simple protection to prevent accidental edits)
-  await worksheet.protect('ordefy2024', {
-    selectLockedCells: true,
-    selectUnlockedCells: true,
-    formatColumns: false,
-    formatRows: false,
-    insertRows: false,
-    insertColumns: false,
-    deleteRows: false,
-    deleteColumns: false
-  });
-
-  // Generate buffer
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
+  return generateDispatchExcel(sessionInfo, orders);
 }
 
 /**
- * Import delivery results from CSV
+ * Import delivery results from CSV - ATOMIC VERSION
+ *
+ * Uses database RPC to ensure all updates happen in a single transaction.
+ * If any step fails, the entire operation is rolled back automatically.
  *
  * IMPORTANT: Handles COD vs PREPAID correctly:
  * - COD orders: amount_collected = what courier actually collected
@@ -960,10 +725,65 @@ export async function importDispatchResults(
   storeId: string,
   results: ImportRow[]
 ): Promise<{ processed: number; errors: string[]; warnings: string[] }> {
+  logger.info('SETTLEMENTS', `[CSV IMPORT] Starting atomic import for session ${sessionId} with ${results.length} rows`);
+
+  // Transform results to the format expected by the RPC
+  const rpcResults = results.map(row => ({
+    order_number: row.order_number,
+    delivery_status: row.delivery_status || '',
+    amount_collected: row.amount_collected ?? null,
+    failure_reason: row.failure_reason || null,
+    courier_notes: row.courier_notes || null
+  }));
+
+  try {
+    // Call atomic RPC function
+    const { data, error } = await supabaseAdmin.rpc('import_dispatch_results_atomic', {
+      p_session_id: sessionId,
+      p_store_id: storeId,
+      p_results: rpcResults
+    });
+
+    if (error) {
+      logger.error('SETTLEMENTS', '[CSV IMPORT] Atomic import failed', error);
+
+      // Fallback to non-atomic import if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        logger.warn('SETTLEMENTS', '[CSV IMPORT] RPC not available, falling back to legacy import');
+        return importDispatchResultsLegacy(sessionId, storeId, results);
+      }
+
+      throw new Error(`Error importing results: ${error.message}`);
+    }
+
+    const result = data as { processed: number; errors: string[]; warnings: string[] };
+    logger.info('SETTLEMENTS', `[CSV IMPORT] Atomic import complete: ${result.processed} processed, ${result.errors.length} errors, ${result.warnings.length} warnings`);
+
+    return result;
+  } catch (err: any) {
+    // If the error is about the function not existing, fall back to legacy
+    if (err.message?.includes('function') || err.message?.includes('does not exist')) {
+      logger.warn('SETTLEMENTS', '[CSV IMPORT] RPC not available, falling back to legacy import');
+      return importDispatchResultsLegacy(sessionId, storeId, results);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Legacy non-atomic import function
+ * Used as fallback when the atomic RPC is not available
+ * @deprecated Use atomic version via RPC when available
+ */
+async function importDispatchResultsLegacy(
+  sessionId: string,
+  storeId: string,
+  results: ImportRow[]
+): Promise<{ processed: number; errors: string[]; warnings: string[] }> {
   const session = await getDispatchSessionById(sessionId, storeId);
 
   if (session.status === 'settled') {
-    throw new Error('Session already settled');
+    throw new Error('La sesión ya fue liquidada');
   }
 
   let processed = 0;
@@ -1091,13 +911,13 @@ export async function importDispatchResults(
         });
 
         if (movementError) {
-          console.error(`⚠️ [CSV IMPORT] Failed to create movements for ${row.order_number}:`, movementError);
+          logger.error('SETTLEMENTS', `[CSV IMPORT] Failed to create movements for ${row.order_number}`, movementError);
           warnings.push(`Pedido ${row.order_number} actualizado pero no se pudo registrar en cuentas del transportista`);
         } else {
-          console.log(`✅ [CSV IMPORT] Created carrier movements for ${row.order_number}`);
+          logger.info('SETTLEMENTS', `[CSV IMPORT] Created carrier movements for ${row.order_number}`);
         }
       } catch (movementError) {
-        console.error(`⚠️ [CSV IMPORT] Exception creating movements for ${row.order_number}:`, movementError);
+        logger.error('SETTLEMENTS', `[CSV IMPORT] Exception creating movements for ${row.order_number}`, movementError);
       }
     } else if (['not_delivered', 'rejected', 'returned'].includes(deliveryStatus)) {
       // Create failed attempt fee movement (if carrier charges for failures)
@@ -1109,12 +929,12 @@ export async function importDispatchResults(
         });
 
         if (movementError) {
-          console.error(`⚠️ [CSV IMPORT] Failed to create failed movement for ${row.order_number}:`, movementError);
+          logger.error('SETTLEMENTS', `[CSV IMPORT] Failed to create failed movement for ${row.order_number}`, movementError);
         } else {
-          console.log(`✅ [CSV IMPORT] Created failed attempt fee for ${row.order_number}`);
+          logger.info('SETTLEMENTS', `[CSV IMPORT] Created failed attempt fee for ${row.order_number}`);
         }
       } catch (movementError) {
-        console.error(`⚠️ [CSV IMPORT] Exception creating failed movement:`, movementError);
+        logger.error('SETTLEMENTS', '[CSV IMPORT] Exception creating failed movement', movementError);
       }
     }
   }
@@ -1136,7 +956,10 @@ export async function importDispatchResults(
 // ============================================================
 
 /**
- * Process dispatch session and create settlement
+ * Process dispatch session and create settlement - ATOMIC VERSION
+ *
+ * Uses database RPC to ensure all operations happen in a single transaction.
+ * If any step fails, the entire operation is rolled back automatically.
  *
  * IMPORTANT: Settlement calculation logic
  *
@@ -1161,10 +984,56 @@ export async function processSettlement(
   storeId: string,
   userId: string
 ): Promise<DailySettlement> {
+  logger.info('SETTLEMENTS', `Starting atomic settlement for session ${sessionId}`);
+
+  try {
+    // Call atomic RPC function
+    const { data, error } = await supabaseAdmin.rpc('process_settlement_atomic_v2', {
+      p_session_id: sessionId,
+      p_store_id: storeId,
+      p_user_id: userId || null
+    });
+
+    if (error) {
+      logger.error('SETTLEMENTS', 'Atomic settlement failed', error);
+
+      // Fallback to legacy processing if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        logger.warn('SETTLEMENTS', 'RPC not available, falling back to legacy processing');
+        return processSettlementLegacy(sessionId, storeId, userId);
+      }
+
+      throw new Error(`Error processing settlement: ${error.message}`);
+    }
+
+    const settlement = data as DailySettlement;
+    logger.info('SETTLEMENTS', `Atomic settlement complete: ${settlement.settlement_code}, net_receivable: ${settlement.net_receivable}`);
+
+    return settlement;
+  } catch (err: any) {
+    // If the error is about the function not existing, fall back to legacy
+    if (err.message?.includes('function') || err.message?.includes('does not exist')) {
+      logger.warn('SETTLEMENTS', 'RPC not available, falling back to legacy processing');
+      return processSettlementLegacy(sessionId, storeId, userId);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Legacy non-atomic settlement processing
+ * Used as fallback when the atomic RPC is not available
+ * @deprecated Use atomic version via RPC when available
+ */
+async function processSettlementLegacy(
+  sessionId: string,
+  storeId: string,
+  userId: string
+): Promise<DailySettlement> {
   const session = await getDispatchSessionById(sessionId, storeId);
 
   if (session.status === 'settled') {
-    throw new Error('Session already settled');
+    throw new Error('La sesión ya fue liquidada');
   }
 
   // Calculate statistics with proper COD vs PREPAID separation
@@ -1217,13 +1086,14 @@ export async function processSettlement(
 
         // Validate: prepaid orders should have amount_collected = 0
         if ((order.amount_collected || 0) > 0) {
-          console.warn(`⚠️ [SETTLEMENT] Prepaid order ${order.order_number} has amount_collected=${order.amount_collected}. This should be 0.`);
+          logger.warn('SETTLEMENTS', `Prepaid order ${order.order_number} has amount_collected=${order.amount_collected}. This should be 0.`);
         }
       }
     } else if (['not_delivered', 'rejected', 'returned'].includes(order.delivery_status)) {
       stats.total_not_delivered++;
-      // Some carriers charge 50% for failed attempts
-      stats.failed_attempt_fee += (order.carrier_fee || 0) * 0.5;
+      // Use carrier's configured failed attempt fee percentage (default 50%)
+      const feePercent = (session.failed_attempt_fee_percent ?? 50) / 100;
+      stats.failed_attempt_fee += (order.carrier_fee || 0) * feePercent;
     }
   }
 
@@ -1243,7 +1113,7 @@ export async function processSettlement(
   const balanceDue = netReceivable; // Initially balance_due equals net_receivable
 
   // Log settlement calculation for debugging
-  console.log(`📊 [SETTLEMENT] Session ${session.session_code}:`, {
+  logger.info('SETTLEMENTS', `Session ${session.session_code}`, {
     total_cod_delivered: stats.total_cod_delivered,
     total_prepaid_delivered: stats.total_prepaid_delivered,
     total_cod_collected: stats.total_cod_collected,
@@ -1294,24 +1164,32 @@ export async function processSettlement(
     .eq('dispatch_session_id', sessionId)
     .is('settlement_id', null);
 
-  console.log(`✅ [SETTLEMENT] Linked carrier movements to settlement ${settlement.id}`);
+  logger.info('SETTLEMENTS', `Linked carrier movements to settlement ${settlement.id}`);
 
-  // Update order statuses in main orders table
-  for (const order of session.orders) {
-    if (order.delivery_status === 'pending') continue;
+  // Update order statuses in main orders table (batch update)
+  const orderUpdates = session.orders
+    .filter(o => o.delivery_status !== 'pending')
+    .map(order => {
+      let newStatus = order.delivery_status;
+      if (order.delivery_status === 'not_delivered') {
+        newStatus = 'shipped'; // Keep as shipped for retry
+      }
+      return {
+        id: order.order_id,
+        sleeves_status: newStatus,
+        delivered_at: order.delivery_status === 'delivered' ? order.delivered_at : null
+      };
+    });
 
-    let newStatus = order.delivery_status;
-    if (order.delivery_status === 'not_delivered') {
-      newStatus = 'shipped'; // Keep as shipped for retry
-    }
-
+  // Batch update orders (still sequential but prepared for batch)
+  for (const update of orderUpdates) {
     await supabaseAdmin
       .from('orders')
       .update({
-        sleeves_status: newStatus,
-        delivered_at: order.delivery_status === 'delivered' ? order.delivered_at : null
+        sleeves_status: update.sleeves_status,
+        delivered_at: update.delivered_at
       })
-      .eq('id', order.order_id);
+      .eq('id', update.id);
   }
 
   return settlement;
@@ -1390,7 +1268,7 @@ export async function getSettlementById(
     .single();
 
   if (error) throw error;
-  if (!settlement) throw new Error('Settlement not found');
+  if (!settlement) throw new Error('Liquidación no encontrada');
 
   let dispatchSession: DispatchSession | undefined;
   let orders: DispatchSessionOrder[] | undefined;
@@ -1412,6 +1290,13 @@ export async function getSettlementById(
 
 /**
  * Mark settlement as paid (partial or full)
+ * Uses atomic RPC to prevent race conditions with concurrent payments
+ *
+ * @param settlementId - UUID of the settlement
+ * @param storeId - UUID of the store (for security validation)
+ * @param payment - Payment details
+ * @returns Updated settlement record
+ * @throws Error if validation fails or RPC returns error
  */
 export async function markSettlementPaid(
   settlementId: string,
@@ -1423,39 +1308,87 @@ export async function markSettlementPaid(
     notes?: string;
   }
 ): Promise<DailySettlement> {
-  const { data: settlement, error: fetchError } = await supabaseAdmin
-    .from('daily_settlements')
-    .select('*')
-    .eq('id', settlementId)
-    .eq('store_id', storeId)
-    .single();
+  // ============================================================
+  // Input validation
+  // ============================================================
+  if (!settlementId || !isValidUUID(settlementId)) {
+    throw new Error('Formato de ID de liquidación inválido');
+  }
 
-  if (fetchError) throw fetchError;
-  if (!settlement) throw new Error('Settlement not found');
+  if (!storeId || !isValidUUID(storeId)) {
+    throw new Error('Formato de ID de tienda inválido');
+  }
 
-  const newAmountPaid = (settlement.amount_paid || 0) + payment.amount;
-  const netReceivable = settlement.net_receivable || 0;
-  const newBalanceDue = netReceivable - newAmountPaid;
-  const newStatus = newAmountPaid >= netReceivable ? 'paid' : 'partial';
+  if (payment.amount === undefined || payment.amount === null) {
+    throw new Error('Se requiere el monto del pago');
+  }
 
-  const { data: updated, error: updateError } = await supabaseAdmin
-    .from('daily_settlements')
-    .update({
-      amount_paid: newAmountPaid,
-      balance_due: newBalanceDue,
-      status: newStatus,
-      payment_date: new Date().toISOString().split('T')[0],
-      payment_method: payment.method,
-      payment_reference: payment.reference || settlement.payment_reference,
-      notes: payment.notes || settlement.notes
-    })
-    .eq('id', settlementId)
-    .select()
-    .single();
+  if (typeof payment.amount !== 'number' || isNaN(payment.amount)) {
+    throw new Error('El monto del pago debe ser un número válido');
+  }
 
-  if (updateError) throw updateError;
+  if (payment.amount <= 0) {
+    throw new Error('El monto del pago debe ser positivo');
+  }
 
-  return updated;
+  // Sanitize string inputs
+  const sanitizedMethod = payment.method?.trim().substring(0, 50) || null;
+  const sanitizedReference = payment.reference?.trim().substring(0, 255) || null;
+  const sanitizedNotes = payment.notes?.trim().substring(0, 1000) || null;
+
+  // ============================================================
+  // Call atomic RPC
+  // ============================================================
+  const { data, error } = await supabaseAdmin.rpc('record_settlement_payment', {
+    p_settlement_id: settlementId,
+    p_amount: payment.amount,
+    p_store_id: storeId,
+    p_method: sanitizedMethod,
+    p_reference: sanitizedReference,
+    p_notes: sanitizedNotes
+  });
+
+  if (error) {
+    logger.error('SETTLEMENTS', 'RPC error in markSettlementPaid', error);
+    throw new Error(`Database error: ${error.message}`);
+  }
+
+  // ============================================================
+  // Handle RPC response
+  // ============================================================
+  if (!data) {
+    throw new Error('Sin respuesta de la función de registro de pago');
+  }
+
+  if (!data.success) {
+    // Map error codes to user-friendly messages
+    const errorCode = data.error_code || 'UNKNOWN';
+    const errorMessage = data.error || 'Error al registrar pago';
+
+    switch (errorCode) {
+      case 'NOT_FOUND':
+        throw new Error('Liquidación no encontrada o acceso denegado');
+      case 'ALREADY_PAID':
+        throw new Error(`Settlement is already fully paid (${data.current_amount_paid}/${data.net_receivable})`);
+      case 'SETTLEMENT_DISPUTED':
+        throw new Error('No se puede registrar pago en una liquidación en disputa. Resuelva la disputa primero.');
+      case 'SETTLEMENT_CANCELLED':
+        throw new Error('No se puede registrar pago en una liquidación cancelada');
+      case 'INVALID_AMOUNT':
+        throw new Error('El monto del pago debe ser un número positivo');
+      case 'INVALID_INPUT':
+        throw new Error(errorMessage);
+      case 'INTERNAL_ERROR':
+        logger.error('SETTLEMENTS', 'Internal RPC error', data);
+        throw new Error('Error interno al registrar el pago. Por favor intente nuevamente.');
+      default:
+        throw new Error(errorMessage);
+    }
+  }
+
+  logger.info('SETTLEMENTS', `Payment recorded: ${payment.amount} for settlement ${settlementId} (status: ${data.data.status})`);
+
+  return data.data as DailySettlement;
 }
 
 // ============================================================
@@ -1697,7 +1630,7 @@ export interface CourierDateGroup {
 export async function getShippedOrdersGrouped(
   storeId: string
 ): Promise<CourierDateGroup[]> {
-  console.log('📦 [SETTLEMENTS] getShippedOrdersGrouped called for store:', storeId);
+  logger.info('SETTLEMENTS', 'getShippedOrdersGrouped called', { storeId });
 
   try {
     // First get shipped orders
@@ -1726,15 +1659,15 @@ export async function getShippedOrdersGrouped(
       .order('shipped_at', { ascending: false });
 
     if (error) {
-      console.error('❌ [SETTLEMENTS] Error fetching shipped orders:', error);
+      logger.error('SETTLEMENTS', 'Error fetching shipped orders', error);
       // Return empty array instead of throwing - no shipped orders is a valid state
       return [];
     }
 
-    console.log('📦 [SETTLEMENTS] Found', orders?.length || 0, 'shipped/in_transit orders');
+    logger.info('SETTLEMENTS', `Found ${orders?.length || 0} shipped/in_transit orders`);
 
     if (!orders || orders.length === 0) {
-      console.log('📦 [SETTLEMENTS] No shipped/in_transit orders found, returning empty array');
+      logger.info('SETTLEMENTS', 'No shipped/in_transit orders found, returning empty array');
       return [];
     }
 
@@ -1746,7 +1679,7 @@ export async function getShippedOrdersGrouped(
     const carrierIds = Array.from(carrierIdSet);
 
     if (carrierIds.length === 0) {
-      console.log('📦 [SETTLEMENTS] No carrier IDs found, returning empty array');
+      logger.info('SETTLEMENTS', 'No carrier IDs found, returning empty array');
       return [];
     }
 
@@ -1756,7 +1689,7 @@ export async function getShippedOrdersGrouped(
       .in('id', carrierIds);
 
     if (carriersError) {
-      console.error('⚠️ [SETTLEMENTS] Error fetching carriers:', carriersError);
+      logger.error('SETTLEMENTS', 'Error fetching carriers', carriersError);
       // Continue with empty carrier map - orders will show "Sin courier"
     }
 
@@ -1764,7 +1697,7 @@ export async function getShippedOrdersGrouped(
     const carrierMap = new Map<string, string>();
     carriers?.forEach(c => carrierMap.set(c.id, c.name));
 
-    console.log('📦 [SETTLEMENTS] Loaded', carrierMap.size, 'carriers');
+    logger.info('SETTLEMENTS', `Loaded ${carrierMap.size} carriers`);
 
     const groupMap = new Map<string, CourierDateGroup>();
 
@@ -1827,13 +1760,13 @@ export async function getShippedOrdersGrouped(
       }
     });
 
-    console.log('📦 [SETTLEMENTS] Grouped into', groupMap.size, 'carrier/date groups');
+    logger.info('SETTLEMENTS', `Grouped into ${groupMap.size} carrier/date groups`);
 
     return Array.from(groupMap.values()).sort((a, b) =>
       new Date(b.dispatch_date).getTime() - new Date(a.dispatch_date).getTime()
     );
   } catch (err: any) {
-    console.error('💥 [SETTLEMENTS] Unexpected error in getShippedOrdersGrouped:', err);
+    logger.error('SETTLEMENTS', 'Unexpected error in getShippedOrdersGrouped', err);
     // Return empty array on any error - prevents 500 errors
     return [];
   }
@@ -1904,16 +1837,19 @@ export async function processManualReconciliation(
     throw new Error('total_amount_collected no puede ser negativo');
   }
 
-  // Validate carrier exists
+  // Validate carrier exists and get fee configuration
   const { data: carrier, error: carrierError } = await supabaseAdmin
     .from('carriers')
-    .select('id, name')
+    .select('id, name, failed_attempt_fee_percent')
     .eq('id', carrier_id)
     .single();
 
   if (carrierError || !carrier) {
     throw new Error(`Courier no encontrado: ${carrier_id}`);
   }
+
+  // Get carrier's failed attempt fee percentage (default 50%)
+  const failedAttemptFeePercent = (carrier.failed_attempt_fee_percent ?? 50) / 100;
 
   // Validate all non-delivered orders have failure_reason
   const invalidOrders = orders.filter(o => !o.delivered && !o.failure_reason);
@@ -1950,7 +1886,7 @@ export async function processManualReconciliation(
   // If carrier has zones but none matched as default, use first zone's rate
   if (zones && zones.length > 0 && !fallbackZoneNames.some(f => zoneMap.has(f))) {
     defaultRate = zones[0].rate;
-    console.warn(`⚠️ [RECONCILIATION] Carrier ${carrier_id} has no fallback zone, using first zone rate: ${defaultRate}`);
+    logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has no fallback zone, using first zone rate: ${defaultRate}`);
   }
 
   // Get all orders from database and validate
@@ -1962,7 +1898,7 @@ export async function processManualReconciliation(
     .eq('store_id', storeId);
 
   if (ordersError) {
-    console.error('❌ [RECONCILIATION] Error fetching orders:', ordersError);
+    logger.error('SETTLEMENTS', '[RECONCILIATION] Error fetching orders', ordersError);
     throw new Error('Error al obtener los pedidos de la base de datos');
   }
 
@@ -1992,7 +1928,7 @@ export async function processManualReconciliation(
     throw new Error(`${wrongCarrierOrders.length} pedido(s) no pertenecen al courier seleccionado`);
   }
 
-  console.log(`📝 [RECONCILIATION] Starting reconciliation for ${orders.length} orders, carrier: ${carrier.name}`);
+  logger.info('SETTLEMENTS', `[RECONCILIATION] Starting reconciliation for ${orders.length} orders, carrier: ${carrier.name}`);
 
   // ============================================================
   // CALCULATION PHASE
@@ -2020,7 +1956,7 @@ export async function processManualReconciliation(
     const orderInput = orderInputMap.get(dbOrder.id);
     if (!orderInput) {
       // This should never happen due to validation above, but be safe
-      console.error(`❌ [RECONCILIATION] Order input not found for ${dbOrder.id}`);
+      logger.error('SETTLEMENTS', `[RECONCILIATION] Order input not found for ${dbOrder.id}`);
       continue;
     }
 
@@ -2050,7 +1986,8 @@ export async function processManualReconciliation(
     } else {
       // Order delivery failed - return to ready_to_ship for re-dispatch
       stats.total_not_delivered++;
-      stats.failed_attempt_fee += carrierFee * 0.5;
+      // Use carrier's configured failed attempt fee percentage
+      stats.failed_attempt_fee += carrierFee * failedAttemptFeePercent;
 
       updatesFailed.push({
         id: dbOrder.id,
@@ -2071,7 +2008,7 @@ export async function processManualReconciliation(
     throw new Error(`Hay una discrepancia de ${discrepancyAmount.toLocaleString()} Gs que no ha sido confirmada`);
   }
 
-  console.log(`📊 [RECONCILIATION] Stats calculated:`, {
+  logger.info('SETTLEMENTS', '[RECONCILIATION] Stats calculated', {
     delivered: stats.total_delivered,
     not_delivered: stats.total_not_delivered,
     cod_expected: stats.total_cod_expected,
@@ -2099,7 +2036,7 @@ export async function processManualReconciliation(
       .eq('store_id', storeId); // Extra safety
 
     if (error) {
-      console.error(`❌ [RECONCILIATION] Error updating order ${update.id}:`, error);
+      logger.error('SETTLEMENTS', `[RECONCILIATION] Error updating order ${update.id}`, error);
       errors.push(`Error actualizando pedido ${update.id}: ${error.message}`);
     }
   }
@@ -2117,7 +2054,7 @@ export async function processManualReconciliation(
       .eq('store_id', storeId);
 
     if (error) {
-      console.error(`❌ [RECONCILIATION] Error updating failed order ${update.id}:`, error);
+      logger.error('SETTLEMENTS', `[RECONCILIATION] Error updating failed order ${update.id}`, error);
       errors.push(`Error actualizando pedido fallido ${update.id}: ${error.message}`);
     }
   }
@@ -2140,7 +2077,7 @@ export async function processManualReconciliation(
         .eq('store_id', storeId);
 
       if (error) {
-        console.error(`❌ [RECONCILIATION] Error updating discrepancy for ${codOrder.id}:`, error);
+        logger.error('SETTLEMENTS', `[RECONCILIATION] Error updating discrepancy for ${codOrder.id}`, error);
         errors.push(`Error marcando discrepancia en pedido ${codOrder.id}`);
       }
     }
@@ -2196,11 +2133,11 @@ export async function processManualReconciliation(
     .single();
 
   if (settlementError) {
-    console.error('❌ [RECONCILIATION] Error creating settlement:', settlementError);
+    logger.error('SETTLEMENTS', '[RECONCILIATION] Error creating settlement', settlementError);
     throw new Error(`Error al crear la liquidación: ${settlementError.message}`);
   }
 
-  console.log(`✅ [RECONCILIATION] Settlement created: ${settlementCode}`, {
+  logger.info('SETTLEMENTS', `[RECONCILIATION] Settlement created: ${settlementCode}`, {
     delivered: stats.total_delivered,
     failed: stats.total_not_delivered,
     cod_collected: stats.total_cod_collected,
@@ -2216,7 +2153,7 @@ export async function processManualReconciliation(
     .in('order_id', orderIds)
     .is('settlement_id', null);
 
-  console.log(`✅ [RECONCILIATION] Linked carrier movements to settlement ${settlement.id}`);
+  logger.info('SETTLEMENTS', `[RECONCILIATION] Linked carrier movements to settlement ${settlement.id}`);
 
   return {
     ...settlement,
@@ -2318,8 +2255,8 @@ export async function getCarrierBalances(storeId: string): Promise<CarrierBalanc
     .order('net_balance', { ascending: false });
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error fetching balances:', error);
-    throw new Error('Failed to fetch carrier balances');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error fetching balances', error);
+    throw new Error('Error al obtener balances de transportadoras');
   }
 
   return (data || []).map(row => ({
@@ -2357,8 +2294,8 @@ export async function getCarrierBalanceSummary(
   });
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error fetching balance summary:', error);
-    throw new Error('Failed to fetch carrier balance summary');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error fetching balance summary', error);
+    throw new Error('Error al obtener resumen de balance de transportadora');
   }
 
   if (!data || data.length === 0) {
@@ -2406,8 +2343,8 @@ export async function getUnsettledMovements(
   const { data, error } = await query;
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
-    throw new Error('Failed to fetch unsettled movements');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error fetching unsettled movements', error);
+    throw new Error('Error al obtener movimientos pendientes');
   }
 
   return data || [];
@@ -2452,8 +2389,8 @@ export async function getCarrierMovements(
   const { data, error, count } = await query;
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error fetching movements:', error);
-    throw new Error('Failed to fetch carrier movements');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error fetching movements', error);
+    throw new Error('Error al obtener movimientos de transportadora');
   }
 
   return { data: data || [], count: count || 0 };
@@ -2490,8 +2427,8 @@ export async function createAdjustmentMovement(
     .single();
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error creating adjustment:', error);
-    throw new Error('Failed to create adjustment');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error creating adjustment', error);
+    throw new Error('Error al crear ajuste');
   }
 
   return data;
@@ -2528,8 +2465,8 @@ export async function registerCarrierPayment(
   });
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error registering payment:', error);
-    throw new Error('Failed to register payment');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error registering payment', error);
+    throw new Error('Error al registrar pago');
   }
 
   // Get the payment code
@@ -2588,8 +2525,8 @@ export async function getCarrierPayments(
   const { data, error, count } = await query;
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error fetching payments:', error);
-    throw new Error('Failed to fetch carrier payments');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error fetching payments', error);
+    throw new Error('Error al obtener pagos de transportadora');
   }
 
   return {
@@ -2623,8 +2560,8 @@ export async function updateCarrierConfig(
     .eq('store_id', storeId);
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error updating carrier config:', error);
-    throw new Error('Failed to update carrier configuration');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error updating carrier config', error);
+    throw new Error('Error al actualizar configuración de transportadora');
   }
 }
 
@@ -2669,8 +2606,8 @@ export async function backfillCarrierMovements(storeId?: string): Promise<{
   });
 
   if (error) {
-    console.error('❌ [CARRIER ACCOUNTS] Error backfilling movements:', error);
-    throw new Error('Failed to backfill carrier movements');
+    logger.error('SETTLEMENTS', '[CARRIER ACCOUNTS] Error backfilling movements', error);
+    throw new Error('Error al rellenar movimientos de transportadora');
   }
 
   const result = data?.[0] || { orders_processed: 0, movements_created: 0 };

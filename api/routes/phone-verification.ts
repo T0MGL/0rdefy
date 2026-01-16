@@ -22,13 +22,13 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
     const userId = (req as any).userId;
 
     if (!phone) {
-      return res.status(400).json({ error: 'Phone number is required' });
+      return res.status(400).json({ error: 'Se requiere el número de teléfono' });
     }
 
     // Validate phone format (simple validation, adjust as needed)
     const phoneRegex = /^\+?[1-9]\d{1,14}$/;
     if (!phoneRegex.test(phone.replace(/[\s-]/g, ''))) {
-      return res.status(400).json({ error: 'Invalid phone number format' });
+      return res.status(400).json({ error: 'Formato de número de teléfono inválido' });
     }
 
     // Check if phone is already verified by another user
@@ -139,7 +139,7 @@ router.post('/verify', verifyToken, async (req: Request, res: Response) => {
     const userId = (req as any).userId;
 
     if (!code) {
-      return res.status(400).json({ error: 'Verification code is required' });
+      return res.status(400).json({ error: 'Se requiere el código de verificación' });
     }
 
     // Find verification code
@@ -253,7 +253,7 @@ router.post('/resend', verifyToken, async (req: Request, res: Response) => {
       .single();
 
     if (userError || !user.phone) {
-      return res.status(400).json({ error: 'No phone number found' });
+      return res.status(400).json({ error: 'No se encontró número de teléfono' });
     }
 
     // Reuse the request endpoint logic

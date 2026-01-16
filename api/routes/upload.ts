@@ -33,7 +33,7 @@ const upload = (multer as unknown)({
 const handleMulterError = (err: any, req: Request, res: Response, next: () => void) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'File size exceeds 5MB limit' });
+      return res.status(400).json({ error: 'El archivo excede el límite de 5MB' });
     }
     return res.status(400).json({ error: err.message });
   }
@@ -59,7 +59,7 @@ router.post(
       const storeId = (req as any).storeId;
 
       if (!req.file && !req.body.base64) {
-        return res.status(400).json({ error: 'No file or base64 data provided' });
+        return res.status(400).json({ error: 'No se proporcionó archivo o datos base64' });
       }
 
       let result;
@@ -84,7 +84,7 @@ router.post(
       }
 
       if (!result?.success) {
-        return res.status(400).json({ error: result?.error || 'Upload failed' });
+        return res.status(400).json({ error: result?.error || 'Error al subir' });
       }
 
       // Update user's avatar_url in database
@@ -101,7 +101,7 @@ router.post(
       });
     } catch (err: any) {
       console.error('Avatar upload error:', err);
-      res.status(500).json({ error: 'Failed to upload avatar' });
+      res.status(500).json({ error: 'Error al subir avatar' });
     }
   }
 );
@@ -122,7 +122,7 @@ router.post(
       const storeId = (req as any).storeId;
 
       if (!req.file && !req.body.base64) {
-        return res.status(400).json({ error: 'No file or base64 data provided' });
+        return res.status(400).json({ error: 'No se proporcionó archivo o datos base64' });
       }
 
       let result;
@@ -145,7 +145,7 @@ router.post(
       }
 
       if (!result?.success) {
-        return res.status(400).json({ error: result?.error || 'Upload failed' });
+        return res.status(400).json({ error: result?.error || 'Error al subir' });
       }
 
       // Update product's image_url in database
@@ -163,7 +163,7 @@ router.post(
       });
     } catch (err: any) {
       console.error('Product image upload error:', err);
-      res.status(500).json({ error: 'Failed to upload product image' });
+      res.status(500).json({ error: 'Error al subir imagen de producto' });
     }
   }
 );
@@ -184,7 +184,7 @@ router.post(
       const storeId = (req as any).storeId;
 
       if (!req.file && !req.body.base64) {
-        return res.status(400).json({ error: 'No file or base64 data provided' });
+        return res.status(400).json({ error: 'No se proporcionó archivo o datos base64' });
       }
 
       let result;
@@ -207,7 +207,7 @@ router.post(
       }
 
       if (!result?.success) {
-        return res.status(400).json({ error: result?.error || 'Upload failed' });
+        return res.status(400).json({ error: result?.error || 'Error al subir' });
       }
 
       res.json({
@@ -217,7 +217,7 @@ router.post(
       });
     } catch (err: any) {
       console.error('Merchandise image upload error:', err);
-      res.status(500).json({ error: 'Failed to upload merchandise image' });
+      res.status(500).json({ error: 'Error al subir imagen de mercadería' });
     }
   }
 );
@@ -272,7 +272,7 @@ router.post(
       });
     } catch (err: any) {
       console.error('Base64 upload error:', err);
-      res.status(500).json({ error: 'Failed to upload image' });
+      res.status(500).json({ error: 'Error al subir imagen' });
     }
   }
 );
@@ -303,7 +303,7 @@ router.delete(
       res.json({ success: true });
     } catch (err: any) {
       console.error('Product image delete error:', err);
-      res.status(500).json({ error: 'Failed to delete product images' });
+      res.status(500).json({ error: 'Error al eliminar imágenes de producto' });
     }
   }
 );

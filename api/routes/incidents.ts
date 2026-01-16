@@ -52,7 +52,7 @@ incidentsRouter.get('/order/:order_id/active', async (req: Request, res: Respons
 
         if (error) {
             console.error('❌ [INCIDENTS] Error fetching incident:', error);
-            return res.status(500).json({ error: 'Failed to fetch incident' });
+            return res.status(500).json({ error: 'Error al obtener incidente' });
         }
 
         if (!incident) {
@@ -81,7 +81,7 @@ incidentsRouter.get('/order/:order_id/active', async (req: Request, res: Respons
         });
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -99,7 +99,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
 
         if (!status || !['delivered', 'failed'].includes(status)) {
             return res.status(400).json({
-                error: 'Invalid status',
+                error: 'Estado inválido',
                 message: 'status must be either "delivered" or "failed"'
             });
         }
@@ -146,7 +146,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
 
         if (updateError) {
             console.error('❌ [INCIDENTS] Error updating retry:', updateError);
-            return res.status(500).json({ error: 'Failed to update retry attempt' });
+            return res.status(500).json({ error: 'Error al actualizar intento de reintento' });
         }
 
         // Create delivery_attempt record
@@ -191,7 +191,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
         });
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -258,7 +258,7 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         if (error) {
             console.error('❌ [INCIDENTS] Error:', error);
-            return res.status(500).json({ error: 'Failed to fetch incidents' });
+            return res.status(500).json({ error: 'Error al obtener incidentes' });
         }
 
         res.json({
@@ -272,7 +272,7 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
         });
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -316,7 +316,7 @@ incidentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
         res.json(data);
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -389,7 +389,7 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
 
         if (createError) {
             console.error('❌ [INCIDENTS] Error creating retry:', createError);
-            return res.status(500).json({ error: 'Failed to schedule retry' });
+            return res.status(500).json({ error: 'Error al programar reintento' });
         }
 
         console.log('✅ [INCIDENTS] Retry scheduled:', retry.id);
@@ -400,7 +400,7 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
         });
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -412,7 +412,7 @@ incidentsRouter.post('/:id/resolve', async (req: AuthRequest, res: Response) => 
 
         if (!resolution_type || !['cancelled', 'customer_rejected', 'delivered', 'other'].includes(resolution_type)) {
             return res.status(400).json({
-                error: 'Invalid resolution_type',
+                error: 'Tipo de resolución inválido',
                 valid_types: ['cancelled', 'customer_rejected', 'delivered', 'other']
             });
         }
@@ -481,7 +481,7 @@ incidentsRouter.post('/:id/resolve', async (req: AuthRequest, res: Response) => 
         });
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -519,7 +519,7 @@ incidentsRouter.put('/:id/retry/:retry_id', async (req: AuthRequest, res: Respon
         });
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -536,7 +536,7 @@ incidentsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
         if (error) {
             console.error('❌ [INCIDENTS] Error deleting:', error);
-            return res.status(500).json({ error: 'Failed to delete incident' });
+            return res.status(500).json({ error: 'Error al eliminar incidente' });
         }
 
         // Update order flag
@@ -550,6 +550,6 @@ incidentsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
         res.json({ message: 'Incident deleted' });
     } catch (error: any) {
         console.error('💥 [INCIDENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

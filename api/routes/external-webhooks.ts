@@ -70,7 +70,7 @@ externalWebhooksRouter.get('/config', async (req: any, res: Response) => {
     console.error('[ExternalWebhooks] Error getting config:', error);
     return res.status(500).json({
       error: 'server_error',
-      message: 'Failed to get webhook configuration'
+      message: 'Error al obtener configuración de webhook'
     });
   }
 });
@@ -147,7 +147,7 @@ externalWebhooksRouter.post('/setup', async (req: any, res: Response) => {
     console.error('[ExternalWebhooks] Error in setup:', error);
     return res.status(500).json({
       error: 'server_error',
-      message: 'Failed to configure webhook'
+      message: 'Error al configurar webhook'
     });
   }
 });
@@ -190,7 +190,7 @@ externalWebhooksRouter.post('/regenerate-key', async (req: any, res: Response) =
     console.error('[ExternalWebhooks] Error regenerating key:', error);
     return res.status(500).json({
       error: 'server_error',
-      message: 'Failed to regenerate API key'
+      message: 'Error al regenerar clave API'
     });
   }
 });
@@ -237,7 +237,7 @@ externalWebhooksRouter.delete('/config', async (req: any, res: Response) => {
     console.error('[ExternalWebhooks] Error deleting config:', error);
     return res.status(500).json({
       error: 'server_error',
-      message: 'Failed to delete webhook configuration'
+      message: 'Error al eliminar configuración de webhook'
     });
   }
 });
@@ -266,7 +266,7 @@ externalWebhooksRouter.get('/logs', async (req: any, res: Response) => {
     console.error('[ExternalWebhooks] Error getting logs:', error);
     return res.status(500).json({
       error: 'server_error',
-      message: 'Failed to get webhook logs'
+      message: 'Error al obtener logs de webhook'
     });
   }
 });
@@ -301,7 +301,7 @@ externalWebhooksRouter.get('/logs/:logId', async (req: any, res: Response) => {
     console.error('[ExternalWebhooks] Error getting log:', error);
     return res.status(500).json({
       error: 'server_error',
-      message: 'Failed to get log details'
+      message: 'Error al obtener detalles de log'
     });
   }
 });
@@ -485,7 +485,7 @@ externalWebhooksRouter.post('/orders/:storeId', async (req: Request, res: Respon
       return res.status(500).json({
         success: false,
         error: 'processing_error',
-        message: result.error || 'Failed to process order'
+        message: result.error || 'Error al procesar pedido'
       });
     }
 
@@ -513,7 +513,7 @@ externalWebhooksRouter.post('/orders/:storeId', async (req: Request, res: Respon
     return res.status(500).json({
       success: false,
       error: 'server_error',
-      message: 'Internal server error'
+      message: 'Error interno del servidor'
     });
   }
 });

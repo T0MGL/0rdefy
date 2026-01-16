@@ -396,7 +396,7 @@ const handleOAuthStart = async (req: Request, res: Response) => {
       console.error('❌ [SHOPIFY-OAUTH] Error saving state:', stateError);
       return res.status(500).json({
         error: 'Database error',
-        message: 'Failed to initialize OAuth flow'
+        message: 'Error al inicializar flujo OAuth'
       });
     }
 
@@ -422,7 +422,7 @@ const handleOAuthStart = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('💥 [SHOPIFY-OAUTH] Error:', error);
     res.status(500).json({
-      error: 'Internal server error',
+      error: 'Error interno del servidor',
       message: error.message
     });
   }
@@ -819,7 +819,7 @@ shopifyOAuthRouter.get('/status', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('💥 [SHOPIFY-OAUTH] Status check error:', error);
     res.status(500).json({
-      error: 'Internal server error',
+      error: 'Error interno del servidor',
       message: error.message
     });
   }
@@ -927,7 +927,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
       console.error('❌ [SHOPIFY-OAUTH] Error updating integration status:', updateError);
       return res.status(500).json({
         success: false,
-        error: 'Failed to disconnect integration',
+        error: 'Error al desconectar integración',
         message: updateError.message
       });
     }
@@ -944,7 +944,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
     console.error('💥 [SHOPIFY-OAUTH] Disconnect error:', error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error',
+      error: 'Error interno del servidor',
       message: error.message
     });
   }

@@ -112,12 +112,12 @@ export async function createSession(
 
     if (ordersError) throw ordersError;
     if (!orders || orders.length === 0) {
-      throw new Error('No valid orders found');
+      throw new Error('No se encontraron pedidos válidos');
     }
 
     const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
     if (nonConfirmedOrders.length > 0) {
-      throw new Error('All orders must be in confirmed status');
+      throw new Error('Todos los pedidos deben estar en estado confirmado');
     }
 
     // 2. Generate unique session code
@@ -343,7 +343,7 @@ export async function getPickingList(
 
     if (sessionError) throw sessionError;
     if (!session) {
-      throw new Error('Session not found');
+      throw new Error('Sesión no encontrada');
     }
     if (session.store_id !== storeId) {
       throw new Error('Session does not belong to this store');
@@ -1395,7 +1395,7 @@ async function removeOrderFromSessionFallback(
     .single();
 
   if (sessionError || !session) {
-    throw new Error('Session not found');
+    throw new Error('Sesión no encontrada');
   }
 
   if (session.status === 'completed') {
@@ -1664,7 +1664,7 @@ export async function completeSession(
 
           if (orderUpdateError) {
             console.error('Error updating orders to ready_to_ship:', orderUpdateError);
-            throw new Error('Failed to update orders status');
+            throw new Error('Error al actualizar estado de pedidos');
           }
         }
 
@@ -1684,7 +1684,7 @@ export async function completeSession(
         return updated;
       }
 
-      throw new Error(`Failed to complete session: ${rpcError.message}`);
+      throw new Error(`Error al completar sesión: ${rpcError.message}`);
     }
 
     console.log(`✅ Session completed atomically:`, rpcResult);

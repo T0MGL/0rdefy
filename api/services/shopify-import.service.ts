@@ -80,7 +80,7 @@ export class ShopifyImportService {
       .select('id')
       .single();
 
-    if (error) throw new Error(`Failed to create import job: ${error.message}`);
+    if (error) throw new Error(`Error al crear trabajo de importación: ${error.message}`);
     return data.id;
   }
 
@@ -203,7 +203,7 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
-            console.error(`Failed to import product ${shopifyProduct.id}:`, error);
+            console.error(`Error al importar producto ${shopifyProduct.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
               failed_items: (job.failed_items || 0) + 1
@@ -268,7 +268,7 @@ export class ShopifyImportService {
           await this.createAutomaticInboundShipment(importedProducts);
         }
       } catch (error: any) {
-        console.error('❌ [SHOPIFY-IMPORT] Failed to create automatic inbound shipment:', error);
+        console.error('❌ [SHOPIFY-IMPORT] Error al crear envío de entrada automático:', error);
         // Don't fail the import job if shipment creation fails
       }
     }
@@ -311,7 +311,7 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
-            console.error(`Failed to import customer ${shopifyCustomer.id}:`, error);
+            console.error(`Error al importar cliente ${shopifyCustomer.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
               failed_items: (job.failed_items || 0) + 1
@@ -389,7 +389,7 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
-            console.error(`Failed to import order ${shopifyOrder.id}:`, error);
+            console.error(`Error al importar pedido ${shopifyOrder.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
               failed_items: (job.failed_items || 0) + 1
@@ -460,7 +460,7 @@ export class ShopifyImportService {
       .single();
 
     if (error) {
-      throw new Error(`Failed to upsert product: ${error.message}`);
+      throw new Error(`Error al insertar/actualizar producto: ${error.message}`);
     }
 
     // Return product data for shipment creation (only if stock > 0)
@@ -506,7 +506,7 @@ export class ShopifyImportService {
       });
 
     if (error) {
-      throw new Error(`Failed to upsert customer: ${error.message}`);
+      throw new Error(`Error al insertar/actualizar cliente: ${error.message}`);
     }
   }
 
@@ -588,7 +588,7 @@ export class ShopifyImportService {
       .single();
 
     if (error) {
-      throw new Error(`Failed to upsert order: ${error.message}`);
+      throw new Error(`Error al insertar/actualizar pedido: ${error.message}`);
     }
 
     // Create normalized line items with product mapping
@@ -708,7 +708,7 @@ export class ShopifyImportService {
 
         if (insertError) {
           console.error(`Error inserting line item:`, insertError);
-          throw new Error(`Failed to insert line item: ${insertError.message}`);
+          throw new Error(`Error al insertar línea de pedido: ${insertError.message}`);
         }
       }
 
@@ -738,7 +738,7 @@ export class ShopifyImportService {
       .eq('id', jobId)
       .single();
 
-    if (error) throw new Error(`Failed to get job: ${error.message}`);
+    if (error) throw new Error(`Error al obtener trabajo: ${error.message}`);
     return data;
   }
 
@@ -748,7 +748,7 @@ export class ShopifyImportService {
       .update({ status, ...additional })
       .eq('id', jobId);
 
-    if (error) throw new Error(`Failed to update job status: ${error.message}`);
+    if (error) throw new Error(`Error al actualizar estado del trabajo: ${error.message}`);
   }
 
   private async updateJobProgress(jobId: string, progress: Partial<ShopifyImportJob>): Promise<void> {
@@ -757,7 +757,7 @@ export class ShopifyImportService {
       .update(progress)
       .eq('id', jobId);
 
-    if (error) console.error('Failed to update job progress:', error);
+    if (error) console.error('Error al actualizar progreso del trabajo:', error);
   }
 
   private async markJobFailed(jobId: string, errorMessage: string): Promise<void> {
@@ -879,7 +879,7 @@ export class ShopifyImportService {
       .order('created_at', { ascending: false })
       .limit(10);
 
-    if (error) throw new Error(`Failed to get import status: ${error.message}`);
+    if (error) throw new Error(`Error al obtener estado de importación: ${error.message}`);
 
     const activeJobs = jobs.filter(j => ['pending', 'running'].includes(j.status));
     const overallStatus = activeJobs.length > 0 ? 'syncing' : 'idle';

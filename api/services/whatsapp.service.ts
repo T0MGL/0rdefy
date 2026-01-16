@@ -51,7 +51,7 @@ class WhatsAppService {
       return true;
     } catch (error) {
       console.error('❌ Error sending WhatsApp verification code:', error);
-      throw new Error('Failed to send verification code via WhatsApp');
+      throw new Error('Error al enviar código de verificación por WhatsApp');
     }
   }
 

@@ -15,6 +15,8 @@ import { ShopifyWebhookManager } from '../services/shopify-webhook-manager.servi
 import { ShopifyWebhookSetupService } from '../services/shopify-webhook-setup.service';
 import { WebhookQueueService } from '../services/webhook-queue.service';
 import { ShopifyIntegration, ShopifyConfigRequest } from '../types/shopify';
+import { logger } from '../utils/logger';
+import { WEBHOOK_ERRORS } from '../constants/webhook-errors';
 
 export const shopifyRouter = Router();
 
@@ -61,11 +63,11 @@ const webhookQueue = new WebhookQueueService(supabaseAdmin);
 // Start processing webhooks in background
 // Migration 024 already applied in MASTER_MIGRATION (table: shopify_webhook_retry_queue)
 webhookQueue.startProcessing();
-console.log('✅ [SHOPIFY] Webhook queue processor started');
+logger.info('SHOPIFY', 'Webhook queue processor started');
 
 // Graceful shutdown handler
 process.on('SIGTERM', () => {
-  console.log('🛑 [SHOPIFY] Shutting down webhook queue processor...');
+  logger.info('SHOPIFY', 'Shutting down webhook queue processor...');
   webhookQueue.stopProcessing();
 });
 
@@ -260,16 +262,16 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
     // ================================================================
     // REGISTRO AUTOMÁTICO DE WEBHOOKS
     // ================================================================
-    console.log('🔌 Registrando webhooks en Shopify...');
+    logger.info('SHOPIFY', 'Registrando webhooks en Shopify...');
     const webhookSetup = new ShopifyWebhookSetupService(integration);
     const webhookResult = await webhookSetup.setupWebhooks();
 
     if (!webhookResult.success) {
-      console.warn('⚠️  Algunos webhooks no se pudieron registrar:', webhookResult.errors);
+      logger.warn('SHOPIFY', 'Algunos webhooks no se pudieron registrar', { errors: webhookResult.errors });
       // No fallar la configuración por errores de webhooks
       // Los webhooks se pueden configurar manualmente después
     } else {
-      console.log('✅ Webhooks registrados exitosamente:', webhookResult.registered);
+      logger.info('SHOPIFY', 'Webhooks registrados exitosamente', { registered: webhookResult.registered });
     }
 
     // No iniciar importacion automatica - el usuario lo hara manualmente desde el dashboard
@@ -285,7 +287,7 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('Error configurando Shopify:', error);
+    logger.error('SHOPIFY', 'Error configurando Shopify', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Error configurando integracion'
@@ -351,7 +353,7 @@ shopifyRouter.post('/manual-sync', requireFeature('shopify_bidirectional'), asyn
     });
 
   } catch (error: any) {
-    console.error('Error en sincronizacion manual:', error);
+    logger.error('SHOPIFY', 'Error en sincronizacion manual', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Error iniciando sincronizacion'
@@ -397,7 +399,7 @@ shopifyRouter.post('/sync-orders', requireFeature('shopify_bidirectional'), asyn
     });
 
   } catch (error: any) {
-    console.error('Error sincronizando pedidos:', error);
+    logger.error('SHOPIFY', 'Error sincronizando pedidos', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Error iniciando sincronización de pedidos'
@@ -437,7 +439,7 @@ shopifyRouter.get('/import-status/:integration_id', async (req: AuthRequest, res
     });
 
   } catch (error: any) {
-    console.error('Error obteniendo estado de importacion:', error);
+    logger.error('SHOPIFY', 'Error obteniendo estado de importacion', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Error obteniendo estado'
@@ -461,15 +463,14 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available - middleware not working correctly');
-      console.error('   Path:', req.path);
-      console.error('   This will cause HMAC verification to fail');
-      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available - middleware not working correctly', { path: req.path });
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      console.error('❌ Webhook missing required headers');
-      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+      logger.error('SHOPIFY', 'Webhook missing required headers');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Obtener integracion por dominio
@@ -481,8 +482,8 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      console.error('❌ Integration not found for domain:', shopDomain);
-      return res.status(404).json({ error: 'Integration not found' });
+      logger.error('SHOPIFY', 'Integration not found for domain', { shopDomain });
+      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
     }
 
     integrationId = integration.id;
@@ -498,12 +499,13 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ Webhook secret not configured for', shopDomain);
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'Webhook secret not configured', { shopDomain });
       await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
-    console.log(`🔐 Using secret from: ${secretSource} for ${shopDomain}`);
+    logger.info('SHOPIFY', `Using secret from: ${secretSource}`, { shopDomain });
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -512,7 +514,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     );
 
     if (!isValid) {
-      console.error('❌ Invalid HMAC signature');
+      logger.error('SHOPIFY', 'Invalid HMAC signature');
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,
@@ -520,7 +522,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
         Date.now() - startTime,
         '401'
       );
-      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+      return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
     // Check for replay attacks - reject webhooks older than 5 minutes
@@ -529,7 +531,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       const webhookDate = new Date(webhookTimestamp);
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (webhookDate < fiveMinutesAgo) {
-        console.warn('⚠️ Webhook rejected: older than 5 minutes');
+        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes');
         await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
         return res.status(200).json({ success: true, message: 'Webhook too old' });
       }
@@ -538,8 +540,8 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     // Generate idempotency key
     const orderId = req.body.id?.toString();
     if (!orderId) {
-      console.error('❌ Webhook missing order ID');
-      return res.status(400).json({ error: 'Missing order ID' });
+      logger.error('SHOPIFY', 'Webhook missing order ID');
+      return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
     }
 
     const idempotencyKey = webhookManager.generateIdempotencyKey(
@@ -558,7 +560,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     );
 
     if (lockResult.is_duplicate) {
-      console.warn(`⚠️ Duplicate webhook (atomic check): ${idempotencyKey}`);
+      logger.warn('SHOPIFY', `Duplicate webhook (atomic check): ${idempotencyKey}`);
       await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
       return res.status(200).json({
         success: true,
@@ -595,9 +597,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       );
 
       const responseTime = Date.now() - startTime;
-      console.log(
-        `✅ Webhook queued in ${responseTime}ms: ${orderId} (queue_id: ${queueId})`
-      );
+      logger.info('SHOPIFY', `Webhook queued in ${responseTime}ms`, { orderId, queueId });
 
       // Respond immediately to Shopify
       return res.status(200).json({
@@ -608,7 +608,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       });
     } catch (queueError: any) {
       // Fallback to synchronous processing if queue is unavailable
-      console.warn('⚠️ Webhook queue unavailable, processing synchronously:', queueError.message);
+      logger.warn('SHOPIFY', 'Webhook queue unavailable, processing synchronously', { error: queueError.message });
 
       const webhookService = new ShopifyWebhookService(supabaseAdmin);
       const result = await webhookService.processOrderCreatedWebhook(
@@ -628,7 +628,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       );
 
       const responseTime = Date.now() - startTime;
-      console.log(`✅ Webhook processed synchronously in ${responseTime}ms: ${orderId}`);
+      logger.info('SHOPIFY', `Webhook processed synchronously in ${responseTime}ms`, { orderId });
 
       // Respond to Shopify
       return res.status(200).json({
@@ -639,7 +639,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       });
     }
   } catch (error: any) {
-    console.error('❌ Error procesando webhook de pedido:', error);
+    logger.error('SHOPIFY', 'Error procesando webhook de pedido', error);
 
     if (integrationId && storeId) {
       const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
@@ -655,7 +655,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     // Return 200 to prevent Shopify infinite retries
     res.status(200).json({
       success: false,
-      error: 'Internal error - will retry',
+      error: WEBHOOK_ERRORS.RETRY_LATER,
     });
   }
 };
@@ -679,12 +679,13 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available for orders-updated webhook');
-      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available for orders-updated webhook');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      return res.status(400).json({ error: 'Missing headers' });
+      return res.status(400).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     const { data: integration, error } = await supabaseAdmin
@@ -695,7 +696,7 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      return res.status(404).json({ error: 'Integration not found' });
+      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
     }
 
     integrationId = integration.id;
@@ -711,12 +712,13 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ Webhook secret not configured for orders/updated');
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'Webhook secret not configured for orders/updated');
       await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
-    console.log(`🔐 Using secret from: ${secretSource} for orders/updated`);
+    logger.info('SHOPIFY', `Using secret from: ${secretSource} for orders/updated`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -725,7 +727,7 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
     );
 
     if (!isValid) {
-      console.error('❌ HMAC verification failed for orders/updated');
+      logger.error('SHOPIFY', 'HMAC verification failed for orders/updated');
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,
@@ -733,7 +735,7 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
         Date.now() - startTime,
         '401'
       );
-      return res.status(401).json({ error: 'Invalid HMAC signature' });
+      return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
     // Check for replay attacks - reject webhooks older than 5 minutes
@@ -742,10 +744,41 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       const webhookDate = new Date(webhookTimestamp);
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (webhookDate < fiveMinutesAgo) {
-        console.warn('⚠️ Webhook rejected: older than 5 minutes (orders/updated)');
+        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes (orders/updated)');
         await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
         return res.status(200).json({ success: true, message: 'Webhook too old' });
       }
+    }
+
+    // Generate idempotency key - include timestamp to distinguish updates of same order
+    const orderId = req.body.id?.toString();
+    if (!orderId) {
+      logger.error('SHOPIFY', 'Webhook missing order ID (orders/updated)');
+      return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
+    }
+
+    const idempotencyKey = webhookManager.generateIdempotencyKey(
+      orderId,
+      'orders/updated',
+      webhookTimestamp
+    );
+
+    // Atomic idempotency check using INSERT-first approach
+    const lockResult = await webhookManager.tryAcquireIdempotencyLock(
+      integrationId!,
+      idempotencyKey,
+      orderId,
+      'orders/updated'
+    );
+
+    if (lockResult.is_duplicate) {
+      logger.warn('SHOPIFY', `Duplicate orders/updated webhook: ${idempotencyKey}`);
+      await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
+      return res.status(200).json({
+        success: true,
+        message: 'Already processed',
+        idempotency_key: idempotencyKey,
+      });
     }
 
     const webhookService = new ShopifyWebhookService(supabaseAdmin);
@@ -756,13 +789,22 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       integration // Pass full integration to detect Custom App
     );
 
+    // Complete idempotency record after processing
+    await webhookManager.completeIdempotencyRecord(
+      integrationId!,
+      idempotencyKey,
+      result.success,
+      result.success ? 200 : 500,
+      result.success ? 'processed' : result.error || 'failed'
+    );
+
     // Record success metric
     await webhookManager.recordMetric(integrationId!, storeId!, 'processed', Date.now() - startTime);
 
     res.json(result);
 
   } catch (error: any) {
-    console.error('Error procesando webhook de actualizacion:', error);
+    logger.error('SHOPIFY', 'Error procesando webhook de actualizacion', error);
 
     if (integrationId && storeId) {
       const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
@@ -778,7 +820,7 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
     // Return 200 to prevent Shopify infinite retries
     res.status(200).json({
       success: false,
-      error: 'Internal error - will retry',
+      error: WEBHOOK_ERRORS.RETRY_LATER,
     });
   }
 };
@@ -801,12 +843,13 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available for products-update webhook');
-      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available for products-update webhook');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      return res.status(400).json({ error: 'Missing headers' });
+      return res.status(400).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     const { data: integration, error } = await supabaseAdmin
@@ -817,7 +860,7 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      return res.status(404).json({ error: 'Integration not found' });
+      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
     }
 
     integrationId = integration.id;
@@ -833,12 +876,13 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ Webhook secret not configured for products/update');
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'Webhook secret not configured for products/update');
       await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
-    console.log(`🔐 Using secret from: ${secretSource} for products/update`);
+    logger.info('SHOPIFY', `Using secret from: ${secretSource} for products/update`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -847,7 +891,7 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
     );
 
     if (!isValid) {
-      console.error('❌ HMAC verification failed for products/update');
+      logger.error('SHOPIFY', 'HMAC verification failed for products/update');
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,
@@ -855,7 +899,7 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
         Date.now() - startTime,
         '401'
       );
-      return res.status(401).json({ error: 'Invalid HMAC signature' });
+      return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
     // Check for replay attacks - reject webhooks older than 5 minutes
@@ -864,10 +908,41 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       const webhookDate = new Date(webhookTimestamp);
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (webhookDate < fiveMinutesAgo) {
-        console.warn('⚠️ Webhook rejected: older than 5 minutes (products/update)');
+        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes (products/update)');
         await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
         return res.status(200).json({ success: true, message: 'Webhook too old' });
       }
+    }
+
+    // Generate idempotency key - include timestamp to distinguish updates of same product
+    const productId = req.body.id?.toString();
+    if (!productId) {
+      logger.error('SHOPIFY', 'Webhook missing product ID (products/update)');
+      return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
+    }
+
+    const idempotencyKey = webhookManager.generateIdempotencyKey(
+      productId,
+      'products/update',
+      webhookTimestamp
+    );
+
+    // Atomic idempotency check using INSERT-first approach
+    const lockResult = await webhookManager.tryAcquireIdempotencyLock(
+      integrationId!,
+      idempotencyKey,
+      productId,
+      'products/update'
+    );
+
+    if (lockResult.is_duplicate) {
+      logger.warn('SHOPIFY', `Duplicate products/update webhook: ${idempotencyKey}`);
+      await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
+      return res.status(200).json({
+        success: true,
+        message: 'Already processed',
+        idempotency_key: idempotencyKey,
+      });
     }
 
     const webhookService = new ShopifyWebhookService(supabaseAdmin);
@@ -877,13 +952,22 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       integration.id
     );
 
+    // Complete idempotency record after processing
+    await webhookManager.completeIdempotencyRecord(
+      integrationId!,
+      idempotencyKey,
+      result.success,
+      result.success ? 200 : 500,
+      result.success ? 'processed' : result.error || 'failed'
+    );
+
     // Record success metric
     await webhookManager.recordMetric(integrationId!, storeId!, 'processed', Date.now() - startTime);
 
     res.json(result);
 
   } catch (error: any) {
-    console.error('Error procesando webhook de actualización de producto:', error);
+    logger.error('SHOPIFY', 'Error procesando webhook de actualización de producto', error);
 
     if (integrationId && storeId) {
       const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
@@ -899,7 +983,7 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
     // Return 200 to prevent Shopify infinite retries
     res.status(200).json({
       success: false,
-      error: 'Internal error - will retry',
+      error: WEBHOOK_ERRORS.RETRY_LATER,
     });
   }
 };
@@ -922,12 +1006,13 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available for products-delete webhook');
-      return res.status(500).json({ error: 'Server configuration error - rawBody middleware not working' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available for products-delete webhook');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      return res.status(400).json({ error: 'Missing headers' });
+      return res.status(400).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     const { data: integration, error } = await supabaseAdmin
@@ -938,7 +1023,7 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      return res.status(404).json({ error: 'Integration not found' });
+      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
     }
 
     integrationId = integration.id;
@@ -954,12 +1039,13 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ Webhook secret not configured for products/delete');
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'Webhook secret not configured for products/delete');
       await webhookManager.recordMetric(integrationId!, storeId!, 'failed', Date.now() - startTime, '500');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
-    console.log(`🔐 Using secret from: ${secretSource} for products/delete`);
+    logger.info('SHOPIFY', `Using secret from: ${secretSource} for products/delete`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -968,7 +1054,7 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
     );
 
     if (!isValid) {
-      console.error('❌ HMAC verification failed for products/delete');
+      logger.error('SHOPIFY', 'HMAC verification failed for products/delete');
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,
@@ -976,7 +1062,7 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
         Date.now() - startTime,
         '401'
       );
-      return res.status(401).json({ error: 'Invalid HMAC signature' });
+      return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
     // Check for replay attacks - reject webhooks older than 5 minutes
@@ -986,10 +1072,43 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       const webhookDate = new Date(webhookTimestamp);
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (webhookDate < fiveMinutesAgo) {
-        console.warn('⚠️ Webhook rejected: older than 5 minutes (products/delete)');
+        logger.warn('SHOPIFY', 'Webhook rejected: older than 5 minutes (products/delete)');
         await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
         return res.status(200).json({ success: true, message: 'Webhook too old' });
       }
+    }
+
+    // Generate idempotency key - for delete, use product ID and timestamp (or fallback to now)
+    const productId = req.body.id?.toString();
+    if (!productId) {
+      logger.error('SHOPIFY', 'Webhook missing product ID (products/delete)');
+      return res.status(400).json({ error: WEBHOOK_ERRORS.INVALID_PAYLOAD });
+    }
+
+    // For deletes, use current timestamp if not available (delete webhook has limited timestamp info)
+    const idempotencyTimestamp = webhookTimestamp || new Date().toISOString();
+    const idempotencyKey = webhookManager.generateIdempotencyKey(
+      productId,
+      'products/delete',
+      idempotencyTimestamp
+    );
+
+    // Atomic idempotency check using INSERT-first approach
+    const lockResult = await webhookManager.tryAcquireIdempotencyLock(
+      integrationId!,
+      idempotencyKey,
+      productId,
+      'products/delete'
+    );
+
+    if (lockResult.is_duplicate) {
+      logger.warn('SHOPIFY', `Duplicate products/delete webhook: ${idempotencyKey}`);
+      await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
+      return res.status(200).json({
+        success: true,
+        message: 'Already processed',
+        idempotency_key: idempotencyKey,
+      });
     }
 
     const webhookService = new ShopifyWebhookService(supabaseAdmin);
@@ -999,13 +1118,22 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       integration.id
     );
 
+    // Complete idempotency record after processing
+    await webhookManager.completeIdempotencyRecord(
+      integrationId!,
+      idempotencyKey,
+      result.success,
+      result.success ? 200 : 500,
+      result.success ? 'processed' : result.error || 'failed'
+    );
+
     // Record success metric
     await webhookManager.recordMetric(integrationId!, storeId!, 'processed', Date.now() - startTime);
 
     res.json(result);
 
   } catch (error: any) {
-    console.error('Error procesando webhook de eliminacion:', error);
+    logger.error('SHOPIFY', 'Error procesando webhook de eliminacion', error);
 
     if (integrationId && storeId) {
       const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
@@ -1021,7 +1149,7 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
     // Return 200 to prevent Shopify infinite retries
     res.status(200).json({
       success: false,
-      error: 'Internal error - will retry',
+      error: WEBHOOK_ERRORS.RETRY_LATER,
     });
   }
 };
@@ -1084,7 +1212,7 @@ shopifyRouter.patch('/products/:id', async (req: AuthRequest, res: Response) => 
     });
 
   } catch (error: any) {
-    console.error('Error actualizando producto:', error);
+    logger.error('SHOPIFY', 'Error actualizando producto', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Error actualizando producto'
@@ -1135,7 +1263,7 @@ shopifyRouter.delete('/products/:id', async (req: AuthRequest, res: Response) =>
     });
 
   } catch (error: any) {
-    console.error('Error eliminando producto:', error);
+    logger.error('SHOPIFY', 'Error eliminando producto', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Error eliminando producto'
@@ -1219,10 +1347,10 @@ shopifyRouter.get('/products', async (req: AuthRequest, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('Error fetching Shopify products:', error);
+    logger.error('SHOPIFY', 'Error fetching Shopify products', error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to fetch Shopify products'
+      error: error.message || 'Error al obtener productos de Shopify'
     });
   }
 });
@@ -1254,7 +1382,7 @@ shopifyRouter.get('/integration', async (req: AuthRequest, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('Error obteniendo integracion:', error);
+    logger.error('SHOPIFY', 'Error obteniendo integracion', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1351,7 +1479,7 @@ shopifyRouter.get('/debug', async (req: AuthRequest, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('Error en diagnóstico:', error);
+    logger.error('SHOPIFY', 'Error en diagnóstico', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1419,7 +1547,7 @@ shopifyRouter.get('/webhook-health', async (req: AuthRequest, res: Response) => 
     });
 
   } catch (error: any) {
-    console.error('Error obteniendo salud de webhooks:', error);
+    logger.error('SHOPIFY', 'Error obteniendo salud de webhooks', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1441,7 +1569,7 @@ shopifyRouter.post('/webhook-retry/process', async (req: AuthRequest, res: Respo
     });
 
   } catch (error: any) {
-    console.error('Error procesando cola de reintentos:', error);
+    logger.error('SHOPIFY', 'Error procesando cola de reintentos', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1461,7 +1589,7 @@ shopifyRouter.post('/webhook-cleanup', async (req: AuthRequest, res: Response) =
     try {
       queueDeleted = await webhookQueue.cleanupOldWebhooks();
     } catch (queueError: any) {
-      console.warn('⚠️ Webhook queue cleanup skipped (table not available):', queueError.message);
+      logger.warn('SHOPIFY', 'Webhook queue cleanup skipped (table not available)', { error: queueError.message });
     }
 
     res.json({
@@ -1472,7 +1600,7 @@ shopifyRouter.post('/webhook-cleanup', async (req: AuthRequest, res: Response) =
     });
 
   } catch (error: any) {
-    console.error('Error limpiando idempotency keys:', error);
+    logger.error('SHOPIFY', 'Error limpiando idempotency keys', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1491,7 +1619,7 @@ shopifyRouter.post('/reconciliation/run', async (req: AuthRequest, res: Response
     const { ReconciliationService } = await import('../services/reconciliation.service');
     const reconciliationService = new ReconciliationService(supabaseAdmin);
 
-    console.log('🔄 [API] Starting manual reconciliation...');
+    logger.info('SHOPIFY', 'Starting manual reconciliation...');
     const results = await reconciliationService.runFullReconciliation();
 
     res.json({
@@ -1501,7 +1629,7 @@ shopifyRouter.post('/reconciliation/run', async (req: AuthRequest, res: Response
     });
 
   } catch (error: any) {
-    console.error('❌ [API] Error running reconciliation:', error);
+    logger.error('SHOPIFY', 'Error running reconciliation', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1517,7 +1645,7 @@ shopifyRouter.get('/queue/stats', async (req: AuthRequest, res: Response) => {
     try {
       stats = await webhookQueue.getQueueStats();
     } catch (queueError: any) {
-      console.warn('⚠️ Webhook queue stats unavailable:', queueError.message);
+      logger.warn('SHOPIFY', 'Webhook queue stats unavailable', { error: queueError.message });
       stats = { pending: 0, processing: 0, completed: 0, failed: 0, total: 0, error: 'Queue stats temporarily unavailable' };
     }
 
@@ -1528,7 +1656,7 @@ shopifyRouter.get('/queue/stats', async (req: AuthRequest, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('❌ [API] Error getting queue stats:', error);
+    logger.error('SHOPIFY', 'Error getting queue stats', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1574,7 +1702,7 @@ shopifyRouter.post('/webhooks/setup', async (req: AuthRequest, res: Response) =>
     });
 
   } catch (error: any) {
-    console.error('Error configurando webhooks:', error);
+    logger.error('SHOPIFY', 'Error configurando webhooks', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1616,7 +1744,7 @@ shopifyRouter.get('/webhooks/verify', async (req: AuthRequest, res: Response) =>
     });
 
   } catch (error: any) {
-    console.error('Error verificando webhooks:', error);
+    logger.error('SHOPIFY', 'Error verificando webhooks', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1660,7 +1788,7 @@ shopifyRouter.get('/webhooks/list', async (req: AuthRequest, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('Error listando webhooks:', error);
+    logger.error('SHOPIFY', 'Error listando webhooks', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1699,7 +1827,7 @@ shopifyRouter.delete('/webhooks/remove-all', async (req: AuthRequest, res: Respo
     });
 
   } catch (error: any) {
-    console.error('Error eliminando webhooks:', error);
+    logger.error('SHOPIFY', 'Error eliminando webhooks', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1753,7 +1881,7 @@ shopifyRouter.delete('/disconnect', async (req: AuthRequest, res: Response) => {
       const webhookSetup = new ShopifyWebhookSetupService(integration);
       await webhookSetup.removeAllWebhooks();
     } catch (webhookError) {
-      console.warn('⚠️ No se pudieron eliminar webhooks:', webhookError);
+      logger.warn('SHOPIFY', 'No se pudieron eliminar webhooks', webhookError);
       // No fallar la desconexión si los webhooks no se pueden eliminar
     }
 
@@ -1763,7 +1891,7 @@ shopifyRouter.delete('/disconnect', async (req: AuthRequest, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('Error desconectando Shopify:', error);
+    logger.error('SHOPIFY', 'Error desconectando Shopify', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Error al desconectar la integración'
@@ -1786,13 +1914,14 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available for customers/data_request webhook');
-      return res.status(500).json({ error: 'Server configuration error' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available for customers/data_request webhook');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      console.error('❌ GDPR webhook missing required headers');
-      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+      logger.error('SHOPIFY', 'GDPR webhook missing required headers');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Get integration by domain
@@ -1804,19 +1933,20 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      console.error('❌ Integration not found for GDPR webhook:', shopDomain);
-      return res.status(401).json({ error: 'Unauthorized - integration not found' });
+      logger.error('SHOPIFY', 'Integration not found for GDPR webhook', { shopDomain });
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Get correct webhook secret based on integration type (OAuth vs Custom App)
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ Webhook secret not configured for customers/data_request');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'Webhook secret not configured for customers/data_request');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
-    console.log(`🔐 Using secret from: ${secretSource} for customers/data_request`);
+    logger.info('SHOPIFY', `Using secret from: ${secretSource} for customers/data_request`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1825,11 +1955,11 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
     );
 
     if (!isValid) {
-      console.error('❌ Invalid HMAC signature for customers/data_request');
-      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+      logger.error('SHOPIFY', 'Invalid HMAC signature for customers/data_request');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    console.log('✅ GDPR customers/data_request webhook received:', req.body);
+    logger.info('SHOPIFY', 'GDPR customers/data_request webhook received', req.body);
 
     // TODO: Implement actual data request handling
     // This should compile customer data and send it to the provided email
@@ -1837,8 +1967,8 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
     res.status(200).json({ success: true });
 
   } catch (error: any) {
-    console.error('❌ Error processing customers/data_request webhook:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('SHOPIFY', 'Error processing customers/data_request webhook', error);
+    res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
   }
 };
 
@@ -1856,13 +1986,14 @@ const customersRedactHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available for customers/redact webhook');
-      return res.status(500).json({ error: 'Server configuration error' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available for customers/redact webhook');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      console.error('❌ GDPR webhook missing required headers');
-      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+      logger.error('SHOPIFY', 'GDPR webhook missing required headers');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Get integration by domain
@@ -1874,19 +2005,20 @@ const customersRedactHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      console.error('❌ Integration not found for GDPR webhook:', shopDomain);
-      return res.status(401).json({ error: 'Unauthorized - integration not found' });
+      logger.error('SHOPIFY', 'Integration not found for GDPR webhook', { shopDomain });
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Get correct webhook secret based on integration type (OAuth vs Custom App)
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ Webhook secret not configured for customers/redact');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'Webhook secret not configured for customers/redact');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
-    console.log(`🔐 Using secret from: ${secretSource} for customers/redact`);
+    logger.info('SHOPIFY', `Using secret from: ${secretSource} for customers/redact`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -1895,11 +2027,11 @@ const customersRedactHandler = async (req: Request, res: Response) => {
     );
 
     if (!isValid) {
-      console.error('❌ Invalid HMAC signature for customers/redact');
-      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+      logger.error('SHOPIFY', 'Invalid HMAC signature for customers/redact');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    console.log('✅ GDPR customers/redact webhook received:', req.body);
+    logger.info('SHOPIFY', 'GDPR customers/redact webhook received', req.body);
 
     // TODO: Implement actual customer data redaction
     // This should anonymize or delete customer PII from the database
@@ -1907,8 +2039,8 @@ const customersRedactHandler = async (req: Request, res: Response) => {
     res.status(200).json({ success: true });
 
   } catch (error: any) {
-    console.error('❌ Error processing customers/redact webhook:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('SHOPIFY', 'Error processing customers/redact webhook', error);
+    res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
   }
 };
 
@@ -1926,13 +2058,14 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available for app-uninstalled webhook');
-      return res.status(500).json({ error: 'Server configuration error' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available for app-uninstalled webhook');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      console.error('❌ app/uninstalled webhook missing required headers');
-      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+      logger.error('SHOPIFY', 'app/uninstalled webhook missing required headers');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Get integration by domain
@@ -1943,9 +2076,9 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      console.error('❌ Integration not found for app/uninstalled webhook:', shopDomain);
+      logger.error('SHOPIFY', 'Integration not found for app/uninstalled webhook', { shopDomain });
       // Return 200 even if integration not found to prevent Shopify retries
-      return res.status(200).json({ success: true, message: 'Integration not found' });
+      return res.status(200).json({ success: true });
     }
 
     // Get correct webhook secret based on integration type (OAuth vs Custom App)
@@ -1954,11 +2087,11 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
     // For app/uninstalled, if credentials are missing, we still want to process the uninstall
     // This can happen if the app was already uninstalled and credentials were revoked
     if (!webhookSecret || webhookSecret.trim() === '') {
-      console.warn('⚠️ Webhook secret missing for app/uninstalled, processing anyway:', shopDomain);
-      console.warn('⚠️ This may indicate the app was already uninstalled or credentials were revoked');
+      logger.warn('SHOPIFY', 'Webhook secret missing for app/uninstalled, processing anyway', { shopDomain });
+      logger.warn('SHOPIFY', 'This may indicate the app was already uninstalled or credentials were revoked');
       // Skip HMAC verification and proceed to mark as uninstalled
     } else {
-      console.log(`🔐 Using secret from: ${secretSource} for app/uninstalled`);
+      logger.info('SHOPIFY', `Using secret from: ${secretSource} for app/uninstalled`);
 
       // Verify HMAC signature if secret is available
       const isValid = ShopifyWebhookService.verifyHmacSignature(
@@ -1968,12 +2101,12 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
       );
 
       if (!isValid) {
-        console.error('❌ Invalid HMAC signature for app/uninstalled');
-        return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+        logger.error('SHOPIFY', 'Invalid HMAC signature for app/uninstalled');
+        return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
       }
     }
 
-    console.log('✅ app/uninstalled webhook received for shop:', shopDomain);
+    logger.info('SHOPIFY', 'app/uninstalled webhook received for shop', { shopDomain });
 
     // Mark integration as uninstalled
     const { error: updateError } = await supabaseAdmin
@@ -1986,11 +2119,11 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
       .eq('id', integration.id);
 
     if (updateError) {
-      console.error('❌ Error marking integration as uninstalled:', updateError);
+      logger.error('SHOPIFY', 'Error marking integration as uninstalled', updateError);
       throw updateError;
     }
 
-    console.log('✅ Integration marked as uninstalled:', integration.id);
+    logger.info('SHOPIFY', 'Integration marked as uninstalled', { integrationId: integration.id });
 
     // Delete all registered webhooks from our database
     const { error: deleteWebhooksError } = await supabaseAdmin
@@ -1999,15 +2132,15 @@ const appUninstalledHandler = async (req: Request, res: Response) => {
       .eq('integration_id', integration.id);
 
     if (deleteWebhooksError) {
-      console.warn('⚠️ Failed to deactivate webhooks:', deleteWebhooksError);
+      logger.warn('SHOPIFY', 'Error al desactivar webhooks', deleteWebhooksError);
     }
 
     res.status(200).json({ success: true });
 
   } catch (error: any) {
-    console.error('❌ Error processing app/uninstalled webhook:', error);
+    logger.error('SHOPIFY', 'Error processing app/uninstalled webhook', error);
     // Return 200 to prevent Shopify from retrying
-    res.status(200).json({ success: false, error: 'Internal error' });
+    res.status(200).json({ success: false, error: WEBHOOK_ERRORS.RETRY_LATER });
   }
 };
 
@@ -2025,13 +2158,14 @@ const shopRedactHandler = async (req: Request, res: Response) => {
     const rawBody = (req as any).rawBody;
 
     if (!rawBody) {
-      console.error('❌ CRITICAL: rawBody not available for shop/redact webhook');
-      return res.status(500).json({ error: 'Server configuration error' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'CRITICAL: rawBody not available for shop/redact webhook');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     if (!shopDomain || !hmacHeader) {
-      console.error('❌ GDPR webhook missing required headers');
-      return res.status(401).json({ error: 'Unauthorized - missing headers' });
+      logger.error('SHOPIFY', 'GDPR webhook missing required headers');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Get integration by domain
@@ -2042,19 +2176,20 @@ const shopRedactHandler = async (req: Request, res: Response) => {
       .single(); // Don't filter by status - shop may already be inactive
 
     if (error || !integration) {
-      console.error('❌ Integration not found for GDPR webhook:', shopDomain);
-      return res.status(401).json({ error: 'Unauthorized - integration not found' });
+      logger.error('SHOPIFY', 'Integration not found for GDPR webhook', { shopDomain });
+      return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
     // Get correct webhook secret based on integration type (OAuth vs Custom App)
     const { secret: webhookSecret, source: secretSource } = getWebhookSecret(integration);
 
     if (!webhookSecret) {
-      console.error('❌ Webhook secret not configured for shop/redact');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      // SECURITY: Log details internally, return generic error to client
+      logger.error('SHOPIFY', 'Webhook secret not configured for shop/redact');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
-    console.log(`🔐 Using secret from: ${secretSource} for shop/redact`);
+    logger.info('SHOPIFY', `Using secret from: ${secretSource} for shop/redact`);
 
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
@@ -2063,11 +2198,11 @@ const shopRedactHandler = async (req: Request, res: Response) => {
     );
 
     if (!isValid) {
-      console.error('❌ Invalid HMAC signature for shop/redact');
-      return res.status(401).json({ error: 'Unauthorized - invalid HMAC' });
+      logger.error('SHOPIFY', 'Invalid HMAC signature for shop/redact');
+      return res.status(401).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
-    console.log('✅ GDPR shop/redact webhook received:', req.body);
+    logger.info('SHOPIFY', 'GDPR shop/redact webhook received', req.body);
 
     // TODO: Implement actual shop data redaction
     // This should delete or anonymize all data related to the shop
@@ -2076,8 +2211,8 @@ const shopRedactHandler = async (req: Request, res: Response) => {
     res.status(200).json({ success: true });
 
   } catch (error: any) {
-    console.error('❌ Error processing shop/redact webhook:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('SHOPIFY', 'Error processing shop/redact webhook', error);
+    res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
   }
 };
 

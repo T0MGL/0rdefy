@@ -319,9 +319,12 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - Audit trail in `inventory_movements` table
 - Session progress tracking
 - Rejection notes for quality control
+- **Order uniqueness constraint** - An order can only be in ONE active return session (in_progress/completed)
+- **Auto-cleanup on cancel** - Cancelled sessions release orders for re-processing
 
 **Tables:** return_sessions, return_session_orders, return_session_items
-**Functions:** generate_return_session_code, complete_return_session
+**Functions:** generate_return_session_code, complete_return_session, prevent_duplicate_return_orders, cleanup_cancelled_return_session_orders
+**Triggers:** trigger_prevent_duplicate_return_orders, trigger_cleanup_cancelled_returns
 
 **Integration with Inventory:**
 - Accepted items → stock incremented + logged as 'return_accepted'
@@ -376,6 +379,11 @@ Net Receivable = COD Collected - Carrier Fees (COD + Prepaid) - Failed Attempt F
 If positive: Courier owes store
 If negative: Store owes courier (common with prepaid orders)
 ```
+
+**Failed Attempt Fee Configuration (Migration 077):**
+- `carriers.failed_attempt_fee_percent` - Configurable per carrier (default 50%)
+- Works with `charges_failed_attempts` boolean to enable/disable
+- Used in all settlement calculations (atomic RPC + legacy fallback)
 
 **Tables:** dispatch_sessions, dispatch_session_orders, carrier_zones, daily_settlements
 **Functions:** generate_dispatch_code_atomic, generate_settlement_code_atomic, process_dispatch_settlement_atomic, check_orders_not_in_active_session, validate_carrier_has_zones, get_carrier_fee_for_zone, calculate_shipping_cost, suggest_carrier_for_order, reassign_carrier_orders
@@ -837,3 +845,6 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 062: **NEW:** Merchandise production fixes (race-condition safe references, delta-based stock, audit trail, duplicate prevention)
 - 063: **NEW:** Carrier system production fixes (deletion protection, zone validation blocking, calculate_shipping_cost, carrier health monitoring)
 - 066: **NEW:** Settlement & Dispatch code race condition fix (atomic code generation with advisory locks, UNIQUE constraints)
+- 069: **NEW:** Settlement atomic processing (import_dispatch_results_atomic, process_settlement_atomic_v2 - all-or-nothing transactions)
+- 071: **NEW:** Returns order uniqueness constraint (prevents order in multiple active return sessions, auto-cleanup on cancel)
+- 077: **NEW:** Configurable failed attempt fee percentage (carriers.failed_attempt_fee_percent, replaces hardcoded 50%)

@@ -49,7 +49,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     if (ordersError) {
       console.error('❌ [COD-METRICS] Error fetching orders:', ordersError);
-      return res.status(500).json({ error: 'Failed to fetch orders' });
+      return res.status(500).json({ error: 'Error al obtener pedidos' });
     }
 
     // Calculate confirmation rate
@@ -136,7 +136,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
     res.json(metrics);
   } catch (error: any) {
     console.error('💥 [COD-METRICS] Unexpected error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -161,7 +161,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
 
     if (error) {
       console.error('❌ [COD-METRICS] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch orders' });
+      return res.status(500).json({ error: 'Error al obtener pedidos' });
     }
 
     // Group by date
@@ -213,7 +213,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [COD-METRICS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -238,7 +238,7 @@ codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
 
     if (error) {
       console.error('❌ [COD-METRICS] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch orders' });
+      return res.status(500).json({ error: 'Error al obtener pedidos' });
     }
 
     // Group by carrier
@@ -298,6 +298,6 @@ codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [COD-METRICS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

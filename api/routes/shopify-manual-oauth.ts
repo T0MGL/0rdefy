@@ -234,7 +234,7 @@ shopifyManualOAuthRouter.post('/start',
         console.error('❌ [MANUAL-OAUTH] Error saving state:', stateError);
         return res.status(500).json({
           success: false,
-          error: 'Failed to initialize OAuth flow'
+          error: 'Error al inicializar flujo OAuth'
         });
       }
 

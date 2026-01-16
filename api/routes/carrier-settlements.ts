@@ -81,7 +81,7 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         if (error) {
             console.error('❌ [CARRIER-SETTLEMENTS] Error:', error);
-            return res.status(500).json({ error: 'Failed to fetch settlements' });
+            return res.status(500).json({ error: 'Error al obtener liquidaciones' });
         }
 
         res.json({
@@ -95,7 +95,7 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
         });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Unexpected error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -116,7 +116,7 @@ carrierSettlementsRouter.get('/pending', async (req: AuthRequest, res: Response)
 
         if (error) {
             console.error('❌ [CARRIER-SETTLEMENTS] Error:', error);
-            return res.status(500).json({ error: 'Failed to fetch pending settlements' });
+            return res.status(500).json({ error: 'Error al obtener liquidaciones pendientes' });
         }
 
         console.log(`✅ [CARRIER-SETTLEMENTS] Found ${data?.length || 0} carriers with pending deliveries`);
@@ -127,7 +127,7 @@ carrierSettlementsRouter.get('/pending', async (req: AuthRequest, res: Response)
         });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -152,7 +152,7 @@ carrierSettlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => 
             .single();
 
         if (settlementError || !settlement) {
-            return res.status(404).json({ error: 'Settlement not found' });
+            return res.status(404).json({ error: 'Liquidación no encontrada' });
         }
 
         // Get orders included in this settlement
@@ -182,7 +182,7 @@ carrierSettlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => 
         });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -224,7 +224,7 @@ carrierSettlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
             .single();
 
         if (carrierError || !carrier) {
-            return res.status(404).json({ error: 'Carrier not found' });
+            return res.status(404).json({ error: 'Transportadora no encontrada' });
         }
 
         if (carrier.carrier_type !== 'external') {
@@ -265,7 +265,7 @@ carrierSettlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
         if (functionError) {
             console.error('❌ [CARRIER-SETTLEMENTS] Function error:', functionError);
             return res.status(500).json({
-                error: 'Failed to create settlement',
+                error: 'Error al crear liquidación',
                 message: functionError.message
             });
         }
@@ -302,7 +302,7 @@ carrierSettlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
         });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error', message: error.message });
+        res.status(500).json({ error: 'Error interno del servidor', message: error.message });
     }
 });
 
@@ -340,7 +340,7 @@ carrierSettlementsRouter.patch('/:id', async (req: AuthRequest, res: Response) =
             .single();
 
         if (error || !data) {
-            return res.status(404).json({ error: 'Settlement not found' });
+            return res.status(404).json({ error: 'Liquidación no encontrada' });
         }
 
         console.log('✅ [CARRIER-SETTLEMENTS] Settlement updated:', id);
@@ -351,7 +351,7 @@ carrierSettlementsRouter.patch('/:id', async (req: AuthRequest, res: Response) =
         });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -383,7 +383,7 @@ carrierSettlementsRouter.post('/:id/mark-paid', async (req: AuthRequest, res: Re
             .single();
 
         if (error || !data) {
-            return res.status(404).json({ error: 'Settlement not found' });
+            return res.status(404).json({ error: 'Liquidación no encontrada' });
         }
 
         console.log('✅ [CARRIER-SETTLEMENTS] Settlement marked as paid:', id);
@@ -394,7 +394,7 @@ carrierSettlementsRouter.post('/:id/mark-paid', async (req: AuthRequest, res: Re
         });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -423,7 +423,7 @@ carrierSettlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) 
 
         if (error) {
             console.error('❌ [CARRIER-SETTLEMENTS] Error deleting:', error);
-            return res.status(500).json({ error: 'Failed to delete settlement' });
+            return res.status(500).json({ error: 'Error al eliminar liquidación' });
         }
 
         console.log('✅ [CARRIER-SETTLEMENTS] Settlement deleted:', id);
@@ -431,7 +431,7 @@ carrierSettlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) 
         res.json({ message: 'Settlement deleted successfully' });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -499,6 +499,6 @@ carrierSettlementsRouter.get('/preview/calculate', async (req: AuthRequest, res:
         });
     } catch (error: any) {
         console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

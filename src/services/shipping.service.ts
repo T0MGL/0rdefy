@@ -106,21 +106,8 @@ export async function getShipmentHistory(
 }
 
 /**
- * Generates a CSV file for courier delivery tracking
- * This CSV can be shared with the courier and later imported for reconciliation
- *
- * Columns exported:
- * - PEDIDO: Order number (#1315 for Shopify, ORD-XXXXXXXX for manual)
- * - CLIENTE: Customer full name
- * - TELEFONO: Customer phone number
- * - DIRECCION: Full delivery address
- * - CIUDAD: City extracted from address
- * - MONTO_COD: Amount to collect (0 for prepaid orders)
- * - TRANSPORTADORA: Carrier/courier name
- * - ESTADO_ENTREGA: (To fill) ENTREGADO / NO ENTREGADO / RECHAZADO / REPROGRAMADO
- * - MONTO_COBRADO: (To fill) Actual amount collected
- * - MOTIVO_FALLA: (To fill) Reason if not delivered
- * - NOTAS: (To fill) Additional notes
+ * Generates a CSV file for courier delivery tracking (Legacy - plain CSV)
+ * @deprecated Use exportDispatchExcel instead for professional formatted spreadsheet
  */
 export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: string): void {
   // CSV Headers in Spanish for courier compatibility
@@ -140,13 +127,8 @@ export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: str
 
   // Build CSV rows
   const rows = orders.map(order => {
-    // Extract city from address if available (common format: "Address, City")
     const addressParts = order.customer_address?.split(',') || [];
     const city = addressParts.length > 1 ? addressParts[addressParts.length - 1].trim() : '';
-
-    // Order number is already formatted correctly by backend:
-    // - Shopify orders: #1315 format (from shopify_order_name)
-    // - Manual orders: ORD-XXXXXXXX format
     const orderNumber = order.order_number;
 
     return [
@@ -157,20 +139,15 @@ export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: str
       city,
       order.cod_amount?.toString() || '0',
       order.carrier_name || carrierName,
-      '', // ESTADO_ENTREGA - to be filled by courier
-      '', // MONTO_COBRADO - to be filled by courier
-      '', // MOTIVO_FALLA - to be filled by courier
-      ''  // NOTAS - to be filled by courier
+      '', '', '', ''
     ];
   });
 
-  // Convert to CSV string
   const csvContent = [
     headers.join(','),
     ...rows.map(row => row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
   ].join('\n');
 
-  // Generate filename with date
   const today = new Date();
   const dateStr = today.toLocaleDateString('es-PY', {
     day: '2-digit',
@@ -179,8 +156,50 @@ export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: str
   }).replace(/\//g, '');
   const filename = `DESPACHO-${carrierName.toUpperCase().replace(/\s+/g, '_')}-${dateStr}.csv`;
 
+  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports selected orders as professional Excel file with Ordefy branding
+ * Features:
+ * - Ordefy brand colors and styling (purple headers, yellow for editable columns)
+ * - Dropdown validation for ESTADO_ENTREGA and MOTIVO
+ * - Protected columns that courier shouldn't edit
+ * - Clear instructions for courier
+ * - Number formatting for amounts
+ * - Summary section with totals
+ */
+export async function exportDispatchExcel(orders: ReadyToShipOrder[], carrierName: string): Promise<void> {
+  const orderIds = orders.map(o => o.id);
+
+  const response = await apiClient.post<Blob>(
+    `${BASE_URL}/export-excel`,
+    { orderIds, carrierName },
+    { responseType: 'blob' }
+  );
+
+  // Generate filename with date
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('es-PY', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).replace(/\//g, '');
+  const sanitizedCarrier = carrierName.toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '');
+  const filename = `DESPACHO-${sanitizedCarrier}-${dateStr}.xlsx`;
+
   // Download the file
-  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+  const blob = new Blob([response.data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

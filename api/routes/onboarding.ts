@@ -57,7 +57,7 @@ onboardingRouter.get('/progress', verifyToken, extractStoreId, async (req: AuthR
         console.error('Error in onboarding progress endpoint:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to fetch onboarding progress'
+            error: 'Error al obtener progreso de onboarding'
         });
     }
 });
@@ -108,7 +108,7 @@ onboardingRouter.post('/dismiss', verifyToken, extractStoreId, async (req: AuthR
         console.error('Error dismissing onboarding:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to dismiss onboarding checklist'
+            error: 'Error al descartar checklist de onboarding'
         });
     }
 });
@@ -157,7 +157,7 @@ onboardingRouter.post('/visit-module', verifyToken, extractStoreId, async (req: 
         console.error('Error marking module visited:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to mark module as visited'
+            error: 'Error al marcar módulo como visitado'
         });
     }
 });
@@ -197,7 +197,7 @@ onboardingRouter.get('/is-first-visit/:moduleId', verifyToken, extractStoreId, a
         console.error('Error checking first visit:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to check first visit status'
+            error: 'Error al verificar estado de primera visita'
         });
     }
 });
@@ -247,7 +247,7 @@ onboardingRouter.post('/increment-visit', verifyToken, extractStoreId, async (re
         console.error('Error incrementing visit count:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to increment visit count'
+            error: 'Error al incrementar contador de visitas'
         });
     }
 });
@@ -296,7 +296,7 @@ onboardingRouter.post('/first-action', verifyToken, extractStoreId, async (req: 
         console.error('Error marking first action:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to mark first action'
+            error: 'Error al marcar primera acción'
         });
     }
 });
@@ -337,7 +337,7 @@ onboardingRouter.get('/should-show-tip/:moduleId', verifyToken, extractStoreId, 
         console.error('Error checking should show tip:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to check if tip should show'
+            error: 'Error al verificar si mostrar tip'
         });
     }
 });
@@ -377,7 +377,7 @@ onboardingRouter.post('/reset', verifyToken, extractStoreId, async (req: AuthReq
         console.error('Error resetting onboarding:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to reset onboarding progress'
+            error: 'Error al reiniciar progreso de onboarding'
         });
     }
 });
@@ -513,7 +513,7 @@ async function computeProgressManually(storeId: string, userId: string, userRole
         console.error('Error computing progress manually:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to compute onboarding progress'
+            error: 'Error al calcular progreso de onboarding'
         });
     }
 }

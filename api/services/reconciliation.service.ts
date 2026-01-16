@@ -157,7 +157,7 @@ export class ReconciliationService {
           if (result.success) {
             synced++;
           } else {
-            console.error(`❌ [RECONCILIATION] Failed to sync order ${order.order_number}:`, result.error);
+            console.error(`❌ [RECONCILIATION] Error al sincronizar pedido ${order.order_number}:`, result.error);
           }
         }
       }

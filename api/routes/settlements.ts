@@ -64,7 +64,7 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     if (error) {
       console.error('❌ [SETTLEMENTS] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch settlements' });
+      return res.status(500).json({ error: 'Error al obtener liquidaciones' });
     }
 
     res.json({
@@ -78,7 +78,7 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Unexpected error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -110,7 +110,7 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
 
     if (error) {
       console.error('❌ [SETTLEMENTS] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch today settlement' });
+      return res.status(500).json({ error: 'Error al obtener liquidación de hoy' });
     }
 
     // Get delivered orders for today
@@ -133,7 +133,7 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -210,10 +210,10 @@ settlementsRouter.post('/dispatch-sessions', async (req: AuthRequest, res: Respo
     const { carrier_id, order_ids } = req.body;
 
     if (!carrier_id) {
-      return res.status(400).json({ error: 'carrier_id is required' });
+      return res.status(400).json({ error: 'Se requiere carrier_id' });
     }
     if (!order_ids || !Array.isArray(order_ids) || order_ids.length === 0) {
-      return res.status(400).json({ error: 'order_ids array is required' });
+      return res.status(400).json({ error: 'Se requiere el array de order_ids' });
     }
 
     console.log('📦 [DISPATCH] Creating dispatch session:', {
@@ -276,7 +276,7 @@ settlementsRouter.post('/dispatch-sessions/:id/import', async (req: AuthRequest,
     const { results } = req.body;
 
     if (!results || !Array.isArray(results)) {
-      return res.status(400).json({ error: 'results array is required' });
+      return res.status(400).json({ error: 'Se requiere el array de resultados' });
     }
 
     console.log('📥 [DISPATCH] Importing results for session:', id, 'rows:', results.length);
@@ -366,10 +366,10 @@ settlementsRouter.post('/v2/:id/pay', async (req: AuthRequest, res: Response) =>
     const { amount, method, reference, notes } = req.body;
 
     if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Valid amount is required' });
+      return res.status(400).json({ error: 'Se requiere un monto válido' });
     }
     if (!method) {
-      return res.status(400).json({ error: 'Payment method is required' });
+      return res.status(400).json({ error: 'Se requiere el método de pago' });
     }
 
     const settlement = await settlementsService.markSettlementPaid(id, req.storeId!, {
@@ -421,13 +421,13 @@ settlementsRouter.post('/zones', async (req: AuthRequest, res: Response) => {
     const { carrier_id, zone_name, zone_code, rate, is_active } = req.body;
 
     if (!carrier_id) {
-      return res.status(400).json({ error: 'carrier_id is required' });
+      return res.status(400).json({ error: 'Se requiere carrier_id' });
     }
     if (!zone_name) {
-      return res.status(400).json({ error: 'zone_name is required' });
+      return res.status(400).json({ error: 'Se requiere zone_name' });
     }
     if (rate === undefined || rate < 0) {
-      return res.status(400).json({ error: 'Valid rate is required' });
+      return res.status(400).json({ error: 'Se requiere una tarifa válida' });
     }
 
     const zone = await settlementsService.upsertCarrierZone(req.storeId!, carrier_id, {
@@ -455,10 +455,10 @@ settlementsRouter.post('/zones/bulk', async (req: AuthRequest, res: Response) =>
     const { carrier_id, zones } = req.body;
 
     if (!carrier_id) {
-      return res.status(400).json({ error: 'carrier_id is required' });
+      return res.status(400).json({ error: 'Se requiere carrier_id' });
     }
     if (!zones || !Array.isArray(zones) || zones.length === 0) {
-      return res.status(400).json({ error: 'zones array is required' });
+      return res.status(400).json({ error: 'Se requiere el array de zonas' });
     }
 
     console.log('📥 [ZONES] Bulk importing zones for carrier:', carrier_id, 'count:', zones.length);
@@ -510,7 +510,7 @@ settlementsRouter.get('/shipped-orders-grouped', async (req: AuthRequest, res: R
     res.json({ data: groups });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error fetching grouped orders:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Error interno del servidor' });
   }
 });
 
@@ -530,11 +530,11 @@ settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: R
     });
 
     if (!carrier_id || !dispatch_date || !orders || !Array.isArray(orders)) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Faltan campos requeridos' });
     }
 
     if (total_amount_collected === undefined || total_amount_collected === null) {
-      return res.status(400).json({ error: 'total_amount_collected is required' });
+      return res.status(400).json({ error: 'Se requiere total_amount_collected' });
     }
 
     const settlement = await settlementsService.processManualReconciliation(
@@ -555,7 +555,7 @@ settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: R
     res.json({ data: settlement });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error in manual reconciliation:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Error interno del servidor' });
   }
 });
 
@@ -625,7 +625,7 @@ settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
 
     if (error) {
       console.error('❌ [SETTLEMENTS] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch stats' });
+      return res.status(500).json({ error: 'Error al obtener estadísticas' });
     }
 
     const stats = {
@@ -642,7 +642,7 @@ settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
     res.json(stats);
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -665,7 +665,7 @@ settlementsRouter.get('/carrier-accounts', async (req: AuthRequest, res: Respons
     res.json({ data: balances });
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch carrier balances' });
+    res.status(500).json({ error: error.message || 'Error al obtener balances de transportadoras' });
   }
 });
 
@@ -681,7 +681,7 @@ settlementsRouter.get('/carrier-accounts/summary', async (req: AuthRequest, res:
     res.json({ data: summary });
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch account summary' });
+    res.status(500).json({ error: error.message || 'Error al obtener resumen de cuenta' });
   }
 });
 
@@ -705,13 +705,13 @@ settlementsRouter.get('/carrier-accounts/:carrierId', async (req: AuthRequest, r
     ]);
 
     if (!summary) {
-      return res.status(404).json({ error: 'Carrier not found' });
+      return res.status(404).json({ error: 'Transportadora no encontrada' });
     }
 
     res.json({ data: { ...summary, config } });
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch carrier detail' });
+    res.status(500).json({ error: error.message || 'Error al obtener detalle de transportadora' });
   }
 });
 
@@ -740,7 +740,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId/movements', async (req: Auth
     res.json(result);
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch movements' });
+    res.status(500).json({ error: error.message || 'Error al obtener movimientos' });
   }
 });
 
@@ -758,7 +758,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', async (req: Auth
     res.json({ data: movements });
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch unsettled movements' });
+    res.status(500).json({ error: error.message || 'Error al obtener movimientos pendientes' });
   }
 });
 
@@ -778,10 +778,10 @@ settlementsRouter.patch('/carrier-accounts/:carrierId/config', async (req: AuthR
       payment_schedule,
     });
 
-    res.json({ message: 'Configuration updated' });
+    res.json({ message: 'Configuración actualizada' });
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to update configuration' });
+    res.status(500).json({ error: error.message || 'Error al actualizar configuración' });
   }
 });
 
@@ -794,11 +794,11 @@ settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', async (req: Au
     const { amount, type, description } = req.body;
 
     if (!amount || !type || !description) {
-      return res.status(400).json({ error: 'amount, type, and description are required' });
+      return res.status(400).json({ error: 'Se requieren amount, type y description' });
     }
 
     if (!['credit', 'debit'].includes(type)) {
-      return res.status(400).json({ error: 'type must be "credit" or "debit"' });
+      return res.status(400).json({ error: 'type debe ser "credit" o "debit"' });
     }
 
     console.log('💰 [CARRIER ACCOUNTS] Creating adjustment for carrier:', carrierId);
@@ -815,7 +815,7 @@ settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', async (req: Au
     res.status(201).json({ data: movement });
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create adjustment' });
+    res.status(500).json({ error: error.message || 'Error al crear ajuste' });
   }
 });
 
@@ -837,13 +837,13 @@ settlementsRouter.post('/carrier-payments', async (req: AuthRequest, res: Respon
 
     if (!carrier_id || !amount || !direction || !payment_method) {
       return res.status(400).json({
-        error: 'carrier_id, amount, direction, and payment_method are required'
+        error: 'Se requieren carrier_id, amount, direction y payment_method'
       });
     }
 
     if (!['from_carrier', 'to_carrier'].includes(direction)) {
       return res.status(400).json({
-        error: 'direction must be "from_carrier" or "to_carrier"'
+        error: 'direction debe ser "from_carrier" o "to_carrier"'
       });
     }
 
@@ -873,7 +873,7 @@ settlementsRouter.post('/carrier-payments', async (req: AuthRequest, res: Respon
     res.status(201).json({ data: result });
   } catch (error: any) {
     console.error('💥 [CARRIER PAYMENTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to register payment' });
+    res.status(500).json({ error: error.message || 'Error al registrar pago' });
   }
 });
 
@@ -901,7 +901,7 @@ settlementsRouter.get('/carrier-payments', async (req: AuthRequest, res: Respons
     res.json(result);
   } catch (error: any) {
     console.error('💥 [CARRIER PAYMENTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch payments' });
+    res.status(500).json({ error: error.message || 'Error al obtener pagos' });
   }
 });
 
@@ -917,12 +917,12 @@ settlementsRouter.post('/backfill-movements', async (req: AuthRequest, res: Resp
     console.log('✅ [CARRIER ACCOUNTS] Backfill complete:', result);
 
     res.json({
-      message: 'Backfill completed',
+      message: 'Relleno completado',
       data: result,
     });
   } catch (error: any) {
     console.error('💥 [CARRIER ACCOUNTS] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to backfill movements' });
+    res.status(500).json({ error: error.message || 'Error al rellenar movimientos' });
   }
 });
 
@@ -946,7 +946,7 @@ settlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       .single();
 
     if (settlementError || !settlement) {
-      return res.status(404).json({ error: 'Settlement not found' });
+      return res.status(404).json({ error: 'Liquidación no encontrada' });
     }
 
     // Get settlement orders
@@ -968,7 +968,7 @@ settlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -985,7 +985,7 @@ settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
     } = req.body;
 
     if (!settlement_date) {
-      return res.status(400).json({ error: 'settlement_date is required' });
+      return res.status(400).json({ error: 'Se requiere settlement_date' });
     }
 
     console.log('💰 [SETTLEMENTS] Creating settlement:', {
@@ -1035,8 +1035,8 @@ settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
     if (settlementError || !settlement) {
       console.error('❌ [SETTLEMENTS] Error creating:', settlementError);
       return res.status(500).json({
-        error: 'Failed to create settlement',
-        message: settlementError?.message || 'Unknown error',
+        error: 'Error al crear liquidación',
+        message: settlementError?.message || 'Error desconocido',
         details: settlementError?.details || settlementError?.hint || null
       });
     }
@@ -1067,12 +1067,12 @@ settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
     console.log('✅ [SETTLEMENTS] Created:', settlement.id);
 
     res.status(201).json({
-      message: 'Settlement created',
+      message: 'Liquidación creada',
       data: settlement
     });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -1101,18 +1101,18 @@ settlementsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
       .single();
 
     if (error || !data) {
-      return res.status(404).json({ error: 'Settlement not found' });
+      return res.status(404).json({ error: 'Liquidación no encontrada' });
     }
 
     console.log('✅ [SETTLEMENTS] Updated:', id);
 
     res.json({
-      message: 'Settlement updated',
+      message: 'Liquidación actualizada',
       data
     });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -1125,7 +1125,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
     const { collected_cash, notes } = req.body;
 
     if (collected_cash === undefined || collected_cash === null) {
-      return res.status(400).json({ error: 'collected_cash is required' });
+      return res.status(400).json({ error: 'Se requiere collected_cash' });
     }
 
     console.log('✅ [SETTLEMENTS] Completing settlement:', id);
@@ -1144,7 +1144,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
       .single();
 
     if (error || !data) {
-      return res.status(404).json({ error: 'Settlement not found' });
+      return res.status(404).json({ error: 'Liquidación no encontrada' });
     }
 
     const difference = Number(collected_cash) - Number(data.expected_cash);
@@ -1157,7 +1157,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
     });
 
     res.json({
-      message: 'Settlement completed',
+      message: 'Liquidación completada',
       data: {
         ...data,
         difference
@@ -1165,7 +1165,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
     });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -1185,15 +1185,15 @@ settlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     if (error) {
       console.error('❌ [SETTLEMENTS] Error deleting:', error);
-      return res.status(500).json({ error: 'Failed to delete settlement' });
+      return res.status(500).json({ error: 'Error al eliminar liquidación' });
     }
 
     console.log('🗑️ [SETTLEMENTS] Deleted:', id);
 
-    res.json({ message: 'Settlement deleted' });
+    res.json({ message: 'Liquidación eliminada' });
   } catch (error: any) {
     console.error('💥 [SETTLEMENTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 

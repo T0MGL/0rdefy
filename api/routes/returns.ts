@@ -34,7 +34,7 @@ router.get('/eligible-orders', async (req, res) => {
   try {
     const storeId = req.storeId;
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
     const orders = await returnsService.getEligibleOrders(storeId);
@@ -42,7 +42,7 @@ router.get('/eligible-orders', async (req, res) => {
   } catch (error) {
     console.error('Error fetching eligible orders:', error);
     res.status(500).json({
-      error: 'Failed to fetch eligible orders',
+      error: 'Error al obtener pedidos elegibles',
       details: error.message,
     });
   }
@@ -56,7 +56,7 @@ router.get('/sessions', async (req, res) => {
   try {
     const storeId = req.storeId;
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
     const sessions = await returnsService.getReturnSessions(storeId);
@@ -64,7 +64,7 @@ router.get('/sessions', async (req, res) => {
   } catch (error) {
     console.error('Error fetching return sessions:', error);
     res.status(500).json({
-      error: 'Failed to fetch return sessions',
+      error: 'Error al obtener sesiones de devolución',
       details: error.message,
     });
   }
@@ -80,7 +80,7 @@ router.get('/sessions/:id', async (req, res) => {
     const storeId = req.storeId;
 
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
     const session = await returnsService.getReturnSession(id);
@@ -88,14 +88,14 @@ router.get('/sessions/:id', async (req, res) => {
     // SECURITY: Verify session belongs to the authenticated user's store
     if (session.store_id !== storeId) {
       console.warn(`[Returns] Unauthorized access attempt: user from store ${storeId} tried to access session from store ${session.store_id}`);
-      return res.status(404).json({ error: 'Return session not found' });
+      return res.status(404).json({ error: 'Sesión de devolución no encontrada' });
     }
 
     res.json(session);
   } catch (error) {
     console.error('Error fetching return session:', error);
     res.status(500).json({
-      error: 'Failed to fetch return session',
+      error: 'Error al obtener sesión de devolución',
       details: error.message,
     });
   }
@@ -117,16 +117,16 @@ router.post('/sessions', async (req, res) => {
     const userId = req.userId;
 
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID del usuario' });
     }
 
     const { order_ids, notes } = req.body;
 
     if (!order_ids || !Array.isArray(order_ids) || order_ids.length === 0) {
-      return res.status(400).json({ error: 'At least one order ID is required' });
+      return res.status(400).json({ error: 'Se requiere al menos un ID de pedido' });
     }
 
     const session = await returnsService.createReturnSession(
@@ -140,7 +140,7 @@ router.post('/sessions', async (req, res) => {
   } catch (error) {
     console.error('Error creating return session:', error);
     res.status(500).json({
-      error: 'Failed to create return session',
+      error: 'Error al crear sesión de devolución',
       details: error.message,
     });
   }
@@ -166,15 +166,15 @@ router.patch('/items/:id', async (req, res) => {
     const updates = req.body;
 
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
     // Validate quantities
     if (updates.quantity_accepted !== undefined && updates.quantity_accepted < 0) {
-      return res.status(400).json({ error: 'quantity_accepted must be non-negative' });
+      return res.status(400).json({ error: 'quantity_accepted debe ser no negativo' });
     }
     if (updates.quantity_rejected !== undefined && updates.quantity_rejected < 0) {
-      return res.status(400).json({ error: 'quantity_rejected must be non-negative' });
+      return res.status(400).json({ error: 'quantity_rejected debe ser no negativo' });
     }
 
     const item = await returnsService.updateReturnItem(id, updates, storeId);
@@ -182,7 +182,7 @@ router.patch('/items/:id', async (req, res) => {
   } catch (error) {
     console.error('Error updating return item:', error);
     res.status(500).json({
-      error: 'Failed to update return item',
+      error: 'Error al actualizar ítem de devolución',
       details: error.message,
     });
   }
@@ -198,14 +198,14 @@ router.post('/sessions/:id/complete', async (req, res) => {
     const storeId = req.storeId;
 
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
     // SECURITY: Verify session belongs to this store before completing
     const session = await returnsService.getReturnSession(id);
     if (session.store_id !== storeId) {
       console.warn(`[Returns] Unauthorized complete attempt: store ${storeId} tried to complete session from store ${session.store_id}`);
-      return res.status(404).json({ error: 'Return session not found' });
+      return res.status(404).json({ error: 'Sesión de devolución no encontrada' });
     }
 
     const result = await returnsService.completeReturnSession(id);
@@ -213,7 +213,7 @@ router.post('/sessions/:id/complete', async (req, res) => {
   } catch (error) {
     console.error('Error completing return session:', error);
     res.status(500).json({
-      error: 'Failed to complete return session',
+      error: 'Error al completar sesión de devolución',
       details: error.message,
     });
   }
@@ -229,22 +229,22 @@ router.post('/sessions/:id/cancel', async (req, res) => {
     const storeId = req.storeId;
 
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
     // SECURITY: Verify session belongs to this store before cancelling
     const session = await returnsService.getReturnSession(id);
     if (session.store_id !== storeId) {
       console.warn(`[Returns] Unauthorized cancel attempt: store ${storeId} tried to cancel session from store ${session.store_id}`);
-      return res.status(404).json({ error: 'Return session not found' });
+      return res.status(404).json({ error: 'Sesión de devolución no encontrada' });
     }
 
     await returnsService.cancelReturnSession(id);
-    res.json({ message: 'Return session cancelled successfully' });
+    res.json({ message: 'Sesión de devolución cancelada exitosamente' });
   } catch (error) {
     console.error('Error cancelling return session:', error);
     res.status(500).json({
-      error: 'Failed to cancel return session',
+      error: 'Error al cancelar sesión de devolución',
       details: error.message,
     });
   }
@@ -258,7 +258,7 @@ router.get('/stats', async (req, res) => {
   try {
     const storeId = req.storeId;
     if (!storeId) {
-      return res.status(400).json({ error: 'Store ID is required' });
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
     const stats = await returnsService.getReturnStats(storeId);
@@ -266,7 +266,7 @@ router.get('/stats', async (req, res) => {
   } catch (error) {
     console.error('Error fetching return stats:', error);
     res.status(500).json({
-      error: 'Failed to fetch return stats',
+      error: 'Error al obtener estadísticas de devoluciones',
       details: error.message,
     });
   }

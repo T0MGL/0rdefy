@@ -176,10 +176,10 @@ export default function Orders() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // Use centralized carriers hook with caching
-  const { getCarrierName } = useCarriers();
+  const { carriers, getCarrierName } = useCarriers();
   const [search, setSearch] = useState('');
   const [chipFilters, setChipFilters] = useState<Record<string, any>>({});
-  const [confirmationFilter, setConfirmationFilter] = useState('all');
+  const [carrierFilter, setCarrierFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
@@ -217,11 +217,24 @@ export default function Orders() {
     };
   }, [getDateRange]);
 
+  // Use ref for dateParams to avoid recreating queryFn on every dateParams change
+  const dateParamsRef = useRef(dateParams);
+  useEffect(() => {
+    dateParamsRef.current = dateParams;
+  }, [dateParams]);
+
+  // Use ref for toast to keep queryFn stable
+  const toastRef = useRef(toast);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
+
   // Smart polling - only polls when page is visible
+  // queryFn uses refs to remain stable and prevent memory leaks
   const { refetch } = useSmartPolling({
     queryFn: useCallback(async () => {
       const result = await ordersService.getAll({
-        ...dateParams,
+        ...dateParamsRef.current,
         limit: 50,
         offset: 0
       });
@@ -231,7 +244,7 @@ export default function Orders() {
       // Check for new orders
       if (data.length > previousCountRef.current && previousCountRef.current > 0) {
         const newOrdersCount = data.length - previousCountRef.current;
-        toast({
+        toastRef.current({
           title: `🔔 ${newOrdersCount} Nuevo${newOrdersCount > 1 ? 's' : ''} Pedido${newOrdersCount > 1 ? 's' : ''}!`,
           description: `Tienes ${newOrdersCount} nuevo${newOrdersCount > 1 ? 's' : ''} pedido${newOrdersCount > 1 ? 's' : ''}`,
         });
@@ -242,7 +255,7 @@ export default function Orders() {
       previousCountRef.current = data.length;
       setIsLoading(false);
       return data;
-    }, [dateParams, toast]),
+    }, []), // No dependencies - uses refs for all external values
     interval: 15000, // Poll every 15 seconds when page is visible
     enabled: true,
     fetchOnMount: true,
@@ -668,7 +681,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         module: 'orders',
         action: 'delete',
         entity: 'pedido',
-        details: { status: orderToDelete?.status },
+        details: { status: orders.find(o => o.id === orderToDelete)?.status },
       });
     }
   }, [orderToDelete, toast, refetch, userRole]);
@@ -817,14 +830,27 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
   }, [refetch, toast]);
 
   // Memoize filtered orders to avoid recalculation on every render
+  // Get carriers that have orders (for dropdown filter)
+  const carriersWithOrders = useMemo(() => {
+    const carrierIdsInOrders = new Set(orders.map(o => o.carrier_id).filter(Boolean));
+    return carriers.filter(c => carrierIdsInOrders.has(c.id));
+  }, [carriers, orders]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
       // Aplicar filtros de chips (estado del pedido)
       if (chipFilters.status && order.status !== chipFilters.status) return false;
 
-      // Aplicar filtro de confirmación
-      if (confirmationFilter === 'pending' && order.confirmedByWhatsApp) return false;
-      if (confirmationFilter === 'confirmed' && !order.confirmedByWhatsApp) return false;
+      // Aplicar filtro de transportadora
+      if (carrierFilter !== 'all') {
+        if (carrierFilter === 'none') {
+          // Filtrar pedidos sin transportadora
+          if (order.carrier_id) return false;
+        } else {
+          // Filtrar por transportadora específica
+          if (order.carrier_id !== carrierFilter) return false;
+        }
+      }
 
       // Aplicar búsqueda de texto
       if (debouncedSearch) {
@@ -853,7 +879,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
       return true;
     });
-  }, [orders, chipFilters, confirmationFilter, debouncedSearch]);
+  }, [orders, chipFilters, carrierFilter, debouncedSearch]);
 
   // Selection handlers
   const handleToggleSelectAll = useCallback(() => {
@@ -1185,14 +1211,18 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
               className="pl-10"
             />
           </div>
-          <Select value={confirmationFilter} onValueChange={setConfirmationFilter}>
+          <Select value={carrierFilter} onValueChange={setCarrierFilter}>
             <SelectTrigger className="w-full md:w-48">
-              <SelectValue placeholder="Confirmación" />
+              <SelectValue placeholder="Transportadora" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              <SelectItem value="pending">Pendientes</SelectItem>
-              <SelectItem value="confirmed">Confirmados</SelectItem>
+              <SelectItem value="all">Todas las transportadoras</SelectItem>
+              <SelectItem value="none">Sin transportadora</SelectItem>
+              {carriersWithOrders.map(carrier => (
+                <SelectItem key={carrier.id} value={carrier.id}>
+                  {carrier.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button

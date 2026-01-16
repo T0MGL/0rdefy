@@ -69,8 +69,8 @@ export async function extractUserRole(
   } catch (error) {
     console.error('[extractUserRole] Error extracting user role:', error);
     return res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to determine user permissions'
+      error: 'Error interno del servidor',
+      message: 'Error al determinar permisos de usuario'
     });
   }
 }

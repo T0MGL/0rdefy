@@ -79,7 +79,7 @@ couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/couriers] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch couriers',
+            error: 'Error al obtener couriers',
             message: error.message
         });
     }
@@ -111,7 +111,7 @@ couriersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[GET /api/couriers/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch courier',
+            error: 'Error al obtener courier',
             message: error.message
         });
     }
@@ -161,7 +161,7 @@ couriersRouter.post('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[POST /api/couriers] Error:', error);
         res.status(500).json({
-            error: 'Failed to create courier',
+            error: 'Error al crear courier',
             message: error.message
         });
     }
@@ -212,7 +212,7 @@ couriersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[PUT /api/couriers/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update courier',
+            error: 'Error al actualizar courier',
             message: error.message
         });
     }
@@ -268,7 +268,7 @@ couriersRouter.patch('/:id/toggle', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[PATCH /api/couriers/${req.params.id}/toggle] Error:`, error);
         res.status(500).json({
-            error: 'Failed to toggle courier status',
+            error: 'Error al cambiar estado de courier',
             message: error.message
         });
     }
@@ -302,7 +302,7 @@ couriersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[DELETE /api/couriers/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to delete courier',
+            error: 'Error al eliminar courier',
             message: error.message
         });
     }
@@ -335,7 +335,7 @@ couriersRouter.get('/:id/performance', async (req: AuthRequest, res: Response) =
     } catch (error: any) {
         console.error(`[GET /api/couriers/${req.params.id}/performance] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch courier performance',
+            error: 'Error al obtener rendimiento del courier',
             message: error.message
         });
     }
@@ -357,7 +357,7 @@ couriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) =
     } catch (error: any) {
         console.error('[GET /api/couriers/performance/all] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch courier performance',
+            error: 'Error al obtener rendimiento del courier',
             message: error.message
         });
     }
@@ -381,7 +381,7 @@ couriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
     } catch (error: any) {
         console.error('[GET /api/couriers/performance/top] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch top couriers',
+            error: 'Error al obtener mejores couriers',
             message: error.message
         });
     }
@@ -408,7 +408,7 @@ couriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
     } catch (error: any) {
         console.error('[GET /api/couriers/performance/underperforming] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch underperforming couriers',
+            error: 'Error al obtener couriers con bajo rendimiento',
             message: error.message
         });
     }
@@ -461,7 +461,7 @@ couriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[GET /api/couriers/${req.params.id}/zones] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch courier zones',
+            error: 'Error al obtener zonas del courier',
             message: error.message
         });
     }
@@ -540,7 +540,7 @@ couriersRouter.post('/:id/zones', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[POST /api/couriers/${req.params.id}/zones] Error:`, error);
         res.status(500).json({
-            error: 'Failed to create zone',
+            error: 'Error al crear zona',
             message: error.message
         });
     }
@@ -596,7 +596,7 @@ couriersRouter.put('/zones/:zoneId', async (req: AuthRequest, res: Response) => 
     } catch (error: any) {
         console.error(`[PUT /api/couriers/zones/${req.params.zoneId}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update zone',
+            error: 'Error al actualizar zona',
             message: error.message
         });
     }
@@ -634,7 +634,7 @@ couriersRouter.delete('/zones/:zoneId', async (req: AuthRequest, res: Response) 
     } catch (error: any) {
         console.error(`[DELETE /api/couriers/zones/${req.params.zoneId}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to delete zone',
+            error: 'Error al eliminar zona',
             message: error.message
         });
     }
@@ -683,7 +683,7 @@ couriersRouter.get('/:id/zones/calculate', async (req: AuthRequest, res: Respons
     } catch (error: any) {
         console.error(`[GET /api/couriers/${req.params.id}/zones/calculate] Error:`, error);
         res.status(500).json({
-            error: 'Failed to calculate shipping cost',
+            error: 'Error al calcular costo de envío',
             message: error.message
         });
     }

@@ -5,7 +5,7 @@
  * - Automatic PII redaction (emails, phones, tokens, IPs)
  * - Environment-aware logging (silences info/debug in production)
  * - Structured JSON output for log aggregation
- * - Correlation ID support for request tracing
+ * - Correlation ID support for request tracing (AsyncLocalStorage for concurrency safety)
  * - Performance tracking with timing
  *
  * Usage:
@@ -15,26 +15,49 @@
  *   logger.security('AUTH', 'Brute force detected', { ip: req.ip });
  */
 
+import { AsyncLocalStorage } from 'async_hooks';
+
 const isProduction = process.env.NODE_ENV === 'production';
 const isTest = process.env.NODE_ENV === 'test';
 const VERBOSE_LOGS = process.env.VERBOSE_LOGS === 'true';
 const JSON_LOGS = process.env.JSON_LOGS === 'true' || isProduction;
 
-// Request context for correlation IDs (using AsyncLocalStorage pattern)
-let currentRequestId: string | null = null;
+// Request context for correlation IDs - AsyncLocalStorage ensures each request
+// maintains its own context even with concurrent requests
+interface RequestContext {
+    requestId: string;
+}
+
+const requestContext = new AsyncLocalStorage<RequestContext>();
 
 /**
  * Set the current request ID for correlation
+ * @deprecated Use runWithRequestId() for proper async context management
  */
 export function setRequestId(requestId: string): void {
-    currentRequestId = requestId;
+    // Legacy support: If called outside AsyncLocalStorage context, it's a no-op
+    // The middleware now uses runWithRequestId() for proper context
+    const store = requestContext.getStore();
+    if (store) {
+        // Can't mutate, but this maintains backward compatibility for edge cases
+        console.warn('[Logger] setRequestId called inside async context - use runWithRequestId instead');
+    }
 }
 
 /**
- * Get the current request ID
+ * Get the current request ID from async context
  */
 export function getRequestId(): string | null {
-    return currentRequestId;
+    const store = requestContext.getStore();
+    return store?.requestId ?? null;
+}
+
+/**
+ * Run a function within a request context
+ * This ensures all async operations within the callback have access to the requestId
+ */
+export function runWithRequestId<T>(requestId: string, fn: () => T): T {
+    return requestContext.run({ requestId }, fn);
 }
 
 /**
@@ -55,7 +78,7 @@ const PII_PATTERNS = {
     // JWT tokens
     jwt: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/g,
     // API keys/secrets (generic patterns)
-    apiKey: /(api[_-]?key|secret|token|password|authorization)['":\s]*[=:]\s*['"]?([a-zA-Z0-9_\-\.]{20,})['"]?/gi,
+    apiKey: /(api[_-]?key|secret|token|password|authorization)['":\s]*[=:]\s*['"]?([a-zA-Z0-9_\-.]{20,})['"]?/gi,
     // Credit card numbers
     creditCard: /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
     // IP addresses (optional - may want to keep for security logs)
@@ -248,8 +271,10 @@ function log(level: LogLevel, module: string, message: string, data?: any, durat
         message,
     };
 
-    if (currentRequestId) {
-        entry.requestId = currentRequestId;
+    // Get request ID from AsyncLocalStorage context (thread-safe for concurrent requests)
+    const requestId = getRequestId();
+    if (requestId) {
+        entry.requestId = requestId;
     }
 
     if (data !== undefined) {
@@ -355,16 +380,20 @@ export const logger = {
 
 /**
  * Express middleware for request logging with correlation IDs
+ * Uses AsyncLocalStorage to ensure each concurrent request has its own context
  */
 export function requestLoggerMiddleware(req: any, res: any, next: any): void {
     const requestId = generateRequestId();
-    setRequestId(requestId);
 
     // Attach request ID to response headers for debugging
     res.setHeader('X-Request-ID', requestId);
 
+    // Also attach to request object for easy access in route handlers
+    req.requestId = requestId;
+
     const start = Date.now();
 
+    // Set up finish handler before entering async context
     res.on('finish', () => {
         const duration = Date.now() - start;
         const level = res.statusCode >= 500 ? 'ERROR' :
@@ -372,22 +401,45 @@ export function requestLoggerMiddleware(req: any, res: any, next: any): void {
 
         // Only log in production if error/warn, or if verbose
         if (isProduction && level === 'INFO' && !VERBOSE_LOGS) {
-            setRequestId(null as any);
             return;
         }
 
-        log(level as LogLevel, 'HTTP', `${req.method} ${req.path}`, {
-            statusCode: res.statusCode,
+        // Log with the request ID from the request object
+        // (since res.on('finish') may run outside the AsyncLocalStorage context)
+        const entry: LogEntry = {
+            timestamp: getTimestamp(),
+            level: level as LogLevel,
+            module: 'HTTP',
+            message: `${req.method} ${req.path}`,
+            requestId: req.requestId,
+            data: sanitizeObject({
+                statusCode: res.statusCode,
+                duration,
+                // Don't log IPs in production for GDPR compliance
+                ...(isProduction ? {} : { ip: req.ip }),
+            }),
             duration,
-            // Don't log IPs in production for GDPR compliance
-            ...(isProduction ? {} : { ip: req.ip }),
-        }, duration);
+        };
 
-        // Clear request ID after logging
-        setRequestId(null as any);
+        const formatted = formatLog(entry);
+
+        switch (level) {
+            case 'ERROR':
+                console.error(formatted);
+                break;
+            case 'WARN':
+                console.warn(formatted);
+                break;
+            default:
+                console.log(formatted);
+        }
     });
 
-    next();
+    // Run the rest of the request handling within the async context
+    // This ensures all subsequent middleware and route handlers have access to requestId
+    runWithRequestId(requestId, () => {
+        next();
+    });
 }
 
 /**

@@ -18,7 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import * as shippingService from '@/services/shipping.service';
-import { generateDispatchCSV } from '@/services/shipping.service';
+import { exportDispatchExcel } from '@/services/shipping.service';
 import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
 import { formatCurrency } from '@/utils/currency';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
@@ -137,7 +137,9 @@ export default function Shipping() {
     });
   }
 
-  function handleExportCSV() {
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExportExcel() {
     if (selectedOrders.size === 0) {
       toast({
         title: 'Error',
@@ -147,15 +149,27 @@ export default function Shipping() {
       return;
     }
 
-    const selectedOrdersList = orders.filter(o => selectedOrders.has(o.id));
-    const carrierName = selectedOrdersList[0]?.carrier_name || 'Transportadora';
+    setExporting(true);
+    try {
+      const selectedOrdersList = orders.filter(o => selectedOrders.has(o.id));
+      const carrierName = selectedOrdersList[0]?.carrier_name || 'Transportadora';
 
-    generateDispatchCSV(selectedOrdersList, carrierName);
+      await exportDispatchExcel(selectedOrdersList, carrierName);
 
-    toast({
-      title: 'CSV exportado',
-      description: `Planilla descargada con ${selectedOrdersList.length} pedido(s) para el courier`,
-    });
+      toast({
+        title: 'Excel exportado',
+        description: `Planilla profesional descargada con ${selectedOrdersList.length} pedido(s) para el courier`,
+      });
+    } catch (error: any) {
+      console.error('Error exporting Excel:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'No se pudo exportar la planilla',
+        variant: 'destructive',
+      });
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleDispatch() {
@@ -283,14 +297,23 @@ export default function Shipping() {
             </span>
             <div className="flex-1" />
             <Button
-              onClick={handleExportCSV}
-              disabled={selectedOrders.size === 0 || loading}
+              onClick={handleExportExcel}
+              disabled={selectedOrders.size === 0 || loading || exporting}
               variant="outline"
               size="lg"
               className="gap-2"
             >
-              <FileSpreadsheet className="h-4 w-4" />
-              Exportar CSV
+              {exporting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                  Exportando...
+                </>
+              ) : (
+                <>
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Exportar Excel
+                </>
+              )}
             </Button>
             <Button
               onClick={handleGenerateManifest}

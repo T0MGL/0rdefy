@@ -43,7 +43,7 @@ router.get('/orders/confirmed', async (req, res) => {
   } catch (error) {
     console.error('Error fetching confirmed orders:', error);
     res.status(500).json({
-      error: 'Failed to fetch confirmed orders',
+      error: 'Error al obtener pedidos confirmados',
       details: error.message
     });
   }
@@ -67,7 +67,7 @@ router.get('/sessions/active', async (req, res) => {
   } catch (error) {
     console.error('Error fetching active sessions:', error);
     res.status(500).json({
-      error: 'Failed to fetch active sessions',
+      error: 'Error al obtener sesiones activas',
       details: error.message
     });
   }
@@ -166,7 +166,7 @@ router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionI
                               error.message?.includes('stock') ||
                               error.message?.includes('Cantidad');
     res.status(isValidationError ? 400 : 500).json({
-      error: 'Failed to update picking progress',
+      error: 'Error al actualizar progreso de picking',
       details: error.message
     });
   }
@@ -195,7 +195,7 @@ router.post('/sessions/:sessionId/finish-picking', validateUUIDParam('sessionId'
                               error.message?.includes('stock') ||
                               error.message?.includes('productos deben ser recogidos');
     res.status(isValidationError ? 400 : 500).json({
-      error: 'Failed to finish picking',
+      error: 'Error al finalizar picking',
       details: error.message
     });
   }
@@ -223,7 +223,7 @@ router.get('/sessions/:sessionId/packing-list', validateUUIDParam('sessionId'), 
   } catch (error) {
     console.error('Error fetching packing list:', error);
     res.status(500).json({
-      error: 'Failed to fetch packing list',
+      error: 'Error al obtener lista de empaque',
       details: error.message
     });
   }
@@ -273,7 +273,7 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
                               error.message?.includes('packing status');
 
     res.status(isValidationError ? 400 : 500).json({
-      error: 'Failed to update packing progress',
+      error: 'Error al actualizar progreso de empaque',
       details: error.message
     });
   }
@@ -302,7 +302,7 @@ router.post('/sessions/:sessionId/complete', validateUUIDParam('sessionId'), asy
                               error.message?.includes('empacar') ||
                               error.message?.includes('completar');
     res.status(isValidationError ? 400 : 500).json({
-      error: 'Failed to complete session',
+      error: 'Error al completar sesión',
       details: error.message
     });
   }
@@ -338,7 +338,7 @@ router.post('/sessions/:sessionId/abandon', validateUUIDParam('sessionId'), asyn
                               error.message?.includes('completed') ||
                               error.message?.includes('already');
     res.status(isValidationError ? 400 : 500).json({
-      error: 'Failed to abandon session',
+      error: 'Error al abandonar sesión',
       details: error.message
     });
   }
@@ -367,7 +367,7 @@ router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessi
   } catch (error) {
     console.error('Error removing order from session:', error);
     res.status(500).json({
-      error: 'Failed to remove order from session',
+      error: 'Error al eliminar pedido de la sesión',
       details: error.message
     });
   }
@@ -388,7 +388,7 @@ router.post('/cleanup-sessions', async (req, res) => {
   } catch (error) {
     console.error('Error cleaning up sessions:', error);
     res.status(500).json({
-      error: 'Failed to cleanup sessions',
+      error: 'Error al limpiar sesiones',
       details: error.message
     });
   }
@@ -412,7 +412,7 @@ router.get('/sessions/stale', async (req, res) => {
   } catch (error) {
     console.error('Error fetching stale sessions:', error);
     res.status(500).json({
-      error: 'Failed to fetch stale sessions',
+      error: 'Error al obtener sesiones obsoletas',
       details: error.message
     });
   }

@@ -343,7 +343,7 @@ export class ExternalWebhookService {
 
       if (error) {
         console.error('❌ [ExternalWebhook] Error creating customer:', error);
-        throw new Error(`Failed to create customer: ${error.message}`);
+        throw new Error(`Error al crear cliente: ${error.message}`);
       }
 
       console.log(`✅ [ExternalWebhook] Created new customer: ${created.id}`);
@@ -551,7 +551,7 @@ export class ExternalWebhookService {
 
         return {
           success: false,
-          error: `Failed to create order: ${orderError.message}`
+          error: `Error al crear pedido: ${orderError.message}`
         };
       }
 
@@ -683,7 +683,7 @@ export class ExternalWebhookService {
 
       if (error) {
         console.error('❌ [ExternalWebhook] Error creating config:', error);
-        return { error: `Failed to create webhook configuration: ${error.message}` };
+        return { error: `Error al crear configuración de webhook: ${error.message}` };
       }
 
       console.log(`✅ [ExternalWebhook] Created webhook config for store ${storeId}`);
@@ -711,7 +711,7 @@ export class ExternalWebhookService {
         .eq('store_id', storeId);
 
       if (error) {
-        return { error: `Failed to regenerate API key: ${error.message}` };
+        return { error: `Error al regenerar clave API: ${error.message}` };
       }
 
       console.log(`✅ [ExternalWebhook] Regenerated API key for store ${storeId}`);

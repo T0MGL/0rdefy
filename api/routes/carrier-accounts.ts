@@ -44,7 +44,7 @@ carrierAccountsRouter.get('/balances', requireModule(Module.CARRIERS), async (re
     console.error('💥 [CARRIER ACCOUNTS] Error fetching balances:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch carrier balances',
+      error: 'Error al obtener balances de transportadoras',
       message: error.message
     });
   }
@@ -81,7 +81,7 @@ carrierAccountsRouter.get('/balances/:carrierId', requireModule(Module.CARRIERS)
     console.error('💥 [CARRIER ACCOUNTS] Error fetching carrier summary:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch carrier summary',
+      error: 'Error al obtener resumen de transportadora',
       message: error.message
     });
   }
@@ -131,7 +131,7 @@ carrierAccountsRouter.get('/movements/unsettled', requireModule(Module.CARRIERS)
     console.error('💥 [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch unsettled movements',
+      error: 'Error al obtener movimientos pendientes',
       message: error.message
     });
   }
@@ -208,7 +208,7 @@ carrierAccountsRouter.post(
       console.error('💥 [CARRIER ACCOUNTS] Error registering payment:', error);
       res.status(500).json({
         success: false,
-        error: 'Failed to register payment',
+        error: 'Error al registrar pago',
         message: error.message
       });
     }
@@ -242,7 +242,7 @@ carrierAccountsRouter.get('/payments', requireModule(Module.CARRIERS), async (re
     console.error('💥 [CARRIER ACCOUNTS] Error fetching payments:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch payment records',
+      error: 'Error al obtener registros de pago',
       message: error.message
     });
   }
@@ -278,7 +278,7 @@ carrierAccountsRouter.post(
       console.error('💥 [CARRIER ACCOUNTS] Error in backfill:', error);
       res.status(500).json({
         success: false,
-        error: 'Failed to backfill movements',
+        error: 'Error al rellenar movimientos',
         message: error.message
       });
     }

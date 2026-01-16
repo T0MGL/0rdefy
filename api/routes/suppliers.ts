@@ -93,7 +93,7 @@ suppliersRouter.get('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/suppliers] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch suppliers',
+            error: 'Error al obtener proveedores',
             message: error.message
         });
     }
@@ -132,7 +132,7 @@ suppliersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[GET /api/suppliers/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch supplier',
+            error: 'Error al obtener proveedor',
             message: error.message
         });
     }
@@ -198,7 +198,7 @@ suppliersRouter.post('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[POST /api/suppliers] Error:', error);
         res.status(500).json({
-            error: 'Failed to create supplier',
+            error: 'Error al crear proveedor',
             message: error.message
         });
     }
@@ -260,7 +260,7 @@ suppliersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[PUT /api/suppliers/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update supplier',
+            error: 'Error al actualizar proveedor',
             message: error.message
         });
     }
@@ -285,7 +285,7 @@ suppliersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
         if (count && count > 0) {
             return res.status(409).json({
-                error: 'Cannot delete supplier',
+                error: 'No se puede eliminar el proveedor',
                 message: `Supplier has ${count} product(s) assigned. Please reassign products before deleting.`
             });
         }
@@ -311,7 +311,7 @@ suppliersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[DELETE /api/suppliers/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to delete supplier',
+            error: 'Error al eliminar proveedor',
             message: error.message
         });
     }
@@ -368,7 +368,7 @@ suppliersRouter.get('/:id/products', async (req: AuthRequest, res: Response) => 
     } catch (error: any) {
         console.error(`[GET /api/suppliers/${req.params.id}/products] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch supplier products',
+            error: 'Error al obtener productos del proveedor',
             message: error.message
         });
     }

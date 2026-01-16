@@ -90,7 +90,7 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
 
   if (error) {
     console.error('Error fetching eligible orders:', error);
-    throw new Error(`Failed to fetch eligible orders: ${error.message}`);
+    throw new Error(`Error al obtener pedidos elegibles: ${error.message}`);
   }
 
   // Get orders that have already been returned (in completed sessions)
@@ -154,7 +154,7 @@ export async function createReturnSession(
 
   if (codeError) {
     console.error('Error generating session code:', codeError);
-    throw new Error(`Failed to generate session code: ${codeError.message}`);
+    throw new Error(`Error al generar código de sesión: ${codeError.message}`);
   }
 
   const sessionCode = codeData;
@@ -176,7 +176,7 @@ export async function createReturnSession(
 
   if (checkError) {
     console.error('Error checking existing sessions:', checkError);
-    throw new Error(`Failed to check existing sessions: ${checkError.message}`);
+    throw new Error(`Error al verificar sesiones existentes: ${checkError.message}`);
   }
 
   if (existingSessions && existingSessions.length > 0) {
@@ -210,7 +210,7 @@ export async function createReturnSession(
 
   if (ordersError) {
     console.error('Error fetching orders:', ordersError);
-    throw new Error(`Failed to fetch orders: ${ordersError.message}`);
+    throw new Error(`Error al obtener pedidos: ${ordersError.message}`);
   }
 
   // Get line items from order_line_items table
@@ -222,12 +222,12 @@ export async function createReturnSession(
 
   if (lineItemsError) {
     console.error('Error fetching line items:', lineItemsError);
-    throw new Error(`Failed to fetch line items: ${lineItemsError.message}`);
+    throw new Error(`Error al obtener líneas de pedido: ${lineItemsError.message}`);
   }
 
   // Check if we have any valid line items
   if (!lineItems || lineItems.length === 0) {
-    throw new Error('No valid line items found for selected orders. Make sure orders have products mapped.');
+    throw new Error('No se encontraron líneas de pedido válidas. Asegúrese de que los pedidos tengan productos asignados.');
   }
 
   // Calculate total items
@@ -250,7 +250,7 @@ export async function createReturnSession(
 
   if (sessionError) {
     console.error('Error creating session:', sessionError);
-    throw new Error(`Failed to create session: ${sessionError.message}`);
+    throw new Error(`Error al crear sesión: ${sessionError.message}`);
   }
 
   // Link orders to session
@@ -266,7 +266,19 @@ export async function createReturnSession(
 
   if (ordersLinkError) {
     console.error('Error linking orders:', ordersLinkError);
-    throw new Error(`Failed to link orders: ${ordersLinkError.message}`);
+
+    // Handle database-level duplicate order constraint (trigger error)
+    if (ordersLinkError.message?.includes('already in an active return session')) {
+      // Extract session code from error message if available
+      const match = ordersLinkError.message.match(/\(([^)]+)\)/);
+      const sessionCode = match ? match[1] : 'desconocida';
+      throw new Error(
+        `Uno o más pedidos ya están en una sesión de devolución activa (${sessionCode}). ` +
+        `Cancela la sesión existente antes de crear una nueva.`
+      );
+    }
+
+    throw new Error(`Error al vincular pedidos: ${ordersLinkError.message}`);
   }
 
   // Create return session items from order_line_items
@@ -284,7 +296,7 @@ export async function createReturnSession(
 
   if (itemsError) {
     console.error('Error creating items:', itemsError);
-    throw new Error(`Failed to create items: ${itemsError.message}`);
+    throw new Error(`Error al crear ítems: ${itemsError.message}`);
   }
 
   return session;
@@ -302,7 +314,7 @@ export async function getReturnSession(sessionId: string): Promise<any> {
 
   if (sessionError) {
     console.error('Error fetching session:', sessionError);
-    throw new Error(`Failed to fetch session: ${sessionError.message}`);
+    throw new Error(`Error al obtener sesión: ${sessionError.message}`);
   }
 
   // Get session orders
@@ -316,7 +328,7 @@ export async function getReturnSession(sessionId: string): Promise<any> {
 
   if (ordersError) {
     console.error('Error fetching session orders:', ordersError);
-    throw new Error(`Failed to fetch session orders: ${ordersError.message}`);
+    throw new Error(`Error al obtener pedidos de la sesión: ${ordersError.message}`);
   }
 
   // Get session items
@@ -331,7 +343,7 @@ export async function getReturnSession(sessionId: string): Promise<any> {
 
   if (itemsError) {
     console.error('Error fetching session items:', itemsError);
-    throw new Error(`Failed to fetch session items: ${itemsError.message}`);
+    throw new Error(`Error al obtener ítems de la sesión: ${itemsError.message}`);
   }
 
   return {
@@ -353,7 +365,7 @@ export async function getReturnSessions(storeId: string): Promise<ReturnSession[
 
   if (error) {
     console.error('Error fetching sessions:', error);
-    throw new Error(`Failed to fetch sessions: ${error.message}`);
+    throw new Error(`Error al obtener sesiones: ${error.message}`);
   }
 
   return data;
@@ -387,21 +399,21 @@ export async function updateReturnItem(
     .single();
 
   if (fetchError || !currentItem) {
-    throw new Error('Return item not found');
+    throw new Error('Ítem de devolución no encontrado');
   }
 
   // SECURITY: Verify item belongs to session from the authenticated user's store
   const itemStoreId = (currentItem.session as any)?.store_id;
   if (itemStoreId !== storeId) {
     console.warn(`[Returns] Unauthorized item update attempt: store ${storeId} tried to update item from store ${itemStoreId}`);
-    throw new Error('Return item not found');
+    throw new Error('Ítem de devolución no encontrado');
   }
 
   // SECURITY: Only allow updates to items in 'in_progress' sessions
   const sessionStatus = (currentItem.session as any)?.status;
   if (sessionStatus !== 'in_progress') {
     throw new Error(
-      `Cannot update items in '${sessionStatus}' session. Only 'in_progress' sessions can be modified.`
+      `No se pueden actualizar ítems en una sesión '${sessionStatus}'. Solo las sesiones 'in_progress' pueden modificarse.`
     );
   }
 
@@ -413,8 +425,8 @@ export async function updateReturnItem(
   // VALIDATION: accepted + rejected cannot exceed expected quantity
   if (finalAccepted + finalRejected > expectedQty) {
     throw new Error(
-      `Invalid quantities: accepted (${finalAccepted}) + rejected (${finalRejected}) ` +
-      `cannot exceed expected quantity (${expectedQty})`
+      `Cantidades inválidas: aceptados (${finalAccepted}) + rechazados (${finalRejected}) ` +
+      `no puede exceder la cantidad esperada (${expectedQty})`
     );
   }
 
@@ -428,7 +440,7 @@ export async function updateReturnItem(
 
   if (error) {
     console.error('Error updating item:', error);
-    throw new Error(`Failed to update item: ${error.message}`);
+    throw new Error(`Error al actualizar ítem: ${error.message}`);
   }
 
   return data;
@@ -443,7 +455,7 @@ export async function completeReturnSession(sessionId: string): Promise<any> {
 
   if (error) {
     console.error('Error completing session:', error);
-    throw new Error(`Failed to complete session: ${error.message}`);
+    throw new Error(`Error al completar sesión: ${error.message}`);
   }
 
   return data;
@@ -462,13 +474,13 @@ export async function cancelReturnSession(sessionId: string): Promise<void> {
     .single();
 
   if (fetchError || !session) {
-    throw new Error('Return session not found');
+    throw new Error('Sesión de devolución no encontrada');
   }
 
   // Only allow cancelling sessions that are 'in_progress'
   if (session.status !== 'in_progress') {
     throw new Error(
-      `Cannot cancel session in '${session.status}' status. Only 'in_progress' sessions can be cancelled.`
+      `No se puede cancelar una sesión con estado '${session.status}'. Solo las sesiones 'in_progress' pueden cancelarse.`
     );
   }
 
@@ -480,7 +492,7 @@ export async function cancelReturnSession(sessionId: string): Promise<void> {
 
   if (error) {
     console.error('Error cancelling session:', error);
-    throw new Error(`Failed to cancel session: ${error.message}`);
+    throw new Error(`Error al cancelar sesión: ${error.message}`);
   }
 }
 
@@ -496,7 +508,7 @@ export async function getReturnStats(storeId: string): Promise<any> {
 
   if (error) {
     console.error('Error fetching return stats:', error);
-    throw new Error(`Failed to fetch return stats: ${error.message}`);
+    throw new Error(`Error al obtener estadísticas de devoluciones: ${error.message}`);
   }
 
   const totalSessions = sessions.length;

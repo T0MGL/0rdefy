@@ -131,7 +131,7 @@ export class ShopifyClientService {
     } catch (error: any) {
       // Parse error type for better debugging
       let errorType = 'unknown_error';
-      let errorMessage = 'Failed to connect to Shopify';
+      let errorMessage = 'Error al conectar con Shopify';
 
       if (error.response) {
         const status = error.response.status;

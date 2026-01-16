@@ -47,13 +47,13 @@ deliveryAttemptsRouter.use(requireModule(Module.ORDERS));
 deliveryAttemptsRouter.post('/upload-photo', upload.single('file'), async (req: AuthRequest, res: Response) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No file provided' });
+      return res.status(400).json({ error: 'No se proporcionó archivo' });
     }
 
     const { order_id } = req.body;
 
     if (!order_id) {
-      return res.status(400).json({ error: 'order_id is required' });
+      return res.status(400).json({ error: 'Se requiere order_id' });
     }
 
     console.log('📤 [DELIVERY-PHOTO] Uploading photo for order:', order_id);
@@ -74,7 +74,7 @@ deliveryAttemptsRouter.post('/upload-photo', upload.single('file'), async (req: 
     });
   } catch (error: any) {
     console.error('💥 [DELIVERY-PHOTO] Error:', error);
-    res.status(500).json({ error: error.message || 'Failed to upload photo' });
+    res.status(500).json({ error: error.message || 'Error al subir foto' });
   }
 });
 
@@ -117,7 +117,7 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     if (error) {
       console.error('❌ [DELIVERY-ATTEMPTS] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch delivery attempts' });
+      return res.status(500).json({ error: 'Error al obtener intentos de entrega' });
     }
 
     res.json({
@@ -131,7 +131,7 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Unexpected error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -150,13 +150,13 @@ deliveryAttemptsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       .single();
 
     if (error || !data) {
-      return res.status(404).json({ error: 'Delivery attempt not found' });
+      return res.status(404).json({ error: 'Intento de entrega no encontrado' });
     }
 
     res.json(data);
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -174,7 +174,7 @@ deliveryAttemptsRouter.post('/', async (req: AuthRequest, res: Response) => {
     } = req.body;
 
     if (!order_id || !scheduled_date) {
-      return res.status(400).json({ error: 'order_id and scheduled_date are required' });
+      return res.status(400).json({ error: 'Se requieren order_id y scheduled_date' });
     }
 
     console.log('📝 [DELIVERY-ATTEMPTS] Creating attempt for order:', order_id);
@@ -208,7 +208,7 @@ deliveryAttemptsRouter.post('/', async (req: AuthRequest, res: Response) => {
 
     if (error) {
       console.error('❌ [DELIVERY-ATTEMPTS] Error creating:', error);
-      return res.status(500).json({ error: 'Failed to create delivery attempt' });
+      return res.status(500).json({ error: 'Error al crear intento de entrega' });
     }
 
     // Update order delivery_attempts count
@@ -225,7 +225,7 @@ deliveryAttemptsRouter.post('/', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -255,7 +255,7 @@ deliveryAttemptsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
       .single();
 
     if (error || !data) {
-      return res.status(404).json({ error: 'Delivery attempt not found' });
+      return res.status(404).json({ error: 'Intento de entrega no encontrado' });
     }
 
     console.log('✅ [DELIVERY-ATTEMPTS] Updated:', id);
@@ -266,7 +266,7 @@ deliveryAttemptsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -306,7 +306,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
       .single();
 
     if (attemptError || !attempt) {
-      return res.status(404).json({ error: 'Delivery attempt not found' });
+      return res.status(404).json({ error: 'Intento de entrega no encontrado' });
     }
 
     // Check if order has active incident
@@ -358,7 +358,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
     });
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -371,7 +371,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
     const { failed_reason, notes, failure_notes, status = 'failed' } = req.body;
 
     if (!failed_reason) {
-      return res.status(400).json({ error: 'failed_reason is required' });
+      return res.status(400).json({ error: 'Se requiere failed_reason' });
     }
 
     console.log('❌ [DELIVERY-ATTEMPTS] Marking as failed:', id);
@@ -393,7 +393,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
       .single();
 
     if (attemptError || !attempt) {
-      return res.status(404).json({ error: 'Delivery attempt not found' });
+      return res.status(404).json({ error: 'Intento de entrega no encontrado' });
     }
 
     // Update order with failed reason and status
@@ -418,7 +418,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
     });
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -437,7 +437,7 @@ deliveryAttemptsRouter.delete('/:id', async (req: AuthRequest, res: Response) =>
 
     if (error) {
       console.error('❌ [DELIVERY-ATTEMPTS] Error deleting:', error);
-      return res.status(500).json({ error: 'Failed to delete delivery attempt' });
+      return res.status(500).json({ error: 'Error al eliminar intento de entrega' });
     }
 
     console.log('🗑️ [DELIVERY-ATTEMPTS] Deleted:', id);
@@ -445,6 +445,6 @@ deliveryAttemptsRouter.delete('/:id', async (req: AuthRequest, res: Response) =>
     res.json({ message: 'Delivery attempt deleted' });
   } catch (error: any) {
     console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

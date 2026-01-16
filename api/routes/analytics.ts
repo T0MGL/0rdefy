@@ -544,7 +544,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/analytics/overview] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch analytics overview',
+            error: 'Error al obtener resumen analítico',
             message: error.message
         });
     }
@@ -757,7 +757,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/analytics/chart] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch chart data',
+            error: 'Error al obtener datos del gráfico',
             message: error.message
         });
     }
@@ -899,7 +899,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
     } catch (error: any) {
         console.error('[GET /api/analytics/confirmation-metrics] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch confirmation metrics',
+            error: 'Error al obtener métricas de confirmación',
             message: error.message
         });
     }
@@ -1029,7 +1029,7 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
     } catch (error: any) {
         console.error('[GET /api/analytics/top-products] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch top products',
+            error: 'Error al obtener productos destacados',
             message: error.message
         });
     }
@@ -1190,7 +1190,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
     } catch (error: any) {
         console.error('[GET /api/analytics/cash-projection] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch cash projection',
+            error: 'Error al obtener proyección de efectivo',
             message: error.message
         });
     }
@@ -1242,7 +1242,7 @@ analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: 
     } catch (error: any) {
         console.error('[GET /api/analytics/order-status-distribution] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch order status distribution',
+            error: 'Error al obtener distribución de estados',
             message: error.message
         });
     }
@@ -1490,7 +1490,7 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
     } catch (error: any) {
         console.error('[GET /api/analytics/cash-flow-timeline] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch cash flow timeline',
+            error: 'Error al obtener flujo de caja',
             message: error.message
         });
     }
@@ -1691,7 +1691,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
     } catch (error: any) {
         console.error('[GET /api/analytics/logistics-metrics] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch logistics metrics',
+            error: 'Error al obtener métricas logísticas',
             message: error.message
         });
     }
@@ -1824,7 +1824,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
     } catch (error: any) {
         console.error('[GET /api/analytics/returns-metrics] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch returns metrics',
+            error: 'Error al obtener métricas de devoluciones',
             message: error.message
         });
     }
@@ -1912,7 +1912,7 @@ analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response
     } catch (error: any) {
         console.error('[GET /api/analytics/incidents-metrics] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch incidents metrics',
+            error: 'Error al obtener métricas de incidentes',
             message: error.message
         });
     }
@@ -2197,7 +2197,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
     } catch (error: any) {
         console.error('[GET /api/analytics/shipping-costs] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch shipping costs metrics',
+            error: 'Error al obtener métricas de costos de envío',
             message: error.message
         });
     }

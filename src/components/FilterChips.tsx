@@ -1,6 +1,5 @@
 import { Badge } from './ui/badge';
-import { Button } from './ui/button';
-import { X, Plus } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 export interface SavedFilter {
@@ -22,15 +21,31 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
 
   useEffect(() => {
     const stored = localStorage.getItem(storageKey);
+    let useDefaults = !stored;
+
     if (stored) {
       try {
-        setSavedFilters(JSON.parse(stored));
+        let parsed = JSON.parse(stored) as SavedFilter[];
+        // Migration: fix 'shipped' → 'in_transit' for existing saved filters
+        let needsMigration = false;
+        parsed = parsed.map(filter => {
+          if (filter.filters?.status === 'shipped') {
+            needsMigration = true;
+            return { ...filter, filters: { ...filter.filters, status: 'in_transit' } };
+          }
+          return filter;
+        });
+        if (needsMigration) {
+          localStorage.setItem(storageKey, JSON.stringify(parsed));
+        }
+        setSavedFilters(parsed);
       } catch {
-        console.error('[FilterChips] Failed to parse saved filters');
-        // Continue with defaults on parse error
+        console.error('[FilterChips] Failed to parse saved filters, using defaults');
+        useDefaults = true;
       }
     }
-    if (!stored) {
+
+    if (useDefaults) {
       // Filtros por defecto para pedidos (permanentes - no se pueden eliminar)
       const defaults: SavedFilter[] = [
         {
@@ -65,7 +80,7 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
           id: 'shipped',
           name: 'En Tránsito',
           icon: '🚚',
-          filters: { status: 'shipped' },
+          filters: { status: 'in_transit' },
           isPermanent: true,
         },
         {

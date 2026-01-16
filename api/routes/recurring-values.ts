@@ -26,7 +26,7 @@ recurringValuesRouter.get('/', async (req: AuthRequest, res: Response) => {
         res.json(data || []);
     } catch (error: any) {
         console.error('[GET /api/recurring-values] Error:', error);
-        res.status(500).json({ error: 'Failed to fetch recurring values', message: error.message });
+        res.status(500).json({ error: 'Error al obtener valores recurrentes', message: error.message });
     }
 });
 
@@ -38,7 +38,7 @@ recurringValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
         const { category, description, amount, type, frequency, start_date } = req.body;
 
         if (!category || !description || !amount || !type || !frequency || !start_date) {
-            return res.status(400).json({ error: 'Missing required fields' });
+            return res.status(400).json({ error: 'Faltan campos requeridos' });
         }
 
         const { data, error } = await supabaseAdmin
@@ -63,7 +63,7 @@ recurringValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
         res.status(201).json(data);
     } catch (error: any) {
         console.error('[POST /api/recurring-values] Error:', error);
-        res.status(500).json({ error: 'Failed to create recurring value', message: error.message });
+        res.status(500).json({ error: 'Error al crear valor recurrente', message: error.message });
     }
 });
 
@@ -75,7 +75,7 @@ recurringValuesRouter.post('/ordefy-subscription', async (req: AuthRequest, res:
         const { amount, start_date } = req.body;
 
         if (!amount || !start_date) {
-            return res.status(400).json({ error: 'Amount and start date are required' });
+            return res.status(400).json({ error: 'Se requieren monto y fecha de inicio' });
         }
 
         // Check if already exists
@@ -87,7 +87,7 @@ recurringValuesRouter.post('/ordefy-subscription', async (req: AuthRequest, res:
             .maybeSingle();
 
         if (existing) {
-            return res.status(400).json({ error: 'Ordefy subscription already exists' });
+            return res.status(400).json({ error: 'Ya existe suscripción de Ordefy' });
         }
 
         const { data, error } = await supabaseAdmin
@@ -113,7 +113,7 @@ recurringValuesRouter.post('/ordefy-subscription', async (req: AuthRequest, res:
         res.status(201).json(data);
     } catch (error: any) {
         console.error('[POST /api/recurring-values/ordefy-subscription] Error:', error);
-        res.status(500).json({ error: 'Failed to create subscription', message: error.message });
+        res.status(500).json({ error: 'Error al crear suscripción', message: error.message });
     }
 });
 
@@ -144,7 +144,7 @@ recurringValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         res.json(data);
     } catch (error: any) {
         console.error(`[PUT /api/recurring-values/${req.params.id}] Error:`, error);
-        res.status(500).json({ error: 'Failed to update recurring value', message: error.message });
+        res.status(500).json({ error: 'Error al actualizar valor recurrente', message: error.message });
     }
 });
 
@@ -166,6 +166,6 @@ recurringValuesRouter.delete('/:id', async (req: AuthRequest, res: Response) => 
         res.json({ message: 'Recurring value deleted successfully' });
     } catch (error: any) {
         console.error(`[DELETE /api/recurring-values/${req.params.id}] Error:`, error);
-        res.status(500).json({ error: 'Failed to delete recurring value', message: error.message });
+        res.status(500).json({ error: 'Error al eliminar valor recurrente', message: error.message });
     }
 });

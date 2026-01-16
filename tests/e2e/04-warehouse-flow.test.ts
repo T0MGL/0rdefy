@@ -26,8 +26,8 @@ describe('Warehouse Picking & Packing Flow', () => {
   let api: ProductionApiClient;
   let testCarrier: any;
   let testCustomer: any;
-  let products: any[] = [];
-  let confirmedOrders: any[] = [];
+  const products: any[] = [];
+  const confirmedOrders: any[] = [];
   let pickingSession: any;
 
   const PRODUCT_COUNT = 2;
@@ -280,7 +280,7 @@ describe('Warehouse Picking & Packing Flow', () => {
 
   describe('Session Abandonment', () => {
     let abandonTestSession: any;
-    let abandonTestOrders: any[] = [];
+    const abandonTestOrders: any[] = [];
 
     beforeAll(async () => {
       // Create fresh orders for abandonment test

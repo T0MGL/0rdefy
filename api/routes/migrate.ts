@@ -104,7 +104,7 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('❌ [MIGRATE] Error:', error);
     res.status(500).json({
-      error: 'Failed to apply migration',
+      error: 'Error al aplicar migración',
       message: error.message
     });
   }

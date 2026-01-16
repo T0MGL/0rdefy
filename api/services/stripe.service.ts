@@ -1089,7 +1089,7 @@ export async function generateReferralCode(userId: string): Promise<string> {
       return 'PENDING';
     }
     console.error('[Stripe] Error inserting referral code:', insertError.message);
-    throw new Error(`Failed to create referral code: ${insertError.message}`);
+    throw new Error(`Error al crear código de referido: ${insertError.message}`);
   }
 
   console.log('[Stripe] Created new referral code:', codeToUse);

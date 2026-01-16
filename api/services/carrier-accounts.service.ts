@@ -121,7 +121,7 @@ export async function createDeliveryMovements(
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error creating delivery movements:', error);
-      throw new Error(`Failed to create delivery movements: ${error.message}`);
+      throw new Error(`Error al crear movimientos de entrega: ${error.message}`);
     }
 
     // SQL function returns array with single row
@@ -174,7 +174,7 @@ export async function createFailedDeliveryMovement(
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error creating failed delivery movement:', error);
-      throw new Error(`Failed to create failed delivery movement: ${error.message}`);
+      throw new Error(`Error al crear movimiento de entrega fallida: ${error.message}`);
     }
 
     if (data) {
@@ -254,7 +254,7 @@ export async function getCarrierBalances(storeId: string): Promise<CarrierBalanc
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error fetching balances:', error);
-      throw new Error(`Failed to fetch carrier balances: ${error.message}`);
+      throw new Error(`Error al obtener saldos de transportadoras: ${error.message}`);
     }
 
     return data || [];
@@ -288,7 +288,7 @@ export async function getCarrierBalanceSummary(
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error fetching balance summary:', error);
-      throw new Error(`Failed to fetch balance summary: ${error.message}`);
+      throw new Error(`Error al obtener resumen de saldo: ${error.message}`);
     }
 
     // RPC returns array with single row
@@ -329,7 +329,7 @@ export async function getUnsettledMovements(
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
-      throw new Error(`Failed to fetch unsettled movements: ${error.message}`);
+      throw new Error(`Error al obtener movimientos sin liquidar: ${error.message}`);
     }
 
     return data || [];
@@ -383,7 +383,7 @@ export async function registerCarrierPayment(payment: {
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error registering payment:', error);
-      throw new Error(`Failed to register payment: ${error.message}`);
+      throw new Error(`Error al registrar pago: ${error.message}`);
     }
 
     console.log(`✅ [CARRIER ACCOUNTS] Registered payment ${data} for carrier ${payment.carrierId}`);
@@ -426,7 +426,7 @@ export async function getPaymentRecords(
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error fetching payment records:', error);
-      throw new Error(`Failed to fetch payment records: ${error.message}`);
+      throw new Error(`Error al obtener registros de pago: ${error.message}`);
     }
 
     return data || [];
@@ -492,7 +492,7 @@ export async function backfillCarrierMovements(storeId?: string): Promise<{
 
     if (error) {
       console.error('❌ [CARRIER ACCOUNTS] Error in backfill:', error);
-      throw new Error(`Failed to backfill movements: ${error.message}`);
+      throw new Error(`Error al rellenar movimientos: ${error.message}`);
     }
 
     const result = Array.isArray(data) ? data[0] : data;

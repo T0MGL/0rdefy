@@ -34,7 +34,7 @@ export async function generateDeliveryQRCode(
     return qrCodeDataUrl;
   } catch (error) {
     console.error('[QR Generator] Error generating QR code:', error);
-    throw new Error('Failed to generate QR code');
+    throw new Error('Error al generar código QR');
   }
 }
 
@@ -66,7 +66,7 @@ export async function generateDeliveryQRCodeBuffer(
     return buffer;
   } catch (error) {
     console.error('[QR Generator] Error generating QR code buffer:', error);
-    throw new Error('Failed to generate QR code buffer');
+    throw new Error('Error al generar buffer de código QR');
   }
 }
 
@@ -98,6 +98,6 @@ export async function generateDeliveryQRCodeSVG(
     return svg;
   } catch (error) {
     console.error('[QR Generator] Error generating QR code SVG:', error);
-    throw new Error('Failed to generate QR code SVG');
+    throw new Error('Error al generar código QR SVG');
   }
 }

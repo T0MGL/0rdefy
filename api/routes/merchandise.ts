@@ -77,7 +77,7 @@ merchandiseRouter.get('/', async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('[GET /api/merchandise] Error:', error);
     res.status(500).json({
-      error: 'Failed to fetch shipments',
+      error: 'Error al obtener envíos',
       message: error.message
     });
   }
@@ -137,7 +137,7 @@ merchandiseRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error(`[GET /api/merchandise/${req.params.id}] Error:`, error);
     res.status(500).json({
-      error: 'Failed to fetch shipment',
+      error: 'Error al obtener envío',
       message: error.message
     });
   }
@@ -248,7 +248,7 @@ merchandiseRouter.post('/', async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('[POST /api/merchandise] Error:', error);
     res.status(500).json({
-      error: 'Failed to create shipment',
+      error: 'Error al crear envío',
       message: error.message
     });
   }
@@ -309,7 +309,7 @@ merchandiseRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error(`[PATCH /api/merchandise/${req.params.id}] Error:`, error);
     res.status(500).json({
-      error: 'Failed to update shipment',
+      error: 'Error al actualizar envío',
       message: error.message
     });
   }
@@ -506,7 +506,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
         }
       } catch (syncError: any) {
         console.error('[MERCHANDISE-RECEIVE] Error syncing to Shopify:', syncError);
-        syncWarnings.push('Failed to sync inventory to Shopify: ' + syncError.message);
+        syncWarnings.push('Error al sincronizar inventario con Shopify: ' + syncError.message);
       }
     }
 
@@ -519,7 +519,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
   } catch (error: any) {
     console.error(`[POST /api/merchandise/${req.params.id}/receive] Error:`, error);
     res.status(500).json({
-      error: 'Failed to receive shipment',
+      error: 'Error al recibir envío',
       message: error.message
     });
   }
@@ -549,7 +549,7 @@ merchandiseRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     // Don't allow deletion of received shipments (data integrity)
     if (shipment.status === 'received' || shipment.status === 'partial') {
       return res.status(400).json({
-        error: 'Cannot delete shipment that has been received',
+        error: 'No se puede eliminar un envío ya recibido',
         message: 'Received shipments cannot be deleted to maintain inventory accuracy'
       });
     }
@@ -568,7 +568,7 @@ merchandiseRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error(`[DELETE /api/merchandise/${req.params.id}] Error:`, error);
     res.status(500).json({
-      error: 'Failed to delete shipment',
+      error: 'Error al eliminar envío',
       message: error.message
     });
   }
@@ -600,7 +600,7 @@ merchandiseRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
   } catch (error: any) {
     console.error('[GET /api/merchandise/stats/summary] Error:', error);
     res.status(500).json({
-      error: 'Failed to fetch statistics',
+      error: 'Error al obtener estadísticas',
       message: error.message
     });
   }

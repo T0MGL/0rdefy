@@ -39,7 +39,7 @@ router.get('/sessions', verifyToken, async (req, res) => {
     console.error('Error fetching user sessions:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch sessions'
+      error: 'Error al obtener sesiones'
     });
   }
 });
@@ -76,7 +76,7 @@ router.delete('/sessions/:sessionId', verifyToken, async (req, res) => {
     console.error('Error terminating session:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to terminate session'
+      error: 'Error al terminar sesión'
     });
   }
 });
@@ -112,7 +112,7 @@ router.delete('/sessions', verifyToken, async (req, res) => {
     console.error('Error terminating all sessions:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to terminate sessions'
+      error: 'Error al terminar sesiones'
     });
   }
 });
@@ -146,7 +146,7 @@ router.get('/activity', verifyToken, async (req, res) => {
     console.error('Error fetching user activity:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch activity log'
+      error: 'Error al obtener registro de actividad'
     });
   }
 });
@@ -185,7 +185,7 @@ router.get('/activity/recent', verifyToken, async (req, res) => {
     console.error('Error fetching recent activity:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch recent activity'
+      error: 'Error al obtener actividad reciente'
     });
   }
 });

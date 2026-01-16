@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gtimeout 8 npm run api:start)"
+    ]
+  }
+}

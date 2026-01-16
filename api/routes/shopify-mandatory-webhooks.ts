@@ -41,7 +41,7 @@ shopifyMandatoryWebhooksRouter.post(
         // Still return 200 to Shopify
         return res.status(200).json({
           received: true,
-          error: 'Failed to delete integration',
+          error: 'Error al eliminar integración',
         });
       }
 
@@ -110,7 +110,7 @@ shopifyMandatoryWebhooksRouter.post(
           console.error('❌ Error deactivating integration:', updateError);
           return res.status(200).json({
             received: true,
-            error: 'Failed to deactivate integration',
+            error: 'Error al desactivar integración',
           });
         }
 

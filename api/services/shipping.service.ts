@@ -5,6 +5,7 @@
  */
 
 import { supabaseAdmin } from '../db/connection';
+import { generateDispatchExcel, DispatchOrder } from '../utils/excel-export';
 
 export interface Shipment {
   id: string;
@@ -101,7 +102,7 @@ export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShip
         carrier_name: order.carriers?.name || 'Sin transportadora',
         carrier_id: order.courier_id,
         total_items: Array.isArray(order.line_items)
-          ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+          ? order.line_items.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0)
           : 0,
         cod_amount: order.cod_amount || 0,
         created_at: order.created_at,
@@ -230,4 +231,97 @@ export async function getShipments(
     console.error('Error getting shipments:', error);
     throw error;
   }
+}
+
+/**
+ * Export orders as professional Excel file with Ordefy branding
+ * This is for ad-hoc exports (without creating a dispatch session)
+ */
+export async function exportOrdersExcel(
+  storeId: string,
+  orderIds: string[],
+  carrierName: string
+): Promise<Buffer> {
+  // Fetch orders with full details
+  const { data: orders, error } = await supabaseAdmin
+    .from('orders')
+    .select(`
+      id,
+      shopify_order_name,
+      shopify_order_number,
+      customer_first_name,
+      customer_last_name,
+      customer_phone,
+      customer_address,
+      customer_city,
+      payment_method,
+      financial_status,
+      total_price,
+      cod_amount,
+      carriers!courier_id (
+        id,
+        name,
+        delivery_fee
+      )
+    `)
+    .eq('store_id', storeId)
+    .in('id', orderIds);
+
+  if (error) throw error;
+
+  const dateStr = new Date().toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const sessionInfo = `Transportadora: ${carrierName} | Fecha: ${dateStr} | Pedidos: ${orders?.length || 0}`;
+
+  const dispatchOrders: DispatchOrder[] = (orders || []).map((order: any) => {
+    // Determine order number display
+    let orderNumber: string;
+    if (order.shopify_order_name) {
+      orderNumber = order.shopify_order_name;
+    } else if (order.shopify_order_number) {
+      orderNumber = `#${order.shopify_order_number}`;
+    } else {
+      orderNumber = `ORD-${order.id.slice(0, 8).toUpperCase()}`;
+    }
+
+    // Determine payment type and amount to collect
+    const paymentMethod = (order.payment_method || '').toLowerCase();
+    const financialStatus = (order.financial_status || '').toLowerCase();
+    const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+    const isCod = paymentMethod === 'cod' || paymentMethod === 'contra_entrega' ||
+                  paymentMethod === 'cash_on_delivery' || paymentMethod === 'efectivo';
+
+    let paymentType: string;
+    let amountToCollect: number;
+
+    if (isPaidOnline) {
+      paymentType = '✓ PAGADO';
+      amountToCollect = 0;
+    } else if (isCod) {
+      paymentType = 'COD';
+      amountToCollect = order.cod_amount || order.total_price || 0;
+    } else {
+      paymentType = 'PREPAGO';
+      amountToCollect = 0;
+    }
+
+    // Extract city from address if not available
+    let city = order.customer_city || '';
+    if (!city && order.customer_address) {
+      const addressParts = order.customer_address.split(',');
+      city = addressParts.length > 1 ? addressParts[addressParts.length - 1].trim() : '';
+    }
+
+    return {
+      orderNumber,
+      customerName: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+      customerPhone: order.customer_phone || '',
+      deliveryAddress: order.customer_address || '',
+      deliveryCity: city,
+      paymentType,
+      amountToCollect,
+      carrierFee: order.carriers?.delivery_fee || 0
+    };
+  });
+
+  return generateDispatchExcel(sessionInfo, dispatchOrders);
 }

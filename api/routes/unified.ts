@@ -93,7 +93,7 @@ unifiedRouter.get('/warehouse/ready', async (req: AuthRequest, res: Response) =>
     } catch (error) {
         console.error('[GET /api/unified/warehouse/ready] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch unified warehouse data',
+            error: 'Error al obtener datos unificados de bodega',
             details: error instanceof Error ? error.message : String(error),
             raw: error
         });
@@ -141,7 +141,7 @@ unifiedRouter.get('/warehouse/sessions', async (req: AuthRequest, res: Response)
     } catch (error) {
         console.error('[GET /api/unified/warehouse/sessions] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch unified sessions',
+            error: 'Error al obtener sesiones unificadas',
             details: error instanceof Error ? error.message : String(error),
             raw: error
         });
@@ -287,7 +287,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
     } catch (error) {
         console.error('[GET /api/unified/orders] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch unified orders',
+            error: 'Error al obtener pedidos unificados',
             details: error instanceof Error ? error.message : String(error),
             raw: error
         });
@@ -342,7 +342,7 @@ unifiedRouter.get('/shipping/ready', async (req: AuthRequest, res: Response) => 
     } catch (error) {
         console.error('[GET /api/unified/shipping/ready] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch unified dispatch data',
+            error: 'Error al obtener datos de despacho unificados',
             details: error instanceof Error ? error.message : String(error),
             raw: error
         });
@@ -727,7 +727,7 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
     } catch (error) {
         console.error('[GET /api/unified/analytics/overview] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch unified analytics',
+            error: 'Error al obtener analíticas unificadas',
             details: error instanceof Error ? error.message : String(error),
         });
     }
@@ -857,7 +857,7 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
     } catch (error) {
         console.error('[GET /api/unified/analytics/chart] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch unified chart data',
+            error: 'Error al obtener datos de gráficos unificados',
             details: error instanceof Error ? error.message : String(error),
         });
     }

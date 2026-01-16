@@ -89,7 +89,7 @@ additionalValuesRouter.get('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/additional-values] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch additional values',
+            error: 'Error al obtener valores adicionales',
             message: error.message
         });
     }
@@ -140,7 +140,7 @@ additionalValuesRouter.get('/summary', async (req: AuthRequest, res: Response) =
     } catch (error: any) {
         console.error('[GET /api/additional-values/summary] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch summary',
+            error: 'Error al obtener resumen',
             message: error.message
         });
     }
@@ -162,7 +162,7 @@ additionalValuesRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
         if (error || !data) {
             return res.status(404).json({
-                error: 'Additional value not found'
+                error: 'Valor adicional no encontrado'
             });
         }
 
@@ -170,7 +170,7 @@ additionalValuesRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[GET /api/additional-values/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch additional value',
+            error: 'Error al obtener valor adicional',
             message: error.message
         });
     }
@@ -192,28 +192,28 @@ additionalValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
         // Validation
         if (!category || !description || !amount || !type) {
             return res.status(400).json({
-                error: 'Validation failed',
+                error: 'Validación fallida',
                 message: 'Category, description, amount, and type are required'
             });
         }
 
         if (!['marketing', 'sales', 'employees', 'operational'].includes(category)) {
             return res.status(400).json({
-                error: 'Validation failed',
+                error: 'Validación fallida',
                 message: 'Invalid category'
             });
         }
 
         if (!['expense', 'income'].includes(type)) {
             return res.status(400).json({
-                error: 'Validation failed',
+                error: 'Validación fallida',
                 message: 'Type must be either "expense" or "income"'
             });
         }
 
         if (amount <= 0) {
             return res.status(400).json({
-                error: 'Validation failed',
+                error: 'Validación fallida',
                 message: 'Amount must be greater than 0'
             });
         }
@@ -242,7 +242,7 @@ additionalValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[POST /api/additional-values] Error:', error);
         res.status(500).json({
-            error: 'Failed to create additional value',
+            error: 'Error al crear valor adicional',
             message: error.message
         });
     }
@@ -270,7 +270,7 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (category !== undefined) {
             if (!['marketing', 'sales', 'employees', 'operational'].includes(category)) {
                 return res.status(400).json({
-                    error: 'Validation failed',
+                    error: 'Validación fallida',
                     message: 'Invalid category'
                 });
             }
@@ -282,7 +282,7 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (amount !== undefined) {
             if (amount <= 0) {
                 return res.status(400).json({
-                    error: 'Validation failed',
+                    error: 'Validación fallida',
                     message: 'Amount must be greater than 0'
                 });
             }
@@ -292,7 +292,7 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
         if (type !== undefined) {
             if (!['expense', 'income'].includes(type)) {
                 return res.status(400).json({
-                    error: 'Validation failed',
+                    error: 'Validación fallida',
                     message: 'Type must be either "expense" or "income"'
                 });
             }
@@ -311,7 +311,7 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 
         if (error || !data) {
             return res.status(404).json({
-                error: 'Additional value not found'
+                error: 'Valor adicional no encontrado'
             });
         }
 
@@ -322,7 +322,7 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[PUT /api/additional-values/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update additional value',
+            error: 'Error al actualizar valor adicional',
             message: error.message
         });
     }
@@ -345,7 +345,7 @@ additionalValuesRouter.delete('/:id', async (req: AuthRequest, res: Response) =>
 
         if (error || !data) {
             return res.status(404).json({
-                error: 'Additional value not found'
+                error: 'Valor adicional no encontrado'
             });
         }
 
@@ -356,7 +356,7 @@ additionalValuesRouter.delete('/:id', async (req: AuthRequest, res: Response) =>
     } catch (error: any) {
         console.error(`[DELETE /api/additional-values/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to delete additional value',
+            error: 'Error al eliminar valor adicional',
             message: error.message
         });
     }

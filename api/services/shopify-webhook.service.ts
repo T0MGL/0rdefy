@@ -5,6 +5,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import crypto from 'crypto';
 import { ShopifyOrder } from '../types/shopify';
+import { logger } from '../utils/logger';
 
 export class ShopifyWebhookService {
   private supabaseAdmin: SupabaseClient;
@@ -13,6 +14,62 @@ export class ShopifyWebhookService {
   constructor(supabase: SupabaseClient) {
     this.supabaseAdmin = supabase;
     this.n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || '';
+  }
+
+  /**
+   * Retry helper with exponential backoff + jitter for Shopify GraphQL API calls
+   * - Retries on: 5xx errors, 429 (rate limit), timeouts, network errors
+   * - Does NOT retry on: 4xx client errors (except 429)
+   * - Max delay capped at 10s to avoid excessive waits
+   * - Jitter added to prevent thundering herd problem
+   */
+  private async fetchWithRetry<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+    baseDelay: number = 1000,
+    context: string = 'GraphQL'
+  ): Promise<T> {
+    const MAX_DELAY = 10000; // Cap delay at 10 seconds
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        const isLastAttempt = attempt === maxRetries - 1;
+
+        // Determine if error is retryable
+        const statusCode = error.response?.status;
+        const isTimeout = error.code === 'ECONNABORTED' || error.name === 'AbortError';
+        const isNetworkError = error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET';
+        const isServerError = statusCode >= 500;
+        const isRateLimited = statusCode === 429;
+
+        const isRetryable = isTimeout || isNetworkError || isServerError || isRateLimited;
+
+        // Log the error with context
+        const errorType = isTimeout ? 'TIMEOUT' : isNetworkError ? 'NETWORK' : isRateLimited ? 'RATE_LIMIT' : `HTTP_${statusCode || 'UNKNOWN'}`;
+
+        if (isLastAttempt || !isRetryable) {
+          if (!isRetryable) {
+            logger.error('SHOPIFY_WEBHOOK', `[${context}] Non-retryable error (${errorType}): ${error.message}`);
+          } else {
+            logger.error('SHOPIFY_WEBHOOK', `[${context}] Max retries (${maxRetries}) exceeded. Last error (${errorType}): ${error.message}`);
+          }
+          throw error;
+        }
+
+        // Calculate delay with exponential backoff + jitter (±25%)
+        const exponentialDelay = baseDelay * Math.pow(2, attempt);
+        const jitter = exponentialDelay * (0.75 + Math.random() * 0.5); // 75% to 125% of base
+        const delay = Math.min(jitter, MAX_DELAY);
+
+        logger.warn('SHOPIFY_WEBHOOK', `[${context}] Retry ${attempt + 1}/${maxRetries} after ${Math.round(delay)}ms (${errorType})`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+
+    // This should never be reached due to throw in loop, but TypeScript needs it
+    throw new Error(`[${context}] Max retries exceeded`);
   }
 
   // Extract customer data from order addresses (fallback when customer object is not accessible)
@@ -32,7 +89,7 @@ export class ShopifyWebhookService {
     const lastName = billingAddress?.last_name || billingAddress?.lastName ||
                      shippingAddress?.last_name || shippingAddress?.lastName || '';
 
-    console.log(`ℹ️  [FALLBACK] Extracting customer info from order addresses (customer object not available)`);
+    logger.info('SHOPIFY_WEBHOOK', '[FALLBACK] Extracting customer info from order addresses (customer object not available)');
 
     return {
       id: order.customer?.id || null,
@@ -78,29 +135,42 @@ export class ShopifyWebhookService {
         }
       `;
 
-      // Timeout control (10 seconds)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      // Use retry with exponential backoff for resilience
+      const response = await this.fetchWithRetry(
+        async () => {
+          // Timeout control (10 seconds)
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const response = await axios.post(
-        `https://${shopDomain}/admin/api/2025-10/graphql.json`,
-        {
-          query,
-          variables: {
-            id: `gid://shopify/Customer/${customerId}`
+          try {
+            const res = await axios.post(
+              `https://${shopDomain}/admin/api/2025-10/graphql.json`,
+              {
+                query,
+                variables: {
+                  id: `gid://shopify/Customer/${customerId}`
+                }
+              },
+              {
+                headers: {
+                  'X-Shopify-Access-Token': accessToken,
+                  'Content-Type': 'application/json'
+                },
+                signal: controller.signal,
+                timeout: 10000
+              }
+            );
+            clearTimeout(timeoutId);
+            return res;
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
           }
         },
-        {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal,
-          timeout: 10000
-        }
+        3,    // maxRetries
+        1000, // baseDelay
+        `Shopify Customer ${customerId}` // context for logging
       );
-
-      clearTimeout(timeoutId);
 
       if (response.data?.errors) {
         const errors = response.data.errors;
@@ -110,10 +180,10 @@ export class ShopifyWebhookService {
         );
 
         if (hasAccessDenied) {
-          console.warn(`⚠️  Customer API access denied for shop ${shopDomain}. Using webhook data only.`);
-          console.warn(`   This is expected for Basic/Trial Shopify plans or apps without customer:read scope.`);
+          logger.warn('SHOPIFY_WEBHOOK', `Customer API access denied for shop ${shopDomain}. Using webhook data only.`);
+          logger.warn('SHOPIFY_WEBHOOK', 'This is expected for Basic/Trial Shopify plans or apps without customer:read scope.');
         } else {
-          console.error(`❌ GraphQL errors fetching customer ${customerId}:`, errors);
+          logger.error('SHOPIFY_WEBHOOK', `GraphQL errors fetching customer ${customerId}`, errors);
         }
         return null;
       }
@@ -147,9 +217,9 @@ export class ShopifyWebhookService {
       };
     } catch (error: any) {
       if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
-        console.error(`⏱️  Timeout fetching customer ${customerId} from Shopify GraphQL (10s limit)`);
+        logger.error('SHOPIFY_WEBHOOK', `Timeout fetching customer ${customerId} from Shopify GraphQL (10s limit)`);
       } else {
-        console.error(`Failed to fetch customer ${customerId} from Shopify GraphQL:`, error.message);
+        logger.error('SHOPIFY_WEBHOOK', `Error al obtener cliente ${customerId} from Shopify GraphQL`, { error: error.message });
       }
       return null;
     }
@@ -163,7 +233,7 @@ export class ShopifyWebhookService {
     accessToken: string
   ): Promise<ShopifyOrder | null> {
     try {
-      console.log(`📥 Fetching complete order ${orderId} from Shopify GraphQL API (webhook data incomplete)`);
+      logger.info('SHOPIFY_WEBHOOK', `Fetching complete order ${orderId} from Shopify GraphQL API (webhook data incomplete)`);
 
       const query = `
         query GetOrder($id: ID!) {
@@ -318,38 +388,51 @@ export class ShopifyWebhookService {
         }
       `;
 
-      // Timeout control (10 seconds)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      // Use retry with exponential backoff for resilience
+      const response = await this.fetchWithRetry(
+        async () => {
+          // Timeout control (10 seconds)
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const response = await axios.post(
-        `https://${shopDomain}/admin/api/2025-10/graphql.json`,
-        {
-          query,
-          variables: {
-            id: `gid://shopify/Order/${orderId}`
+          try {
+            const res = await axios.post(
+              `https://${shopDomain}/admin/api/2025-10/graphql.json`,
+              {
+                query,
+                variables: {
+                  id: `gid://shopify/Order/${orderId}`
+                }
+              },
+              {
+                headers: {
+                  'X-Shopify-Access-Token': accessToken,
+                  'Content-Type': 'application/json'
+                },
+                signal: controller.signal,
+                timeout: 10000
+              }
+            );
+            clearTimeout(timeoutId);
+            return res;
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
           }
         },
-        {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal,
-          timeout: 10000
-        }
+        3,    // maxRetries
+        1000, // baseDelay
+        `Shopify Order ${orderId}` // context for logging
       );
 
-      clearTimeout(timeoutId);
-
       if (response.data?.errors) {
-        console.error(`❌ GraphQL errors fetching order ${orderId}:`, response.data.errors);
+        logger.error('SHOPIFY_WEBHOOK', `GraphQL errors fetching order ${orderId}`, response.data.errors);
         return null;
       }
 
       const order = response.data?.data?.order;
       if (!order) {
-        console.error(`❌ Order ${orderId} not found in GraphQL API response`);
+        logger.error('SHOPIFY_WEBHOOK', `Order ${orderId} not found in GraphQL API response`);
         return null;
       }
 
@@ -459,14 +542,14 @@ export class ShopifyWebhookService {
         gateway: order.transactions[0]?.gateway || 'unknown'
       };
 
-      console.log(`✅ Fetched complete order ${orderId} from GraphQL API with protected PII data`);
+      logger.info('SHOPIFY_WEBHOOK', `Fetched complete order ${orderId} from GraphQL API with protected PII data`);
       return transformedOrder;
 
     } catch (error: any) {
       if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
-        console.error(`⏱️  Timeout fetching order ${orderId} from Shopify GraphQL (10s limit)`);
+        logger.error('SHOPIFY_WEBHOOK', `Timeout fetching order ${orderId} from Shopify GraphQL (10s limit)`);
       } else {
-        console.error(`Failed to fetch order ${orderId} from Shopify GraphQL:`, error.message);
+        logger.error('SHOPIFY_WEBHOOK', `Error al obtener pedido ${orderId} from Shopify GraphQL`, { error: error.message });
       }
       return null;
     }
@@ -478,7 +561,7 @@ export class ShopifyWebhookService {
     try {
       // Validate that secret exists and is not empty
       if (!secret || secret.trim() === '') {
-        console.error('Error verificando HMAC: secret is null or empty');
+        logger.error('SHOPIFY_WEBHOOK', 'Error verificando HMAC: secret is null or empty');
         return false;
       }
 
@@ -494,32 +577,28 @@ export class ShopifyWebhookService {
         .update(body, 'utf8')
         .digest('hex');
 
-      console.log(`🔍 [HMAC DEBUG] Body type: ${typeof body}, length: ${body.length}`);
-      console.log(`🔍 [HMAC DEBUG] Secret prefix: ${secret.substring(0, 15)}...`);
-      console.log(`🔍 [HMAC DEBUG] Full Expected base64: ${hashBase64}`);
-      console.log(`🔍 [HMAC DEBUG] Full Received HMAC:   ${hmacHeader}`);
-      console.log(`🔍 [HMAC DEBUG] Strings match: ${hmacHeader === hashBase64}`);
+      // Debug logs removed for production security - secrets should never be logged
 
       // Try base64 format first (OAuth Apps)
       if (hmacHeader === hashBase64) {
-        console.log('✅ HMAC verified (base64 format - OAuth App)');
+        logger.info('SHOPIFY_WEBHOOK', 'HMAC verified (base64 format - OAuth App)');
         return true;
       }
 
       // Try hex format (Custom Apps)
       if (hmacHeader === hashHex) {
-        console.log('✅ HMAC verified (hex format - Custom App)');
+        logger.info('SHOPIFY_WEBHOOK', 'HMAC verified (hex format - Custom App)');
         return true;
       }
 
-      console.error('❌ HMAC verification failed - neither base64 nor hex format matched');
-      console.error(`   Expected base64: ${hashBase64}`);
-      console.error(`   Expected hex: ${hashHex.substring(0, 64)}`);
-      console.error(`   Received HMAC: ${hmacHeader}`);
+      logger.error('SHOPIFY_WEBHOOK', 'HMAC verification failed - neither base64 nor hex format matched');
+      logger.error('SHOPIFY_WEBHOOK', `Expected base64: ${hashBase64}`);
+      logger.error('SHOPIFY_WEBHOOK', `Expected hex: ${hashHex.substring(0, 64)}`);
+      logger.error('SHOPIFY_WEBHOOK', `Received HMAC: ${hmacHeader}`);
       return false;
 
     } catch (error) {
-      console.error('Error verificando HMAC:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error verificando HMAC', error);
       return false;
     }
   }
@@ -551,7 +630,7 @@ export class ShopifyWebhookService {
         .single();
 
       if (existingOrder) {
-        console.log(`Pedido ${shopifyOrder.id} ya existe, omitiendo`);
+        logger.info('SHOPIFY_WEBHOOK', `Pedido ${shopifyOrder.id} ya existe, omitiendo`);
         return { success: true, order_id: existingOrder.id };
       }
 
@@ -563,13 +642,14 @@ export class ShopifyWebhookService {
       );
 
       // DEBUG: Log what data we have in the webhook
-      console.log(`📋 [WEBHOOK DATA] Order ${shopifyOrder.id}:`);
-      console.log(`   - email: ${shopifyOrder.email ? '✅' : '❌'}`);
-      console.log(`   - phone: ${shopifyOrder.phone ? '✅' : '❌'}`);
-      console.log(`   - customer: ${shopifyOrder.customer ? '✅' : '❌'}`);
-      console.log(`   - billing_address: ${shopifyOrder.billing_address ? '✅' : '❌'}`);
-      console.log(`   - shipping_address: ${shopifyOrder.shipping_address ? '✅' : '❌'}`);
-      console.log(`   - hasCompleteData: ${hasCompleteData}`);
+      logger.info('SHOPIFY_WEBHOOK', `[WEBHOOK DATA] Order ${shopifyOrder.id}`, {
+        email: !!shopifyOrder.email,
+        phone: !!shopifyOrder.phone,
+        customer: !!shopifyOrder.customer,
+        billing_address: !!shopifyOrder.billing_address,
+        shipping_address: !!shopifyOrder.shipping_address,
+        hasCompleteData
+      });
 
       let enrichedOrder = shopifyOrder;
 
@@ -578,7 +658,7 @@ export class ShopifyWebhookService {
       const isCustomApp = integration && (integration.api_key || integration.api_secret_key);
 
       if (!hasCompleteData && integration && !isCustomApp) {
-        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
+        logger.warn('SHOPIFY_WEBHOOK', `Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
 
         const completeOrder = await this.fetchCompleteOrderDataGraphQL(
           shopifyOrder.id.toString(),
@@ -587,13 +667,13 @@ export class ShopifyWebhookService {
         );
 
         if (completeOrder) {
-          console.log(`✅ Using complete order data from GraphQL API (includes protected PII on Basic plans)`);
+          logger.info('SHOPIFY_WEBHOOK', 'Using complete order data from GraphQL API (includes protected PII on Basic plans)');
           enrichedOrder = completeOrder;
         } else {
-          console.warn(`⚠️  Could not fetch complete order from GraphQL API. Using webhook data.`);
+          logger.warn('SHOPIFY_WEBHOOK', 'Could not fetch complete order from GraphQL API. Using webhook data.');
         }
       } else if (!hasCompleteData && isCustomApp) {
-        console.log(`ℹ️  [CUSTOM APP] Skipping GraphQL query (Basic plan detected). Using webhook data with addresses.`);
+        logger.info('SHOPIFY_WEBHOOK', '[CUSTOM APP] Skipping GraphQL query (Basic plan detected). Using webhook data with addresses.');
       }
 
       // Enrich customer data from Shopify Customer API if available
@@ -605,7 +685,7 @@ export class ShopifyWebhookService {
         );
 
         if (fullCustomer) {
-          console.log(`✅ Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
+          logger.info('SHOPIFY_WEBHOOK', `Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
           // Merge full customer data into order
           enrichedOrder = {
             ...enrichedOrder,
@@ -654,7 +734,7 @@ export class ShopifyWebhookService {
       return { success: true, order_id: newOrder.id };
 
     } catch (error: any) {
-      console.error('Error procesando webhook de pedido:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error procesando webhook de pedido', error);
 
       // Registrar error en el evento de webhook
       await this.logWebhookError(
@@ -705,8 +785,8 @@ export class ShopifyWebhookService {
 
       // Log warning if duplicates were found (should not happen with unique constraint)
       if (products && products.length > 1) {
-        console.warn(`⚠️ Found ${products.length} duplicate products with shopify_product_id=${shopifyProduct.id} for store_id=${storeId}`);
-        console.warn(`   Using most recent product (created_at=${existingProduct?.created_at})`);
+        logger.warn('SHOPIFY_WEBHOOK', `Found ${products.length} duplicate products with shopify_product_id=${shopifyProduct.id} for store_id=${storeId}`);
+        logger.warn('SHOPIFY_WEBHOOK', `Using most recent product (created_at=${existingProduct?.created_at})`);
       }
 
       // Preparar datos del producto actualizados
@@ -737,7 +817,7 @@ export class ShopifyWebhookService {
           throw new Error(`Error actualizando producto: ${updateError.message}`);
         }
 
-        console.log(`Producto ${shopifyProduct.id} actualizado en el dashboard por webhook de Shopify`);
+        logger.info('SHOPIFY_WEBHOOK', `Producto ${shopifyProduct.id} actualizado en el dashboard por webhook de Shopify`);
       } else {
         // Crear nuevo producto si no existe (puede ocurrir si el producto se creó en Shopify)
         const { error: insertError } = await this.supabaseAdmin
@@ -752,7 +832,7 @@ export class ShopifyWebhookService {
           throw new Error(`Error creando producto: ${insertError.message}`);
         }
 
-        console.log(`Producto ${shopifyProduct.id} creado en el dashboard por webhook de Shopify`);
+        logger.info('SHOPIFY_WEBHOOK', `Producto ${shopifyProduct.id} creado en el dashboard por webhook de Shopify`);
       }
 
       // Marcar webhook como procesado
@@ -761,7 +841,7 @@ export class ShopifyWebhookService {
       return { success: true };
 
     } catch (error: any) {
-      console.error('Error procesando actualización de producto:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error procesando actualización de producto', error);
 
       await this.logWebhookError(
         shopifyProduct.id.toString(),
@@ -807,12 +887,12 @@ export class ShopifyWebhookService {
       // Marcar webhook como procesado
       await this.markWebhookProcessed(productId.toString(), storeId);
 
-      console.log(`Producto ${productId} eliminado del dashboard por webhook de Shopify`);
+      logger.info('SHOPIFY_WEBHOOK', `Producto ${productId} eliminado del dashboard por webhook de Shopify`);
 
       return { success: true };
 
     } catch (error: any) {
-      console.error('Error procesando eliminación de producto:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error procesando eliminación de producto', error);
 
       await this.logWebhookError(
         productId.toString(),
@@ -853,13 +933,14 @@ export class ShopifyWebhookService {
       );
 
       // DEBUG: Log what data we have in the webhook
-      console.log(`📋 [WEBHOOK DATA] Order ${shopifyOrder.id}:`);
-      console.log(`   - email: ${shopifyOrder.email ? '✅' : '❌'}`);
-      console.log(`   - phone: ${shopifyOrder.phone ? '✅' : '❌'}`);
-      console.log(`   - customer: ${shopifyOrder.customer ? '✅' : '❌'}`);
-      console.log(`   - billing_address: ${shopifyOrder.billing_address ? '✅' : '❌'}`);
-      console.log(`   - shipping_address: ${shopifyOrder.shipping_address ? '✅' : '❌'}`);
-      console.log(`   - hasCompleteData: ${hasCompleteData}`);
+      logger.info('SHOPIFY_WEBHOOK', `[WEBHOOK DATA] Order ${shopifyOrder.id}`, {
+        email: !!shopifyOrder.email,
+        phone: !!shopifyOrder.phone,
+        customer: !!shopifyOrder.customer,
+        billing_address: !!shopifyOrder.billing_address,
+        shipping_address: !!shopifyOrder.shipping_address,
+        hasCompleteData
+      });
 
       let enrichedOrder = shopifyOrder;
 
@@ -868,7 +949,7 @@ export class ShopifyWebhookService {
       const isCustomApp = integration && (integration.api_key || integration.api_secret_key);
 
       if (!hasCompleteData && integration && !isCustomApp) {
-        console.warn(`⚠️  Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
+        logger.warn('SHOPIFY_WEBHOOK', `Webhook data incomplete for order ${shopifyOrder.id}. Fetching complete order from Shopify GraphQL API...`);
 
         const completeOrder = await this.fetchCompleteOrderDataGraphQL(
           shopifyOrder.id.toString(),
@@ -877,13 +958,13 @@ export class ShopifyWebhookService {
         );
 
         if (completeOrder) {
-          console.log(`✅ Using complete order data from GraphQL API (includes protected PII on Basic plans)`);
+          logger.info('SHOPIFY_WEBHOOK', 'Using complete order data from GraphQL API (includes protected PII on Basic plans)');
           enrichedOrder = completeOrder;
         } else {
-          console.warn(`⚠️  Could not fetch complete order from GraphQL API. Using webhook data.`);
+          logger.warn('SHOPIFY_WEBHOOK', 'Could not fetch complete order from GraphQL API. Using webhook data.');
         }
       } else if (!hasCompleteData && isCustomApp) {
-        console.log(`ℹ️  [CUSTOM APP] Skipping GraphQL query (Basic plan detected). Using webhook data with addresses.`);
+        logger.info('SHOPIFY_WEBHOOK', '[CUSTOM APP] Skipping GraphQL query (Basic plan detected). Using webhook data with addresses.');
       }
 
       // Enrich customer data from Shopify Customer API if available
@@ -895,7 +976,7 @@ export class ShopifyWebhookService {
         );
 
         if (fullCustomer) {
-          console.log(`✅ Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
+          logger.info('SHOPIFY_WEBHOOK', `Enriched customer data from Shopify API: ${fullCustomer.email || fullCustomer.phone}`);
           // Merge full customer data into order
           enrichedOrder = {
             ...enrichedOrder,
@@ -952,7 +1033,7 @@ export class ShopifyWebhookService {
       return { success: true };
 
     } catch (error: any) {
-      console.error('Error procesando actualización de pedido:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error procesando actualización de pedido', error);
 
       await this.logWebhookError(
         shopifyOrder.id.toString(),
@@ -968,6 +1049,7 @@ export class ShopifyWebhookService {
   }
 
   // Crear line items normalizados para un pedido
+  // OPTIMIZED: Batch fetches products in 1 query instead of 3 queries per item
   private async createLineItemsForOrder(
     orderId: string,
     storeId: string,
@@ -980,66 +1062,101 @@ export class ShopifyWebhookService {
         .delete()
         .eq('order_id', orderId);
 
-      // Process each line item
-      for (const item of lineItems) {
-        // Extract Shopify IDs
+      if (lineItems.length === 0) {
+        logger.info('SHOPIFY_WEBHOOK', `No line items to create for order ${orderId}`);
+        return;
+      }
+
+      // Extract unique IDs from all line items for batch query
+      const variantIds = [...new Set(
+        lineItems
+          .map(i => i.variant_id?.toString())
+          .filter((id): id is string => !!id)
+      )];
+      const productIds = [...new Set(
+        lineItems
+          .map(i => i.product_id?.toString())
+          .filter((id): id is string => !!id)
+      )];
+      const skus = [...new Set(
+        lineItems
+          .map(i => i.sku?.toUpperCase())
+          .filter((sku): sku is string => !!sku)
+      )];
+
+      // Build OR conditions for batch query
+      const orConditions: string[] = [];
+      if (variantIds.length > 0) {
+        orConditions.push(`shopify_variant_id.in.(${variantIds.join(',')})`);
+      }
+      if (productIds.length > 0) {
+        orConditions.push(`shopify_product_id.in.(${productIds.join(',')})`);
+      }
+      if (skus.length > 0) {
+        // SKUs need to be quoted for the query
+        const quotedSkus = skus.map(sku => `"${sku.replace(/"/g, '\\"')}"`).join(',');
+        orConditions.push(`sku.in.(${quotedSkus})`);
+      }
+
+      // Batch fetch all potentially matching products in ONE query
+      let products: Array<{ id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null }> = [];
+
+      if (orConditions.length > 0) {
+        const { data, error } = await this.supabaseAdmin
+          .from('products')
+          .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+          .eq('store_id', storeId)
+          .or(orConditions.join(','));
+
+        if (error) {
+          logger.error('SHOPIFY_WEBHOOK', 'Error batch fetching products', error);
+        } else {
+          products = data || [];
+        }
+      }
+
+      // Build Maps for O(1) lookup (priority: variant > product > SKU)
+      const byVariant = new Map<string, { id: string; image_url: string | null }>();
+      const byProduct = new Map<string, { id: string; image_url: string | null }>();
+      const bySku = new Map<string, { id: string; image_url: string | null }>();
+
+      for (const p of products) {
+        if (p.shopify_variant_id) {
+          byVariant.set(p.shopify_variant_id, { id: p.id, image_url: p.image_url });
+        }
+        if (p.shopify_product_id) {
+          byProduct.set(p.shopify_product_id, { id: p.id, image_url: p.image_url });
+        }
+        if (p.sku) {
+          bySku.set(p.sku.toUpperCase(), { id: p.id, image_url: p.image_url });
+        }
+      }
+
+      // Build all line items for batch insert
+      const lineItemsToInsert = lineItems.map(item => {
         const shopifyProductId = item.product_id?.toString() || null;
         const shopifyVariantId = item.variant_id?.toString() || null;
         const shopifyLineItemId = item.id?.toString() || null;
         const sku = item.sku || '';
 
-        // Try to find matching local product and get its image_url
+        // Find matching product using Maps (O(1) lookup with fallback chain)
         let productId: string | null = null;
         let imageUrl: string | null = null;
 
-        // First try by variant ID (most specific)
-        if (shopifyVariantId) {
-          const { data: productByVariant } = await this.supabaseAdmin
-            .from('products')
-            .select('id, image_url')
-            .eq('store_id', storeId)
-            .eq('shopify_variant_id', shopifyVariantId)
-            .maybeSingle();
+        // Priority: variant_id > product_id > SKU
+        const matchByVariant = shopifyVariantId ? byVariant.get(shopifyVariantId) : null;
+        const matchByProduct = shopifyProductId ? byProduct.get(shopifyProductId) : null;
+        const matchBySku = sku ? bySku.get(sku.toUpperCase()) : null;
 
-          if (productByVariant) {
-            productId = productByVariant.id;
-            imageUrl = productByVariant.image_url;
-          }
-        }
-
-        // If not found, try by product ID
-        if (!productId && shopifyProductId) {
-          const { data: productByProductId } = await this.supabaseAdmin
-            .from('products')
-            .select('id, image_url')
-            .eq('store_id', storeId)
-            .eq('shopify_product_id', shopifyProductId)
-            .maybeSingle();
-
-          if (productByProductId) {
-            productId = productByProductId.id;
-            imageUrl = productByProductId.image_url;
-          }
-        }
-
-        // If still not found, try by SKU
-        if (!productId && sku) {
-          const { data: productBySku } = await this.supabaseAdmin
-            .from('products')
-            .select('id, image_url')
-            .eq('store_id', storeId)
-            .eq('sku', sku)
-            .maybeSingle();
-
-          if (productBySku) {
-            productId = productBySku.id;
-            imageUrl = productBySku.image_url;
-          }
+        const match = matchByVariant || matchByProduct || matchBySku;
+        if (match) {
+          productId = match.id;
+          imageUrl = match.image_url;
         }
 
         // Log if product not found
         if (!productId && shopifyProductId) {
-          console.warn(
+          logger.warn('SHOPIFY_WEBHOOK',
             `⚠️  Product not found for line item: ` +
             `Shopify Product ID ${shopifyProductId}, Variant ID ${shopifyVariantId}, SKU "${sku}". ` +
             `Consider importing products from Shopify first.`
@@ -1055,38 +1172,40 @@ export class ShopifyWebhookService {
           ? parseFloat(item.tax_lines[0].price) || 0
           : 0;
 
-        // Insert line item with image_url from local product
-        const { error: insertError } = await this.supabaseAdmin
-          .from('order_line_items')
-          .insert({
-            order_id: orderId,
-            product_id: productId,
-            shopify_product_id: shopifyProductId,
-            shopify_variant_id: shopifyVariantId,
-            shopify_line_item_id: shopifyLineItemId,
-            product_name: item.name || item.title || 'Unknown Product',
-            variant_title: item.variant_title || null,
-            sku: sku,
-            quantity: quantity,
-            unit_price: unitPrice,
-            total_price: totalPrice,
-            discount_amount: discountAmount,
-            tax_amount: taxAmount,
-            properties: item.properties || null,
-            shopify_data: item,
-            image_url: imageUrl  // Snapshot of product image at order time
-          });
+        return {
+          order_id: orderId,
+          product_id: productId,
+          shopify_product_id: shopifyProductId,
+          shopify_variant_id: shopifyVariantId,
+          shopify_line_item_id: shopifyLineItemId,
+          product_name: item.name || item.title || 'Unknown Product',
+          variant_title: item.variant_title || null,
+          sku: sku,
+          quantity: quantity,
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          discount_amount: discountAmount,
+          tax_amount: taxAmount,
+          properties: item.properties || null,
+          shopify_data: item,
+          image_url: imageUrl
+        };
+      });
 
-        if (insertError) {
-          console.error(`Error inserting line item:`, insertError);
-          throw new Error(`Failed to insert line item: ${insertError.message}`);
-        }
+      // Batch insert all line items in ONE query
+      const { error: insertError } = await this.supabaseAdmin
+        .from('order_line_items')
+        .insert(lineItemsToInsert);
+
+      if (insertError) {
+        logger.error('SHOPIFY_WEBHOOK', 'Error batch inserting line items', insertError);
+        throw new Error(`Error al insertar líneas de pedido: ${insertError.message}`);
       }
 
-      console.log(`✅ Created ${lineItems.length} normalized line items for order ${orderId}`);
+      logger.info('SHOPIFY_WEBHOOK', `Created ${lineItems.length} normalized line items for order ${orderId} (optimized batch)`);
 
     } catch (error: any) {
-      console.error('Error creating line items for order:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error creating line items for order', error);
       throw error;
     }
   }
@@ -1157,7 +1276,7 @@ export class ShopifyWebhookService {
       const shopifyCustomerId = shopifyOrder.customer?.id?.toString() || null;
 
       // Log para debugging
-      console.log(`🔍 [CUSTOMER DATA] Order ${shopifyOrder.id}:`, {
+      logger.info('SHOPIFY_WEBHOOK', `[CUSTOMER DATA] Order ${shopifyOrder.id}`, {
         phone: phone || 'NONE',
         email: email || 'NONE',
         firstName: firstName || 'NONE',
@@ -1176,102 +1295,41 @@ export class ShopifyWebhookService {
 
       // Si no hay teléfono ni email, no podemos crear/buscar el cliente
       if (!phone && !email) {
-        console.warn(`⚠️  Pedido ${shopifyOrder.id} no tiene teléfono ni email. Revisar configuración de checkout de Shopify.`);
-        console.warn(`   Sugerencia: Settings → Checkout → Require email/phone y shipping address`);
+        logger.warn('SHOPIFY_WEBHOOK',`⚠️  Pedido ${shopifyOrder.id} no tiene teléfono ni email. Revisar configuración de checkout de Shopify.`);
+        logger.warn('SHOPIFY_WEBHOOK',`   Sugerencia: Settings → Checkout → Require email/phone y shipping address`);
         return null;
       }
 
-      // Buscar cliente existente por teléfono (prioridad) o email
-      let existingCustomer = null;
-
-      if (phone) {
-        const { data } = await this.supabaseAdmin
-          .from('customers')
-          .select('*')
-          .eq('store_id', storeId)
-          .eq('phone', phone)
-          .maybeSingle();
-
-        existingCustomer = data;
-      }
-
-      // Si no se encontró por teléfono, buscar por email
-      if (!existingCustomer && email) {
-        const { data } = await this.supabaseAdmin
-          .from('customers')
-          .select('*')
-          .eq('store_id', storeId)
-          .eq('email', email)
-          .maybeSingle();
-
-        existingCustomer = data;
-      }
-
-      if (existingCustomer) {
-        console.log(`Cliente encontrado: ${existingCustomer.id} (${phone || email})`);
-
-        // Actualizar información del cliente si ha cambiado
-        const updateData: any = {};
-        if (shopifyCustomerId && existingCustomer.shopify_customer_id !== shopifyCustomerId) {
-          updateData.shopify_customer_id = shopifyCustomerId;
+      // Usar RPC atómico para prevenir race conditions con webhooks concurrentes
+      // El RPC usa advisory lock + FOR UPDATE para garantizar atomicidad
+      const { data: customerId, error: rpcError } = await this.supabaseAdmin.rpc(
+        'upsert_customer_atomic',
+        {
+          p_store_id: storeId,
+          p_phone: phone || null,
+          p_email: email || null,
+          p_first_name: firstName || null,
+          p_last_name: lastName || null,
+          p_shopify_customer_id: shopifyCustomerId,
+          p_accepts_marketing: shopifyOrder.customer?.accepts_marketing || false
         }
-        if (firstName && existingCustomer.first_name !== firstName) {
-          updateData.first_name = firstName;
-        }
-        if (lastName && existingCustomer.last_name !== lastName) {
-          updateData.last_name = lastName;
-        }
-        if (phone && existingCustomer.phone !== phone) {
-          updateData.phone = phone;
-        }
-        if (email && existingCustomer.email !== email) {
-          updateData.email = email;
-        }
+      );
 
-        if (Object.keys(updateData).length > 0) {
-          updateData.updated_at = new Date().toISOString();
-          await this.supabaseAdmin
-            .from('customers')
-            .update(updateData)
-            .eq('id', existingCustomer.id);
-
-          console.log(`Cliente ${existingCustomer.id} actualizado con nueva información`);
-        }
-
-        return existingCustomer.id;
-      }
-
-      // Cliente no existe, crear uno nuevo
-      const newCustomerData = {
-        store_id: storeId,
-        shopify_customer_id: shopifyCustomerId,
-        email: email || null,
-        phone: phone || null,
-        first_name: firstName || null,
-        last_name: lastName || null,
-        total_orders: 0, // Se actualizará con el trigger
-        total_spent: 0, // Se actualizará con el trigger
-        accepts_marketing: shopifyOrder.customer?.accepts_marketing || false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      const { data: newCustomer, error: insertError } = await this.supabaseAdmin
-        .from('customers')
-        .insert(newCustomerData)
-        .select('id')
-        .single();
-
-      if (insertError) {
-        console.error('Error creando cliente:', insertError);
+      if (rpcError) {
+        logger.error('SHOPIFY_WEBHOOK', 'Error en upsert_customer_atomic', rpcError);
         return null;
       }
 
-      console.log(`✅ Nuevo cliente creado: ${newCustomer.id} (${phone || email})`);
-      return newCustomer.id;
+      if (!customerId) {
+        logger.error('SHOPIFY_WEBHOOK', 'upsert_customer_atomic retornó null');
+        return null;
+      }
+
+      logger.info('SHOPIFY_WEBHOOK', `Cliente procesado atómicamente: ${customerId} (${phone || email})`);
+      return customerId;
 
     } catch (error: any) {
-      console.error('Error en findOrCreateCustomer:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error en findOrCreateCustomer', error);
       return null;
     }
   }
@@ -1315,7 +1373,7 @@ export class ShopifyWebhookService {
     // cod_amount = 0 if already paid online, otherwise full total_price
     const codAmount = isPaidOnline ? 0 : totalPrice;
 
-    console.log(`💰 [SHOPIFY] Order ${shopifyOrder.id} payment mapping:`, {
+    logger.info('SHOPIFY_WEBHOOK', `Order ${shopifyOrder.id} payment mapping`, {
       financialStatus,
       paymentGateway,
       isPaidOnline,
@@ -1376,7 +1434,6 @@ export class ShopifyWebhookService {
       // Metadata
       order_status_url: shopifyOrder.order_status_url,
       tags: shopifyOrder.tags,
-      delivery_notes: shopifyOrder.note || '',
       created_at: shopifyOrder.created_at,
       updated_at: shopifyOrder.updated_at || shopifyOrder.created_at,
       processed_at: shopifyOrder.processed_at || shopifyOrder.created_at,
@@ -1419,7 +1476,7 @@ export class ShopifyWebhookService {
     storeId: string
   ): Promise<void> {
     if (!this.n8nWebhookUrl) {
-      console.warn('URL de webhook de n8n no configurada, omitiendo envío');
+      logger.warn('SHOPIFY_WEBHOOK','URL de webhook de n8n no configurada, omitiendo envío');
       return;
     }
 
@@ -1478,7 +1535,7 @@ export class ShopifyWebhookService {
         timeout: 30000
       });
 
-      console.log(`Pedido ${orderId} enviado a n8n exitosamente:`, response.status);
+      logger.info('SHOPIFY_WEBHOOK', `Pedido ${orderId} enviado a n8n exitosamente`, { status: response.status });
 
       // Registrar envío exitoso
       await this.supabaseAdmin
@@ -1490,7 +1547,7 @@ export class ShopifyWebhookService {
         .eq('id', orderId);
 
     } catch (error: any) {
-      console.error('Error enviando pedido a n8n:', error);
+      logger.error('SHOPIFY_WEBHOOK', 'Error enviando pedido a n8n', error);
 
       // Registrar error pero no fallar el proceso principal
       await this.supabaseAdmin
@@ -1578,7 +1635,7 @@ export class ShopifyWebhookService {
       return;
     }
 
-    console.log(`Reintentando ${failedEvents.length} webhooks fallidos`);
+    logger.info('SHOPIFY_WEBHOOK', `Reintentando ${failedEvents.length} webhooks fallidos`);
 
     for (const event of failedEvents) {
       try {
@@ -1596,7 +1653,7 @@ export class ShopifyWebhookService {
           );
         }
       } catch (error) {
-        console.error(`Error reintentando webhook ${event.id}:`, error);
+        logger.error('SHOPIFY_WEBHOOK', `Error reintentando webhook ${event.id}`, error);
       }
 
       // Pausa entre reintentos

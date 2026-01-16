@@ -18,7 +18,7 @@ describe('Returns Flow', () => {
   let testCarrier: any;
   let testCustomer: any;
   let testProduct: any;
-  let deliveredOrders: any[] = [];
+  const deliveredOrders: any[] = [];
   let returnSession: any;
 
   const INITIAL_STOCK = 100;

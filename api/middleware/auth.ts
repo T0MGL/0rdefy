@@ -80,7 +80,7 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'No autorizado' });
   }
 
   const token = authHeader.substring(7);
@@ -128,13 +128,13 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
 
       // Validate required claims (token uses 'userId' not 'id')
       if (!decoded.userId || !decoded.email) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json({ error: 'No autorizado' });
       }
 
       // Explicit expiration check (redundant with jwt.verify but more explicit)
       const now = Math.floor(Date.now() / 1000);
       if (decoded.exp && decoded.exp < now) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json({ error: 'No autorizado' });
       }
 
       // Set userId for routes that need it (auth routes use req.userId)
@@ -153,7 +153,7 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
     if (process.env.NODE_ENV === 'development') {
       console.error('JWT verification failed:', error.message);
     }
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'No autorizado' });
   }
 }
 
@@ -192,13 +192,13 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
       }
     } catch (error) {
       console.error('[Auth] Error looking up Shopify store:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      return res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 
   // Ahora verificamos que storeId esté presente
   if (!storeId) {
-    return res.status(400).json({ error: 'X-Store-ID header is required' });
+    return res.status(400).json({ error: 'Se requiere el header X-Store-ID' });
   }
 
   // Verificar acceso del usuario a este store (solo para autenticación normal, no Shopify)
@@ -217,13 +217,13 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
         if (process.env.NODE_ENV === 'development') {
           console.error('Store access check failed:', error?.message || 'No access found or user deactivated');
         }
-        return res.status(403).json({ error: 'Access denied to this store' });
+        return res.status(403).json({ error: 'Acceso denegado a esta tienda' });
       }
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
         console.error('Store access verification error:', error);
       }
-      return res.status(500).json({ error: 'Internal server error' });
+      return res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 

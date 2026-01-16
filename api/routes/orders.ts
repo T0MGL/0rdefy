@@ -145,7 +145,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error(`[GET /api/orders/token/${req.params.token}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch order',
+            error: 'Error al obtener pedido',
             message: error.message
         });
     }
@@ -259,7 +259,7 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         if (error || !data) {
             console.error(`❌ [ORDERS] Failed to update order ${id}:`, error);
             return res.status(500).json({
-                error: 'Failed to update order'
+                error: 'Error al actualizar pedido'
             });
         }
 
@@ -327,7 +327,7 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/delivery-confirm] Error:`, error);
         res.status(500).json({
-            error: 'Failed to confirm delivery',
+            error: 'Error al confirmar entrega',
             message: error.message
         });
     }
@@ -402,7 +402,7 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
         if (error || !data) {
             console.error(`❌ [ORDERS] Failed to update order ${id}:`, error);
             return res.status(500).json({
-                error: 'Failed to update order'
+                error: 'Error al actualizar pedido'
             });
         }
 
@@ -454,7 +454,7 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/delivery-fail] Error:`, error);
         res.status(500).json({
-            error: 'Failed to report delivery failure',
+            error: 'Error al reportar fallo de entrega',
             message: error.message
         });
     }
@@ -527,7 +527,7 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
         if (error || !data) {
             console.error(`❌ [ORDERS] Failed to update order ${id}:`, error);
             return res.status(500).json({
-                error: 'Failed to save rating'
+                error: 'Error al guardar calificación'
             });
         }
 
@@ -544,7 +544,7 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/rate-delivery] Error:`, error);
         res.status(500).json({
-            error: 'Failed to save rating',
+            error: 'Error al guardar calificación',
             message: error.message
         });
     }
@@ -597,7 +597,7 @@ ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, r
         if (error || !data) {
             console.error(`❌ [ORDERS] Failed to cancel order ${id}:`, error);
             return res.status(500).json({
-                error: 'Failed to cancel order'
+                error: 'Error al cancelar pedido'
             });
         }
 
@@ -623,7 +623,7 @@ ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, r
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/cancel] Error:`, error);
         res.status(500).json({
-            error: 'Failed to cancel order',
+            error: 'Error al cancelar pedido',
             message: error.message
         });
     }
@@ -832,7 +832,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/orders] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch orders',
+            error: 'Error al obtener pedidos',
             message: error.message
         });
     }
@@ -950,7 +950,7 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
     } catch (error: any) {
         console.error(`[GET /api/orders/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch order',
+            error: 'Error al obtener pedido',
             message: error.message
         });
     }
@@ -1198,7 +1198,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
     } catch (error: any) {
         console.error('[POST /api/orders] Error:', error);
         res.status(500).json({
-            error: 'Failed to create order',
+            error: 'Error al crear pedido',
             message: error.message
         });
     }
@@ -1340,7 +1340,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
     } catch (error: any) {
         console.error(`[PUT /api/orders/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update order',
+            error: 'Error al actualizar pedido',
             message: error.message
         });
     }
@@ -1851,7 +1851,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
     } catch (error: any) {
         console.error(`[PATCH /api/orders/${req.params.id}/status] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update order status',
+            error: 'Error al actualizar estado del pedido',
             message: error.message
         });
     }
@@ -1880,7 +1880,7 @@ ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[GET /api/orders/${req.params.id}/history] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch order history',
+            error: 'Error al obtener historial del pedido',
             message: error.message
         });
     }
@@ -1978,7 +1978,7 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
             if (error || !data) {
                 console.error(`❌ Soft delete failed:`, error);
                 return res.status(500).json({
-                    error: 'Failed to delete order',
+                    error: 'Error al eliminar pedido',
                     message: error?.message
                 });
             }
@@ -1995,7 +1995,7 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
     } catch (error: any) {
         console.error(`[DELETE /api/orders/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to delete order',
+            error: 'Error al eliminar pedido',
             message: error.message
         });
     }
@@ -2036,7 +2036,7 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
         if (error) {
             console.error(`❌ Mark test failed:`, error);
             return res.status(500).json({
-                error: 'Failed to update order test status',
+                error: 'Error al actualizar estado de prueba del pedido',
                 message: error.message
             });
         }
@@ -2044,7 +2044,7 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
         const result = data?.[0];
         if (!result?.success) {
             return res.status(400).json({
-                error: result?.message || 'Failed to update test status'
+                error: result?.message || 'Error al actualizar estado de prueba'
             });
         }
 
@@ -2057,7 +2057,7 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
     } catch (error: any) {
         console.error(`[PATCH /api/orders/${req.params.id}/test] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update test status',
+            error: 'Error al actualizar estado de prueba',
             message: error.message
         });
     }
@@ -2107,7 +2107,7 @@ ordersRouter.put('/:id/payment-status', requirePermission(Module.ORDERS, Permiss
     } catch (error: any) {
         console.error(`[PUT /api/orders/${req.params.id}/payment-status] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update payment status',
+            error: 'Error al actualizar estado de pago',
             message: error.message
         });
     }
@@ -2146,7 +2146,7 @@ ordersRouter.post('/:id/mark-preparing', requirePermission(Module.ORDERS, Permis
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/mark-preparing] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update order status',
+            error: 'Error al actualizar estado del pedido',
             message: error.message
         });
     }
@@ -2191,7 +2191,7 @@ ordersRouter.post('/:id/mark-out-for-delivery', requirePermission(Module.ORDERS,
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/mark-out-for-delivery] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update order status',
+            error: 'Error al actualizar estado del pedido',
             message: error.message
         });
     }
@@ -2236,7 +2236,7 @@ ordersRouter.post('/:id/mark-delivered-paid', requirePermission(Module.ORDERS, P
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/mark-delivered-paid] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update order status',
+            error: 'Error al actualizar estado del pedido',
             message: error.message
         });
     }
@@ -2278,7 +2278,7 @@ ordersRouter.get('/stats/high-risk', async (req: AuthRequest, res: Response) => 
     } catch (error: any) {
         console.error('[GET /api/orders/stats/high-risk] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch high-risk orders',
+            error: 'Error al obtener pedidos de alto riesgo',
             message: error.message
         });
     }
@@ -2327,7 +2327,7 @@ ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Respon
     } catch (error: any) {
         console.error('[GET /api/orders/stats/pending-delivery] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch pending delivery orders',
+            error: 'Error al obtener pedidos pendientes de entrega',
             message: error.message
         });
     }
@@ -2540,7 +2540,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
     } catch (error: any) {
         console.error(`[POST /api/orders/${req.params.id}/confirm] Error:`, error);
         res.status(500).json({
-            error: 'Failed to confirm order',
+            error: 'Error al confirmar pedido',
             message: error.message
         });
     }
@@ -2668,7 +2668,7 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
     } catch (error: any) {
         console.error('❌ [ORDERS] Error marking order as printed:', error);
         res.status(500).json({
-            error: 'Internal server error',
+            error: 'Error interno del servidor',
             message: error.message
         });
     }
@@ -2806,7 +2806,7 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
     } catch (error: any) {
         console.error('❌ [ORDERS] Error in bulk mark printed:', error);
         res.status(500).json({
-            error: 'Internal server error',
+            error: 'Error interno del servidor',
             message: error.message
         });
     }

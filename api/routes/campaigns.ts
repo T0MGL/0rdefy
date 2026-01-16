@@ -75,7 +75,7 @@ campaignsRouter.get('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/campaigns] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch campaigns',
+            error: 'Error al obtener campañas',
             message: error.message
         });
     }
@@ -105,7 +105,7 @@ campaignsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error(`[GET /api/campaigns/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch campaign',
+            error: 'Error al obtener campaña',
             message: error.message
         });
     }
@@ -173,7 +173,7 @@ campaignsRouter.post('/', requirePermission(Module.CAMPAIGNS, Permission.CREATE)
     } catch (error: any) {
         console.error('[POST /api/campaigns] Error:', error);
         res.status(500).json({
-            error: 'Failed to create campaign',
+            error: 'Error al crear campaña',
             message: error.message
         });
     }
@@ -237,7 +237,7 @@ campaignsRouter.put('/:id', requirePermission(Module.CAMPAIGNS, Permission.EDIT)
     } catch (error: any) {
         console.error(`[PUT /api/campaigns/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update campaign',
+            error: 'Error al actualizar campaña',
             message: error.message
         });
     }
@@ -271,7 +271,7 @@ campaignsRouter.delete('/:id', requirePermission(Module.CAMPAIGNS, Permission.DE
     } catch (error: any) {
         console.error(`[DELETE /api/campaigns/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to delete campaign',
+            error: 'Error al eliminar campaña',
             message: error.message
         });
     }
@@ -316,7 +316,7 @@ campaignsRouter.patch('/:id/status', requirePermission(Module.CAMPAIGNS, Permiss
     } catch (error: any) {
         console.error(`[PATCH /api/campaigns/${req.params.id}/status] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update campaign status',
+            error: 'Error al actualizar estado de campaña',
             message: error.message
         });
     }

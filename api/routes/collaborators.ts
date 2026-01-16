@@ -20,6 +20,7 @@ import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireRole, PermissionRequest } from '../middleware/permissions';
 import { requireFeature } from '../middleware/planLimits';
 import { Role, canInviteRole } from '../permissions';
+import { sendCollaboratorInvite } from '../services/email.service';
 
 export const collaboratorsRouter = Router();
 
@@ -131,7 +132,7 @@ collaboratorsRouter.post(
 
       if (canAddError) {
         console.error('[Invite] Error checking user limit:', canAddError);
-        return res.status(500).json({ error: 'Failed to check user limit' });
+        return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
       if (!canAdd) {
@@ -213,7 +214,7 @@ collaboratorsRouter.post(
 
       if (error) {
         console.error('[Invite] Error creating invitation:', error);
-        return res.status(500).json({ error: 'Failed to create invitation' });
+        return res.status(500).json({ error: 'Error al crear invitación' });
       }
 
       console.log('[Invite] Invitation created successfully:', invitation.id);
@@ -222,14 +223,32 @@ collaboratorsRouter.post(
       const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
       const inviteUrl = `${baseUrl}/i/${token}`;
 
-      // TODO: Send email with invitation link
-      // await sendInvitationEmail({
-      //   toEmail: email,
-      //   toName: name,
-      //   role,
-      //   inviteUrl,
-      //   expiresAt: expiresAt.toISOString()
-      // });
+      // Get inviter name and store name for email
+      const { data: inviterData } = await supabaseAdmin
+        .from('users')
+        .select('name')
+        .eq('id', userId)
+        .single();
+
+      const { data: storeData } = await supabaseAdmin
+        .from('stores')
+        .select('name')
+        .eq('id', storeId)
+        .single();
+
+      // Send invitation email (non-blocking - don't fail if email fails)
+      const emailResult = await sendCollaboratorInvite(email, {
+        inviteeName: name,
+        inviterName: inviterData?.name || 'Tu compañero de equipo',
+        storeName: storeData?.name || 'Tu tienda',
+        role,
+        inviteLink: inviteUrl,
+        expiresAt
+      });
+
+      if (!emailResult.success) {
+        console.warn('[Invite] Email failed but invitation created:', emailResult.error);
+      }
 
       res.status(201).json({
         success: true,
@@ -244,7 +263,7 @@ collaboratorsRouter.post(
       });
     } catch (error) {
       console.error('[Invite] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -272,7 +291,7 @@ collaboratorsRouter.get(
 
       if (error) {
         console.error('[Invitations] Error fetching:', error);
-        return res.status(500).json({ error: 'Failed to fetch invitations' });
+        return res.status(500).json({ error: 'Error al obtener invitaciones' });
       }
 
       const now = new Date();
@@ -295,7 +314,7 @@ collaboratorsRouter.get(
       });
     } catch (error) {
       console.error('[Invitations] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -322,13 +341,13 @@ collaboratorsRouter.delete(
 
       if (error) {
         console.error('[Invitations] Error deleting:', error);
-        return res.status(500).json({ error: 'Failed to delete invitation' });
+        return res.status(500).json({ error: 'Error al eliminar invitación' });
       }
 
       res.json({ success: true });
     } catch (error) {
       console.error('[Invitations] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -392,7 +411,7 @@ collaboratorsRouter.get(
       });
     } catch (error) {
       console.error('[ValidateToken] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -459,7 +478,7 @@ collaboratorsRouter.post(
           .from('collaborator_invitations')
           .update({ used: false, used_at: null })
           .eq('id', invitation.id);
-        return res.status(500).json({ error: 'Failed to check user limit' });
+        return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
       if (!canAdd) {
@@ -535,7 +554,7 @@ collaboratorsRouter.post(
             .from('collaborator_invitations')
             .update({ used: false, used_at: null })
             .eq('id', invitation.id);
-          return res.status(500).json({ error: 'Failed to create user' });
+          return res.status(500).json({ error: 'Error al crear usuario' });
         }
 
         userId = newUser.id;
@@ -568,7 +587,7 @@ collaboratorsRouter.post(
           console.log('[AcceptInvitation] Rolling back: deleting newly created user');
           await supabaseAdmin.from('users').delete().eq('id', userId);
         }
-        return res.status(500).json({ error: 'Failed to link user to store' });
+        return res.status(500).json({ error: 'Error al vincular usuario a tienda' });
       }
 
       console.log('[AcceptInvitation] User linked to store');
@@ -638,7 +657,7 @@ collaboratorsRouter.post(
       });
     } catch (error) {
       console.error('[AcceptInvitation] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -657,7 +676,7 @@ collaboratorsRouter.get(
 
       if (!storeId) {
         console.error('[Collaborators] Missing storeId in request');
-        return res.status(400).json({ error: 'Store ID is required' });
+        return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
       }
 
       console.log('[Collaborators] Fetching team members for store:', storeId);
@@ -681,7 +700,7 @@ collaboratorsRouter.get(
           hint: error.hint
         });
         return res.status(500).json({
-          error: 'Failed to fetch collaborators',
+          error: 'Error al obtener colaboradores',
           details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
       }
@@ -702,7 +721,7 @@ collaboratorsRouter.get(
       });
     } catch (error) {
       console.error('[Collaborators] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -736,14 +755,14 @@ collaboratorsRouter.delete(
 
       if (error) {
         console.error('[Remove] Error removing collaborator:', error);
-        return res.status(500).json({ error: 'Failed to remove collaborator' });
+        return res.status(500).json({ error: 'Error al eliminar colaborador' });
       }
 
       console.log('[Remove] Collaborator removed:', userId);
       res.json({ success: true });
     } catch (error) {
       console.error('[Remove] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -785,14 +804,14 @@ collaboratorsRouter.patch(
 
       if (error) {
         console.error('[ChangeRole] Error updating role:', error);
-        return res.status(500).json({ error: 'Failed to update role' });
+        return res.status(500).json({ error: 'Error al actualizar rol' });
       }
 
       console.log('[ChangeRole] Role updated:', { userId, role });
       res.json({ success: true });
     } catch (error) {
       console.error('[ChangeRole] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -839,7 +858,7 @@ collaboratorsRouter.patch(
 
       if (canAddError) {
         console.error('[Reactivate] Error checking user limit:', canAddError);
-        return res.status(500).json({ error: 'Failed to check user limit' });
+        return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
       if (!canAdd) {
@@ -874,7 +893,7 @@ collaboratorsRouter.patch(
 
       if (updateError) {
         console.error('[Reactivate] Error reactivating user:', updateError);
-        return res.status(500).json({ error: 'Failed to reactivate user' });
+        return res.status(500).json({ error: 'Error al reactivar usuario' });
       }
 
       // Fetch user details for response
@@ -893,7 +912,7 @@ collaboratorsRouter.patch(
       });
     } catch (error) {
       console.error('[Reactivate] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -916,7 +935,7 @@ collaboratorsRouter.get(
 
       if (error) {
         console.error('[Stats] Error fetching stats:', error);
-        return res.status(500).json({ error: 'Failed to fetch stats' });
+        return res.status(500).json({ error: 'Error al obtener estadísticas' });
       }
 
       // Add can_add_more field based on slots_available
@@ -928,7 +947,7 @@ collaboratorsRouter.get(
       });
     } catch (error) {
       console.error('[Stats] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );
@@ -942,17 +961,13 @@ collaboratorsRouter.post(
   '/cleanup-expired-tokens',
   async (req, res) => {
     try {
-      // Require CRON_SECRET for security
+      // Require CRON_SECRET for security - single check to avoid information disclosure
       const cronSecret = req.headers['x-cron-secret'];
       const expectedSecret = process.env.CRON_SECRET;
 
-      // CRON_SECRET must be configured and match
-      if (!expectedSecret) {
-        console.error('[Cleanup] CRON_SECRET not configured - denying request');
-        return res.status(500).json({ error: 'Server misconfigured' });
-      }
-
-      if (cronSecret !== expectedSecret) {
+      // SECURITY: Single check - return 401 whether CRON_SECRET is missing or mismatched
+      // This prevents attackers from learning if the secret is configured
+      if (!expectedSecret || cronSecret !== expectedSecret) {
         console.warn('[Cleanup] Unauthorized cleanup attempt');
         return res.status(401).json({ error: 'Unauthorized' });
       }
@@ -970,7 +985,7 @@ collaboratorsRouter.post(
 
       if (error) {
         console.error('[Cleanup] Error deleting expired tokens:', error);
-        return res.status(500).json({ error: 'Failed to cleanup tokens' });
+        return res.status(500).json({ error: 'Error al limpiar tokens' });
       }
 
       const deletedCount = deleted?.length || 0;
@@ -983,7 +998,7 @@ collaboratorsRouter.post(
       });
     } catch (error) {
       console.error('[Cleanup] Unexpected error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 );

@@ -12,6 +12,8 @@ import { extractUserRole, requireModule, requireRole, PermissionRequest } from '
 import { Module, Role } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
 import stripeService, { PlanType, BillingCycle, PLANS, getPlanFromPriceId } from '../services/stripe.service';
+import { logger } from '../utils/logger';
+import { WEBHOOK_ERRORS } from '../constants/webhook-errors';
 
 const router = express.Router();
 
@@ -34,8 +36,8 @@ router.post(
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
-      console.error('[Billing Webhook] Missing webhook secret');
-      return res.status(500).json({ error: 'Webhook secret not configured' });
+      logger.error('BILLING', 'Missing webhook secret - STRIPE_WEBHOOK_SECRET not set');
+      return res.status(500).json({ error: WEBHOOK_ERRORS.INTERNAL_ERROR });
     }
 
     let event: Stripe.Event;
@@ -43,8 +45,12 @@ router.post(
     try {
       event = getStripe().webhooks.constructEvent(req.body, sig, webhookSecret);
     } catch (err: any) {
-      console.error('[Billing Webhook] Signature verification failed:', err.message);
-      return res.status(400).json({ error: `Webhook Error: ${err.message}` });
+      // SECURITY: Log error details internally but never expose to client
+      logger.error('BILLING', 'Webhook signature verification failed', {
+        errorType: err.name,
+        // Do NOT log err.message as it may contain sensitive details
+      });
+      return res.status(400).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
     }
 
     // SECURITY: Atomic idempotency check using INSERT-first approach
@@ -62,16 +68,16 @@ router.post(
     // If insert failed with unique constraint violation, this is a duplicate
     if (insertError) {
       if (insertError.code === '23505') { // PostgreSQL unique violation
-        console.log('[Billing Webhook] Duplicate event detected (race-safe), skipping:', event.id);
+        logger.info('BILLING', 'Duplicate event detected (race-safe), skipping', { eventId: event.id });
         return res.json({ received: true, duplicate: true });
       }
       // Other insert errors - log but continue (event might still need processing)
-      console.error('[Billing Webhook] Idempotency insert error:', insertError);
+      logger.error('BILLING', 'Idempotency insert error', insertError);
     }
 
     // If we get here, we successfully acquired the lock (inserted first)
 
-    console.log('[Billing Webhook] Processing event:', event.type);
+    logger.info('BILLING', 'Processing event', { eventType: event.type });
 
     try {
       switch (event.type) {
@@ -118,7 +124,7 @@ router.post(
         }
 
         default:
-          console.log('[Billing Webhook] Unhandled event type:', event.type);
+          logger.info('BILLING', 'Unhandled event type', { eventType: event.type });
       }
 
       // Mark event as processed
@@ -129,7 +135,7 @@ router.post(
 
       res.json({ received: true });
     } catch (error: any) {
-      console.error('[Billing Webhook] Error processing event:', error);
+      logger.error('BILLING', 'Error processing event', error);
 
       // Store error
       await supabaseAdmin
@@ -238,7 +244,7 @@ router.get(
         })),
       });
     } catch (error: any) {
-      console.error('[Billing] Store plan error:', error.message);
+      logger.error('BILLING', 'Store plan error', { error: error.message });
       // SECURITY: Fail-closed - return error instead of defaulting to free plan
       // Defaulting to free could allow feature bypass if DB is down
       // Frontend should handle this error and show appropriate message
@@ -322,14 +328,14 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
     const userEmail = (req as any).user?.email;
     const { plan, billingCycle, referralCode, discountCode, fromOnboarding } = req.body;
 
-    console.log('[Billing] Checkout request:', { userId, userEmail, plan, billingCycle, referralCode, discountCode, fromOnboarding });
+    logger.info('BILLING', 'Checkout request', { userId, userEmail, plan, billingCycle, referralCode, discountCode, fromOnboarding });
 
     if (!plan || !billingCycle) {
       return res.status(400).json({ error: 'Plan and billing cycle are required' });
     }
 
     if (!userId || !userEmail) {
-      console.error('[Billing] Missing user info:', { userId, userEmail });
+      logger.error('BILLING', 'Missing user info', { userId, userEmail });
       return res.status(400).json({ error: 'User information is required' });
     }
 
@@ -344,7 +350,7 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
       successParams.set('from_onboarding', 'true');
     }
 
-    console.log('[Billing] Creating checkout session...');
+    logger.info('BILLING', 'Creating checkout session...');
     const session = await stripeService.createCheckoutSession({
       userId,  // ⬅️ Only userId, no storeId
       email: userEmail,
@@ -356,11 +362,10 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
       discountCode,
     });
 
-    console.log('[Billing] Checkout session created:', session.id);
+    logger.info('BILLING', 'Checkout session created', { sessionId: session.id });
     res.json({ sessionId: session.id, url: session.url });
   } catch (error: any) {
-    console.error('[Billing] Checkout error:', error.message);
-    console.error('[Billing] Checkout error stack:', error.stack);
+    logger.error('BILLING', 'Checkout error', { error: error.message, stack: error.stack });
     res.status(500).json({ error: error.message });
   }
 });
@@ -386,7 +391,7 @@ router.post('/portal', requireRole(Role.OWNER), async (req: PermissionRequest, r
 
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error('[Billing] Portal error:', error);
+    logger.error('BILLING', 'Portal error', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -434,7 +439,7 @@ router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, r
       message: 'Subscription will be canceled at period end. This affects all your stores.'
     });
   } catch (error: any) {
-    console.error('[Billing] Cancel error:', error);
+    logger.error('BILLING', 'Cancel error', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -481,7 +486,7 @@ router.post('/reactivate', requireRole(Role.OWNER), async (req: PermissionReques
       message: 'Subscription reactivated. This applies to all your stores.'
     });
   } catch (error: any) {
-    console.error('[Billing] Reactivate error:', error);
+    logger.error('BILLING', 'Reactivate error', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -531,7 +536,7 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
       message: 'Plan changed successfully. This applies to all your stores.'
     });
   } catch (error: any) {
-    console.error('[Billing] Change plan error:', error);
+    logger.error('BILLING', 'Change plan error', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -553,7 +558,7 @@ router.get('/referrals', async (req: Request, res: Response) => {
 
     res.json(stats);
   } catch (error: any) {
-    console.error('[Billing] Referrals error:', error.message);
+    logger.error('BILLING', 'Referrals error', { error: error.message });
     res.status(500).json({ error: error.message });
   }
 });
@@ -571,7 +576,7 @@ router.post('/referrals/generate', async (req: Request, res: Response) => {
 
     res.json({ code, link: `${process.env.APP_URL}/r/${code}` });
   } catch (error: any) {
-    console.error('[Billing] Generate referral code error:', error.message);
+    logger.error('BILLING', 'Generate referral code error', { error: error.message });
     res.status(500).json({ error: error.message });
   }
 });
@@ -581,7 +586,7 @@ router.post('/referrals/generate', async (req: Request, res: Response) => {
 // =============================================
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  console.log('[Billing Webhook] Checkout completed:', session.id);
+  logger.info('BILLING', 'Checkout completed', { sessionId: session.id });
 
   const userId = session.metadata?.user_id;  // ⬅️ Only userId now
   const plan = session.metadata?.plan as PlanType;
@@ -590,48 +595,49 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const discountCode = session.metadata?.discount_code;
 
   if (!userId || !plan) {
-    console.error('[Billing Webhook] Missing metadata in checkout session');
+    logger.error('BILLING', 'Missing metadata in checkout session');
     return;
   }
 
-  // SECURITY: Process discount code redemption (atomic increment of current_uses)
-  // This is the authoritative point where we count the discount as "used"
-  // Even if validation passed earlier, this ensures we don't exceed max_uses
+  // SECURITY: Process discount code redemption using atomic RPC with row-level locking
+  // This prevents race conditions where two concurrent requests could both redeem
+  // the same code, exceeding max_uses
   if (discountCode) {
-    const { data: discount, error: discountError } = await supabaseAdmin
-      .from('discount_codes')
-      .select('id, code, max_uses, current_uses, is_active')
-      .eq('code', discountCode.toUpperCase())
-      .single();
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 100;
 
-    if (discount && !discountError) {
-      // Check if discount is still valid (race condition protection)
-      if (!discount.is_active) {
-        console.warn('[Billing Webhook] Discount code was deactivated during checkout:', discountCode);
-      } else if (discount.max_uses && discount.current_uses >= discount.max_uses) {
-        console.warn('[Billing Webhook] Discount code max_uses exceeded during checkout:', discountCode);
-        // Note: Stripe already processed the discount, so we just log this anomaly
-        // The discount was technically used, but the checkout went through
-      } else {
-        // Atomically increment current_uses
-        const { error: incrementError } = await supabaseAdmin
-          .from('discount_codes')
-          .update({ current_uses: discount.current_uses + 1 })
-          .eq('id', discount.id)
-          .eq('current_uses', discount.current_uses); // Optimistic locking
-
-        if (incrementError) {
-          console.error('[Billing Webhook] Failed to increment discount usage:', incrementError);
-        } else {
-          // Record redemption
-          await supabaseAdmin.from('discount_redemptions').insert({
-            discount_code_id: discount.id,
-            user_id: userId,
-            applied_at: new Date().toISOString(),
-            stripe_subscription_id: session.subscription as string,
-          });
-          console.log('[Billing Webhook] Discount code redeemed:', discountCode);
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const { data: result, error: rpcError } = await supabaseAdmin.rpc(
+        'redeem_discount_code_atomic',
+        {
+          p_code: discountCode,
+          p_user_id: userId,
+          p_store_id: null,
+          p_stripe_subscription_id: session.subscription as string,
         }
+      );
+
+      if (rpcError) {
+        logger.error('BILLING', 'Discount redemption RPC error', rpcError);
+        break; // Don't retry on RPC errors (likely a bug, not a lock)
+      }
+
+      if (result && result.success) {
+        logger.info('BILLING', 'Discount code redeemed atomically', { discountCode });
+        break; // Success, exit retry loop
+      }
+
+      if (result && !result.success) {
+        if (result.retry && attempt < MAX_RETRIES) {
+          // Row was locked, wait and retry
+          logger.info('BILLING', `Discount code locked, retry ${attempt}/${MAX_RETRIES}`, { discountCode });
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+          continue;
+        }
+        // Note: Stripe already processed the discount, so we just log this anomaly
+        // The discount was technically used in Stripe, but we couldn't record it
+        logger.warn('BILLING', 'Discount code redemption failed', { error: result.error, discountCode });
+        break;
       }
     }
   }
@@ -678,7 +684,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           })
           .eq('id', existingReferral.id);
 
-        console.log('[Billing Webhook] Updated referral with trial start:', existingReferral.id);
+        logger.info('BILLING', 'Updated referral with trial start', { referralId: existingReferral.id });
       } else {
         // Create new referral (fallback if not created during signup)
         await supabaseAdmin.from('referrals').insert({
@@ -690,14 +696,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           referred_discount_applied: true,
         });
 
-        console.log('[Billing Webhook] Created new referral with trial start');
+        logger.info('BILLING', 'Created new referral with trial start');
       }
     }
   }
 }
 
 async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
-  console.log('[Billing Webhook] Subscription created:', subscription.id);
+  logger.info('BILLING', 'Subscription created', { subscriptionId: subscription.id });
 
   const userId = subscription.metadata?.user_id;  // ⬅️ Changed from store_id to user_id
   const plan = subscription.metadata?.plan as PlanType;
@@ -717,7 +723,7 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  console.log('[Billing Webhook] Subscription updated:', subscription.id);
+  logger.info('BILLING', 'Subscription updated', { subscriptionId: subscription.id });
 
   const { data: localSub } = await supabaseAdmin
     .from('subscriptions')
@@ -731,7 +737,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  console.log('[Billing Webhook] Subscription deleted:', subscription.id);
+  logger.info('BILLING', 'Subscription deleted', { subscriptionId: subscription.id });
 
   await supabaseAdmin
     .from('subscriptions')
@@ -744,7 +750,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 }
 
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
-  console.log('[Billing Webhook] Invoice paid:', invoice.id);
+  logger.info('BILLING', 'Invoice paid', { invoiceId: invoice.id });
 
   // Process referral conversion on first payment
   if (invoice.billing_reason === 'subscription_create') {
@@ -790,7 +796,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 }
 
 async function handleInvoiceFailed(invoice: Stripe.Invoice) {
-  console.log('[Billing Webhook] Invoice failed:', invoice.id);
+  logger.info('BILLING', 'Invoice failed', { invoiceId: invoice.id });
 
   if (invoice.subscription) {
     await supabaseAdmin
@@ -803,7 +809,7 @@ async function handleInvoiceFailed(invoice: Stripe.Invoice) {
 }
 
 async function handleTrialWillEnd(subscription: Stripe.Subscription) {
-  console.log('[Billing Webhook] Trial will end:', subscription.id);
+  logger.info('BILLING', 'Trial will end', { subscriptionId: subscription.id });
 
   // TODO: Send email reminder about trial ending
   // This fires 3 days before trial ends
@@ -817,8 +823,8 @@ async function updateSubscriptionInDB(
   const priceId = subscription.items.data[0]?.price.id;
 
   if (!priceId) {
-    console.error('[Billing Webhook] SECURITY: No price ID in subscription');
-    throw new Error('No price ID found in subscription');
+    logger.error('BILLING', 'SECURITY: No price ID in subscription');
+    throw new Error('No se encontró ID de precio en la suscripción');
   }
 
   // SECURITY: Get plan from priceId mapping - NEVER trust metadata
@@ -827,8 +833,7 @@ async function updateSubscriptionInDB(
   if (!subscriptionPlan) {
     // SECURITY: Unknown priceId is a critical error - could be manipulation attempt
     // DO NOT default to free - this would give paid features without payment
-    console.error('[Billing Webhook] SECURITY ALERT: Unknown priceId rejected:', priceId);
-    console.error('[Billing Webhook] User:', userId, 'Subscription:', subscription.id);
+    logger.error('BILLING', 'SECURITY ALERT: Unknown priceId rejected', { priceId, userId, subscriptionId: subscription.id });
     throw new Error(`SECURITY: Unrecognized priceId "${priceId}" - subscription rejected. Contact support if this is legitimate.`);
   }
 
@@ -882,6 +887,8 @@ async function updateSubscriptionInDB(
  * Validate cron request - supports multiple auth methods:
  * 1. Railway Cron (internal): No auth needed from private network
  * 2. External caller: Requires X-Cron-Secret header
+ *
+ * SECURITY: Returns generic 'unauthorized' to avoid information disclosure
  */
 function validateCronAuth(req: Request): { valid: boolean; source: string } {
   // Railway internal cron jobs come from private network
@@ -897,19 +904,15 @@ function validateCronAuth(req: Request): { valid: boolean; source: string } {
   }
 
   // External callers must provide CRON_SECRET
+  // SECURITY: Single check to avoid information disclosure about whether secret is configured
   const cronSecret = req.headers['x-cron-secret'];
   const expectedSecret = process.env.CRON_SECRET;
 
-  if (expectedSecret && cronSecret === expectedSecret) {
-    return { valid: true, source: 'cron-secret' };
+  if (!expectedSecret || cronSecret !== expectedSecret) {
+    return { valid: false, source: 'unauthorized' };
   }
 
-  // Allow if CRON_SECRET is not set (development mode)
-  if (!expectedSecret && process.env.NODE_ENV === 'development') {
-    return { valid: true, source: 'dev-mode' };
-  }
-
-  return { valid: false, source: 'unauthorized' };
+  return { valid: true, source: 'cron-secret' };
 }
 
 /**
@@ -920,10 +923,10 @@ function validateCronAuth(req: Request): { valid: boolean; source: string } {
 router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
   const auth = validateCronAuth(req);
   if (!auth.valid) {
-    console.warn('[Billing Cron] Unauthorized cron attempt');
+    logger.warn('BILLING', 'Unauthorized cron attempt');
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  console.log(`[Billing Cron] expiring-trials called via ${auth.source}`);
+  logger.info('BILLING', `expiring-trials called via ${auth.source}`);
 
   try {
     // Find trials expiring in the next 3 days that haven't been notified
@@ -946,11 +949,11 @@ router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
       .is('trial_reminder_sent', null);
 
     if (error) {
-      console.error('[Billing Cron] Error fetching expiring trials:', error);
-      return res.status(500).json({ error: 'Failed to fetch expiring trials' });
+      logger.error('BILLING', 'Error fetching expiring trials', error);
+      return res.status(500).json({ error: 'Error al obtener pruebas por vencer' });
     }
 
-    console.log(`[Billing Cron] Found ${expiringTrials?.length || 0} expiring trials`);
+    logger.info('BILLING', `Found ${expiringTrials?.length || 0} expiring trials`);
 
     const processed: string[] = [];
     const failed: string[] = [];
@@ -972,9 +975,9 @@ router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
         // });
 
         processed.push(trial.id);
-        console.log(`[Billing Cron] Processed trial reminder for user ${trial.user_id}`);
+        logger.info('BILLING', `Processed trial reminder for user ${trial.user_id}`);
       } catch (err: any) {
-        console.error(`[Billing Cron] Failed to process trial ${trial.id}:`, err.message);
+        logger.error('BILLING', `Error al procesar prueba ${trial.id}`, { error: err.message });
         failed.push(trial.id);
       }
     }
@@ -986,8 +989,8 @@ router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
       details: { processed, failed },
     });
   } catch (error: any) {
-    console.error('[Billing Cron] Unexpected error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('BILLING', 'Unexpected error in expiring-trials', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -999,10 +1002,10 @@ router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
 router.post('/cron/past-due-enforcement', async (req: Request, res: Response) => {
   const auth = validateCronAuth(req);
   if (!auth.valid) {
-    console.warn('[Billing Cron] Unauthorized cron attempt');
+    logger.warn('BILLING', 'Unauthorized cron attempt');
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  console.log(`[Billing Cron] past-due-enforcement called via ${auth.source}`);
+  logger.info('BILLING', `past-due-enforcement called via ${auth.source}`);
 
   try {
     const gracePeriodDays = 7;
@@ -1017,11 +1020,11 @@ router.post('/cron/past-due-enforcement', async (req: Request, res: Response) =>
       .lt('updated_at', cutoffDate.toISOString());
 
     if (error) {
-      console.error('[Billing Cron] Error fetching overdue subscriptions:', error);
-      return res.status(500).json({ error: 'Failed to fetch overdue subscriptions' });
+      logger.error('BILLING', 'Error fetching overdue subscriptions', error);
+      return res.status(500).json({ error: 'Error al obtener suscripciones vencidas' });
     }
 
-    console.log(`[Billing Cron] Found ${overdueSubscriptions?.length || 0} overdue subscriptions`);
+    logger.info('BILLING', `Found ${overdueSubscriptions?.length || 0} overdue subscriptions`);
 
     const downgraded: string[] = [];
     const failed: string[] = [];
@@ -1052,11 +1055,11 @@ router.post('/cron/past-due-enforcement', async (req: Request, res: Response) =>
         });
 
         downgraded.push(sub.id);
-        console.log(`[Billing Cron] Downgraded subscription ${sub.id} to free after grace period`);
+        logger.info('BILLING', `Downgraded subscription ${sub.id} to free after grace period`);
 
         // TODO: Send email notification about downgrade
       } catch (err: any) {
-        console.error(`[Billing Cron] Failed to downgrade subscription ${sub.id}:`, err.message);
+        logger.error('BILLING', `Error al degradar suscripción ${sub.id}`, { error: err.message });
         failed.push(sub.id);
       }
     }
@@ -1069,8 +1072,8 @@ router.post('/cron/past-due-enforcement', async (req: Request, res: Response) =>
       details: { downgraded, failed },
     });
   } catch (error: any) {
-    console.error('[Billing Cron] Unexpected error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('BILLING', 'Unexpected error in past-due-enforcement', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -1082,10 +1085,10 @@ router.post('/cron/past-due-enforcement', async (req: Request, res: Response) =>
 router.post('/cron/process-referral-credits', async (req: Request, res: Response) => {
   const auth = validateCronAuth(req);
   if (!auth.valid) {
-    console.warn('[Billing Cron] Unauthorized cron attempt');
+    logger.warn('BILLING', 'Unauthorized cron attempt');
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  console.log(`[Billing Cron] process-referral-credits called via ${auth.source}`);
+  logger.info('BILLING', `process-referral-credits called via ${auth.source}`);
 
   try {
     const waitingPeriodDays = 30;
@@ -1111,11 +1114,11 @@ router.post('/cron/process-referral-credits', async (req: Request, res: Response
       .not('first_payment_at', 'is', null);
 
     if (error) {
-      console.error('[Billing Cron] Error fetching eligible referrals:', error);
-      return res.status(500).json({ error: 'Failed to fetch eligible referrals' });
+      logger.error('BILLING', 'Error fetching eligible referrals', error);
+      return res.status(500).json({ error: 'Error al obtener referidos elegibles' });
     }
 
-    console.log(`[Billing Cron] Found ${eligibleReferrals?.length || 0} referrals eligible for credit`);
+    logger.info('BILLING', `Found ${eligibleReferrals?.length || 0} referrals eligible for credit`);
 
     const processed: string[] = [];
     const skipped: string[] = [];
@@ -1133,7 +1136,7 @@ router.post('/cron/process-referral-credits', async (req: Request, res: Response
 
         // Skip if referred user canceled or downgraded to free
         if (!referredSub || referredSub.status === 'canceled' || referredSub.plan === 'free') {
-          console.log(`[Billing Cron] Skipping referral ${referral.id} - referred user no longer active`);
+          logger.info('BILLING', `Skipping referral ${referral.id} - referred user no longer active`);
           skipped.push(referral.id);
           continue;
         }
@@ -1178,9 +1181,9 @@ router.post('/cron/process-referral-credits', async (req: Request, res: Response
         });
 
         processed.push(referral.id);
-        console.log(`[Billing Cron] Applied credit for referral ${referral.id}`);
+        logger.info('BILLING', `Applied credit for referral ${referral.id}`);
       } catch (err: any) {
-        console.error(`[Billing Cron] Failed to process referral ${referral.id}:`, err.message);
+        logger.error('BILLING', `Error al procesar referido ${referral.id}`, { error: err.message });
         failed.push(referral.id);
       }
     }
@@ -1194,8 +1197,8 @@ router.post('/cron/process-referral-credits', async (req: Request, res: Response
       details: { processed, skipped, failed },
     });
   } catch (error: any) {
-    console.error('[Billing Cron] Unexpected error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('BILLING', 'Unexpected error in process-referral-credits', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 

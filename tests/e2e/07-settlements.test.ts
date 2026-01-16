@@ -18,7 +18,7 @@ describe('Dispatch & Settlements Flow', () => {
   let testCarrier: any;
   let testCustomer: any;
   let testProduct: any;
-  let readyToShipOrders: any[] = [];
+  const readyToShipOrders: any[] = [];
   let dispatchSession: any;
 
   const INITIAL_STOCK = 200;

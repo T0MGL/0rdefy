@@ -192,7 +192,7 @@ authRouter.post('/register', registerRateLimiter, async (req: Request, res: Resp
             .single();
 
         if (userError || !newUser) {
-            log.error('Failed to create user', userError);
+            log.error('Error al crear usuario', userError);
             return res.status(500).json({
                 success: false,
                 error: 'An error occurred',
@@ -219,7 +219,7 @@ authRouter.post('/register', registerRateLimiter, async (req: Request, res: Resp
                     });
 
                 if (referralInsertError) {
-                    log.warn('Failed to create referral record', referralInsertError);
+                    log.warn('Error al crear registro de referido', referralInsertError);
                     // Don't fail registration
                 } else {
                     log.info('Referral tracked successfully', { referrerUserId, newUserId: newUser.id });
@@ -276,7 +276,7 @@ authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) 
                 await terminateSessionByToken(token);
                 log.debug('Session terminated');
             } catch (err) {
-                log.warn('Failed to terminate session', err);
+                log.warn('Error al terminar sesión', err);
             }
 
             // Log logout activity
@@ -285,7 +285,7 @@ authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) 
                 const userAgent = req.headers['user-agent'] || 'unknown';
                 await logLogout(req.userId!, ipAddress, userAgent);
             } catch (err) {
-                log.warn('Failed to log logout activity', err);
+                log.warn('Error al registrar actividad de cierre de sesión', err);
             }
         }
 
@@ -357,7 +357,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
                 const userAgent = req.headers['user-agent'] || 'unknown';
                 await logLogin(user.id, ipAddress, userAgent, false);
             } catch (err) {
-                log.warn('Failed to log failed login', err);
+                log.warn('Error al registrar inicio de sesión fallido', err);
             }
 
             return res.status(401).json({
@@ -459,7 +459,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
             log.info('Login successful', { userId: user.id, storeCount: stores.length });
         } catch (sessionError) {
             // Don't fail login if session creation fails
-            log.warn('Failed to create session', sessionError);
+            log.warn('Error al crear sesión', sessionError);
         }
 
         res.json({
@@ -687,7 +687,7 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
 
             if (userError) {
                 log.error('Error updating user', userError);
-                throw new Error('Failed to update user profile');
+                throw new Error('Error al actualizar perfil de usuario');
             }
         }
 
@@ -716,7 +716,7 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
 
             if (storeError) {
                 log.error('Error updating store', storeError);
-                throw new Error('Failed to update store name');
+                throw new Error('Error al actualizar nombre de tienda');
             }
         }
 
@@ -872,7 +872,7 @@ authRouter.post('/change-password', changePasswordRateLimiter, verifyToken, asyn
             const userAgent = req.headers['user-agent'] || 'unknown';
             await logPasswordChange(req.userId!, ipAddress, userAgent);
         } catch (logError) {
-            log.warn('Failed to log password change activity', logError);
+            log.warn('Error al registrar actividad de cambio de contraseña', logError);
         }
 
         log.info('Password changed successfully', { userId: req.userId });
@@ -945,7 +945,7 @@ authRouter.post('/delete-account', verifyToken, async (req: AuthRequest, res: Re
             const userAgent = req.headers['user-agent'] || 'unknown';
             await logAccountDeleted(req.userId!, ipAddress, userAgent);
         } catch (logError) {
-            log.warn('Failed to log account deletion activity', logError);
+            log.warn('Error al registrar actividad de eliminación de cuenta', logError);
         }
 
         // Delete user (cascade will delete user_stores relationships)

@@ -167,7 +167,7 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/products] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch products',
+            error: 'Error al obtener productos',
             message: error.message
         });
     }
@@ -189,7 +189,7 @@ productsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
 
         if (error || !data) {
             return res.status(404).json({
-                error: 'Product not found'
+                error: 'Producto no encontrado'
             });
         }
 
@@ -237,7 +237,7 @@ productsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
     } catch (error: any) {
         console.error(`[GET /api/products/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to fetch product',
+            error: 'Error al obtener producto',
             message: error.message
         });
     }
@@ -384,7 +384,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
 
                 if (!syncResult.success) {
                     console.warn(`Product created locally but failed to publish to Shopify: ${syncResult.error}`);
-                    syncWarnings.push('Failed to publish to Shopify: ' + syncResult.error);
+                    syncWarnings.push('Error al publicar en Shopify: ' + syncResult.error);
                 } else {
                     console.log(`✅ [PRODUCT-CREATE] Product auto-published to Shopify successfully`);
 
@@ -403,7 +403,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
                 }
             } catch (syncError: any) {
                 console.error('Error auto-publishing to Shopify:', syncError);
-                syncWarnings.push('Failed to publish to Shopify: ' + syncError.message);
+                syncWarnings.push('Error al publicar en Shopify: ' + syncError.message);
             }
         }
 
@@ -415,7 +415,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
     } catch (error: any) {
         console.error('[POST /api/products] Error:', error);
         res.status(500).json({
-            error: 'Failed to create product',
+            error: 'Error al crear producto',
             message: error.message
         });
     }
@@ -525,7 +525,7 @@ productsRouter.post('/from-shopify', requirePermission(Module.PRODUCTS, Permissi
     } catch (error: any) {
         console.error('[POST /api/products/from-shopify] Error:', error);
         res.status(500).json({
-            error: 'Failed to import product from Shopify',
+            error: 'Error al importar producto desde Shopify',
             message: error.message
         });
     }
@@ -586,7 +586,7 @@ productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRO
 
         if (error || !data) {
             return res.status(404).json({
-                error: 'Product not found'
+                error: 'Producto no encontrado'
             });
         }
 
@@ -619,7 +619,7 @@ productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRO
                     return res.json({
                         message: 'Product updated successfully',
                         data,
-                        sync_warning: 'Failed to sync to Shopify'
+                        sync_warning: 'Error al sincronizar con Shopify'
                     });
                 }
             }
@@ -632,7 +632,7 @@ productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRO
     } catch (error: any) {
         console.error(`[PUT /api/products/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update product',
+            error: 'Error al actualizar producto',
             message: error.message
         });
     }
@@ -671,7 +671,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
 
             if (fetchError || !currentProduct) {
                 return res.status(404).json({
-                    error: 'Product not found'
+                    error: 'Producto no encontrado'
                 });
             }
 
@@ -697,7 +697,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
                 .single();
 
             if (error || !data) {
-                throw error || new Error('Failed to update stock');
+                throw error || new Error('Error al actualizar stock');
             }
 
             // Auto-sync to Shopify if integration exists and product has shopify_product_id
@@ -746,7 +746,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
 
         if (error || !data) {
             return res.status(404).json({
-                error: 'Product not found'
+                error: 'Producto no encontrado'
             });
         }
 
@@ -782,7 +782,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
     } catch (error: any) {
         console.error(`[PATCH /api/products/${req.params.id}/stock] Error:`, error);
         res.status(500).json({
-            error: 'Failed to update stock',
+            error: 'Error al actualizar stock',
             message: error.message
         });
     }
@@ -852,7 +852,7 @@ productsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.
                             if (!syncResult.success) {
                                 console.warn(`Product delete failed on Shopify: ${syncResult.error}`);
                                 return res.status(500).json({
-                                    error: 'Failed to delete product from Shopify',
+                                    error: 'Error al eliminar producto de Shopify',
                                     details: syncResult.error
                                 });
                             }
@@ -861,7 +861,7 @@ productsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.
                         } catch (syncError: any) {
                             console.error('Error deleting from Shopify:', syncError);
                             return res.status(500).json({
-                                error: 'Failed to delete product from Shopify',
+                                error: 'Error al eliminar producto de Shopify',
                                 details: syncError.message
                             });
                         }
@@ -880,7 +880,7 @@ productsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.
 
             if (error || !data) {
                 return res.status(404).json({
-                    error: 'Product not found'
+                    error: 'Producto no encontrado'
                 });
             }
 
@@ -908,7 +908,7 @@ productsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.
 
             if (error || !data) {
                 return res.status(404).json({
-                    error: 'Product not found'
+                    error: 'Producto no encontrado'
                 });
             }
 
@@ -920,7 +920,7 @@ productsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.
     } catch (error: any) {
         console.error(`[DELETE /api/products/${req.params.id}] Error:`, error);
         res.status(500).json({
-            error: 'Failed to delete product',
+            error: 'Error al eliminar producto',
             message: error.message
         });
     }
@@ -1031,7 +1031,7 @@ productsRouter.get('/stats/inventory', async (req: AuthRequest, res: Response) =
     } catch (error: any) {
         console.error('[GET /api/products/stats/inventory] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch inventory stats',
+            error: 'Error al obtener estadísticas de inventario',
             message: error.message
         });
     }
@@ -1072,7 +1072,7 @@ productsRouter.get('/stats/full', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/products/stats/full] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch product statistics',
+            error: 'Error al obtener estadísticas de productos',
             message: error.message
         });
     }
@@ -1117,7 +1117,7 @@ productsRouter.get('/sync/status', async (req: AuthRequest, res: Response) => {
     } catch (error: any) {
         console.error('[GET /api/products/sync/status] Error:', error);
         res.status(500).json({
-            error: 'Failed to fetch sync status',
+            error: 'Error al obtener estado de sincronización',
             message: error.message
         });
     }
@@ -1164,7 +1164,7 @@ productsRouter.post('/sync/retry', requirePermission(Module.PRODUCTS, Permission
     } catch (error: any) {
         console.error('[POST /api/products/sync/retry] Error:', error);
         res.status(500).json({
-            error: 'Failed to retry sync',
+            error: 'Error al reintentar sincronización',
             message: error.message
         });
     }
@@ -1186,7 +1186,7 @@ productsRouter.get('/:id/can-delete', async (req: AuthRequest, res: Response) =>
             .single();
 
         if (productError || !product) {
-            return res.status(404).json({ error: 'Product not found' });
+            return res.status(404).json({ error: 'Producto no encontrado' });
         }
 
         // Check deletion safety
@@ -1217,7 +1217,7 @@ productsRouter.get('/:id/can-delete', async (req: AuthRequest, res: Response) =>
     } catch (error: any) {
         console.error(`[GET /api/products/${req.params.id}/can-delete] Error:`, error);
         res.status(500).json({
-            error: 'Failed to check deletion status',
+            error: 'Error al verificar estado de eliminación',
             message: error.message
         });
     }
