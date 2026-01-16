@@ -25,6 +25,7 @@ export interface CourierDateGroup {
   total_orders: number;
   total_cod_expected: number;
   total_prepaid: number;
+  failed_attempt_fee_percent: number;
 }
 
 interface CourierDateGroupCardProps {

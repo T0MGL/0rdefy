@@ -38,12 +38,15 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             source
         } = req.query;
 
-        // Build query - only show active products by default
+        // Determine is_active filter value (default to true if not specified)
+        const activeFilter = is_active !== undefined ? is_active === 'true' : true;
+
+        // Build query once with all filters
         let query = supabaseAdmin
             .from('products')
             .select('*', { count: 'exact' })
             .eq('store_id', req.storeId)
-            .eq('is_active', true)
+            .eq('is_active', activeFilter)
             .order('created_at', { ascending: false })
             .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 
@@ -69,40 +72,6 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         if (max_price) {
             query = query.lte('price', parseFloat(max_price as string));
-        }
-
-        // Allow overriding the default is_active filter with query parameter
-        if (is_active !== undefined) {
-            // Remove the default filter and apply the one from query param
-            query = supabaseAdmin
-                .from('products')
-                .select('*', { count: 'exact' })
-                .eq('store_id', req.storeId)
-                .eq('is_active', is_active === 'true')
-                .order('created_at', { ascending: false })
-                .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
-
-            // Reapply source filter
-            if (source === 'local') {
-                query = query.is('shopify_product_id', null).is('shopify_variant_id', null);
-            } else if (source === 'shopify') {
-                query = query.not('shopify_product_id', 'is', null);
-            }
-
-            // Reapply other filters (sanitized)
-            if (search) {
-                const sanitized = sanitizeSearchInput(search as string);
-                query = query.or(`name.ilike.%${sanitized}%,sku.ilike.%${sanitized}%`);
-            }
-            if (category) {
-                query = query.eq('category', category);
-            }
-            if (min_price) {
-                query = query.gte('price', parseFloat(min_price as string));
-            }
-            if (max_price) {
-                query = query.lte('price', parseFloat(max_price as string));
-            }
         }
 
         const { data, error, count } = await query;

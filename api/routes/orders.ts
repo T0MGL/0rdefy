@@ -710,7 +710,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             `, { count: 'exact' })
             .eq('store_id', req.storeId)
             .order('created_at', { ascending: false })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(safeNumber(offset, 0), safeNumber(offset, 0) + safeNumber(limit, 20) - 1);
 
         // Filter test orders (show by default unless show_test=false)
         if (show_test === 'false') {
@@ -1166,9 +1166,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         product_name: item.name || item.title || 'Producto',
                         variant_title: item.variant_title || null,
                         sku: item.sku || null,
-                        quantity: item.quantity || 1,
-                        unit_price: parseFloat(item.price) || 0,
-                        total_price: (item.quantity || 1) * (parseFloat(item.price) || 0),
+                        quantity: safeNumber(item.quantity, 1),
+                        unit_price: safeNumber(item.price, 0),
+                        total_price: safeNumber(item.quantity, 1) * safeNumber(item.price, 0),
                         image_url: imageUrl
                     });
                 }
@@ -1311,7 +1311,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
         // Calculate total quantity from all line items
         const totalQuantity = Array.isArray(lineItems)
-            ? lineItems.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+            ? lineItems.reduce((sum: number, item: any) => sum + safeNumber(item.quantity, 0), 0)
             : 1;
 
         const transformedData = {
@@ -1678,7 +1678,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                 // Check stock for each product
                 for (const item of lineItems) {
                     const productId = item.product_id;
-                    const requiredQty = parseInt(item.quantity) || 0;
+                    const requiredQty = safeNumber(item.quantity, 0);
 
                     if (!productId || requiredQty <= 0) continue;
 
@@ -2588,7 +2588,7 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
 
                 for (const item of lineItems) {
                     const productId = item.product_id;
-                    const requiredQty = parseInt(item.quantity) || 0;
+                    const requiredQty = safeNumber(item.quantity, 0);
 
                     if (!productId || requiredQty <= 0) continue;
 
@@ -2716,7 +2716,7 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
 
             for (const item of lineItems) {
                 const productId = item.product_id;
-                const requiredQty = parseInt(item.quantity) || 0;
+                const requiredQty = safeNumber(item.quantity, 0);
 
                 if (!productId || requiredQty <= 0) continue;
 

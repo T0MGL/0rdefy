@@ -368,7 +368,6 @@ const formatCurrency = (amount: number): string => {
 
 // Carrier fee configuration (should come from carrier_zones in production)
 const DEFAULT_CARRIER_FEE = 25000;
-const FAILED_ATTEMPT_FEE_RATE = 0.5;
 
 // Main tab type
 type MainTab = 'conciliaciones' | 'cuentas' | 'pagos';
@@ -1942,7 +1941,7 @@ export default function Settlements() {
           totalCodExpected={stats.codExpected}
           totalCodCollected={totalAmountCollected || 0}
           carrierFeePerDelivery={DEFAULT_CARRIER_FEE}
-          failedAttemptFeeRate={FAILED_ATTEMPT_FEE_RATE}
+          failedAttemptFeeRate={(selectedGroup.failed_attempt_fee_percent ?? 50) / 100}
           discrepancyNotes={discrepancyNotes}
           onConfirm={handleConfirmReconciliation}
           onCancel={handleBack}

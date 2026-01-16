@@ -13,8 +13,18 @@
 
 import { Resend } from 'resend';
 
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy-initialized Resend client (only created when API key exists)
+let resendClient: Resend | null = null;
+
+const getResendClient = (): Resend | null => {
+  if (!process.env.RESEND_API_KEY) {
+    return null;
+  }
+  if (!resendClient) {
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendClient;
+};
 
 // Email configuration
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Ordefy <noreply@ordefy.io>';
@@ -82,7 +92,7 @@ export async function sendCollaboratorInvite(
   });
 
   try {
-    const { data: result, error } = await resend.emails.send({
+    const { data: result, error } = await getResendClient()!.emails.send({
       from: FROM_EMAIL,
       to: [to],
       subject: `${data.inviterName} te invitó a ${data.storeName} en Ordefy`,
@@ -175,7 +185,7 @@ export async function sendPasswordReset(
   }
 
   try {
-    const { data: result, error } = await resend.emails.send({
+    const { data: result, error } = await getResendClient()!.emails.send({
       from: FROM_EMAIL,
       to: [to],
       subject: 'Restablecer tu contraseña - Ordefy',
@@ -269,7 +279,7 @@ export async function sendWelcomeEmail(
   }
 
   try {
-    const { data: result, error } = await resend.emails.send({
+    const { data: result, error } = await getResendClient()!.emails.send({
       from: FROM_EMAIL,
       to: [to],
       subject: `¡Bienvenido a Ordefy, ${data.userName}!`,

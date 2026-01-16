@@ -768,14 +768,23 @@ settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', async (req: Auth
 settlementsRouter.patch('/carrier-accounts/:carrierId/config', async (req: AuthRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
-    const { settlement_type, charges_failed_attempts, payment_schedule } = req.body;
+    const { settlement_type, charges_failed_attempts, payment_schedule, failed_attempt_fee_percent } = req.body;
 
     console.log('💰 [CARRIER ACCOUNTS] Updating config for carrier:', carrierId);
+
+    // Validate failed_attempt_fee_percent if provided
+    if (failed_attempt_fee_percent !== undefined) {
+      const feePercent = Number(failed_attempt_fee_percent);
+      if (isNaN(feePercent) || feePercent < 0 || feePercent > 100) {
+        return res.status(400).json({ error: 'failed_attempt_fee_percent debe ser un número entre 0 y 100' });
+      }
+    }
 
     await settlementsService.updateCarrierConfig(carrierId, req.storeId!, {
       settlement_type,
       charges_failed_attempts,
       payment_schedule,
+      failed_attempt_fee_percent: failed_attempt_fee_percent !== undefined ? Number(failed_attempt_fee_percent) : undefined,
     });
 
     res.json({ message: 'Configuración actualizada' });

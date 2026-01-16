@@ -556,7 +556,7 @@ export async function createDispatchSession(
     if (isCod) {
       totalCodExpected += order.total_price || 0;
     } else {
-      totalPrepaid++;
+      totalPrepaid += order.total_price || 0;
       totalPrepaidCarrierFees += rate;
     }
 
@@ -579,8 +579,9 @@ export async function createDispatchSession(
 
   logger.info('SETTLEMENTS', `[DISPATCH] Creating session with ${orders.length} orders`, {
     total_cod_orders: sessionOrders.filter(o => o.is_cod).length,
-    total_prepaid_orders: totalPrepaid,
+    total_prepaid_orders: sessionOrders.filter(o => !o.is_cod).length,
     total_cod_expected: totalCodExpected,
+    total_prepaid: totalPrepaid,
     total_prepaid_carrier_fees: totalPrepaidCarrierFees
   });
 
@@ -1622,6 +1623,7 @@ export interface CourierDateGroup {
   total_orders: number;
   total_cod_expected: number;
   total_prepaid: number;
+  failed_attempt_fee_percent: number;
 }
 
 /**
@@ -1685,7 +1687,7 @@ export async function getShippedOrdersGrouped(
 
     const { data: carriers, error: carriersError } = await supabaseAdmin
       .from('carriers')
-      .select('id, name')
+      .select('id, name, failed_attempt_fee_percent')
       .in('id', carrierIds);
 
     if (carriersError) {
@@ -1693,9 +1695,12 @@ export async function getShippedOrdersGrouped(
       // Continue with empty carrier map - orders will show "Sin courier"
     }
 
-    // Create carrier lookup map
-    const carrierMap = new Map<string, string>();
-    carriers?.forEach(c => carrierMap.set(c.id, c.name));
+    // Create carrier lookup maps
+    const carrierMap = new Map<string, { name: string; failed_attempt_fee_percent: number }>();
+    carriers?.forEach(c => carrierMap.set(c.id, {
+      name: c.name,
+      failed_attempt_fee_percent: c.failed_attempt_fee_percent ?? 50
+    }));
 
     logger.info('SETTLEMENTS', `Loaded ${carrierMap.size} carriers`);
 
@@ -1707,7 +1712,7 @@ export async function getShippedOrdersGrouped(
         : new Date(order.created_at).toISOString().split('T')[0];
 
       const groupKey = `${order.courier_id}_${dispatchDate}`;
-      const carrierName = carrierMap.get(order.courier_id) || 'Sin courier';
+      const carrierData = carrierMap.get(order.courier_id) || { name: 'Sin courier', failed_attempt_fee_percent: 50 };
       const isCod = isCodPayment(order.payment_method);
       const codAmount = isCod ? (order.total_price || 0) : 0;
 
@@ -1750,12 +1755,13 @@ export async function getShippedOrdersGrouped(
       } else {
         groupMap.set(groupKey, {
           carrier_id: order.courier_id,
-          carrier_name: carrierName,
+          carrier_name: carrierData.name,
           dispatch_date: dispatchDate,
           orders: [orderData],
           total_orders: 1,
           total_cod_expected: isCod ? codAmount : 0,
           total_prepaid: isCod ? 0 : 1,
+          failed_attempt_fee_percent: carrierData.failed_attempt_fee_percent,
         });
       }
     });
@@ -2548,6 +2554,7 @@ export async function updateCarrierConfig(
     settlement_type?: 'net' | 'gross' | 'salary';
     charges_failed_attempts?: boolean;
     payment_schedule?: string;
+    failed_attempt_fee_percent?: number;
   }
 ): Promise<void> {
   const { error } = await supabaseAdmin
@@ -2575,10 +2582,11 @@ export async function getCarrierConfig(
   settlement_type: string;
   charges_failed_attempts: boolean;
   payment_schedule: string;
+  failed_attempt_fee_percent: number;
 } | null> {
   const { data, error } = await supabaseAdmin
     .from('carriers')
-    .select('settlement_type, charges_failed_attempts, payment_schedule')
+    .select('settlement_type, charges_failed_attempts, payment_schedule, failed_attempt_fee_percent')
     .eq('id', carrierId)
     .eq('store_id', storeId)
     .single();
@@ -2591,6 +2599,7 @@ export async function getCarrierConfig(
     settlement_type: data.settlement_type || 'gross',
     charges_failed_attempts: data.charges_failed_attempts || false,
     payment_schedule: data.payment_schedule || 'weekly',
+    failed_attempt_fee_percent: data.failed_attempt_fee_percent ?? 50,
   };
 }
 
