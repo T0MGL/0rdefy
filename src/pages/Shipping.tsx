@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download, FileSpreadsheet } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
@@ -24,6 +25,7 @@ import { formatCurrency } from '@/utils/currency';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 
 export default function Shipping() {
+  const { currentStore } = useAuth();
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const { toast } = useToast();
   const [orders, setOrders] = useState<ReadyToShipOrder[]>([]);
@@ -120,8 +122,8 @@ export default function Shipping() {
     // Get carrier name from first order (all should have same carrier in batch)
     const carrierName = selectedOrdersList[0]?.carrier_name || 'Transportadora';
 
-    // Get store info from localStorage
-    const storeName = localStorage.getItem('store_name') || 'Mi Tienda';
+    // Get store info from context
+    const storeName = currentStore?.name || 'Mi Tienda';
 
     DeliveryManifestGenerator.generate({
       orders: selectedOrdersList,
@@ -380,7 +382,7 @@ export default function Shipping() {
                       {/* Header */}
                       <div className="flex items-center justify-between mb-3">
                         <div>
-                          <h3 className="font-bold text-lg">#{order.order_number}</h3>
+                          <h3 className="font-bold text-lg">{order.order_number}</h3>
                           <p className="text-sm text-muted-foreground">
                             {order.customer_name}
                           </p>
@@ -469,7 +471,7 @@ export default function Shipping() {
             </DialogTitle>
             <DialogDescription>
               {singleDispatchOrder
-                ? `Despachar pedido #${singleDispatchOrder.order_number} a ${singleDispatchOrder.carrier_name}`
+                ? `Despachar pedido ${singleDispatchOrder.order_number} a ${singleDispatchOrder.carrier_name}`
                 : `Se marcarán ${selectedOrders.size} pedido(s) como "En Tránsito"`
               }
             </DialogDescription>
@@ -508,7 +510,7 @@ export default function Shipping() {
                   const order = orders.find(o => o.id === orderId);
                   return order ? (
                     <Badge key={orderId} variant="secondary">
-                      #{order.order_number}
+                      {order.order_number}
                     </Badge>
                   ) : null;
                 })}

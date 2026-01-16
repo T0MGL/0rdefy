@@ -323,5 +323,5 @@ export async function exportOrdersExcel(
     };
   });
 
-  return generateDispatchExcel(sessionInfo, dispatchOrders);
+  return await generateDispatchExcel(sessionInfo, dispatchOrders);
 }

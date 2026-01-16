@@ -608,7 +608,7 @@ export class ShopifyWebhookService {
     shopifyOrder: ShopifyOrder,
     storeId: string,
     integrationId: string,
-    integration?: { shop_domain: string; access_token: string }
+    integration?: { shop_domain: string; access_token: string; api_key?: string; api_secret_key?: string }
   ): Promise<{ success: boolean; order_id?: string; error?: string }> {
     try {
       // Registrar evento de webhook
@@ -912,7 +912,7 @@ export class ShopifyWebhookService {
     shopifyOrder: ShopifyOrder,
     storeId: string,
     integrationId: string,
-    integration?: { shop_domain: string; access_token: string }
+    integration?: { shop_domain: string; access_token: string; api_key?: string; api_secret_key?: string }
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // Registrar evento de webhook

@@ -111,6 +111,9 @@ export interface Order {
   // Cash on Delivery (COD)
   payment_method?: string; // 'cash', 'online', 'card', 'transfer', 'yape', 'plin', 'efectivo', etc.
   cod_amount?: number; // Monto que debe cobrar la transportadora en efectivo
+  // Financial status from Shopify - CRITICAL for shipping labels
+  financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided' | 'partially_refunded' | 'partially_paid';
+  total_price?: number; // Total price of the order
   // Discounts
   total_discounts?: number; // Descuento aplicado al pedido
   // Geolocation for map
@@ -143,7 +146,7 @@ export interface Order {
     products?: {
       id: string;
       name: string;
-      image_url: string;
+      image_url?: string;
     };
   }>;
   // Amount discrepancy (when courier collects different amount)

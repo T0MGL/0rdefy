@@ -47,7 +47,6 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
     try {
         const { token } = req.params;
 
-        console.log(`🔍 [ORDERS] Looking up order by token ${token}`);
 
         const { data, error } = await supabaseAdmin
             .from('orders')
@@ -67,14 +66,12 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             .single();
 
         if (error || !data) {
-            console.error(`❌ [ORDERS] Token lookup failed:`, error);
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El código QR no es válido o el pedido no existe'
             });
         }
 
-        console.log(`✅ [ORDERS] Found order ${data.id} for token ${token}`);
 
         // Check if order is already delivered
         if (data.delivery_status === 'confirmed' || data.sleeves_status === 'delivered') {
@@ -96,7 +93,6 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
         // Check if order has incident - treat as pending with incident flag
         // This allows the courier to complete retry attempts
         if (data.sleeves_status === 'incident' || data.has_active_incident) {
-            console.log(`⚠️ [ORDERS] Order ${data.id} has active incident - showing pending with incident info`);
             // Continue to return as pending delivery, the frontend will check for incident
         }
 
@@ -143,7 +139,6 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             data: deliveryInfo
         });
     } catch (error: any) {
-        console.error(`[GET /api/orders/token/${req.params.token}] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener pedido',
             message: error.message
@@ -164,7 +159,6 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         const { token } = req.params;
         const { proof_photo_url, payment_method, notes, amount_collected, has_amount_discrepancy } = req.body;
 
-        console.log(`✅ [ORDERS] Courier confirming delivery via token`);
 
         // SECURITY: Look up order by token - only valid tokens can access
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
@@ -174,7 +168,6 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
             .single();
 
         if (fetchError || !existingOrder) {
-            console.error(`❌ [ORDERS] Order not found for token`);
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'Token de entrega inválido o expirado'
@@ -182,18 +175,9 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         }
 
         const id = existingOrder.id;
-        console.log(`✅ [ORDERS] Token validated for order ${id}`, {
-            payment_method,
-            original_payment_method: existingOrder.payment_method,
-            has_notes: !!notes,
-            has_photo: !!proof_photo_url,
-            has_amount_discrepancy: !!has_amount_discrepancy,
-            amount_collected: amount_collected || null
-        });
 
         // Check if order has an active incident
         if (existingOrder.has_active_incident) {
-            console.warn(`⚠️ [ORDERS] Order ${id} has an active incident - delivery must be confirmed through incident retry`);
             return res.status(400).json({
                 error: 'Active incident',
                 message: 'Este pedido tiene una incidencia activa. Debes completar uno de los intentos programados en lugar de confirmar directamente.'
@@ -233,20 +217,17 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 // Courier explicitly reported a different amount
                 updateData.amount_collected = amount_collected;
                 updateData.has_amount_discrepancy = true;
-                console.log(`⚠️ [ORDERS] COD discrepancy for order ${id}: expected ${existingOrder.cod_amount || existingOrder.total_price}, collected ${amount_collected}`);
             } else {
                 // No discrepancy reported - assume full amount collected
                 const expectedAmount = existingOrder.cod_amount || existingOrder.total_price || 0;
                 updateData.amount_collected = expectedAmount;
                 updateData.has_amount_discrepancy = false;
-                console.log(`💰 [ORDERS] COD payment for order ${id}: collected ${expectedAmount}`);
             }
         } else {
             // PREPAID payment (tarjeta, qr, transferencia): no cash collected
             // The payment already went directly to the store
             updateData.amount_collected = 0;
             updateData.has_amount_discrepancy = false;
-            console.log(`💳 [ORDERS] Prepaid delivery for order ${id}: payment method = ${payment_method}, no cash collected`);
         }
 
         const { data, error } = await supabaseAdmin
@@ -257,7 +238,6 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
             .single();
 
         if (error || !data) {
-            console.error(`❌ [ORDERS] Failed to update order ${id}:`, error);
             return res.status(500).json({
                 error: 'Error al actualizar pedido'
             });
@@ -313,7 +293,6 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 notes: historyNotes
             });
 
-        console.log(`✅ [ORDERS] Order ${id} marked as delivered - Payment: ${payment_method}, COD: ${isCodPayment}, Amount collected: ${updateData.amount_collected}`);
 
         res.json({
             message: 'Delivery confirmed successfully',
@@ -325,7 +304,6 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
             }
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/delivery-confirm] Error:`, error);
         res.status(500).json({
             error: 'Error al confirmar entrega',
             message: error.message
@@ -347,7 +325,6 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
             });
         }
 
-        console.log(`❌ [ORDERS] Courier reporting failed delivery via token`);
 
         // SECURITY: Look up order by token - only valid tokens can access
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
@@ -357,7 +334,6 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
             .single();
 
         if (fetchError || !existingOrder) {
-            console.error(`❌ [ORDERS] Order not found for token`);
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'Token de entrega inválido o expirado'
@@ -365,14 +341,9 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
         }
 
         const id = existingOrder.id;
-        console.log(`❌ [ORDERS] Token validated for order ${id}`, {
-            reason: delivery_failure_reason,
-            has_notes: !!failure_notes
-        });
 
         // Check if order has an active incident
         if (existingOrder.has_active_incident) {
-            console.warn(`⚠️ [ORDERS] Order ${id} has an active incident - failure must be reported through incident retry`);
             return res.status(400).json({
                 error: 'Active incident',
                 message: 'Este pedido tiene una incidencia activa. Debes completar uno de los intentos programados en lugar de reportar directamente.'
@@ -400,7 +371,6 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
             .single();
 
         if (error || !data) {
-            console.error(`❌ [ORDERS] Failed to update order ${id}:`, error);
             return res.status(500).json({
                 error: 'Error al actualizar pedido'
             });
@@ -445,14 +415,12 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
                 notes: `Delivery failed: ${delivery_failure_reason}${failure_notes ? ` - Additional notes: ${failure_notes}` : ''}`
             });
 
-        console.log(`✅ [ORDERS] Order ${id} marked as incident with full data sync`);
 
         res.json({
             message: 'Delivery failure reported',
             data
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/delivery-fail] Error:`, error);
         res.status(500).json({
             error: 'Error al reportar fallo de entrega',
             message: error.message
@@ -475,7 +443,6 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
             });
         }
 
-        console.log(`⭐ [ORDERS] Customer rating delivery for order ${id}: ${rating} stars`);
 
         // Get the order to verify it's delivered
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
@@ -485,7 +452,6 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
             .single();
 
         if (fetchError || !existingOrder) {
-            console.error(`❌ [ORDERS] Order ${id} not found`);
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El pedido no existe'
@@ -525,13 +491,11 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
             .single();
 
         if (error || !data) {
-            console.error(`❌ [ORDERS] Failed to update order ${id}:`, error);
             return res.status(500).json({
                 error: 'Error al guardar calificación'
             });
         }
 
-        console.log(`✅ [ORDERS] Order ${id} rated with ${rating} stars, token deleted`);
 
         res.json({
             message: 'Gracias por tu calificación',
@@ -542,7 +506,6 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
             }
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/rate-delivery] Error:`, error);
         res.status(500).json({
             error: 'Error al guardar calificación',
             message: error.message
@@ -556,7 +519,6 @@ ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, r
     try {
         const { id } = req.params;
 
-        console.log(`🚫 [ORDERS] Cancelling order ${id} after failed delivery`);
 
         // First, get the order to verify it exists
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
@@ -566,7 +528,6 @@ ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, r
             .single();
 
         if (fetchError || !existingOrder) {
-            console.error(`❌ [ORDERS] Order ${id} not found`);
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El pedido no existe'
@@ -595,7 +556,6 @@ ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, r
             .single();
 
         if (error || !data) {
-            console.error(`❌ [ORDERS] Failed to cancel order ${id}:`, error);
             return res.status(500).json({
                 error: 'Error al cancelar pedido'
             });
@@ -614,14 +574,12 @@ ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, r
                 notes: 'Order cancelled after failed delivery'
             });
 
-        console.log(`✅ [ORDERS] Order ${id} cancelled`);
 
         res.json({
             message: 'Order cancelled successfully',
             data
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/cancel] Error:`, error);
         res.status(500).json({
             error: 'Error al cancelar pedido',
             message: error.message
@@ -816,7 +774,17 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 // Amount discrepancy fields
                 cod_amount: order.cod_amount,
                 amount_collected: order.amount_collected,
-                has_amount_discrepancy: order.has_amount_discrepancy
+                has_amount_discrepancy: order.has_amount_discrepancy,
+                // Payment fields - CRITICAL for shipping labels
+                financial_status: order.financial_status,
+                payment_method: order.payment_method,
+                total_price: order.total_price,
+                total_discounts: order.total_discounts,
+                // Address details for labels
+                neighborhood: order.neighborhood,
+                city: order.city,
+                address_reference: order.address_reference,
+                customer_address: order.customer_address
             };
         }) || [];
 
@@ -824,13 +792,12 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             data: transformedData,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: parseInt(offset as string) + (data?.length || 0) < (count || 0)
+                limit: safeNumber(limit, 20),
+                offset: safeNumber(offset, 0),
+                hasMore: safeNumber(offset, 0) + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {
-        console.error('[GET /api/orders] Error:', error);
         res.status(500).json({
             error: 'Error al obtener pedidos',
             message: error.message
@@ -942,13 +909,32 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
             latitude: data.latitude,
             longitude: data.longitude,
             line_items: lineItems,  // Include all line items with full details
+            order_line_items: lineItems, // Also include as order_line_items for compatibility
             shopify_order_id: data.shopify_order_id,
-            shopify_order_number: data.shopify_order_number
+            shopify_order_number: data.shopify_order_number,
+            shopify_order_name: data.shopify_order_name,
+            // Payment fields - CRITICAL for shipping labels
+            financial_status: data.financial_status,
+            payment_method: data.payment_method,
+            payment_gateway: data.payment_gateway,
+            cod_amount: data.cod_amount,
+            total_price: data.total_price,
+            total_discounts: data.total_discounts,
+            // Carrier info
+            carrier_id: data.courier_id,
+            // Address details
+            neighborhood: data.neighborhood,
+            city: data.city,
+            address_reference: data.address_reference,
+            customer_address: data.customer_address,
+            // Print tracking
+            printed: data.printed,
+            printed_at: data.printed_at,
+            printed_by: data.printed_by
         };
 
         res.json(transformedData);
     } catch (error: any) {
-        console.error(`[GET /api/orders/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener pedido',
             message: error.message
@@ -993,16 +979,6 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             });
         }
 
-        console.log('🚀 [ORDERS] Creating order:', {
-            customer_first_name,
-            customer_last_name,
-            customer_phone,
-            courier_id,
-            payment_method,
-            payment_status,
-            line_items
-        });
-
         // ================================================================
         // Find or create customer using atomic function (prevents race conditions)
         // ================================================================
@@ -1025,7 +1001,6 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     });
 
                 if (customerError) {
-                    console.error('⚠️ [ORDERS] Failed to find/create customer via RPC:', customerError);
                     // Fallback to legacy method if RPC not available
                     const { data: existingByPhone } = await supabaseAdmin
                         .from('customers')
@@ -1054,7 +1029,6 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     }
                 } else {
                     customerId = customerResult;
-                    console.log(`✅ [ORDERS] Customer (atomic): ${customerId}`);
                 }
 
                 // Update customer info if we have additional data
@@ -1089,13 +1063,11 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                                 .from('customers')
                                 .update(updateData)
                                 .eq('id', customerId);
-                            console.log(`🔄 [ORDERS] Updated customer info for: ${customerId}`);
                         }
                     }
                 }
             }
         } catch (customerErr) {
-            console.error('⚠️ [ORDERS] Error in find/create customer:', customerErr);
             // Non-blocking: continue with order creation
         }
 
@@ -1131,11 +1103,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             .single();
 
         if (error) {
-            console.error('❌ [ORDERS] Database error:', error);
             throw error;
         }
 
-        console.log('✅ [ORDERS] Order created successfully:', data.id);
 
         // Create normalized line items in order_line_items table (for manual orders)
         if (line_items && Array.isArray(line_items) && line_items.length > 0) {
@@ -1179,14 +1149,11 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         .insert(normalizedLineItems);
 
                     if (lineItemsError) {
-                        console.warn('⚠️ [ORDERS] Failed to create normalized line items:', lineItemsError);
                         // Non-blocking: order is created, line items are optional for display
                     } else {
-                        console.log(`✅ [ORDERS] Created ${normalizedLineItems.length} normalized line items`);
                     }
                 }
             } catch (lineItemsErr) {
-                console.warn('⚠️ [ORDERS] Error creating normalized line items:', lineItemsErr);
                 // Non-blocking
             }
         }
@@ -1196,7 +1163,6 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             data
         });
     } catch (error: any) {
-        console.error('[POST /api/orders] Error:', error);
         res.status(500).json({
             error: 'Error al crear pedido',
             message: error.message
@@ -1338,7 +1304,6 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
 
         res.json(transformedData);
     } catch (error: any) {
-        console.error(`[PUT /api/orders/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar pedido',
             message: error.message
@@ -1574,15 +1539,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             force = false // Allow forcing certain transitions (for admin override)
         } = req.body;
 
-        // DEBUG: Log request details
-        console.log(`📋 [PATCH /orders/${id}/status] Request:`, {
-            orderId: id,
-            storeId: req.storeId,
-            userId: req.userId,
-            userRole: req.userRole,
-            targetStatus: sleeves_status
-        });
-
         const validStatuses = ['pending', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped', 'incident'];
         if (!validStatuses.includes(sleeves_status)) {
             return res.status(400).json({
@@ -1600,13 +1556,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .eq('store_id', req.storeId)
             .single();
 
-        // DEBUG: Log query result
-        console.log(`📋 [PATCH /orders/${id}/status] Query result:`, {
-            found: !!currentOrder,
-            error: fetchError?.message || null,
-            errorCode: fetchError?.code || null
-        });
-
         if (fetchError || !currentOrder) {
             return res.status(404).json({
                 error: 'Order not found',
@@ -1623,7 +1572,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         const canForce = force && (req.userRole === 'owner' || req.userRole === 'admin');
 
         if (force && !canForce) {
-            console.warn(`⚠️ [ORDERS] Force flag rejected for user ${req.userId} with role ${req.userRole}`);
             return res.status(403).json({
                 error: 'Forbidden',
                 code: 'FORCE_NOT_ALLOWED',
@@ -1638,7 +1586,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                 const fromLabel = STATUS_LABELS[fromStatus] || fromStatus;
                 const toLabel = STATUS_LABELS[toStatus] || toStatus;
 
-                console.log(`⚠️ [ORDERS] Invalid transition from ${fromStatus} to ${toStatus}: ${validation.message}`);
 
                 return res.status(400).json({
                     error: 'Invalid status transition',
@@ -1653,11 +1600,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                     }
                 });
             }
-        }
-
-        // Log force usage for audit trail
-        if (canForce) {
-            console.log(`⚠️ [ORDERS] Force transition by ${req.userRole} (user ${req.userId}): ${fromStatus} → ${toStatus}`);
         }
 
         // ================================================================
@@ -1704,7 +1646,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                         .map(i => `• ${i.product_name}: necesita ${i.required}, disponible ${i.available} (faltan ${i.shortage})`)
                         .join('\n');
 
-                    console.warn(`⚠️ [ORDERS] Stock insuficiente para orden ${id}:\n${issueList}`);
 
                     return res.status(400).json({
                         error: 'Insufficient stock',
@@ -1768,16 +1709,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .select('*, carriers(name), order_line_items(id, quantity, product_id, product_name, sku, variant_title, unit_price, image_url)')
             .single();
 
-        // DEBUG: Log update result
-        console.log(`📋 [PATCH /orders/${id}/status] Update result:`, {
-            success: !!data,
-            error: error?.message || null,
-            errorCode: error?.code || null,
-            errorDetails: error?.details || null
-        });
-
         if (error || !data) {
-            console.error(`❌ [PATCH /orders/${id}/status] Update failed:`, error);
             return res.status(404).json({
                 error: 'Order not found',
                 details: error?.message
@@ -1788,8 +1720,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         if ((sleeves_status === 'cancelled' || sleeves_status === 'rejected' || sleeves_status === 'returned') &&
             data.shopify_order_id) {
             try {
-                console.log(`🔄 [SHOPIFY-SYNC] Cancelling Shopify order ${data.shopify_order_id} (status: ${sleeves_status})`);
-
                 // Get Shopify integration for this store
                 const { data: integration } = await supabaseAdmin
                     .from('shopify_integrations')
@@ -1808,13 +1738,8 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                         false, // Don't notify customer (we handle that)
                         false  // Don't refund automatically
                     );
-
-                    console.log(`✅ [SHOPIFY-SYNC] Successfully cancelled Shopify order ${data.shopify_order_id}`);
-                } else {
-                    console.warn(`⚠️  [SHOPIFY-SYNC] No active Shopify integration found for store ${req.storeId}`);
                 }
             } catch (shopifyError: any) {
-                console.error(`❌ [SHOPIFY-SYNC] Failed to cancel Shopify order:`, shopifyError);
                 // Don't fail the entire request - log the error and continue
                 // The order is already cancelled in Ordefy
             }
@@ -1837,9 +1762,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                     data.qr_code_url = updatedData.qr_code_url;
                 }
 
-                console.log(`✅ [ORDERS] Regenerated delivery token and QR for reactivated order ${id}`);
             } catch (qrError) {
-                console.error(`❌ [ORDERS] Failed to generate QR code for reactivated order ${id}:`, qrError);
                 // Continue anyway - QR can be regenerated later
             }
         }
@@ -1849,7 +1772,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             data
         });
     } catch (error: any) {
-        console.error(`[PATCH /api/orders/${req.params.id}/status] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar estado del pedido',
             message: error.message
@@ -1878,7 +1800,6 @@ ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
             data: data || []
         });
     } catch (error: any) {
-        console.error(`[GET /api/orders/${req.params.id}/history] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener historial del pedido',
             message: error.message
@@ -1895,7 +1816,6 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
         const userRole = req.userRole;
         const userId = req.userId;
 
-        console.log(`🗑️ [ORDERS] Delete request for order ${id} by ${userRole}`);
 
         // Get order details
         const { data: order, error: fetchError } = await supabaseAdmin
@@ -1915,7 +1835,6 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
         // OWNER: Hard Delete (permanent removal with cascading cleanup)
         // ============================================================
         if (userRole === 'owner') {
-            console.log(`🔥 [ORDERS] Owner hard delete - removing order ${id} permanently`);
 
             // Hard delete (trigger will handle cascading cleanup + stock restoration)
             const { data, error } = await supabaseAdmin
@@ -1927,7 +1846,6 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
                 .single();
 
             if (error) {
-                console.error(`❌ Hard delete failed:`, error.message);
                 return res.status(400).json({
                     error: 'Cannot delete order',
                     message: error.message
@@ -1935,8 +1853,6 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
             }
 
             const wasStockAffected = order.sleeves_status && ['ready_to_ship', 'shipped', 'delivered'].includes(order.sleeves_status);
-
-            console.log(`✅ Order ${id} permanently deleted${wasStockAffected ? ' (stock restored, all data cleaned)' : ' (all data cleaned)'}`);
 
             return res.json({
                 success: true,
@@ -1951,8 +1867,6 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
         // NON-OWNER: Soft Delete (mark as deleted, reduced opacity in UI)
         // ============================================================
         else {
-            console.log(`👤 [ORDERS] Non-owner soft delete - hiding order ${id} (can be restored by owner)`);
-
             // Check if already soft-deleted
             if (order.deleted_at) {
                 return res.status(400).json({
@@ -1976,14 +1890,12 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
                 .single();
 
             if (error || !data) {
-                console.error(`❌ Soft delete failed:`, error);
                 return res.status(500).json({
                     error: 'Error al eliminar pedido',
                     message: error?.message
                 });
             }
 
-            console.log(`✅ Order ${id} soft-deleted by ${userRole}`);
 
             return res.json({
                 success: true,
@@ -1993,7 +1905,6 @@ ordersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.OR
             });
         }
     } catch (error: any) {
-        console.error(`[DELETE /api/orders/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar pedido',
             message: error.message
@@ -2023,7 +1934,6 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
             });
         }
 
-        console.log(`🧪 [ORDERS] ${is_test ? 'Marking' : 'Unmarking'} order ${id} as test`);
 
         // Call database function to mark/unmark as test
         const { data, error } = await supabaseAdmin
@@ -2034,7 +1944,6 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
             });
 
         if (error) {
-            console.error(`❌ Mark test failed:`, error);
             return res.status(500).json({
                 error: 'Error al actualizar estado de prueba del pedido',
                 message: error.message
@@ -2048,14 +1957,12 @@ ordersRouter.patch('/:id/test', requirePermission(Module.ORDERS, Permission.EDIT
             });
         }
 
-        console.log(`✅ Order ${id} test status updated`);
         res.json({
             message: result.message,
             id: result.order_id,
             is_test
         });
     } catch (error: any) {
-        console.error(`[PATCH /api/orders/${req.params.id}/test] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar estado de prueba',
             message: error.message
@@ -2081,7 +1988,6 @@ ordersRouter.put('/:id/payment-status', requirePermission(Module.ORDERS, Permiss
             });
         }
 
-        console.log(`💰 [ORDERS] Updating payment status for order ${id} to ${payment_status}`);
 
         const { data, error } = await supabaseAdmin
             .from('orders')
@@ -2105,7 +2011,6 @@ ordersRouter.put('/:id/payment-status', requirePermission(Module.ORDERS, Permiss
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/orders/${req.params.id}/payment-status] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar estado de pago',
             message: error.message
@@ -2120,7 +2025,6 @@ ordersRouter.post('/:id/mark-preparing', requirePermission(Module.ORDERS, Permis
     try {
         const { id } = req.params;
 
-        console.log(`📦 [ORDERS] Marking order ${id} as preparing`);
 
         const { data, error } = await supabaseAdmin
             .from('orders')
@@ -2144,7 +2048,6 @@ ordersRouter.post('/:id/mark-preparing', requirePermission(Module.ORDERS, Permis
             data
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/mark-preparing] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar estado del pedido',
             message: error.message
@@ -2160,7 +2063,6 @@ ordersRouter.post('/:id/mark-out-for-delivery', requirePermission(Module.ORDERS,
         const { id } = req.params;
         const { carrier_id, delivery_notes } = req.body;
 
-        console.log(`🚚 [ORDERS] Marking order ${id} as out for delivery`);
 
         const updates: any = {
             status: 'out_for_delivery',
@@ -2189,7 +2091,6 @@ ordersRouter.post('/:id/mark-out-for-delivery', requirePermission(Module.ORDERS,
             data
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/mark-out-for-delivery] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar estado del pedido',
             message: error.message
@@ -2205,7 +2106,6 @@ ordersRouter.post('/:id/mark-delivered-paid', requirePermission(Module.ORDERS, P
         const { id } = req.params;
         const { notes } = req.body;
 
-        console.log(`✅ [ORDERS] Marking order ${id} as delivered and paid`);
 
         const updates: any = {
             status: 'delivered',
@@ -2234,7 +2134,6 @@ ordersRouter.post('/:id/mark-delivered-paid', requirePermission(Module.ORDERS, P
             data
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/mark-delivered-paid] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar estado del pedido',
             message: error.message
@@ -2249,8 +2148,6 @@ ordersRouter.get('/stats/high-risk', async (req: AuthRequest, res: Response) => 
     try {
         const { threshold = '70' } = req.query;
 
-        console.log(`⚠️ [ORDERS] Fetching high-risk orders (threshold: ${threshold})`);
-
         const { data, error } = await supabaseAdmin
             .from('orders')
             .select(`
@@ -2263,7 +2160,7 @@ ordersRouter.get('/stats/high-risk', async (req: AuthRequest, res: Response) => 
                 )
             `)
             .eq('store_id', req.storeId)
-            .gte('risk_score', parseInt(threshold as string))
+            .gte('risk_score', safeNumber(threshold, 70))
             .order('risk_score', { ascending: false })
             .limit(50);
 
@@ -2276,7 +2173,6 @@ ordersRouter.get('/stats/high-risk', async (req: AuthRequest, res: Response) => 
             count: data?.length || 0
         });
     } catch (error: any) {
-        console.error('[GET /api/orders/stats/high-risk] Error:', error);
         res.status(500).json({
             error: 'Error al obtener pedidos de alto riesgo',
             message: error.message
@@ -2289,7 +2185,6 @@ ordersRouter.get('/stats/high-risk', async (req: AuthRequest, res: Response) => 
 // ================================================================
 ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Response) => {
     try {
-        console.log('🚚 [ORDERS] Fetching orders pending delivery');
 
         const { data, error } = await supabaseAdmin
             .from('orders')
@@ -2325,7 +2220,6 @@ ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Respon
             without_location_count: ordersWithoutLocation.length
         });
     } catch (error: any) {
-        console.error('[GET /api/orders/stats/pending-delivery] Error:', error);
         res.status(500).json({
             error: 'Error al obtener pedidos pendientes de entrega',
             message: error.message
@@ -2360,8 +2254,6 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             discount_amount
         } = req.body;
 
-        console.log(`✅ [ORDERS] Confirming order ${id} with courier ${courier_id} (atomic)`);
-
         // Validate courier_id is provided
         if (!courier_id) {
             return res.status(400).json({
@@ -2391,7 +2283,6 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         });
 
         if (rpcError) {
-            console.error('[ORDERS] Atomic confirmation failed:', rpcError);
 
             // Parse PostgreSQL error codes for user-friendly messages
             const errorMessage = rpcError.message || '';
@@ -2462,12 +2353,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
 
         // Log successful atomic operations
         if (result.upsell_applied) {
-            console.log(`📦 [ORDERS] Upsell applied atomically: +${result.upsell_total} to order ${id}`);
         }
         if (result.discount_applied) {
-            console.log(`💰 [ORDERS] Discount applied atomically: -${result.discount_amount} to order ${id}`);
         }
-        console.log(`✅ [ORDERS] Order ${id} confirmed atomically. Total: ${result.new_total_price}, COD: ${result.new_cod_amount}`);
 
         // ================================================================
         // NON-CRITICAL OPERATIONS (outside transaction)
@@ -2485,10 +2373,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     .from('orders')
                     .update({ qr_code_url: qrCodeDataUrl })
                     .eq('id', id);
-
-                console.log(`🔗 [ORDERS] QR code generated for order ${id}`);
             } catch (qrError) {
-                console.error('[ORDERS] Failed to generate QR code (non-blocking):', qrError);
                 // Continue without QR code, don't fail the confirmation
             }
         }
@@ -2516,7 +2401,6 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     })()
                 });
         } catch (historyError) {
-            console.error('[ORDERS] Failed to log status history (non-blocking):', historyError);
             // Continue, this is just audit logging
         }
 
@@ -2538,7 +2422,6 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             }
         });
     } catch (error: any) {
-        console.error(`[POST /api/orders/${req.params.id}/confirm] Error:`, error);
         res.status(500).json({
             error: 'Error al confirmar pedido',
             message: error.message
@@ -2555,7 +2438,6 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
         const storeId = req.storeId;
         const userId = req.user?.email || req.user?.name || 'unknown';
 
-        console.log(`🖨️ [ORDERS] Marking order ${id} as printed by ${userId}`);
 
         // Verify order exists and belongs to store - include line_items for stock check
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
@@ -2614,7 +2496,6 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
                         .map(i => `• ${i.product_name}: necesita ${i.required}, disponible ${i.available}`)
                         .join('\n');
 
-                    console.warn(`⚠️ [ORDERS] Stock insuficiente para orden ${id} al imprimir etiqueta`);
 
                     return res.status(400).json({
                         error: 'Insufficient stock',
@@ -2643,7 +2524,6 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
         // Only change if order is in 'in_preparation' (packing complete)
         if (existingOrder.sleeves_status === 'in_preparation') {
             updateData.sleeves_status = 'ready_to_ship';
-            console.log(`📦 [ORDERS] Changing order ${id} to ready_to_ship (label printed, stock will be decremented)`);
         }
 
         const { data: updatedOrder, error: updateError } = await supabaseAdmin
@@ -2658,7 +2538,6 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
             throw updateError;
         }
 
-        console.log(`✅ [ORDERS] Order ${id} marked as printed`);
 
         res.json({
             success: true,
@@ -2666,7 +2545,6 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
             data: updatedOrder
         });
     } catch (error: any) {
-        console.error('❌ [ORDERS] Error marking order as printed:', error);
         res.status(500).json({
             error: 'Error interno del servidor',
             message: error.message
@@ -2690,7 +2568,6 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             });
         }
 
-        console.log(`🖨️ [ORDERS] Bulk marking ${order_ids.length} orders as printed by ${userId}`);
 
         // Get all orders with line_items for stock checking
         const { data: existingOrders, error: fetchError } = await supabaseAdmin
@@ -2751,7 +2628,6 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
                 .map(o => `Pedido ${o.order_number}: ${o.issues.map(i => `${i.product_name} (necesita ${i.required}, disponible ${i.available})`).join(', ')}`)
                 .join('\n');
 
-            console.warn(`⚠️ [ORDERS] Stock insuficiente en ${ordersWithStockIssues.length} pedidos`);
 
             return res.status(400).json({
                 error: 'Insufficient stock',
@@ -2778,7 +2654,6 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             // CRITICAL: Change to ready_to_ship if order is in in_preparation
             if (order.sleeves_status === 'in_preparation') {
                 updateData.sleeves_status = 'ready_to_ship';
-                console.log(`📦 [ORDERS] Changing order ${order.id} to ready_to_ship (label printed, stock will be decremented)`);
             }
 
             const { data: updated, error: updateError } = await supabaseAdmin
@@ -2790,13 +2665,11 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
                 .single();
 
             if (updateError) {
-                console.error(`❌ [ORDERS] Error updating order ${order.id}:`, updateError);
             } else if (updated) {
                 updatedOrders.push(updated);
             }
         }
 
-        console.log(`✅ [ORDERS] ${updatedOrders.length} orders marked as printed`);
 
         res.json({
             success: true,
@@ -2804,7 +2677,6 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             data: updatedOrders
         });
     } catch (error: any) {
-        console.error('❌ [ORDERS] Error in bulk mark printed:', error);
         res.status(500).json({
             error: 'Error interno del servidor',
             message: error.message

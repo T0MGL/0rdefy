@@ -944,16 +944,16 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
         customerName: order.customer,
         customerPhone: order.phone,
-        customerAddress: order.address || (order as any).customer_address,
-        neighborhood: (order as any).neighborhood,
-        addressReference: (order as any).address_reference,
+        customerAddress: order.address || order.customer_address,
+        neighborhood: order.neighborhood,
+        addressReference: order.address_reference,
         carrierName: getCarrierName(order.carrier),
-        codAmount: (order as any).cod_amount,
-        totalPrice: order.total || (order as any).total_price, // Fallback for COD amount
-        discountAmount: (order as any).total_discounts, // Discount applied to order
-        paymentMethod: (order as any).payment_method,
+        codAmount: order.cod_amount,
+        totalPrice: order.total || order.total_price, // Fallback for COD amount
+        discountAmount: order.total_discounts, // Discount applied to order
+        paymentMethod: order.payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
-        financialStatus: (order as any).financial_status,
+        financialStatus: order.financial_status,
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
           ? order.order_line_items.map((item: any) => ({
@@ -964,7 +964,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           : [{
               name: order.product,
               quantity: order.quantity,
-              price: (order as any).total_price ? (order as any).total_price / order.quantity : 0
+              price: order.total_price ? order.total_price / order.quantity : 0
             }],
       };
 
@@ -1007,16 +1007,16 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
         customerName: order.customer,
         customerPhone: order.phone,
-        customerAddress: order.address || (order as any).customer_address,
-        neighborhood: (order as any).neighborhood,
-        addressReference: (order as any).address_reference,
+        customerAddress: order.address || order.customer_address,
+        neighborhood: order.neighborhood,
+        addressReference: order.address_reference,
         carrierName: getCarrierName(order.carrier),
-        codAmount: (order as any).cod_amount,
-        totalPrice: order.total || (order as any).total_price, // Fallback for COD amount
-        discountAmount: (order as any).total_discounts, // Discount applied to order
-        paymentMethod: (order as any).payment_method,
+        codAmount: order.cod_amount,
+        totalPrice: order.total || order.total_price, // Fallback for COD amount
+        discountAmount: order.total_discounts, // Discount applied to order
+        paymentMethod: order.payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
-        financialStatus: (order as any).financial_status,
+        financialStatus: order.financial_status,
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
           ? order.order_line_items.map((item: any) => ({
@@ -1027,7 +1027,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           : [{
               name: order.product,
               quantity: order.quantity,
-              price: (order as any).total_price ? (order as any).total_price / order.quantity : 0
+              price: order.total_price ? order.total_price / order.quantity : 0
             }],
       }));
 

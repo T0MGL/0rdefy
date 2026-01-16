@@ -86,16 +86,12 @@ export async function createSession(
 ): Promise<PickingSession> {
   try {
     // Log received order IDs for debugging
-    console.log('📋 Creating picking session with order IDs:', orderIds);
-    console.log('   Store ID:', storeId);
-    console.log('   User ID:', userId);
 
     // Validate that all order IDs are UUIDs
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const invalidIds = orderIds.filter(id => !uuidRegex.test(id));
 
     if (invalidIds.length > 0) {
-      console.error('❌ Invalid order IDs detected (not UUIDs):',  invalidIds);
       throw new Error(
         `Invalid order IDs: ${invalidIds.join(', ')}. ` +
         `Expected UUIDs but received non-UUID values. ` +
@@ -176,16 +172,9 @@ export async function createSession(
     const productQuantities = new Map<string, number>();
 
     if (normalizedLineItems && normalizedLineItems.length > 0) {
-      console.log('📊 Using normalized order_line_items (Shopify orders)');
-
       // Check if any line items are missing product_id mapping
       const unmappedItems = normalizedLineItems.filter(item => !item.product_id);
       if (unmappedItems.length > 0) {
-        console.warn('⚠️  WARNING: Some line items do not have product_id mapped:');
-        unmappedItems.forEach(item => {
-          console.warn(`   - ${item.product_name} (Shopify: ${item.shopify_product_id})`);
-        });
-
         const missingProductsList = unmappedItems
           .map(i => `• ${i.product_name} (Shopify Product ID: ${i.shopify_product_id})`)
           .join('\n');
@@ -215,8 +204,6 @@ export async function createSession(
     } else {
       // No normalized line items - must be manual orders
       // Fetch orders with JSONB line_items
-      console.log('📋 Using JSONB line_items (manual orders)');
-
       const { data: ordersWithLineItems, error: ordersError } = await supabaseAdmin
         .from('orders')
         .select('id, line_items')
@@ -243,7 +230,6 @@ export async function createSession(
     const invalidProductIds = Array.from(productQuantities.keys()).filter(id => !uuidRegex.test(id));
 
     if (invalidProductIds.length > 0) {
-      console.error('❌ Invalid product IDs in line items (not UUIDs):', invalidProductIds);
       throw new Error(
         `Invalid product IDs detected: ${invalidProductIds.join(', ')}. ` +
         `Product IDs must be UUIDs. Check the order_line_items table for data corruption.`
@@ -281,7 +267,6 @@ export async function createSession(
         .map(p => `• ${p.name} (SKU: ${p.sku}) - Necesario: ${p.needed}, Disponible: ${p.available}`)
         .join('\n');
 
-      console.warn('⚠️  Insufficient stock detected for picking session:', insufficientStock);
 
       throw new Error(
         `⚠️ Stock insuficiente para crear la sesión de preparación\n\n` +
@@ -314,7 +299,6 @@ export async function createSession(
 
     return session;
   } catch (error) {
-    console.error('Error creating picking session:', error);
     throw error;
   }
 }
@@ -409,7 +393,6 @@ export async function getPickingList(
       orders: formattedOrders
     };
   } catch (error) {
-    console.error('Error getting picking list:', error);
     throw error;
   }
 }
@@ -493,7 +476,6 @@ export async function updatePickingProgress(
 
     return updated;
   } catch (error) {
-    console.error('Error updating picking progress:', error);
     throw error;
   }
 }
@@ -611,7 +593,6 @@ export async function finishPicking(
     if (normalizedError) throw normalizedError;
 
     if (normalizedLineItems && normalizedLineItems.length > 0) {
-      console.log('📊 Creating packing records from normalized order_line_items (Shopify)');
       // Aggregate quantities when same product appears multiple times in an order (e.g., upsells)
       const aggregatedItems = new Map<string, { order_id: string; product_id: string; quantity: number }>();
 
@@ -644,8 +625,6 @@ export async function finishPicking(
       });
     } else {
       // No normalized line items - must be manual orders
-      console.log('📋 Creating packing records from JSONB line_items (manual)');
-
       const { data: ordersWithItems, error: orderItemsError } = await supabaseAdmin
         .from('orders')
         .select('id, line_items')
@@ -713,7 +692,6 @@ export async function finishPicking(
 
     return updated;
   } catch (error) {
-    console.error('Error finishing picking:', error);
     throw error;
   }
 }
@@ -1029,7 +1007,6 @@ export async function getPackingList(
       availableItems
     };
   } catch (error) {
-    console.error('Error getting packing list:', error);
     throw error;
   }
 }
@@ -1153,7 +1130,6 @@ export async function updatePackingProgress(
 
     return updated;
   } catch (error) {
-    console.error('Error updating packing progress:', error);
     throw error;
   }
 }
@@ -1185,7 +1161,6 @@ export async function getActiveSessions(storeId: string): Promise<PickingSession
 
     return sessions;
   } catch (error) {
-    console.error('Error getting active sessions:', error);
     throw error;
   }
 }
@@ -1219,12 +1194,6 @@ export async function getConfirmedOrders(storeId: string) {
       // Validate that id is a UUID (not a Shopify ID)
       const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(order.id);
 
-      if (!isValidUUID) {
-        console.error(`❌ Invalid order ID format (expected UUID, got ${order.id}). This order has corrupted data.`);
-        console.error(`   Shopify Order ID: ${order.shopify_order_id}`);
-        console.error(`   Order Number: ${order.shopify_order_number}`);
-      }
-
       return {
         id: order.id,
         order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
@@ -1240,7 +1209,6 @@ export async function getConfirmedOrders(storeId: string) {
 
     return ordersWithCounts;
   } catch (error) {
-    console.error('Error getting confirmed orders:', error);
     throw error;
   }
 }
@@ -1266,7 +1234,6 @@ export async function abandonSession(
     if (error) {
       // Fallback if RPC not available
       if (error.message?.includes('function') || error.code === '42883') {
-        console.warn('⚠️ RPC abandon_picking_session not available, using fallback');
         return await abandonSessionFallback(sessionId, storeId, userId, reason);
       }
       throw error;
@@ -1274,7 +1241,6 @@ export async function abandonSession(
 
     return data;
   } catch (error) {
-    console.error('Error abandoning session:', error);
     throw error;
   }
 }
@@ -1365,7 +1331,6 @@ export async function removeOrderFromSession(
     if (error) {
       // Fallback if RPC not available
       if (error.message?.includes('function') || error.code === '42883') {
-        console.warn('⚠️ RPC remove_order_from_session not available, using fallback');
         return await removeOrderFromSessionFallback(sessionId, orderId, storeId);
       }
       throw error;
@@ -1373,7 +1338,6 @@ export async function removeOrderFromSession(
 
     return data;
   } catch (error) {
-    console.error('Error removing order from session:', error);
     throw error;
   }
 }
@@ -1479,7 +1443,6 @@ export async function cleanupExpiredSessions(hoursInactive: number = 48): Promis
     if (error) {
       // Fallback if RPC not available
       if (error.message?.includes('function') || error.code === '42883') {
-        console.warn('⚠️ RPC cleanup_expired_sessions not available');
         return { success: false, message: 'Migration 058 required for this feature' };
       }
       throw error;
@@ -1487,7 +1450,6 @@ export async function cleanupExpiredSessions(hoursInactive: number = 48): Promis
 
     return data;
   } catch (error) {
-    console.error('Error cleaning up sessions:', error);
     throw error;
   }
 }
@@ -1530,7 +1492,6 @@ export async function getStaleSessions(storeId: string): Promise<any[]> {
 
     return staleSessions;
   } catch (error) {
-    console.error('Error getting stale sessions:', error);
     throw error;
   }
 }
@@ -1556,7 +1517,6 @@ export async function updatePackingProgressAtomic(
     if (error) {
       // Fallback to existing implementation if RPC not available
       if (error.message?.includes('function') || error.code === '42883') {
-        console.warn('⚠️ RPC update_packing_progress_atomic not available, using fallback');
         return await updatePackingProgress(sessionId, orderId, productId, storeId);
       }
       throw error;
@@ -1564,7 +1524,6 @@ export async function updatePackingProgressAtomic(
 
     return data;
   } catch (error) {
-    console.error('Error updating packing progress atomically:', error);
     throw error;
   }
 }
@@ -1635,12 +1594,9 @@ export async function completeSession(
       });
 
     if (rpcError) {
-      console.error('Error completing session via RPC:', rpcError);
 
       // Fallback to non-transactional approach if RPC not available (migration not run yet)
       if (rpcError.message?.includes('function') || rpcError.code === '42883') {
-        console.warn('⚠️ RPC not available, using fallback (run migration 048)');
-
         // Get all orders in this session
         const { data: sessionOrders, error: ordersError } = await supabaseAdmin
           .from('picking_session_orders')
@@ -1663,7 +1619,6 @@ export async function completeSession(
             .eq('sleeves_status', 'in_preparation');
 
           if (orderUpdateError) {
-            console.error('Error updating orders to ready_to_ship:', orderUpdateError);
             throw new Error('Error al actualizar estado de pedidos');
           }
         }
@@ -1687,7 +1642,6 @@ export async function completeSession(
       throw new Error(`Error al completar sesión: ${rpcError.message}`);
     }
 
-    console.log(`✅ Session completed atomically:`, rpcResult);
 
     // Fetch updated session data
     const { data: updated, error: fetchError } = await supabaseAdmin
@@ -1700,7 +1654,6 @@ export async function completeSession(
 
     return updated;
   } catch (error) {
-    console.error('Error completing session:', error);
     throw error;
   }
 }

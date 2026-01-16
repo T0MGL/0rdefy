@@ -1,13 +1,16 @@
 // ================================================================
-// SHOPIFY WEBHOOK HANDLERS
+// SHOPIFY WEBHOOK HANDLERS (LEGACY ROUTES)
 // ================================================================
-// Processes webhooks from Shopify for real-time synchronization
-// All webhooks require HMAC signature validation
+// This file provides backwards compatibility for legacy webhook URLs.
+// All webhook processing is delegated to ShopifyWebhookService which
+// handles the complete data mapping including payment fields.
 // ================================================================
 
 import express, { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
+import { ShopifyWebhookService } from '../services/shopify-webhook.service';
+import { logger } from '../utils/logger';
 
 const router = express.Router();
 
@@ -148,169 +151,56 @@ router.use(validateShopifyHMAC);
 // WEBHOOK 1: ORDERS - CREATE
 // ================================================================
 // Triggered when a new order is created in Shopify
-// Creates new customer if needed, saves order, sends to n8n
+// CRITICAL: Delegates to ShopifyWebhookService for complete data mapping
+// including financial_status, cod_amount, payment_gateway, etc.
 // ================================================================
 router.post('/orders-create', async (req: Request, res: Response) => {
   try {
     const order = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`📥 [ORDER-CREATE] New order from ${shopDomain}: #${order.order_number}`);
+    logger.info('SHOPIFY_WEBHOOK_LEGACY', `📥 New order from ${shopDomain}: #${order.order_number}`);
 
-    // 1. Find integration
+    // 1. Find integration with access_token for GraphQL enrichment
     const { data: integration, error: intError } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('id, store_id')
+      .select('id, store_id, shop_domain, access_token, api_key, api_secret_key')
       .eq('shop_domain', shopDomain)
       .single();
 
     if (intError || !integration) {
-      console.error(`❌ [ORDER-CREATE] Integration not found for ${shopDomain}`);
+      logger.error('SHOPIFY_WEBHOOK_LEGACY', `Integration not found for ${shopDomain}`);
       return res.status(404).send('Integration not found');
     }
 
-    // 2. Create customer if doesn't exist
-    if (order.customer) {
-      const { data: existingCustomer } = await supabaseAdmin
-        .from('customers')
-        .select('id')
-        .eq('shopify_customer_id', order.customer.id)
-        .eq('store_id', integration.store_id)
-        .single();
-
-      if (!existingCustomer) {
-        const customerName = `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim() || 'Unknown';
-
-        const { error: customerError } = await supabaseAdmin
-          .from('customers')
-          .insert({
-            store_id: integration.store_id,
-            shopify_customer_id: order.customer.id,
-            name: customerName,
-            email: order.customer.email,
-            phone: order.customer.phone,
-            shop_domain: shopDomain,
-            last_synced_at: new Date().toISOString()
-          });
-
-        if (customerError) {
-          console.error('❌ [ORDER-CREATE] Error creating customer:', customerError);
-        } else {
-          console.log(`✅ [ORDER-CREATE] New customer created: ${customerName}`);
-        }
+    // 2. Use ShopifyWebhookService for complete data mapping
+    // This ensures financial_status, cod_amount, payment_gateway are all saved
+    const webhookService = new ShopifyWebhookService(supabaseAdmin);
+    const result = await webhookService.processOrderCreatedWebhook(
+      order,
+      integration.store_id,
+      integration.id,
+      {
+        shop_domain: integration.shop_domain,
+        access_token: integration.access_token,
+        api_key: integration.api_key,
+        api_secret_key: integration.api_secret_key
       }
+    );
+
+    if (!result.success) {
+      logger.error('SHOPIFY_WEBHOOK_LEGACY', `Error processing order: ${result.error}`);
+      // Still return 200 to prevent Shopify retries - error is logged
+      return res.status(200).send('Error logged, webhook acknowledged');
     }
 
-    // 3. Save order to database
-    const customerName = order.customer
-      ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim()
-      : 'Unknown';
-
-    const { data: savedOrder, error: orderError } = await supabaseAdmin
-      .from('orders')
-      .insert({
-        store_id: integration.store_id,
-        shopify_order_id: order.id,
-        shopify_order_number: String(order.order_number),
-        customer_name: customerName,
-        customer_email: order.customer?.email,
-        customer_phone: order.customer?.phone,
-        total_price: parseFloat(order.total_price) || 0,
-        currency: order.currency || 'USD',
-        status: 'pending',
-        shop_domain: shopDomain,
-        shopify_data: order,
-        synced_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (orderError) {
-      console.error('❌ [ORDER-CREATE] Error saving order:', orderError);
-      throw orderError;
-    }
-
-    console.log(`✅ [ORDER-CREATE] Order saved: #${order.order_number}`);
-
-    // 4. Log webhook processing
-    await supabaseAdmin
-      .from('shopify_webhook_logs')
-      .insert({
-        integration_id: integration.id,
-        webhook_topic: 'orders/create',
-        shopify_resource_id: order.id,
-        shop_domain: shopDomain,
-        status: 'processed',
-        processed_at: new Date().toISOString()
-      });
-
-    // 5. Send to n8n for WhatsApp confirmation (multitenant)
-    if (process.env.N8N_WEBHOOK_URL_NEWORDER) {
-      try {
-        const n8nPayload = {
-          store_id: integration.store_id,
-          shop_domain: shopDomain,
-          customer_name: customerName,
-          customer_phone: order.customer?.phone,
-          customer_email: order.customer?.email,
-          order_id: savedOrder.id,
-          shopify_order_id: order.id,
-          order_number: order.number,
-          total: order.total_price,
-          currency: order.currency,
-          products: order.line_items?.map((item: any) => ({
-            name: item.title,
-            quantity: item.quantity,
-            price: item.price
-          })) || []
-        };
-
-        // Add timeout to prevent hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
-        const n8nResponse = await fetch(process.env.N8N_WEBHOOK_URL_NEWORDER, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(n8nPayload),
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!n8nResponse.ok) {
-          throw new Error(`n8n returned ${n8nResponse.status}: ${n8nResponse.statusText}`);
-        }
-
-        console.log(`📤 [ORDER-CREATE] Sent to n8n for WhatsApp confirmation`);
-      } catch (n8nError: any) {
-        console.error('❌ [ORDER-CREATE] Error sending to n8n:', n8nError);
-
-        // Log to webhook_errors table for monitoring
-        await supabaseAdmin
-          .from('shopify_webhook_logs')
-          .insert({
-            integration_id: integration.id,
-            webhook_topic: 'orders/create',
-            shopify_resource_id: order.id,
-            shop_domain: shopDomain,
-            status: 'n8n_failed',
-            error_message: n8nError.message || 'Unknown error',
-            processed_at: new Date().toISOString()
-          });
-
-        // Don't fail the webhook if n8n fails - order is already saved
-        // But we should monitor this metric
-      }
-    } else {
-      console.warn('⚠️ [ORDER-CREATE] N8N_WEBHOOK_URL_NEWORDER not configured');
-    }
-
+    logger.info('SHOPIFY_WEBHOOK_LEGACY', `✅ Order ${order.order_number} processed successfully (order_id: ${result.order_id})`);
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [ORDER-CREATE] Error:', error);
-    res.status(500).send('Error processing order');
+    logger.error('SHOPIFY_WEBHOOK_LEGACY', `Error processing order webhook: ${error.message}`);
+    // Return 200 to prevent Shopify infinite retries
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 
@@ -318,57 +208,54 @@ router.post('/orders-create', async (req: Request, res: Response) => {
 // WEBHOOK 2: ORDERS - UPDATED
 // ================================================================
 // Triggered when an order is updated in Shopify
+// CRITICAL: Delegates to ShopifyWebhookService for complete data mapping
+// including financial_status updates (e.g., when payment is captured)
 // ================================================================
 router.post('/orders-updated', async (req: Request, res: Response) => {
   try {
     const order = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`🔄 [ORDER-UPDATED] Order updated: #${order.order_number}`);
+    logger.info('SHOPIFY_WEBHOOK_LEGACY', `🔄 Order updated from ${shopDomain}: #${order.order_number}`);
 
-    // Find integration
-    const { data: integration } = await supabaseAdmin
+    // Find integration with access_token
+    const { data: integration, error: intError } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('id, store_id')
+      .select('id, store_id, shop_domain, access_token, api_key, api_secret_key')
       .eq('shop_domain', shopDomain)
       .single();
 
-    if (!integration) {
+    if (intError || !integration) {
+      logger.error('SHOPIFY_WEBHOOK_LEGACY', `Integration not found for ${shopDomain}`);
       return res.status(404).send('Integration not found');
     }
 
-    // Update order in database
-    const { error } = await supabaseAdmin
-      .from('orders')
-      .update({
-        total_price: parseFloat(order.total_price) || 0,
-        shopify_data: order,
-        synced_at: new Date().toISOString()
-      })
-      .eq('shopify_order_id', order.id)
-      .eq('store_id', integration.store_id);
+    // Use ShopifyWebhookService for complete data mapping
+    // This ensures financial_status, cod_amount, payment_gateway are all updated
+    const webhookService = new ShopifyWebhookService(supabaseAdmin);
+    const result = await webhookService.processOrderUpdatedWebhook(
+      order,
+      integration.store_id,
+      integration.id,
+      {
+        shop_domain: integration.shop_domain,
+        access_token: integration.access_token,
+        api_key: integration.api_key,
+        api_secret_key: integration.api_secret_key
+      }
+    );
 
-    if (error) throw error;
+    if (!result.success) {
+      logger.error('SHOPIFY_WEBHOOK_LEGACY', `Error updating order: ${result.error}`);
+      return res.status(200).send('Error logged, webhook acknowledged');
+    }
 
-    console.log(`✅ [ORDER-UPDATED] Order updated: #${order.order_number}`);
-
-    // Log webhook
-    await supabaseAdmin
-      .from('shopify_webhook_logs')
-      .insert({
-        integration_id: integration.id,
-        webhook_topic: 'orders/updated',
-        shopify_resource_id: order.id,
-        shop_domain: shopDomain,
-        status: 'processed',
-        processed_at: new Date().toISOString()
-      });
-
+    logger.info('SHOPIFY_WEBHOOK_LEGACY', `✅ Order ${order.order_number} updated successfully`);
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [ORDER-UPDATED] Error:', error);
-    res.status(500).send('Error processing order update');
+    logger.error('SHOPIFY_WEBHOOK_LEGACY', `Error processing order update webhook: ${error.message}`);
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 
@@ -429,7 +316,8 @@ router.post('/products-create', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ [PRODUCT-CREATE] Error:', error);
-    res.status(500).send('Error processing product creation');
+    // Return 200 to prevent Shopify infinite retries on persistent errors
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 
@@ -515,7 +403,8 @@ router.post('/products-update', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ [PRODUCT-UPDATE] Error:', error);
-    res.status(500).send('Error processing product update');
+    // Return 200 to prevent Shopify infinite retries on persistent errors
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 
@@ -594,7 +483,8 @@ router.post('/products-delete', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ [PRODUCT-DELETE] Error:', error);
-    res.status(500).send('Error processing product deletion');
+    // Return 200 to prevent Shopify infinite retries on persistent errors
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 
@@ -659,7 +549,8 @@ router.post('/customers-create', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ [CUSTOMER-CREATE] Error:', error);
-    res.status(500).send('Error processing customer creation');
+    // Return 200 to prevent Shopify infinite retries on persistent errors
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 
@@ -723,7 +614,8 @@ router.post('/customers-update', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ [CUSTOMER-UPDATE] Error:', error);
-    res.status(500).send('Error processing customer update');
+    // Return 200 to prevent Shopify infinite retries on persistent errors
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 
@@ -775,7 +667,8 @@ router.post('/app-uninstalled', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ [APP-UNINSTALLED] Error:', error);
-    res.status(500).send('Error processing app uninstall');
+    // Return 200 to prevent Shopify infinite retries on persistent errors
+    res.status(200).send('Error logged, webhook acknowledged');
   }
 });
 

@@ -85,7 +85,6 @@ collaboratorsRouter.post(
       const { storeId, userId } = req;
       const { name, email, role } = req.body;
 
-      console.log('[Invite] Creating invitation:', { store: storeId, inviter: userId, email, role });
 
       // Validations
       if (!name || !email || !role) {
@@ -119,7 +118,6 @@ collaboratorsRouter.post(
       // SECURITY: Validate that current user can invite the target role
       // Prevents admins from inviting other admins (horizontal privilege escalation)
       if (!canInviteRole(req.userRole as Role, role as Role)) {
-        console.warn(`[Invite] Role escalation attempt: ${req.userRole} tried to invite ${role}`);
         return res.status(403).json({
           error: 'You cannot invite users with this role',
           message: `Your role (${req.userRole}) cannot invite ${role} users`
@@ -131,7 +129,6 @@ collaboratorsRouter.post(
         .rpc('can_add_user_to_store', { p_store_id: storeId });
 
       if (canAddError) {
-        console.error('[Invite] Error checking user limit:', canAddError);
         return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
@@ -140,7 +137,6 @@ collaboratorsRouter.post(
           .rpc('get_store_user_stats', { p_store_id: storeId })
           .single();
 
-        console.warn('[Invite] User limit reached:', stats);
         return res.status(403).json({
           error: 'User limit reached for your subscription plan',
           current: stats?.current_users,
@@ -213,11 +209,9 @@ collaboratorsRouter.post(
         .single();
 
       if (error) {
-        console.error('[Invite] Error creating invitation:', error);
         return res.status(500).json({ error: 'Error al crear invitación' });
       }
 
-      console.log('[Invite] Invitation created successfully:', invitation.id);
 
       // Generate invitation URL (short format: /i/abc12345)
       const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -246,8 +240,11 @@ collaboratorsRouter.post(
         expiresAt
       });
 
+      // Track email status for response
+      let emailSent = true;
       if (!emailResult.success) {
-        console.warn('[Invite] Email failed but invitation created:', emailResult.error);
+        emailSent = false;
+        console.warn(`[COLLABORATOR] Email invite failed for ${email}: ${emailResult.error}`);
       }
 
       res.status(201).json({
@@ -259,10 +256,15 @@ collaboratorsRouter.post(
           role: invitation.assigned_role,
           inviteUrl,
           expiresAt: invitation.expires_at
-        }
+        },
+        emailSent,
+        // If email failed, warn user that they need to share the link manually
+        ...(emailSent ? {} : {
+          warning: 'No se pudo enviar el email de invitación. Por favor comparte el link manualmente.',
+          emailError: process.env.NODE_ENV === 'development' ? emailResult.error : undefined
+        })
       });
     } catch (error) {
-      console.error('[Invite] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -290,7 +292,6 @@ collaboratorsRouter.get(
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('[Invitations] Error fetching:', error);
         return res.status(500).json({ error: 'Error al obtener invitaciones' });
       }
 
@@ -313,7 +314,6 @@ collaboratorsRouter.get(
         }))
       });
     } catch (error) {
-      console.error('[Invitations] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -340,13 +340,11 @@ collaboratorsRouter.delete(
         .eq('used', false); // Only delete unused invitations
 
       if (error) {
-        console.error('[Invitations] Error deleting:', error);
         return res.status(500).json({ error: 'Error al eliminar invitación' });
       }
 
       res.json({ success: true });
     } catch (error) {
-      console.error('[Invitations] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -363,8 +361,6 @@ collaboratorsRouter.get(
     try {
       const { token } = req.params;
 
-      console.log('[ValidateToken] Validating token:', token.substring(0, 10) + '...');
-
       const { data: invitation, error } = await supabaseAdmin
         .from('collaborator_invitations')
         .select(`
@@ -377,14 +373,12 @@ collaboratorsRouter.get(
         .single();
 
       if (error || !invitation) {
-        console.warn('[ValidateToken] Invalid or expired invitation');
         return res.status(404).json({
           valid: false,
           error: 'Invalid or expired invitation'
         });
       }
 
-      console.log('[ValidateToken] Valid invitation found for:', invitation.invited_email);
 
       // SECURITY: Only expose minimal information needed for the UI
       // Don't reveal assigned_role (security-sensitive)
@@ -410,7 +404,6 @@ collaboratorsRouter.get(
         }
       });
     } catch (error) {
-      console.error('[ValidateToken] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -427,7 +420,6 @@ collaboratorsRouter.post(
     try {
       const { token, password } = req.body;
 
-      console.log('[AcceptInvitation] Processing acceptance');
 
       // Validations
       if (!token || !password) {
@@ -458,13 +450,11 @@ collaboratorsRouter.post(
         .single();
 
       if (invError || !invitation) {
-        console.warn('[AcceptInvitation] Invalid or already claimed invitation');
         return res.status(404).json({
           error: 'Invalid or expired invitation'
         });
       }
 
-      console.log('[AcceptInvitation] Invitation atomically claimed for:', invitation.invited_email);
 
       // SECURITY FIX: Validate plan limit at acceptance time (not just at creation)
       // This prevents race conditions where multiple invitations exceed the limit
@@ -472,7 +462,6 @@ collaboratorsRouter.post(
         .rpc('can_add_user_to_store', { p_store_id: invitation.store_id });
 
       if (canAddError) {
-        console.error('[AcceptInvitation] Error checking user limit:', canAddError);
         // Rollback: Mark invitation as unused
         await supabaseAdmin
           .from('collaborator_invitations')
@@ -482,7 +471,6 @@ collaboratorsRouter.post(
       }
 
       if (!canAdd) {
-        console.warn('[AcceptInvitation] User limit reached at acceptance time');
         // Rollback: Mark invitation as unused so it can be used when space is available
         await supabaseAdmin
           .from('collaborator_invitations')
@@ -513,7 +501,6 @@ collaboratorsRouter.post(
 
       if (existingUser) {
         // User exists - they're accepting an invitation to a new store
-        console.log('[AcceptInvitation] Existing user found:', existingUser.id);
         userId = existingUser.id;
         isExistingUser = true;
 
@@ -521,7 +508,6 @@ collaboratorsRouter.post(
         const passwordMatch = await bcrypt.compare(password, existingUser.password_hash);
         if (!passwordMatch) {
           // IMPORTANT: Rollback invitation claim so user can try again
-          console.log('[AcceptInvitation] Password mismatch, rolling back invitation claim');
           await supabaseAdmin
             .from('collaborator_invitations')
             .update({ used: false, used_at: null })
@@ -533,7 +519,6 @@ collaboratorsRouter.post(
         }
       } else {
         // New user - create account
-        console.log('[AcceptInvitation] Creating new user');
         const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
 
         const { data: newUser, error: userError } = await supabaseAdmin
@@ -548,7 +533,6 @@ collaboratorsRouter.post(
           .single();
 
         if (userError || !newUser) {
-          console.error('[AcceptInvitation] Error creating user:', userError);
           // IMPORTANT: Rollback invitation claim so it can be tried again
           await supabaseAdmin
             .from('collaborator_invitations')
@@ -558,7 +542,6 @@ collaboratorsRouter.post(
         }
 
         userId = newUser.id;
-        console.log('[AcceptInvitation] New user created:', userId);
       }
 
       // ATOMIC OPERATION: Create user_stores and mark invitation as used together
@@ -575,22 +558,18 @@ collaboratorsRouter.post(
         });
 
       if (linkError) {
-        console.error('[AcceptInvitation] Error linking user to store:', linkError);
         // ROLLBACK: Revert invitation claim and delete new user if created
-        console.log('[AcceptInvitation] Rolling back: reverting invitation claim');
         await supabaseAdmin
           .from('collaborator_invitations')
           .update({ used: false, used_at: null, used_by_user_id: null })
           .eq('id', invitation.id);
 
         if (!isExistingUser) {
-          console.log('[AcceptInvitation] Rolling back: deleting newly created user');
           await supabaseAdmin.from('users').delete().eq('id', userId);
         }
         return res.status(500).json({ error: 'Error al vincular usuario a tienda' });
       }
 
-      console.log('[AcceptInvitation] User linked to store');
 
       // Update invitation with user_id who accepted it (invitation already marked used atomically above)
       const { error: updateInvError } = await supabaseAdmin
@@ -600,7 +579,6 @@ collaboratorsRouter.post(
 
       if (updateInvError) {
         // Non-critical error - invitation is already marked as used, just log
-        console.warn('[AcceptInvitation] Failed to update used_by_user_id:', updateInvError);
       }
 
       // Generate JWT token for auto-login
@@ -640,7 +618,6 @@ collaboratorsRouter.post(
         role: us.role
       })) || [];
 
-      console.log('[AcceptInvitation] Success! Auto-login token generated');
 
       res.json({
         success: true,
@@ -656,7 +633,6 @@ collaboratorsRouter.post(
         }
       });
     } catch (error) {
-      console.error('[AcceptInvitation] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -675,11 +651,9 @@ collaboratorsRouter.get(
       const { storeId } = req;
 
       if (!storeId) {
-        console.error('[Collaborators] Missing storeId in request');
         return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
       }
 
-      console.log('[Collaborators] Fetching team members for store:', storeId);
 
       const { data: members, error } = await supabaseAdmin
         .from('user_stores')
@@ -693,19 +667,12 @@ collaboratorsRouter.get(
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('[Collaborators] Database error:', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint
-        });
         return res.status(500).json({
           error: 'Error al obtener colaboradores',
           details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
       }
 
-      console.log('[Collaborators] Found', members.length, 'members');
 
       res.json({
         members: members.map(m => ({
@@ -720,7 +687,6 @@ collaboratorsRouter.get(
         }))
       });
     } catch (error) {
-      console.error('[Collaborators] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -754,14 +720,11 @@ collaboratorsRouter.delete(
         .eq('store_id', storeId);
 
       if (error) {
-        console.error('[Remove] Error removing collaborator:', error);
         return res.status(500).json({ error: 'Error al eliminar colaborador' });
       }
 
-      console.log('[Remove] Collaborator removed:', userId);
       res.json({ success: true });
     } catch (error) {
-      console.error('[Remove] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -803,14 +766,11 @@ collaboratorsRouter.patch(
         .eq('store_id', storeId);
 
       if (error) {
-        console.error('[ChangeRole] Error updating role:', error);
         return res.status(500).json({ error: 'Error al actualizar rol' });
       }
 
-      console.log('[ChangeRole] Role updated:', { userId, role });
       res.json({ success: true });
     } catch (error) {
-      console.error('[ChangeRole] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -830,7 +790,6 @@ collaboratorsRouter.patch(
       const { userId } = req.params;
       const { role } = req.body; // Optional: new role for reactivation
 
-      console.log('[Reactivate] Attempting to reactivate user:', userId);
 
       // Check if user exists in store and is inactive
       const { data: userStore, error: fetchError } = await supabaseAdmin
@@ -857,7 +816,6 @@ collaboratorsRouter.patch(
         .rpc('can_add_user_to_store', { p_store_id: storeId });
 
       if (canAddError) {
-        console.error('[Reactivate] Error checking user limit:', canAddError);
         return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
@@ -866,7 +824,6 @@ collaboratorsRouter.patch(
           .rpc('get_store_user_stats', { p_store_id: storeId })
           .single();
 
-        console.warn('[Reactivate] User limit reached:', stats);
         return res.status(403).json({
           error: 'User limit reached for your subscription plan',
           message: 'Upgrade your plan to add more users',
@@ -892,7 +849,6 @@ collaboratorsRouter.patch(
         .eq('store_id', storeId);
 
       if (updateError) {
-        console.error('[Reactivate] Error reactivating user:', updateError);
         return res.status(500).json({ error: 'Error al reactivar usuario' });
       }
 
@@ -903,7 +859,6 @@ collaboratorsRouter.patch(
         .eq('id', userId)
         .single();
 
-      console.log('[Reactivate] User reactivated:', { userId, role: newRole });
       res.json({
         success: true,
         message: 'User reactivated successfully',
@@ -911,7 +866,6 @@ collaboratorsRouter.patch(
         role: newRole
       });
     } catch (error) {
-      console.error('[Reactivate] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -934,7 +888,6 @@ collaboratorsRouter.get(
         .single();
 
       if (error) {
-        console.error('[Stats] Error fetching stats:', error);
         return res.status(500).json({ error: 'Error al obtener estadísticas' });
       }
 
@@ -946,7 +899,6 @@ collaboratorsRouter.get(
         can_add_more: canAddMore
       });
     } catch (error) {
-      console.error('[Stats] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -968,7 +920,6 @@ collaboratorsRouter.post(
       // SECURITY: Single check - return 401 whether CRON_SECRET is missing or mismatched
       // This prevents attackers from learning if the secret is configured
       if (!expectedSecret || cronSecret !== expectedSecret) {
-        console.warn('[Cleanup] Unauthorized cleanup attempt');
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
@@ -984,12 +935,10 @@ collaboratorsRouter.post(
         .select('id');
 
       if (error) {
-        console.error('[Cleanup] Error deleting expired tokens:', error);
         return res.status(500).json({ error: 'Error al limpiar tokens' });
       }
 
       const deletedCount = deleted?.length || 0;
-      console.log(`[Cleanup] Deleted ${deletedCount} expired invitation tokens`);
 
       res.json({
         success: true,
@@ -997,7 +946,6 @@ collaboratorsRouter.post(
         cutoff_date: cutoffDate.toISOString()
       });
     } catch (error) {
-      console.error('[Cleanup] Unexpected error:', error);
       res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
