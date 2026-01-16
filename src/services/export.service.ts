@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -51,46 +51,50 @@ class ExportService {
   /**
    * Export data to Excel format (.xlsx)
    */
-  private exportToExcel<T>(options: ExportOptions<T>): void {
+  private async exportToExcel<T>(options: ExportOptions<T>): Promise<void> {
     const { filename, columns, data, title } = options;
 
-    // Create header row
-    const headers = columns.map(col => col.header);
+    // Create workbook and worksheet
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(title || 'Data');
 
-    // Create data rows
-    const rows = data.map(item =>
-      columns.map(col => {
-        const value = this.getNestedValue(item, col.key as string);
-        return col.format ? col.format(value, item) : value;
-      })
-    );
-
-    // Create worksheet
-    const wsData = [headers, ...rows];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-    // Set column widths
-    const colWidths = columns.map(col => ({ wch: col.width || 15 }));
-    ws['!cols'] = colWidths;
+    // Set up columns with headers and widths
+    worksheet.columns = columns.map(col => ({
+      header: col.header,
+      key: col.key as string,
+      width: col.width || 15
+    }));
 
     // Style header row
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-      const address = XLSX.utils.encode_col(C) + '1';
-      if (!ws[address]) continue;
-      ws[address].s = {
-        font: { bold: true },
-        fill: { fgColor: { rgb: 'CCCCCC' } },
-        alignment: { horizontal: 'center' }
-      };
-    }
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFCCCCCC' }
+    };
+    worksheet.getRow(1).alignment = { horizontal: 'center' };
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, title || 'Data');
+    // Add data rows
+    data.forEach(item => {
+      const rowData: Record<string, any> = {};
+      columns.forEach(col => {
+        const value = this.getNestedValue(item, col.key as string);
+        rowData[col.key as string] = col.format ? col.format(value, item) : value;
+      });
+      worksheet.addRow(rowData);
+    });
 
-    // Download file
-    XLSX.writeFile(wb, `${filename}.xlsx`);
+    // Generate buffer and download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   }
 
   /**
@@ -180,14 +184,14 @@ class ExportService {
   /**
    * Main export function
    */
-  export<T>(options: ExportOptions<T>): void {
+  async export<T>(options: ExportOptions<T>): Promise<void> {
     try {
       switch (options.format) {
         case 'csv':
           this.exportToCSV(options);
           break;
         case 'excel':
-          this.exportToExcel(options);
+          await this.exportToExcel(options);
           break;
         case 'pdf':
           this.exportToPDF(options);
