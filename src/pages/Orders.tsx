@@ -256,7 +256,7 @@ export default function Orders() {
       setIsLoading(false);
       return data;
     },
-    interval: 15000, // Poll every 15 seconds when page is visible
+    interval: 60000, // Poll every 60 seconds when page is visible (75% reduction in API calls)
     enabled: true,
     fetchOnMount: true,
   });
@@ -356,16 +356,21 @@ export default function Orders() {
   }, [searchParams, setSearchParams, orders, toast]);
 
   const handleConfirm = useCallback(async (orderId: string) => {
-    // Get original order before confirming
-    const originalOrder = orders.find(o => o.id === orderId);
-    if (!originalOrder) return;
+    // Store original order for rollback
+    let originalOrder: Order | null = null;
 
     // Optimistic update - update UI immediately
-    setOrders(prev => prev.map(o =>
-      o.id === orderId
-        ? { ...o, status: 'confirmed', confirmedByWhatsApp: true }
-        : o
-    ));
+    setOrders(prev => {
+      originalOrder = prev.find(o => o.id === orderId) || null;
+      if (!originalOrder) return prev;
+      return prev.map(o =>
+        o.id === orderId
+          ? { ...o, status: 'confirmed', confirmedByWhatsApp: true }
+          : o
+      );
+    });
+
+    if (!originalOrder) return;
 
     try {
       const updatedOrder = await ordersService.confirm(orderId);
@@ -378,31 +383,36 @@ export default function Orders() {
         });
       } else {
         // Revert optimistic update on failure
-        setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
+        setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder! : o)));
         throw new Error('Error al confirmar pedido');
       }
     } catch (error) {
       // Revert optimistic update on error
-      setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
+      setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder! : o)));
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'confirm',
         entity: 'pedido',
       });
     }
-  }, [orders, toast]);
+  }, [toast]);
 
   const handleReject = useCallback(async (orderId: string) => {
-    // Get original order before rejecting
-    const originalOrder = orders.find(o => o.id === orderId);
-    if (!originalOrder) return;
+    // Store original order for rollback
+    let originalOrder: Order | null = null;
 
     // Optimistic update - update UI immediately
-    setOrders(prev => prev.map(o =>
-      o.id === orderId
-        ? { ...o, status: 'cancelled', confirmedByWhatsApp: false }
-        : o
-    ));
+    setOrders(prev => {
+      originalOrder = prev.find(o => o.id === orderId) || null;
+      if (!originalOrder) return prev;
+      return prev.map(o =>
+        o.id === orderId
+          ? { ...o, status: 'cancelled', confirmedByWhatsApp: false }
+          : o
+      );
+    });
+
+    if (!originalOrder) return;
 
     try {
       const updatedOrder = await ordersService.reject(orderId, 'Rechazado manualmente');
@@ -415,19 +425,19 @@ export default function Orders() {
         });
       } else {
         // Revert optimistic update on failure
-        setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
+        setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder! : o)));
         throw new Error('Error al rechazar pedido');
       }
     } catch (error) {
       // Revert optimistic update on error
-      setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
+      setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder! : o)));
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'cancel',
         entity: 'pedido',
       });
     }
-  }, [orders, toast]);
+  }, [toast]);
 
   // Helper function to generate WhatsApp confirmation message
   const generateWhatsAppConfirmationLink = useCallback((order: Order) => {
@@ -963,9 +973,9 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           }))
           : [{
               name: order.product,
-              quantity: order.quantity,
-              price: (typeof order.total_price === 'number' && !isNaN(order.total_price) && order.quantity > 0)
-                ? order.total_price / order.quantity
+              quantity: order.quantity ?? 1,
+              price: (typeof order.total_price === 'number' && !isNaN(order.total_price) && (order.quantity ?? 0) > 0)
+                ? order.total_price / (order.quantity ?? 1)
                 : 0
             }],
       };
@@ -1028,9 +1038,9 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           }))
           : [{
               name: order.product,
-              quantity: order.quantity,
-              price: (typeof order.total_price === 'number' && !isNaN(order.total_price) && order.quantity > 0)
-                ? order.total_price / order.quantity
+              quantity: order.quantity ?? 1,
+              price: (typeof order.total_price === 'number' && !isNaN(order.total_price) && (order.quantity ?? 0) > 0)
+                ? order.total_price / (order.quantity ?? 1)
                 : 0
             }],
       }));
