@@ -195,7 +195,7 @@ export async function createSession(
       // Aggregate quantities from normalized line items
       normalizedLineItems.forEach(item => {
         const productId = item.product_id;
-        const quantity = parseInt(item.quantity) || 0;
+        const quantity = parseInt(item.quantity, 10) || 0;
         if (productId) {
           const currentQty = productQuantities.get(productId) || 0;
           productQuantities.set(productId, currentQty + quantity);
@@ -216,7 +216,7 @@ export async function createSession(
         if (Array.isArray(order.line_items)) {
           order.line_items.forEach((item: any) => {
             const productId = item.product_id;
-            const quantity = parseInt(item.quantity) || 0;
+            const quantity = parseInt(item.quantity, 10) || 0;
             if (productId) {
               const currentQty = productQuantities.get(productId) || 0;
               productQuantities.set(productId, currentQty + quantity);
@@ -598,7 +598,7 @@ export async function finishPicking(
 
       normalizedLineItems.forEach(item => {
         const productId = item.product_id;
-        const quantity = parseInt(item.quantity) || 0;
+        const quantity = parseInt(item.quantity, 10) || 0;
         if (productId) {
           const key = `${item.order_id}_${productId}`;
           const existing = aggregatedItems.get(key);
@@ -639,7 +639,7 @@ export async function finishPicking(
         if (Array.isArray(order.line_items)) {
           order.line_items.forEach((item: any) => {
             const productId = item.product_id;
-            const quantity = parseInt(item.quantity) || 0;
+            const quantity = parseInt(item.quantity, 10) || 0;
             if (productId) {
               const key = `${order.id}_${productId}`;
               const existing = aggregatedManualItems.get(key);
@@ -775,9 +775,18 @@ export async function getPackingList(
 
     // Get carrier details for orders (do this in a separate query for simplicity)
     const orderIds = sessionOrders?.map((so: any) => so.orders.id) || [];
+
+    // Extract unique carrier IDs from orders to avoid N+1 query
+    const carrierIds = [...new Set(
+      sessionOrders
+        ?.map((so: any) => so.orders?.courier_id)
+        .filter(Boolean)
+    )] || [];
+
     const { data: carriersData } = await supabaseAdmin
       .from('carriers')
-      .select('id, name');
+      .select('id, name')
+      .in('id', carrierIds);
 
     const carrierMap = new Map(carriersData?.map(c => [c.id, c.name]) || []);
 
@@ -886,12 +895,12 @@ export async function getPackingList(
             ? `${baseName} - ${lineItem.variant_title}`
             : baseName;
           productImage = lineItem.products?.image_url || '';
-          itemQuantity = parseInt(lineItem.quantity) || 0;
+          itemQuantity = parseInt(lineItem.quantity, 10) || 0;
         } else {
           const product = jsonbProductsMap.get(productId);
           productName = product?.name || lineItem.product_name || lineItem.name || 'Producto';
           productImage = product?.image_url || lineItem.image_url || '';
-          itemQuantity = parseInt(lineItem.quantity) || 0;
+          itemQuantity = parseInt(lineItem.quantity, 10) || 0;
         }
 
         const existing = aggregatedItemsMap.get(productId);
@@ -1114,15 +1123,52 @@ export async function updatePackingProgress(
       throw new Error('No more units of this item available to pack');
     }
 
-    // Increment quantity packed on the specific record that has capacity
+    // Atomically increment quantity packed using SQL increment to prevent race conditions
+    // This ensures concurrent requests don't overwrite each other's updates
     const { data: updated, error: updateError } = await supabaseAdmin
-      .from('packing_progress')
-      .update({ quantity_packed: progress.quantity_packed + 1 })
-      .eq('id', progress.id)
-      .select()
-      .single();
+      .rpc('increment_packing_quantity', {
+        p_progress_id: progress.id,
+        p_quantity_needed: progress.quantity_needed,
+        p_picked_quantity: pickedItem.quantity_picked,
+        p_session_id: sessionId,
+        p_product_id: productId
+      });
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      // Final fallback: use optimistic locking with CAS (Compare-And-Swap)
+      // This is less ideal but prevents total failure if RPC doesn't exist
+      const { data: reread, error: rereadError } = await supabaseAdmin
+        .from('packing_progress')
+        .select('quantity_packed, quantity_needed')
+        .eq('id', progress.id)
+        .single();
+
+      if (rereadError) throw rereadError;
+
+      // Double-check we haven't exceeded limits
+      if (reread.quantity_packed >= reread.quantity_needed) {
+        throw new Error('This item is already fully packed for this order');
+      }
+
+      const { data: casUpdated, error: casError } = await supabaseAdmin
+        .from('packing_progress')
+        .update({ quantity_packed: reread.quantity_packed + 1 })
+        .eq('id', progress.id)
+        .eq('quantity_packed', reread.quantity_packed) // CAS condition
+        .select()
+        .single();
+
+      if (casError) throw casError;
+      if (!casUpdated) {
+        throw new Error('Concurrent update detected. Please try again.');
+      }
+
+      return casUpdated;
+    }
+
+    // RPC returns array of rows, get first one
+    const updatedRecord = Array.isArray(updated) ? updated[0] : updated;
+    return updatedRecord;
 
     // Note: We no longer automatically change to ready_to_ship when packing is complete
     // The order will remain in 'in_preparation' until the shipping label is printed
@@ -1202,7 +1248,7 @@ export async function getConfirmedOrders(storeId: string) {
         created_at: order.created_at,
         carrier_name: order.carriers?.name || 'Sin transportadora',
         total_items: Array.isArray(order.line_items)
-          ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0)
+          ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity, 10) || 0), 0)
           : 0
       };
     });
@@ -1570,7 +1616,7 @@ export async function completeSession(
       const itemsList = notPacked.slice(0, 5).map((p: any) => {
         const productName = p.products?.name || 'Producto desconocido';
         const sku = p.products?.sku || 'N/A';
-        const orderNumber = p.orders?.shopify_order_number || p.order_id?.slice(0, 8);
+        const orderNumber = p.orders?.shopify_order_number || p.order_id?.slice(0, 8) || 'UNKNOWN';
         return `• ${productName} (SKU: ${sku}) - Pedido: ${orderNumber} - Empacado: ${p.quantity_packed}/${p.quantity_needed}`;
       }).join('\n');
 
