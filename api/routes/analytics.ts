@@ -570,7 +570,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             // Convert endDate to end of day to include all orders from that day
             query = query.gte('created_at', startDateParam).lte('created_at', toEndOfDay(endDateParam as string));
         } else {
-            const daysCount = parseInt(days as string);
+            const daysCount = parseInt(days as string, 10);
             const startDate = new Date();
             startDate.setDate(startDate.getDate() - daysCount);
             query = query.gte('created_at', startDate.toISOString());
@@ -653,7 +653,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         if (endDateParam) {
             additionalValuesQuery = additionalValuesQuery.lte('date', endDateParam);
         } else if (!startDateParam) {
-            const daysCount = parseInt(days as string);
+            const daysCount = parseInt(days as string, 10);
             const startDate = new Date();
             startDate.setDate(startDate.getDate() - daysCount);
             additionalValuesQuery = additionalValuesQuery.gte('date', startDate.toISOString().split('T')[0]);
@@ -978,7 +978,7 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
         // Get product details and sort by quantity
         const topProductIds = Object.values(productSales)
             .sort((a, b) => b.quantity - a.quantity)
-            .slice(0, parseInt(limit as string))
+            .slice(0, parseInt(limit as string, 10))
             .map(p => p.product_id)
             .filter(id => {
                 // Validate UUID format (basic check)
@@ -1049,7 +1049,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
 
         // Get all orders for the lookback period (to calculate historical delivery rate)
         const lookbackDate = new Date();
-        lookbackDate.setDate(lookbackDate.getDate() - parseInt(lookbackDays as string));
+        lookbackDate.setDate(lookbackDate.getDate() - parseInt(lookbackDays as string, 10));
 
         const { data: historicalOrders, error: historicalError } = await supabaseAdmin
             .from('orders')
@@ -1184,7 +1184,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
                 // Metrics
                 historicalDeliveryRate: parseFloat((historicalDeliveryRate * 100).toFixed(1)),
                 avgDailyRevenue: Math.round(avgDailyRevenue),
-                lookbackDays: parseInt(lookbackDays as string),
+                lookbackDays: parseInt(lookbackDays as string, 10),
             }
         });
     } catch (error: any) {

@@ -1192,9 +1192,9 @@ export async function getReferralStats(userId: string): Promise<{
   if (funnelData && funnelData.length > 0) {
     const f = funnelData[0];
     funnel = {
-      totalRegistered: parseInt(f.total_registered) || 0,
-      totalTrialsStarted: parseInt(f.total_trials_started) || 0,
-      totalPaid: parseInt(f.total_paid) || 0,
+      totalRegistered: parseInt(f.total_registered, 10) || 0,
+      totalTrialsStarted: parseInt(f.total_trials_started, 10) || 0,
+      totalPaid: parseInt(f.total_paid, 10) || 0,
       signupToTrialRate: parseFloat(f.signup_to_trial_rate) || 0,
       trialToPaidRate: parseFloat(f.trial_to_paid_rate) || 0,
     };

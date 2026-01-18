@@ -162,8 +162,8 @@ router.get('/order/:orderId', async (req: PermissionRequest, res: Response) => {
 router.get('/history', async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = req.storeId;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = parseInt(req.query.offset as string) || 0;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
 
     if (!storeId) {
       return res.status(400).json({ error: 'Se requiere el ID de la tienda' });

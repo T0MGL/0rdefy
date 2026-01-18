@@ -59,7 +59,7 @@ suppliersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         query = query
             .order(sortField, { ascending: sortDirection })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
         const { data, error, count } = await query;
 
@@ -85,9 +85,9 @@ suppliersRouter.get('/', async (req: AuthRequest, res: Response) => {
             data: suppliersWithCounts || [],
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: parseInt(offset as string) + (data?.length || 0) < (count || 0)
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {
@@ -346,7 +346,7 @@ suppliersRouter.get('/:id/products', async (req: AuthRequest, res: Response) => 
             .eq('supplier_id', id)
             .eq('store_id', req.storeId)
             .order('name', { ascending: true })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
         if (error) {
             throw error;
@@ -360,9 +360,9 @@ suppliersRouter.get('/:id/products', async (req: AuthRequest, res: Response) => 
             data: data || [],
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: parseInt(offset as string) + (data?.length || 0) < (count || 0)
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {

@@ -12,6 +12,7 @@
 
 import { supabaseAdmin } from '../db/connection';
 import { generateDispatchExcel, DispatchOrder } from '../utils/excel-export';
+import { getTodayInTimezone } from '../utils/dateUtils';
 import {
   isCodPayment,
   normalizePaymentMethod,
@@ -2279,7 +2280,7 @@ export async function getCarrierBalances(storeId: string): Promise<CarrierBalanc
     total_adjustments: parseFloat(row.total_adjustments) || 0,
     net_balance: parseFloat(row.net_balance) || 0,
     unsettled_balance: parseFloat(row.unsettled_balance) || 0,
-    unsettled_orders: parseInt(row.unsettled_orders) || 0,
+    unsettled_orders: parseInt(row.unsettled_orders, 10) || 0,
     last_movement_date: row.last_movement_date,
     last_payment_date: row.last_payment_date,
   }));
@@ -2323,9 +2324,9 @@ export async function getCarrierBalanceSummary(
     adjustments: parseFloat(row.adjustments) || 0,
     gross_balance: parseFloat(row.gross_balance) || 0,
     net_balance: parseFloat(row.net_balance) || 0,
-    orders_count: parseInt(row.orders_count) || 0,
-    delivered_count: parseInt(row.delivered_count) || 0,
-    failed_count: parseInt(row.failed_count) || 0,
+    orders_count: parseInt(row.orders_count, 10) || 0,
+    delivered_count: parseInt(row.delivered_count, 10) || 0,
+    failed_count: parseInt(row.failed_count, 10) || 0,
   };
 }
 
@@ -2425,7 +2426,7 @@ export async function createAdjustmentMovement(
       movement_type: movementType,
       amount: adjustedAmount,
       description,
-      movement_date: new Date().toISOString().split('T')[0],
+      movement_date: getTodayInTimezone(),
       created_by: createdBy,
       metadata: { manual_adjustment: true },
     })

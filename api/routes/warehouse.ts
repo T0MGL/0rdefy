@@ -380,7 +380,7 @@ router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessi
  */
 router.post('/cleanup-sessions', async (req, res) => {
   try {
-    const hoursInactive = parseInt(req.query.hours as string) || 48;
+    const hoursInactive = parseInt(req.query.hours as string, 10) || 48;
 
     const result = await warehouseService.cleanupExpiredSessions(hoursInactive);
 

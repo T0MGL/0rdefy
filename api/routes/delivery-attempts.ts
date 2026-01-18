@@ -13,6 +13,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { Module, Permission } from '../permissions';
+import { getTodayInTimezone } from '../utils/dateUtils';
 import { uploadDeliveryPhoto } from '../services/delivery-photo-cleanup.service';
 
 // Configure multer for file uploads
@@ -109,8 +110,8 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     query = query.range(
-      parseInt(offset as string),
-      parseInt(offset as string) + parseInt(limit as string) - 1
+      parseInt(offset as string, 10),
+      parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1
     );
 
     const { data, error, count } = await query;
@@ -124,9 +125,9 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
       data,
       pagination: {
         total: count || 0,
-        limit: parseInt(limit as string),
-        offset: parseInt(offset as string),
-        hasMore: count ? count > parseInt(offset as string) + parseInt(limit as string) : false
+        limit: parseInt(limit as string, 10),
+        offset: parseInt(offset as string, 10),
+        hasMore: count ? count > parseInt(offset as string, 10) + parseInt(limit as string, 10) : false
       }
     });
   } catch (error: any) {
@@ -294,7 +295,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
       .from('delivery_attempts')
       .update({
         status: 'delivered',
-        actual_date: new Date().toISOString().split('T')[0],
+        actual_date: getTodayInTimezone(),
         photo_url,
         notes,
         payment_method: payment_method || null,
@@ -381,7 +382,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
       .from('delivery_attempts')
       .update({
         status,
-        actual_date: new Date().toISOString().split('T')[0],
+        actual_date: getTodayInTimezone(),
         failed_reason,
         notes,
         failure_notes: failure_notes || null,

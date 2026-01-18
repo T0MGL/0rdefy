@@ -48,7 +48,7 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             .eq('store_id', req.storeId)
             .eq('is_active', activeFilter)
             .order('created_at', { ascending: false })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
         // Filter by source (local = only database products, shopify = only Shopify synced products)
         if (source === 'local') {
@@ -95,7 +95,7 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             if (Array.isArray(lineItems)) {
                 lineItems.forEach((item: any) => {
                     const productId = item.product_id;
-                    const quantity = parseInt(item.quantity) || 0;
+                    const quantity = parseInt(item.quantity, 10) || 0;
                     if (productId) {
                         salesByProduct[productId] = (salesByProduct[productId] || 0) + quantity;
                     }
@@ -128,9 +128,9 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             data: transformedData,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: parseInt(offset as string) + (data?.length || 0) < (count || 0)
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {
@@ -175,7 +175,7 @@ productsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
             if (Array.isArray(lineItems)) {
                 lineItems.forEach((item: any) => {
                     if (item.product_id === data.id) {
-                        sales += parseInt(item.quantity) || 0;
+                        sales += parseInt(item.quantity, 10) || 0;
                     }
                 });
             }
@@ -251,7 +251,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
                     p_sku: sku || null,
                     p_price: parseFloat(price) || 0,
                     p_cost: cost ? parseFloat(cost) : null,
-                    p_stock: parseInt(stock) || 0,
+                    p_stock: parseInt(stock, 10) || 0,
                     p_image_url: image_url || null,
                     p_exclude_product_id: null
                 });
@@ -323,7 +323,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
                 cost: cost ? parseFloat(cost) : null,
                 packaging_cost: is_service ? 0 : (packaging_cost ? parseFloat(packaging_cost) : 0),
                 additional_costs: additional_costs ? parseFloat(additional_costs) : 0,
-                stock: parseInt(stock),
+                stock: parseInt(stock, 10),
                 category,
                 image_url,
                 shopify_product_id,
@@ -533,7 +533,7 @@ productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRO
         if (cost !== undefined) updateData.cost = parseFloat(cost);
         if (packaging_cost !== undefined) updateData.packaging_cost = parseFloat(packaging_cost);
         if (additional_costs !== undefined) updateData.additional_costs = parseFloat(additional_costs);
-        if (stock !== undefined) updateData.stock = parseInt(stock);
+        if (stock !== undefined) updateData.stock = parseInt(stock, 10);
         if (category !== undefined) updateData.category = category;
         if (image_url !== undefined) updateData.image_url = image_url;
         if (shopify_product_id !== undefined) updateData.shopify_product_id = shopify_product_id;
@@ -645,7 +645,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
             }
 
             // Parse stock value and ensure it's a positive number
-            const stockChange = Math.abs(parseInt(stock) || 0);
+            const stockChange = Math.abs(parseInt(stock, 10) || 0);
 
             let newStock = currentProduct.stock;
             if (operation === 'increment') {
@@ -701,7 +701,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
         }
 
         // For 'set' operation - ensure stock is not negative
-        const newStockValue = Math.max(0, parseInt(stock) || 0);
+        const newStockValue = Math.max(0, parseInt(stock, 10) || 0);
         const { data, error } = await supabaseAdmin
             .from('products')
             .update({

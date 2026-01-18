@@ -332,7 +332,7 @@ export class ShopifyClientService {
     const numericId = ShopifyGraphQLClientService.extractNumericId(graphqlProduct.id);
 
     return {
-      id: parseInt(numericId),
+      id: parseInt(numericId, 10),
       title: graphqlProduct.title,
       body_html: graphqlProduct.descriptionHtml || '',
       vendor: graphqlProduct.vendor || '',
@@ -342,17 +342,17 @@ export class ShopifyClientService {
       created_at: graphqlProduct.createdAt,
       updated_at: graphqlProduct.updatedAt,
       variants: graphqlProduct.variants?.edges?.map((edge: any) => ({
-        id: parseInt(ShopifyGraphQLClientService.extractNumericId(edge.node.id)),
+        id: parseInt(ShopifyGraphQLClientService.extractNumericId(edge.node.id), 10),
         sku: edge.node.sku || '',
         price: edge.node.price,
         inventory_quantity: edge.node.inventoryQuantity,
         barcode: edge.node.barcode || '',
         inventory_item_id: edge.node.inventoryItem ?
-          parseInt(ShopifyGraphQLClientService.extractNumericId(edge.node.inventoryItem.id)) :
+          parseInt(ShopifyGraphQLClientService.extractNumericId(edge.node.inventoryItem.id), 10) :
           null
       })) || [],
       images: graphqlProduct.images?.edges?.map((edge: any) => ({
-        id: parseInt(ShopifyGraphQLClientService.extractNumericId(edge.node.id)),
+        id: parseInt(ShopifyGraphQLClientService.extractNumericId(edge.node.id), 10),
         src: edge.node.url,
         alt: edge.node.altText || ''
       })) || []
@@ -542,7 +542,7 @@ export class ShopifyClientService {
       // Rate limit exceeded
       if (status === 429) {
         const retryAfter = error.response.headers['retry-after'];
-        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 2000;
+        const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : 2000;
         await new Promise(resolve => setTimeout(resolve, waitTime));
         throw new Error(`Rate limit exceeded. Retry after ${waitTime}ms`);
       }

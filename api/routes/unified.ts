@@ -192,7 +192,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
             `, { count: 'exact' })
             .in('store_id', storeIds)
             .order('created_at', { ascending: false })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
         if (status) {
             query = query.eq('sleeves_status', status);
@@ -271,8 +271,8 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
             };
         });
 
-        const parsedLimit = parseInt(limit as string);
-        const parsedOffset = parseInt(offset as string);
+        const parsedLimit = parseInt(limit as string, 10);
+        const parsedOffset = parseInt(offset as string, 10);
 
         res.json({
             data: transformed,
@@ -759,7 +759,7 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
                 .gte('created_at', startDateParam as string)
                 .lte('created_at', toEndOfDay(endDateParam as string));
         } else {
-            const daysCount = parseInt(days as string);
+            const daysCount = parseInt(days as string, 10);
             const startDate = new Date();
             startDate.setDate(startDate.getDate() - daysCount);
             query = query.gte('created_at', startDate.toISOString());

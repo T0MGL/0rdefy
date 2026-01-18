@@ -128,8 +128,8 @@ router.delete('/sessions', verifyToken, async (req, res) => {
 router.get('/activity', verifyToken, async (req, res) => {
   try {
     const userId = req.userId || req.user?.id;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = parseInt(req.query.offset as string) || 0;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
 
     const activities = await getUserActivity(userId, limit, offset);
 

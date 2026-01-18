@@ -1169,12 +1169,6 @@ export async function updatePackingProgress(
     // RPC returns array of rows, get first one
     const updatedRecord = Array.isArray(updated) ? updated[0] : updated;
     return updatedRecord;
-
-    // Note: We no longer automatically change to ready_to_ship when packing is complete
-    // The order will remain in 'in_preparation' until the shipping label is printed
-    // This ensures stock is only decremented when the order is truly ready to ship
-
-    return updated;
   } catch (error) {
     throw error;
   }

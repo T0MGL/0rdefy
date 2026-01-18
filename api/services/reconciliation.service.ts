@@ -269,8 +269,8 @@ export class ReconciliationService {
       const gaps: Array<{ start: string; end: string; missing_count: number }> = [];
 
       for (let i = 0; i < orders.length - 1; i++) {
-        const current = parseInt(orders[i].shopify_order_number);
-        const next = parseInt(orders[i + 1].shopify_order_number);
+        const current = parseInt(orders[i].shopify_order_number, 10);
+        const next = parseInt(orders[i + 1].shopify_order_number, 10);
 
         if (!isNaN(current) && !isNaN(next) && next - current > 1) {
           gaps.push({

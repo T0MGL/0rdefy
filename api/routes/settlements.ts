@@ -5,6 +5,7 @@ import { extractUserRole, requireModule, PermissionRequest } from '../middleware
 import { requireFeature } from '../middleware/planLimits';
 import { Module } from '../permissions';
 import * as settlementsService from '../services/settlements.service';
+import { getTodayInTimezone } from '../utils/dateUtils';
 
 export const settlementsRouter = Router();
 
@@ -56,8 +57,8 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     query = query.range(
-      parseInt(offset as string),
-      parseInt(offset as string) + parseInt(limit as string) - 1
+      parseInt(offset as string, 10),
+      parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1
     );
 
     const { data, error, count } = await query;
@@ -71,9 +72,9 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
       data,
       pagination: {
         total: count || 0,
-        limit: parseInt(limit as string),
-        offset: parseInt(offset as string),
-        hasMore: count ? count > parseInt(offset as string) + parseInt(limit as string) : false
+        limit: parseInt(limit as string, 10),
+        offset: parseInt(offset as string, 10),
+        hasMore: count ? count > parseInt(offset as string, 10) + parseInt(limit as string, 10) : false
       }
     });
   } catch (error: any) {
@@ -88,7 +89,7 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
 settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
   try {
     const { carrier_id } = req.query;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayInTimezone();
 
     console.log('📅 [SETTLEMENTS] Fetching today settlement:', { today, carrier_id });
 
@@ -175,8 +176,8 @@ settlementsRouter.get('/dispatch-sessions', async (req: AuthRequest, res: Respon
       carrierId: carrier_id as string,
       startDate: start_date as string,
       endDate: end_date as string,
-      limit: limit ? parseInt(limit as string) : undefined,
-      offset: offset ? parseInt(offset as string) : undefined
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      offset: offset ? parseInt(offset as string, 10) : undefined
     });
 
     res.json(result);
@@ -330,8 +331,8 @@ settlementsRouter.get('/v2', async (req: AuthRequest, res: Response) => {
       carrierId: carrier_id as string,
       startDate: start_date as string,
       endDate: end_date as string,
-      limit: limit ? parseInt(limit as string) : undefined,
-      offset: offset ? parseInt(offset as string) : undefined
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      offset: offset ? parseInt(offset as string, 10) : undefined
     });
 
     res.json(result);
@@ -732,8 +733,8 @@ settlementsRouter.get('/carrier-accounts/:carrierId/movements', async (req: Auth
         fromDate: from_date as string,
         toDate: to_date as string,
         movementType: movement_type as string,
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        offset: offset ? parseInt(offset as string, 10) : undefined,
       }
     );
 
@@ -902,8 +903,8 @@ settlementsRouter.get('/carrier-payments', async (req: AuthRequest, res: Respons
         fromDate: from_date as string,
         toDate: to_date as string,
         status: status as string,
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        offset: offset ? parseInt(offset as string, 10) : undefined,
       }
     );
 

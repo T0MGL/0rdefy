@@ -13,6 +13,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
 import { Module } from '../permissions';
+import { getTodayInTimezone } from '../utils/dateUtils';
 
 export const carrierSettlementsRouter = Router();
 
@@ -73,8 +74,8 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         // Apply pagination
         query = query.range(
-            parseInt(offset as string),
-            parseInt(offset as string) + parseInt(limit as string) - 1
+            parseInt(offset as string, 10),
+            parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1
         );
 
         const { data, error, count } = await query;
@@ -88,9 +89,9 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
             data,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: count ? count > parseInt(offset as string) + parseInt(limit as string) : false
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: count ? count > parseInt(offset as string, 10) + parseInt(limit as string, 10) : false
             }
         });
     } catch (error: any) {
@@ -369,7 +370,7 @@ carrierSettlementsRouter.post('/:id/mark-paid', async (req: AuthRequest, res: Re
             .from('carrier_settlements')
             .update({
                 status: 'paid',
-                payment_date: payment_date || new Date().toISOString().split('T')[0],
+                payment_date: payment_date || getTodayInTimezone(),
                 payment_method: payment_method || null,
                 payment_reference: payment_reference || null,
                 updated_at: new Date().toISOString()

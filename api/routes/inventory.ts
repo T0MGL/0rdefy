@@ -50,8 +50,8 @@ inventoryRouter.get('/movements', async (req: AuthRequest, res: Response) => {
             offset = '0'
         } = req.query;
 
-        const limitNum = Math.min(parseInt(limit as string) || 100, 500);
-        const offsetNum = parseInt(offset as string) || 0;
+        const limitNum = Math.min(parseInt(limit as string, 10) || 100, 500);
+        const offsetNum = parseInt(offset as string, 10) || 0;
 
         console.log(`📊 [INVENTORY] Fetching movements for store ${req.storeId}`);
         console.log(`   Filters:`, { product_id, date_from, date_to, movement_type, search });
@@ -245,8 +245,8 @@ inventoryRouter.get('/movements/product/:id', async (req: AuthRequest, res: Resp
         const { id } = req.params;
         const { limit = '50', offset = '0' } = req.query;
 
-        const limitNum = Math.min(parseInt(limit as string) || 50, 200);
-        const offsetNum = parseInt(offset as string) || 0;
+        const limitNum = Math.min(parseInt(limit as string, 10) || 50, 200);
+        const offsetNum = parseInt(offset as string, 10) || 0;
 
         console.log(`📊 [INVENTORY] Fetching movements for product ${id}`);
 

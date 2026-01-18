@@ -438,8 +438,8 @@ export class ShopifyWebhookService {
 
       // Transform GraphQL response to match REST API format (for compatibility)
       const transformedOrder: ShopifyOrder = {
-        id: parseInt(order.legacyResourceId),
-        order_number: parseInt(order.name.replace('#', '')),
+        id: parseInt(order.legacyResourceId, 10),
+        order_number: parseInt(order.name.replace('#', ''), 10),
         name: order.name,
         email: order.email,
         phone: order.phone,
@@ -452,7 +452,7 @@ export class ShopifyWebhookService {
         delivery_notes: order.note || '',
 
         customer: (order.customer ? {
-          id: parseInt(order.customer.legacyResourceId),
+          id: parseInt(order.customer.legacyResourceId, 10),
           email: order.customer.email,
           phone: order.customer.phone,
           first_name: order.customer.firstName,
@@ -499,9 +499,9 @@ export class ShopifyWebhookService {
           const discountAmount = (unitPrice * quantity) - totalPrice;
 
           return {
-            id: parseInt(node.id.split('/').pop()),
-            product_id: node.product?.legacyResourceId ? parseInt(node.product.legacyResourceId) : null,
-            variant_id: node.variant?.legacyResourceId ? parseInt(node.variant.legacyResourceId) : null,
+            id: parseInt(node.id.split('/').pop(), 10),
+            product_id: node.product?.legacyResourceId ? parseInt(node.product.legacyResourceId, 10) : null,
+            variant_id: node.variant?.legacyResourceId ? parseInt(node.variant.legacyResourceId, 10) : null,
             title: node.title,
             name: node.title,
             variant_title: node.variantTitle,
@@ -1164,7 +1164,7 @@ export class ShopifyWebhookService {
         }
 
         // Calculate prices
-        const quantity = parseInt(item.quantity) || 1;
+        const quantity = parseInt(item.quantity, 10) || 1;
         const unitPrice = parseFloat(item.price) || 0;
         const totalPrice = quantity * unitPrice;
         const discountAmount = parseFloat(item.total_discount) || 0;

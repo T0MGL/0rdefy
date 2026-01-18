@@ -51,7 +51,7 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         // Apply min_orders filter
         if (min_orders) {
-            query = query.gte('total_orders', parseInt(min_orders as string));
+            query = query.gte('total_orders', parseInt(min_orders as string, 10));
         }
 
         // Apply min_spent filter
@@ -66,7 +66,7 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         query = query
             .order(sortField, { ascending: sortDirection })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
         const { data, error, count } = await query;
 
@@ -78,9 +78,9 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
             data: data || [],
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: parseInt(offset as string) + (data?.length || 0) < (count || 0)
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {
@@ -142,7 +142,7 @@ customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequ
             .eq('customer_id', id)
             .eq('store_id', req.storeId)
             .order('created_at', { ascending: false })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
         if (error) {
             throw error;
@@ -160,9 +160,9 @@ customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequ
             data: transformedData,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: parseInt(offset as string) + (data?.length || 0) < (count || 0)
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {

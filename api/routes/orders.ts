@@ -15,6 +15,7 @@ import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
 import { isValidUUID, validateUUIDParam } from '../utils/sanitize';
+import { getTodayInTimezone } from '../utils/dateUtils';
 
 /**
  * Safely parse a number, returning 0 for invalid values.
@@ -262,8 +263,8 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 store_id: existingOrder.store_id,
                 carrier_id: existingOrder.courier_id,
                 attempt_number,
-                scheduled_date: new Date().toISOString().split('T')[0],
-                actual_date: new Date().toISOString().split('T')[0],
+                scheduled_date: getTodayInTimezone(),
+                actual_date: getTodayInTimezone(),
                 status: 'delivered',
                 payment_method: payment_method || null,
                 notes: notes || null,
@@ -395,8 +396,8 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
                 store_id: existingOrder.store_id,
                 carrier_id: existingOrder.courier_id,
                 attempt_number,
-                scheduled_date: new Date().toISOString().split('T')[0],
-                actual_date: new Date().toISOString().split('T')[0],
+                scheduled_date: getTodayInTimezone(),
+                actual_date: getTodayInTimezone(),
                 status: 'failed',
                 failed_reason: delivery_failure_reason,
                 failure_notes: failure_notes || null

@@ -13,6 +13,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
+import { getTodayInTimezone } from '../utils/dateUtils';
 import { Module } from '../permissions';
 
 export const incidentsRouter = Router();
@@ -156,8 +157,8 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
                 order_id: incident.order_id,
                 store_id: incident.store_id,
                 attempt_number: retryAttempt.retry_number,
-                scheduled_date: retryAttempt.scheduled_date || new Date().toISOString().split('T')[0],
-                actual_date: new Date().toISOString().split('T')[0],
+                scheduled_date: retryAttempt.scheduled_date || getTodayInTimezone(),
+                actual_date: getTodayInTimezone(),
                 status: status === 'delivered' ? 'delivered' : 'failed',
                 notes: courier_notes,
                 failed_reason: failure_reason || null,
@@ -250,8 +251,8 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
         }
 
         query = query.range(
-            parseInt(offset as string),
-            parseInt(offset as string) + parseInt(limit as string) - 1
+            parseInt(offset as string, 10),
+            parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1
         );
 
         const { data, error, count } = await query;
@@ -265,9 +266,9 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
             data,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: count ? count > parseInt(offset as string) + parseInt(limit as string) : false
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: count ? count > parseInt(offset as string, 10) + parseInt(limit as string, 10) : false
             }
         });
     } catch (error: any) {
@@ -379,7 +380,7 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
             .insert({
                 incident_id: id,
                 retry_number: nextRetryNumber,
-                scheduled_date: scheduled_date || new Date().toISOString().split('T')[0],
+                scheduled_date: scheduled_date || getTodayInTimezone(),
                 rescheduled_by: 'admin',
                 status: 'scheduled',
                 courier_notes: notes || null

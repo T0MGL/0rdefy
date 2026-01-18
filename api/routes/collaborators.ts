@@ -559,15 +559,68 @@ collaboratorsRouter.post(
 
       if (linkError) {
         // ROLLBACK: Revert invitation claim and delete new user if created
-        await supabaseAdmin
+        console.error('[ROLLBACK] User linking failed, attempting rollback:', {
+          invitationId: invitation.id,
+          userId,
+          isExistingUser,
+          linkError: linkError.message
+        });
+
+        const rollbackErrors: string[] = [];
+
+        // Step 1: Rollback invitation status
+        const { error: rollbackInvError } = await supabaseAdmin
           .from('collaborator_invitations')
           .update({ used: false, used_at: null, used_by_user_id: null })
           .eq('id', invitation.id);
 
-        if (!isExistingUser) {
-          await supabaseAdmin.from('users').delete().eq('id', userId);
+        if (rollbackInvError) {
+          console.error('[ROLLBACK CRITICAL] Failed to revert invitation:', {
+            invitationId: invitation.id,
+            error: rollbackInvError.message,
+            impact: 'Invitation marked as used but user not linked - manual cleanup required'
+          });
+          rollbackErrors.push('invitation');
         }
-        return res.status(500).json({ error: 'Error al vincular usuario a tienda' });
+
+        // Step 2: Delete orphaned user if created in this request
+        if (!isExistingUser) {
+          const { error: deleteUserError } = await supabaseAdmin
+            .from('users')
+            .delete()
+            .eq('id', userId);
+
+          if (deleteUserError) {
+            console.error('[ROLLBACK CRITICAL] Failed to delete orphaned user:', {
+              userId,
+              email: invitation.invited_email,
+              error: deleteUserError.message,
+              impact: 'Orphaned user exists - manual cleanup required'
+            });
+            rollbackErrors.push('user');
+          }
+        }
+
+        // Return detailed error with rollback status
+        return res.status(500).json({
+          error: 'Error al vincular usuario a tienda',
+          details: linkError.message,
+          rollbackStatus: rollbackErrors.length > 0
+            ? `FAILED: ${rollbackErrors.join(', ')} - manual cleanup required`
+            : 'SUCCESS',
+          ...(rollbackErrors.length > 0 && {
+            rollbackErrors,
+            requiresManualCleanup: true,
+            cleanupInstructions: {
+              invitation: rollbackErrors.includes('invitation')
+                ? `UPDATE collaborator_invitations SET used = false, used_at = null, used_by_user_id = null WHERE id = '${invitation.id}'`
+                : undefined,
+              user: rollbackErrors.includes('user')
+                ? `DELETE FROM users WHERE id = '${userId}' AND email = '${invitation.invited_email}'`
+                : undefined
+            }
+          })
+        });
       }
 
 

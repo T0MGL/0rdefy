@@ -12,6 +12,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
 import { Module } from '../permissions';
+import { getTodayInTimezone } from '../utils/dateUtils';
 
 export const codMetricsRouter = Router();
 
@@ -99,7 +100,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
     ) || [];
 
     // Calculate collected today
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayInTimezone();
     const collectedToday = orders?.filter(o =>
       o.payment_status === 'collected' &&
       o.updated_at?.startsWith(today)
@@ -150,7 +151,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
     console.log('📅 [COD-METRICS] Fetching daily breakdown for', days, 'days');
 
     const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - parseInt(days as string) * 24 * 60 * 60 * 1000);
+    const startDate = new Date(endDate.getTime() - parseInt(days as string, 10) * 24 * 60 * 60 * 1000);
 
     const { data: orders, error } = await supabaseAdmin
       .from('orders')
@@ -208,7 +209,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
       period: {
         start_date: startDate.toISOString().split('T')[0],
         end_date: endDate.toISOString().split('T')[0],
-        days: parseInt(days as string)
+        days: parseInt(days as string, 10)
       }
     });
   } catch (error: any) {

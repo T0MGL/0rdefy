@@ -11,6 +11,7 @@ import {
   ShopifyCustomer,
   ShopifyOrder
 } from '../types/shopify';
+import { getTodayInTimezone } from '../utils/dateUtils';
 
 export class ShopifyImportService {
   private supabaseAdmin: SupabaseClient;
@@ -677,7 +678,7 @@ export class ShopifyImportService {
         }
 
         // Calculate prices
-        const quantity = parseInt(item.quantity) || 1;
+        const quantity = parseInt(item.quantity, 10) || 1;
         const unitPrice = parseFloat(item.price) || 0;
         const totalPrice = quantity * unitPrice;
         const discountAmount = parseFloat(item.total_discount) || 0;
@@ -786,6 +787,7 @@ export class ShopifyImportService {
       console.log(`📦 [SHOPIFY-IMPORT] Creating inbound shipment with reference: ${reference}`);
 
       // Create the inbound shipment
+      const today = getTodayInTimezone();
       const { data: shipment, error: shipmentError } = await this.supabaseAdmin
         .from('inbound_shipments')
         .insert({
@@ -793,8 +795,8 @@ export class ShopifyImportService {
           internal_reference: reference,
           supplier_id: null, // Shopify import (no supplier)
           carrier_id: null,
-          tracking_code: `SHOPIFY-IMPORT-${new Date().toISOString().split('T')[0]}`,
-          estimated_arrival_date: new Date().toISOString().split('T')[0],
+          tracking_code: `SHOPIFY-IMPORT-${today}`,
+          estimated_arrival_date: today,
           received_date: new Date().toISOString(),
           status: 'received', // Already received in Shopify
           shipping_cost: 0,

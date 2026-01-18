@@ -1298,7 +1298,7 @@ shopifyRouter.get('/products', async (req: AuthRequest, res: Response) => {
 
     // Obtener productos de Shopify
     const { products, pagination } = await shopifyClient.getProducts({
-      limit: parseInt(limit as string)
+      limit: parseInt(limit as string, 10)
     });
 
     // Filtrar por búsqueda si se proporciona
@@ -1492,7 +1492,7 @@ shopifyRouter.get('/debug', async (req: AuthRequest, res: Response) => {
 shopifyRouter.get('/webhook-health', async (req: AuthRequest, res: Response) => {
   try {
     const storeId = req.storeId;
-    const hours = parseInt(req.query.hours as string) || 24;
+    const hours = parseInt(req.query.hours as string, 10) || 24;
 
     // Get integration
     const { data: integration, error } = await supabaseAdmin

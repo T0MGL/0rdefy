@@ -59,7 +59,7 @@ carriersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         query = query
             .order(sortField, { ascending: sortDirection })
-            .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
         const { data, error, count } = await query;
 
@@ -71,9 +71,9 @@ carriersRouter.get('/', async (req: AuthRequest, res: Response) => {
             data: data || [],
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string),
-                offset: parseInt(offset as string),
-                hasMore: parseInt(offset as string) + (data?.length || 0) < (count || 0)
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {
@@ -435,7 +435,7 @@ carriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
 
         console.log(`🏆 [CARRIERS] Fetching top ${limit} couriers for store ${req.storeId}`);
 
-        const topCouriers = await getTopCouriers(req.storeId, parseInt(limit as string));
+        const topCouriers = await getTopCouriers(req.storeId, parseInt(limit as string, 10));
 
         res.json({
             data: topCouriers,
@@ -461,7 +461,7 @@ carriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
 
         const underperformingCouriers = await getUnderperformingCouriers(
             req.storeId,
-            parseInt(threshold as string)
+            parseInt(threshold as string, 10)
         );
 
         res.json({

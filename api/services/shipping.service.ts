@@ -6,6 +6,7 @@
 
 import { supabaseAdmin } from '../db/connection';
 import { generateDispatchExcel, DispatchOrder } from '../utils/excel-export';
+import { isCodPayment } from '../utils/payment';
 
 export interface Shipment {
   id: string;
@@ -284,22 +285,29 @@ export async function exportOrdersExcel(
     }
 
     // Determine payment type and amount to collect
-    const paymentMethod = (order.payment_method || '').toLowerCase();
+    // IMPORTANT: financial_status (from Shopify) takes precedence over payment_method
+    // This matches the logic in settlements.service.ts for consistency
     const financialStatus = (order.financial_status || '').toLowerCase();
     const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
-    const isCod = paymentMethod === 'cod' || paymentMethod === 'contra_entrega' ||
-                  paymentMethod === 'cash_on_delivery' || paymentMethod === 'efectivo';
+
+    // Use centralized payment utilities, but financial_status overrides
+    // If Shopify says it's paid, it's NOT COD regardless of payment_method
+    const isCod = !isPaidOnline && isCodPayment(order.payment_method);
 
     let paymentType: string;
     let amountToCollect: number;
 
-    if (isPaidOnline) {
-      paymentType = '✓ PAGADO';
-      amountToCollect = 0;
-    } else if (isCod) {
+    if (isCod) {
+      // COD: Courier must collect cash on delivery
       paymentType = 'COD';
       amountToCollect = order.cod_amount || order.total_price || 0;
+    } else if (isPaidOnline) {
+      // Paid online (confirmed by Shopify financial_status)
+      paymentType = '✓ PAGADO';
+      amountToCollect = 0;
     } else {
+      // Prepaid but not yet confirmed by Shopify (bank transfer, QR, etc.)
+      // Or unknown payment status - assume prepaid to avoid collecting incorrectly
       paymentType = 'PREPAGO';
       amountToCollect = 0;
     }
@@ -307,8 +315,14 @@ export async function exportOrdersExcel(
     // Extract city from address if not available
     let city = order.customer_city || '';
     if (!city && order.customer_address) {
-      const addressParts = order.customer_address.split(',');
-      city = addressParts.length > 1 ? addressParts[addressParts.length - 1].trim() : '';
+      const addressParts = order.customer_address.split(',').map(part => part.trim());
+      // Remove empty strings from split result
+      const validParts = addressParts.filter(p => p.length > 0);
+
+      if (validParts.length > 0) {
+        // Use last non-empty part as city
+        city = validParts[validParts.length - 1];
+      }
     }
 
     return {

@@ -249,8 +249,8 @@ externalWebhooksRouter.delete('/config', async (req: any, res: Response) => {
 externalWebhooksRouter.get('/logs', async (req: any, res: Response) => {
   try {
     const { storeId } = req;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 100);
 
     if (!storeId) {
       return res.status(400).json({ error: 'Store ID is required' });
