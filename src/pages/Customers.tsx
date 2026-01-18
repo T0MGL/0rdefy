@@ -12,7 +12,8 @@ import { customersService } from '@/services/customers.service';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Edit, Trash2, Users, Mail, Phone, ShoppingBag, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Customer } from '@/types';
 import { customersExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
@@ -113,9 +114,6 @@ function CustomerForm({
 }
 
 export default function Customers() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -123,33 +121,32 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerToDelete, setCustomerToDelete] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    loadCustomers();
-  }, []);
+  // ✅ React Query with aggressive cache (customers change rarely)
+  const { data: customers = [], isLoading } = useQuery({
+    queryKey: ['customers'],
+    queryFn: customersService.getAll,
+    staleTime: 5 * 60 * 1000,      // ✅ 5 min - customers are static data
+    cacheTime: 10 * 60 * 1000,     // ✅ 10 min cache in background
+    refetchOnMount: false,         // ✅ Don't refetch if data is fresh (< 5min)
+    refetchOnWindowFocus: false,   // ✅ Don't refetch on tab focus (not time-sensitive)
+  });
 
-  useEffect(() => {
+  // ✅ Client-side filtering (no API calls for search)
+  const filteredCustomers = useMemo(() => {
     if (searchQuery.trim() === '') {
-      setFilteredCustomers(customers);
-    } else {
-      const query = searchQuery.toLowerCase();
-      const filtered = customers.filter(
-        (customer) =>
-          customer.first_name.toLowerCase().includes(query) ||
-          customer.last_name.toLowerCase().includes(query) ||
-          customer.email.toLowerCase().includes(query) ||
-          customer.phone.includes(query)
-      );
-      setFilteredCustomers(filtered);
+      return customers;
     }
+    const query = searchQuery.toLowerCase();
+    return customers.filter(
+      (customer) =>
+        customer.first_name.toLowerCase().includes(query) ||
+        customer.last_name.toLowerCase().includes(query) ||
+        customer.email.toLowerCase().includes(query) ||
+        customer.phone.includes(query)
+    );
   }, [searchQuery, customers]);
-
-  const loadCustomers = async () => {
-    const data = await customersService.getAll();
-    setCustomers(data);
-    setFilteredCustomers(data);
-    setIsLoading(false);
-  };
 
   const handleCreate = () => {
     setSelectedCustomer(null);
@@ -170,11 +167,12 @@ export default function Customers() {
     if (!customerToDelete) return;
 
     try {
-      await customersService.delete(customerToDelete);
+      // Optimistic update: remove from cache immediately
+      queryClient.setQueryData<Customer[]>(['customers'], (old = []) =>
+        old.filter(c => c.id !== customerToDelete)
+      );
 
-      // Optimistic update: remove from local state instead of reloading
-      setCustomers(prev => prev.filter(c => c.id !== customerToDelete));
-      setFilteredCustomers(prev => prev.filter(c => c.id !== customerToDelete));
+      await customersService.delete(customerToDelete);
 
       setDeleteDialogOpen(false);
       setCustomerToDelete(null);
@@ -184,6 +182,9 @@ export default function Customers() {
         description: 'El cliente ha sido eliminado exitosamente.',
       });
     } catch (error: any) {
+      // Revert optimistic update on error
+      queryClient.invalidateQueries(['customers']);
+
       toast({
         title: 'Error al eliminar',
         description: error.message || 'No se pudo eliminar el cliente.',
@@ -199,9 +200,9 @@ export default function Customers() {
         const updatedCustomer = await customersService.update(selectedCustomer.id, data);
 
         if (updatedCustomer) {
-          // Optimistic update: update in local state
-          setCustomers(prev =>
-            prev.map(c => (c.id === selectedCustomer.id ? updatedCustomer : c))
+          // Optimistic update: update in React Query cache
+          queryClient.setQueryData<Customer[]>(['customers'], (old = []) =>
+            old.map(c => (c.id === selectedCustomer.id ? updatedCustomer : c))
           );
         }
 
@@ -212,8 +213,10 @@ export default function Customers() {
       } else {
         const newCustomer = await customersService.create(data);
 
-        // Optimistic update: add to local state
-        setCustomers(prev => [newCustomer, ...prev]);
+        // Optimistic update: add to React Query cache
+        queryClient.setQueryData<Customer[]>(['customers'], (old = []) =>
+          [newCustomer, ...old]
+        );
 
         toast({
           title: 'Cliente creado',
@@ -222,6 +225,9 @@ export default function Customers() {
       }
       setDialogOpen(false);
     } catch (error: any) {
+      // Revert optimistic update on error
+      queryClient.invalidateQueries(['customers']);
+
       toast({
         title: 'Error',
         description: error.message || 'Ocurrió un error al guardar el cliente.',
