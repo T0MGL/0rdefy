@@ -87,7 +87,7 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
 
   // Show first 3 products as thumbnails
   const visibleItems = lineItems.slice(0, 3);
-  const remainingCount = lineItems.length - 3;
+  const remainingCount = Math.max(0, lineItems.length - 3);
 
   return (
     <TooltipProvider>
@@ -230,12 +230,12 @@ export default function Orders() {
   }, [toast]);
 
   // Smart polling - only polls when page is visible
-  // queryFn uses refs to remain stable and prevent memory leaks
+  // queryFn uses refs to access latest filter values without re-creating the polling interval
   const { refetch } = useSmartPolling({
-    queryFn: useCallback(async () => {
+    queryFn: async () => {
       const result = await ordersService.getAll({
         ...dateParamsRef.current,
-        limit: 50,
+        limit: pagination.limit,
         offset: 0
       });
       const data = result.data;
@@ -255,7 +255,7 @@ export default function Orders() {
       previousCountRef.current = data.length;
       setIsLoading(false);
       return data;
-    }, []), // No dependencies - uses refs for all external values
+    },
     interval: 15000, // Poll every 15 seconds when page is visible
     enabled: true,
     fetchOnMount: true,
@@ -270,7 +270,7 @@ export default function Orders() {
       const newOffset = pagination.offset + pagination.limit;
       const result = await ordersService.getAll({
         ...dateParams,
-        limit: 50,
+        limit: pagination.limit,
         offset: newOffset
       });
 
@@ -964,7 +964,9 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           : [{
               name: order.product,
               quantity: order.quantity,
-              price: order.total_price ? order.total_price / order.quantity : 0
+              price: (typeof order.total_price === 'number' && !isNaN(order.total_price) && order.quantity > 0)
+                ? order.total_price / order.quantity
+                : 0
             }],
       };
 
@@ -1027,7 +1029,9 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           : [{
               name: order.product,
               quantity: order.quantity,
-              price: order.total_price ? order.total_price / order.quantity : 0
+              price: (typeof order.total_price === 'number' && !isNaN(order.total_price) && order.quantity > 0)
+                ? order.total_price / order.quantity
+                : 0
             }],
       }));
 
@@ -1035,26 +1039,50 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
       const success = await printBatchLabelsPDF(labelsData);
 
-      if (success) {
-        // Mark all selected orders as printed and update status
-        for (const order of printableOrders) {
-          try {
-            await ordersService.markAsPrinted(order.id);
-            await ordersService.updateStatus(order.id, 'in_transit');
-          } catch (e) {
-            console.error(`Failed to update order ${order.id}:`, e);
-          }
-        }
+      if (!success) {
+        // CRITICAL: PDF generation failed - do NOT mark anything
+        toast({
+          title: '❌ Error generando PDF',
+          description: 'No se pudo generar el archivo PDF de etiquetas. No se marcó ningún pedido como impreso.',
+          variant: 'destructive',
+        });
+        return;
+      }
 
-        // Refresh local orders state
-        const updatedOrdersResponse = await ordersService.getAll();
-        setOrders(updatedOrdersResponse.data || []);
+      // PDF generated successfully - use atomic bulk endpoint
+      console.log('✅ [ORDERS] PDF generated successfully, marking orders as printed...');
+
+      const result = await ordersService.bulkPrintAndDispatch(
+        printableOrders.map(o => o.id)
+      );
+
+      // Refresh local orders state
+      const updatedOrdersResponse = await ordersService.getAll();
+      setOrders(updatedOrdersResponse.data || []);
+
+      // Show detailed feedback based on results
+      if (!result.success || result.data.failed > 0) {
+        const { succeeded, failed, failures } = result.data;
+        const failedOrderNumbers = failures.map(f => f.order_number).join(', ');
 
         toast({
-          title: 'Impresión completada',
-          description: `${printableOrders.length} pedidos marcados como en tránsito`,
+          title: `⚠️ Impresión parcial (${succeeded}/${succeeded + failed})`,
+          description: `Pedidos que FALLARON: ${failedOrderNumbers}. Revisar consola para detalles.`,
+          variant: 'destructive',
+          duration: 10000, // Longer duration to review
         });
 
+        // Log detailed errors for debugging
+        console.error('🚨 [BULK PRINT] Failures:', failures);
+      } else {
+        toast({
+          title: '✅ Impresión completada',
+          description: `${result.data.succeeded} pedidos marcados como listos para despacho`,
+        });
+      }
+
+      // Only clear selection if ALL succeeded
+      if (result.success && result.data.failed === 0) {
         setSelectedOrderIds(new Set());
       }
     } catch (error) {
@@ -1673,7 +1701,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                           </Button>
 
                           {/* Quick Prepare button (only for confirmed orders) */}
-                          {order.sleeves_status === 'confirmed' && !isDeleted && (
+                          {order.status === 'confirmed' && !isDeleted && (
                             <Button
                               variant="ghost"
                               size="icon"

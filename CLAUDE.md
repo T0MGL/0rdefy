@@ -162,7 +162,8 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 **Image Upload:** Currently NOT supported - only accepts external URLs. Products without images use placeholder.
 
 ### Warehouse (Picking & Packing)
-**Files:** `src/pages/Warehouse.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`
+**Files:** `src/pages/Warehouse.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`, `079_atomic_packing_increment.sql`
+**Documentation:** `WAREHOUSE_PACKING_RACE_FIX.md`
 
 **Workflow:**
 1. Dashboard: Multi-select confirmed orders → create picking session
@@ -170,7 +171,7 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 3. Packing: Split-view (basket ← → order boxes), smart highlighting
 4. Complete packing → order status = `ready_to_ship` → **stock automatically decremented** (see Inventory Management)
 
-**Features:** Batch processing, auto-generated codes (PREP-DDMMYYYY-NNN format, e.g., PREP-12012026-001), progress tracking, order transitions (confirmed → in_preparation → ready_to_ship), touch-optimized, automatic stock management
+**Features:** Batch processing, auto-generated codes (PREP-DDMMYYYY-NNN format, e.g., PREP-12012026-001), progress tracking, order transitions (confirmed → in_preparation → ready_to_ship), touch-optimized, automatic stock management, **concurrent packing protection** (race-condition safe)
 
 **Tables:** picking_sessions (with last_activity_at, abandoned_at columns), picking_session_orders, picking_session_items, packing_progress
 
@@ -181,6 +182,13 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 - **Session Code:** 3-digit format supports 999 sessions/day (was 99)
 - **Atomic Packing:** `update_packing_progress_atomic()` RPC with row locking
 - **Staleness Indicators:** UI shows WARNING (>24h) and CRITICAL (>48h) sessions
+
+**Concurrent Packing Protection (Migration 079 - NEW):**
+- **Three-layer defense:** Primary atomic RPC → Fallback atomic RPC → CAS optimistic locking
+- **Zero lost updates:** Multiple workers can pack same product simultaneously without conflicts
+- **`increment_packing_quantity()`:** Atomic increment with full validation and row locking
+- **Performance:** 3x reduction in database round-trips (1 RPC vs 3 queries)
+- **Backward compatible:** Graceful degradation if RPCs unavailable
 
 **Session Recovery:**
 - Abandoned sessions: Orders restored to confirmed, can be re-picked
@@ -745,10 +753,11 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - Webhooks: 60 req/min
 - Write operations: 200 req/15min
 
-### Production Fixes (December 2025)
+### Production Fixes (December 2025 - January 2026)
 1. ✅ **N+1 Query Optimization:** Batch product fetching (300 queries → 1 query), analytics response 3-5s → 100-300ms
 2. ✅ **Warehouse Service:** Fixed client (supabase → supabaseAdmin) for RLS permissions
 3. ✅ **SQL Injection Prevention:** Input sanitization in search endpoints (`api/utils/sanitize.ts`)
+4. ✅ **Invitation Race Condition (CRITICAL):** Atomic invitation acceptance with row-level locking prevents duplicate users and plan limit bypass (Migration 078)
 
 ### Pending Recommendations (Non-Blocking)
 - ⚠️ Conditional logger (456 console statements in prod)
@@ -812,7 +821,9 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 
 **Core Systems:**
 - `COLLABORATORS_SYSTEM.md` - Team management with role-based access control and invitations
-- `WHATSAPP_VERIFICATION_SETUP.md` - **NEW:** WhatsApp phone verification setup guide
+- `INVITATION_RACE_CONDITION_FIX.md` - **CRITICAL FIX:** Prevents duplicate invitation acceptance with atomic locking
+- `INVITATION_RACE_CONDITION_VISUAL.md` - Visual diagrams explaining the race condition and fix
+- `WHATSAPP_VERIFICATION_SETUP.md` - WhatsApp phone verification setup guide
 - `SHOPIFY_ORDER_LINE_ITEMS.md` - Shopify order normalization and product mapping system
 - `SHOPIFY_PRODUCT_SYNC_GUIDE.md` - Bidirectional product synchronization with Shopify
 - `SHOPIFY_INVENTORY_SYNC.md` - Automatic inventory synchronization (Ordefy ↔ Shopify)
@@ -848,3 +859,5 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 069: **NEW:** Settlement atomic processing (import_dispatch_results_atomic, process_settlement_atomic_v2 - all-or-nothing transactions)
 - 071: **NEW:** Returns order uniqueness constraint (prevents order in multiple active return sessions, auto-cleanup on cancel)
 - 077: **NEW:** Configurable failed attempt fee percentage (carriers.failed_attempt_fee_percent, replaces hardcoded 50%)
+- 078: **NEW:** Invitation race condition fix (atomic acceptance with row-level locking, prevents duplicate users and plan bypass)
+- 079: **NEW:** Atomic packing increment fallback (increment_packing_quantity RPC - prevents race conditions in concurrent packing)

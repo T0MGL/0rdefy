@@ -1,0 +1,117 @@
+// REPLACEMENT CODE FOR collaborators.ts accept-invitation endpoint
+// Replace lines 420-582 with this code
+
+  try {
+    const { token, password } = req.body;
+
+    // Validations
+    if (!token || !password) {
+      return res.status(400).json({
+        error: 'Token and password are required'
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        error: 'Password must be at least 8 characters'
+      });
+    }
+
+    // Step 1: Get invitation details (without claiming yet)
+    const { data: invitationCheck, error: checkError } = await supabaseAdmin
+      .from('collaborator_invitations')
+      .select('*')
+      .eq('token', token)
+      .single();
+
+    if (checkError || !invitationCheck) {
+      return res.status(404).json({
+        error: 'Invitación no encontrada'
+      });
+    }
+
+    // Step 2: Handle user creation/validation BEFORE claiming invitation
+    // This prevents rollback scenarios where invitation is claimed then reverted
+    let userId: string;
+    let isExistingUser = false;
+    const { data: existingUser } = await supabaseAdmin
+      .from('users')
+      .select('id, password_hash')
+      .eq('email', invitationCheck.invited_email)
+      .single();
+
+    if (existingUser) {
+      // User exists - verify password first
+      userId = existingUser.id;
+      isExistingUser = true;
+
+      const passwordMatch = await bcrypt.compare(password, existingUser.password_hash);
+      if (!passwordMatch) {
+        return res.status(401).json({
+          error: 'Contraseña incorrecta. Usa la contraseña de tu cuenta existente.'
+        });
+      }
+    } else {
+      // New user - create account first
+      const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
+
+      const { data: newUser, error: userError } = await supabaseAdmin
+        .from('users')
+        .insert({
+          email: invitationCheck.invited_email,
+          password_hash,
+          name: invitationCheck.invited_name,
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (userError || !newUser) {
+        return res.status(500).json({ error: 'Error al crear usuario' });
+      }
+
+      userId = newUser.id;
+    }
+
+    // Step 3: ATOMIC INVITATION CLAIM with row-level locking
+    // This function handles: validation, plan limit check, invitation claim, and user-store link
+    // All in a single atomic transaction with row-level lock to prevent race conditions
+    const { data: result, error: atomicError } = await supabaseAdmin
+      .rpc('accept_invitation_atomic', {
+        p_token: token,
+        p_user_id: userId,
+        p_invited_email: invitationCheck.invited_email
+      })
+      .single();
+
+    if (atomicError) {
+      // Cleanup: Delete new user if they were just created
+      if (!isExistingUser) {
+        await supabaseAdmin.from('users').delete().eq('id', userId);
+      }
+      return res.status(500).json({
+        error: 'Error al procesar invitación',
+        details: atomicError.message
+      });
+    }
+
+    if (!result.success) {
+      // Cleanup: Delete new user if they were just created
+      if (!isExistingUser) {
+        await supabaseAdmin.from('users').delete().eq('id', userId);
+      }
+
+      // Map error codes to HTTP status codes
+      const statusCodes: Record<string, number> = {
+        'INVALID_TOKEN': 404,
+        'USER_LIMIT_REACHED': 403,
+        'ALREADY_MEMBER': 409,
+        'CONCURRENT_CLAIM': 409,
+        'INTERNAL_ERROR': 500
+      };
+
+      return res.status(statusCodes[result.error_code] || 500).json({
+        error: result.error_message,
+        error_code: result.error_code
+      });
+    }

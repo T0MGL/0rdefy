@@ -230,21 +230,29 @@ collaboratorsRouter.post(
         .eq('id', storeId)
         .single();
 
-      // Send invitation email (non-blocking - don't fail if email fails)
-      const emailResult = await sendCollaboratorInvite(email, {
-        inviteeName: name,
-        inviterName: inviterData?.name || 'Tu compañero de equipo',
-        storeName: storeData?.name || 'Tu tienda',
-        role,
-        inviteLink: inviteUrl,
-        expiresAt
-      });
+      // Check if email service is enabled
+      const emailEnabled = !!process.env.RESEND_API_KEY;
+      let emailSent = false;
 
-      // Track email status for response
-      let emailSent = true;
-      if (!emailResult.success) {
-        emailSent = false;
-        console.warn(`[COLLABORATOR] Email invite failed for ${email}: ${emailResult.error}`);
+      // Send invitation email (non-blocking - only if configured)
+      if (emailEnabled) {
+        const emailResult = await sendCollaboratorInvite(email, {
+          inviteeName: name,
+          inviterName: inviterData?.name || 'Tu compañero de equipo',
+          storeName: storeData?.name || 'Tu tienda',
+          role,
+          inviteLink: inviteUrl,
+          expiresAt
+        });
+
+        // Track email status for response (with null check)
+        if (emailResult && emailResult.success) {
+          emailSent = true;
+        } else {
+          console.warn(`[COLLABORATOR] Email invite failed for ${email}: ${emailResult?.error || 'Unknown error'}`);
+        }
+      } else {
+        console.log(`[COLLABORATOR] Email service disabled (no API key), invitation link must be sent manually: ${inviteUrl}`);
       }
 
       res.status(201).json({
@@ -601,25 +609,32 @@ collaboratorsRouter.post(
           }
         }
 
-        // Return detailed error with rollback status
+        // Log cleanup instructions server-side only (SECURITY: never expose SQL to client)
+        if (rollbackErrors.length > 0) {
+          console.error('[MANUAL CLEANUP REQUIRED]', {
+            invitationId: invitation.id,
+            userId,
+            email: invitation.invited_email,
+            failedRollbacks: rollbackErrors,
+            cleanupSQL: {
+              invitation: rollbackErrors.includes('invitation')
+                ? `UPDATE collaborator_invitations SET used = false, used_at = null, used_by_user_id = null WHERE id = '${invitation.id}'`
+                : null,
+              user: rollbackErrors.includes('user')
+                ? `DELETE FROM users WHERE id = '${userId}' AND email = '${invitation.invited_email}'`
+                : null
+            }
+          });
+        }
+
+        // Return error response WITHOUT sensitive SQL details
         return res.status(500).json({
           error: 'Error al vincular usuario a tienda',
           details: linkError.message,
           rollbackStatus: rollbackErrors.length > 0
-            ? `FAILED: ${rollbackErrors.join(', ')} - manual cleanup required`
+            ? 'FAILED - manual cleanup required'
             : 'SUCCESS',
-          ...(rollbackErrors.length > 0 && {
-            rollbackErrors,
-            requiresManualCleanup: true,
-            cleanupInstructions: {
-              invitation: rollbackErrors.includes('invitation')
-                ? `UPDATE collaborator_invitations SET used = false, used_at = null, used_by_user_id = null WHERE id = '${invitation.id}'`
-                : undefined,
-              user: rollbackErrors.includes('user')
-                ? `DELETE FROM users WHERE id = '${userId}' AND email = '${invitation.invited_email}'`
-                : undefined
-            }
-          })
+          requiresManualCleanup: rollbackErrors.length > 0
         });
       }
 

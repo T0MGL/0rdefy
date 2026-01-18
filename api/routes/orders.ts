@@ -1087,8 +1087,8 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 billing_address,
                 shipping_address,
                 line_items,
-                total_price,
-                subtotal_price,
+                total_price: safeNumber(total_price, 0),
+                subtotal_price: safeNumber(subtotal_price, 0),
                 total_tax: total_tax ?? 0.0,
                 total_shipping: total_shipping ?? 0.0,
                 shipping_cost: shipping_cost ?? 0.0,
@@ -1211,11 +1211,11 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         if (billing_address !== undefined) updateData.billing_address = billing_address;
         if (shipping_address !== undefined) updateData.shipping_address = shipping_address;
         if (line_items !== undefined) updateData.line_items = line_items;
-        if (total_price !== undefined) updateData.total_price = total_price;
-        if (subtotal_price !== undefined) updateData.subtotal_price = subtotal_price;
-        if (total_tax !== undefined) updateData.total_tax = total_tax;
-        if (total_shipping !== undefined) updateData.total_shipping = total_shipping;
-        if (shipping_cost !== undefined) updateData.shipping_cost = shipping_cost;
+        if (total_price !== undefined) updateData.total_price = safeNumber(total_price, 0);
+        if (subtotal_price !== undefined) updateData.subtotal_price = safeNumber(subtotal_price, 0);
+        if (total_tax !== undefined) updateData.total_tax = safeNumber(total_tax, 0);
+        if (total_shipping !== undefined) updateData.total_shipping = safeNumber(total_shipping, 0);
+        if (shipping_cost !== undefined) updateData.shipping_cost = safeNumber(shipping_cost, 0);
         if (currency !== undefined) updateData.currency = currency;
         if (upsell_added !== undefined) updateData.upsell_added = upsell_added;
 
@@ -2678,6 +2678,177 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
             data: updatedOrders
         });
     } catch (error: any) {
+        res.status(500).json({
+            error: 'Error interno del servidor',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/orders/bulk-print-and-dispatch - Atomic bulk print + status update
+// Returns detailed success/failure per order (safer than mark-printed-bulk)
+// ================================================================
+ordersRouter.post('/bulk-print-and-dispatch', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
+    try {
+        const { order_ids } = req.body;
+        const storeId = req.storeId;
+        const userId = req.user?.email || req.user?.name || 'unknown';
+
+        if (!Array.isArray(order_ids) || order_ids.length === 0) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'order_ids debe ser un array no vacío'
+            });
+        }
+
+        // Get all orders with line_items for stock checking
+        const { data: existingOrders, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('id, printed, sleeves_status, line_items, order_number')
+            .in('id', order_ids)
+            .eq('store_id', storeId);
+
+        if (fetchError) {
+            throw fetchError;
+        }
+
+        if (!existingOrders || existingOrders.length === 0) {
+            return res.status(404).json({
+                error: 'Not found',
+                message: 'No se encontraron pedidos con los IDs proporcionados'
+            });
+        }
+
+        // First pass: Check stock for all orders that need status change
+        const ordersWithStockIssues: Array<{ order_id: string; order_number: string; issues: any[] }> = [];
+
+        for (const order of existingOrders) {
+            if (order.sleeves_status !== 'in_preparation') continue;
+
+            const lineItems = order.line_items || [];
+            if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
+
+            const stockIssues: any[] = [];
+
+            for (const item of lineItems) {
+                const productId = item.product_id;
+                const requiredQty = safeNumber(item.quantity, 0);
+
+                if (!productId || requiredQty <= 0) continue;
+
+                const { data: product } = await supabaseAdmin
+                    .from('products')
+                    .select('name, sku, stock')
+                    .eq('id', productId)
+                    .eq('store_id', storeId)
+                    .single();
+
+                if (product && (product.stock || 0) < requiredQty) {
+                    stockIssues.push({
+                        product_name: product.name || item.name || 'Producto',
+                        required: requiredQty,
+                        available: product.stock || 0
+                    });
+                }
+            }
+
+            if (stockIssues.length > 0) {
+                ordersWithStockIssues.push({
+                    order_id: order.id,
+                    order_number: order.order_number || order.id.slice(0, 8),
+                    issues: stockIssues
+                });
+            }
+        }
+
+        // If any orders have stock issues, return error with details
+        if (ordersWithStockIssues.length > 0) {
+            const ordersList = ordersWithStockIssues
+                .map(o => `Pedido ${o.order_number}: ${o.issues.map(i => `${i.product_name} (necesita ${i.required}, disponible ${i.available})`).join(', ')}`)
+                .join('\n');
+
+            return res.status(400).json({
+                error: 'Insufficient stock',
+                code: 'INSUFFICIENT_STOCK',
+                message: `No hay suficiente stock para completar estos pedidos:\n\n${ordersList}\n\nRecibe mercadería para reponer el stock.`,
+                details: ordersWithStockIssues
+            });
+        }
+
+        // Process each order individually with detailed error tracking
+        const results = {
+            successes: [] as Array<{ order_id: string; order_number: string }>,
+            failures: [] as Array<{ order_id: string; order_number: string; error: string }>
+        };
+
+        for (const order of existingOrders) {
+            try {
+                const updateData: any = {
+                    printed: true,
+                    updated_at: new Date().toISOString()
+                };
+
+                // Set printed_at and printed_by only on first print
+                if (!order.printed) {
+                    updateData.printed_at = new Date().toISOString();
+                    updateData.printed_by = userId;
+                }
+
+                // CRITICAL: Change to ready_to_ship if order is in in_preparation
+                // This triggers stock decrement via database trigger
+                if (order.sleeves_status === 'in_preparation') {
+                    updateData.sleeves_status = 'ready_to_ship';
+                }
+
+                const { data: updated, error: updateError } = await supabaseAdmin
+                    .from('orders')
+                    .update(updateData)
+                    .eq('id', order.id)
+                    .eq('store_id', storeId)
+                    .select()
+                    .single();
+
+                if (updateError) {
+                    results.failures.push({
+                        order_id: order.id,
+                        order_number: order.order_number || order.id.slice(0, 8),
+                        error: updateError.message || 'Error desconocido'
+                    });
+                } else if (updated) {
+                    results.successes.push({
+                        order_id: updated.id,
+                        order_number: updated.order_number || updated.id.slice(0, 8)
+                    });
+                }
+            } catch (e: any) {
+                results.failures.push({
+                    order_id: order.id,
+                    order_number: order.order_number || order.id.slice(0, 8),
+                    error: e.message || 'Error desconocido'
+                });
+            }
+        }
+
+        // Return detailed results
+        const allSucceeded = results.failures.length === 0;
+        const statusCode = allSucceeded ? 200 : (results.successes.length > 0 ? 207 : 500);
+
+        res.status(statusCode).json({
+            success: allSucceeded,
+            message: allSucceeded
+                ? `${results.successes.length} pedidos marcados como impresos`
+                : `${results.successes.length}/${existingOrders.length} pedidos procesados correctamente`,
+            data: {
+                total: existingOrders.length,
+                succeeded: results.successes.length,
+                failed: results.failures.length,
+                successes: results.successes,
+                failures: results.failures
+            }
+        });
+    } catch (error: any) {
+        console.error('Bulk print and dispatch error:', error);
         res.status(500).json({
             error: 'Error interno del servidor',
             message: error.message

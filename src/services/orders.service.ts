@@ -444,6 +444,57 @@ export const ordersService = {
     }
   },
 
+  /**
+   * NEW: Atomic bulk print and dispatch operation
+   * Returns detailed success/failure per order
+   * Safer than individual markAsPrinted + updateStatus calls
+   */
+  bulkPrintAndDispatch: async (orderIds: string[]): Promise<{
+    success: boolean;
+    data: {
+      total: number;
+      succeeded: number;
+      failed: number;
+      successes: Array<{ order_id: string; order_number: string }>;
+      failures: Array<{ order_id: string; order_number: string; error: string }>;
+    };
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/orders/bulk-print-and-dispatch`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ order_ids: orderIds }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        error: 'Unknown error',
+        message: 'Error desconocido al procesar pedidos'
+      }));
+
+      // For 207 Multi-Status, we have partial results - return them
+      if (response.status === 207 && errorData.data) {
+        return {
+          success: false,
+          data: errorData.data
+        };
+      }
+
+      // For other errors (400, 500), throw with error data
+      const error: any = new Error(errorData.message || `Error HTTP: ${response.status}`);
+      error.response = {
+        status: response.status,
+        data: errorData
+      };
+      throw error;
+    }
+
+    const result = await response.json();
+    return {
+      success: result.success,
+      data: result.data
+    };
+  },
+
   reconcile: async (ids: string[]): Promise<boolean> => {
     try {
       // NOTE: If backend has a bulk endpoint, use it. For now, we loop.

@@ -1168,6 +1168,12 @@ export async function updatePackingProgress(
 
     // RPC returns array of rows, get first one
     const updatedRecord = Array.isArray(updated) ? updated[0] : updated;
+
+    // Validate RPC returned a record
+    if (!updatedRecord) {
+      throw new Error('Failed to update packing progress - no record returned from database');
+    }
+
     return updatedRecord;
   } catch (error) {
     throw error;
