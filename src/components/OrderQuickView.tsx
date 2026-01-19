@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck } from 'lucide-react';
+import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 // Helper function to calculate relative time
@@ -144,17 +144,30 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <Phone size={14} />
                 <span>{order.phone}</span>
               </div>
-              {order.address && (
+              {(order.address || order.google_maps_link) && (
                 <div className="flex items-start gap-2 text-sm text-muted-foreground mt-2">
                   <MapPin size={14} className="mt-0.5 flex-shrink-0" />
-                  <span>{order.address}</span>
+                  <div className="flex-1">
+                    {order.address && <span>{order.address}</span>}
+                    {order.google_maps_link && (
+                      <a
+                        href={order.google_maps_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-primary hover:underline mt-1"
+                      >
+                        <ExternalLink size={12} />
+                        Ver ubicación en Google Maps
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
-              <div className="flex gap-2 mt-3">
+              <div className="flex flex-wrap gap-2 mt-3">
                 <Button
                   size="sm"
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 min-w-[100px]"
                   onClick={() => {
                     const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
                     window.location.href = `tel:${cleanPhone}`;
@@ -166,7 +179,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <Button
                   size="sm"
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 min-w-[100px]"
                   onClick={() => {
                     const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
                     // Ensure phone has + prefix for international format
@@ -177,6 +190,17 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   <MessageCircle size={14} className="mr-2" />
                   WhatsApp
                 </Button>
+                {order.google_maps_link && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 min-w-[100px]"
+                    onClick={() => window.open(order.google_maps_link, '_blank')}
+                  >
+                    <MapPin size={14} className="mr-2" />
+                    Ver Mapa
+                  </Button>
+                )}
               </div>
             </div>
           </div>

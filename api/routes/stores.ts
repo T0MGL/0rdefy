@@ -196,28 +196,98 @@ storesRouter.post('/', verifyToken, async (req: AuthRequest, res: Response) => {
         }
 
         // Check if user can create more stores (user-level subscription)
-        const { data: canCreateResult, error: canCreateError } = await supabaseAdmin
-            .rpc('can_create_store', {
-                p_user_id: req.userId
-            });
+        let canCreate: { can_create: boolean; current_stores: number; max_stores: number; plan: string; reason: string } | null = null;
 
-        if (canCreateError) {
-            logger.error('API', '[POST /api/stores] Error checking store limit:', canCreateError);
-            throw canCreateError;
+        try {
+            const { data: canCreateResult, error: canCreateError } = await supabaseAdmin
+                .rpc('can_create_store', {
+                    p_user_id: req.userId
+                });
+
+            if (canCreateError) {
+                // Check if error is because function doesn't exist
+                if (canCreateError.message?.includes('function') && canCreateError.message?.includes('does not exist')) {
+                    logger.warn('API', '[POST /api/stores] can_create_store function not found, using fallback');
+                    // Fallback: count stores and use default free plan limits
+                    const { count: storeCount } = await supabaseAdmin
+                        .from('user_stores')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('user_id', req.userId)
+                        .eq('role', 'owner')
+                        .eq('is_active', true);
+
+                    // Get user's subscription plan if exists
+                    const { data: subscription } = await supabaseAdmin
+                        .from('subscriptions')
+                        .select('plan')
+                        .eq('user_id', req.userId)
+                        .eq('is_primary', true)
+                        .single();
+
+                    // Get plan limits
+                    const plan = subscription?.plan || 'free';
+                    const { data: planLimits } = await supabaseAdmin
+                        .from('plan_limits')
+                        .select('max_stores')
+                        .eq('plan', plan)
+                        .single();
+
+                    const maxStores = planLimits?.max_stores || 1;
+                    const currentStores = storeCount || 0;
+
+                    canCreate = {
+                        can_create: maxStores === -1 || currentStores < maxStores,
+                        current_stores: currentStores,
+                        max_stores: maxStores,
+                        plan: plan,
+                        reason: currentStores < maxStores
+                            ? 'You can create a new store'
+                            : `Límite de tiendas alcanzado (${currentStores}/${maxStores})`
+                    };
+                } else {
+                    logger.error('API', '[POST /api/stores] Error checking store limit:', canCreateError);
+                    throw canCreateError;
+                }
+            } else {
+                canCreate = canCreateResult && canCreateResult.length > 0 ? canCreateResult[0] : null;
+            }
+        } catch (rpcError: any) {
+            // If RPC fails entirely, use fallback logic
+            if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+                logger.warn('API', '[POST /api/stores] RPC not available, using fallback');
+                const { count: storeCount } = await supabaseAdmin
+                    .from('user_stores')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('user_id', req.userId)
+                    .eq('role', 'owner')
+                    .eq('is_active', true);
+
+                // Default to free plan (1 store max)
+                canCreate = {
+                    can_create: (storeCount || 0) < 1,
+                    current_stores: storeCount || 0,
+                    max_stores: 1,
+                    plan: 'free',
+                    reason: (storeCount || 0) < 1
+                        ? 'You can create a new store'
+                        : 'Límite de tiendas alcanzado para el plan Free (1 tienda)'
+                };
+            } else {
+                throw rpcError;
+            }
         }
-
-        const canCreate = canCreateResult && canCreateResult.length > 0 ? canCreateResult[0] : null;
 
         if (!canCreate || !canCreate.can_create) {
             const planNames: Record<number, string> = {
-                1: 'Free, Starter o Growth',
-                3: 'Professional'
+                1: 'Free',
+                3: 'Growth',
+                10: 'Professional'
             };
             const planName = planNames[canCreate?.max_stores || 1] || canCreate?.plan || 'tu plan actual';
 
             return res.status(403).json({
                 error: 'Store limit reached',
-                message: canCreate?.reason || `Has alcanzado el límite de tiendas para ${planName}. Actualiza tu plan para crear más tiendas.`,
+                message: canCreate?.reason || `Has alcanzado el límite de tiendas para el plan ${planName}. Actualiza tu plan para crear más tiendas.`,
                 current_stores: canCreate?.current_stores || 0,
                 max_stores: canCreate?.max_stores || 1,
                 plan: canCreate?.plan || 'free'

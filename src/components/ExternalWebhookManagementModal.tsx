@@ -32,7 +32,7 @@ interface ExternalWebhookManagementModalProps {
   onDisconnect?: () => void;
 }
 
-// Payload example for documentation
+// Payload example for documentation - Con dirección manual
 const PAYLOAD_EXAMPLE = {
   idempotency_key: "order-unique-id-123",
   customer: {
@@ -67,6 +67,29 @@ const PAYLOAD_EXAMPLE = {
     source: "landing-page",
     campaign: "black-friday"
   }
+};
+
+// Payload example with Google Maps URL (alternative to manual address)
+const PAYLOAD_EXAMPLE_MAPS = {
+  customer: {
+    name: "María González",
+    phone: "+595981987654"
+  },
+  shipping_address: {
+    google_maps_url: "https://maps.google.com/?q=-25.2867,-57.6470",
+    notes: "Casa de dos pisos"
+  },
+  items: [
+    {
+      name: "Producto Básico",
+      quantity: 1,
+      price: 50000
+    }
+  ],
+  totals: {
+    total: 50000
+  },
+  payment_method: "cash_on_delivery"
 };
 
 export function ExternalWebhookManagementModal({
@@ -374,13 +397,14 @@ export function ExternalWebhookManagementModal({
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Este es el formato del payload que debes enviar en el body de tu petición POST.
+                Puedes enviar la dirección de dos formas: <strong>manual</strong> (address + city) o con <strong>link de Google Maps</strong>.
               </AlertDescription>
             </Alert>
 
+            {/* Ejemplo con dirección manual */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Ejemplo de Payload</Label>
+                <Label>Opción 1: Con dirección manual</Label>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -394,9 +418,34 @@ export function ExternalWebhookManagementModal({
                   Copiar
                 </Button>
               </div>
-              <pre className="p-4 rounded-lg bg-muted/50 border text-xs overflow-x-auto max-h-[400px]">
+              <pre className="p-4 rounded-lg bg-muted/50 border text-xs overflow-x-auto max-h-[250px]">
                 {JSON.stringify(PAYLOAD_EXAMPLE, null, 2)}
               </pre>
+            </div>
+
+            {/* Ejemplo con Google Maps */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Opción 2: Con link de Google Maps</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_EXAMPLE_MAPS, null, 2), 'payloadMaps')}
+                >
+                  {copied === 'payloadMaps' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-4 rounded-lg bg-green-500/10 border border-green-500/30 text-xs overflow-x-auto max-h-[200px]">
+                {JSON.stringify(PAYLOAD_EXAMPLE_MAPS, null, 2)}
+              </pre>
+              <p className="text-xs text-muted-foreground">
+                Si envías <code className="px-1 py-0.5 rounded bg-muted">google_maps_url</code>, no necesitas enviar <code className="px-1 py-0.5 rounded bg-muted">address</code> ni <code className="px-1 py-0.5 rounded bg-muted">city</code>.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -411,14 +460,29 @@ export function ExternalWebhookManagementModal({
               <Label>Campos Requeridos</Label>
               <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
                 <li><code>customer.name</code> - Nombre del cliente</li>
-                <li><code>customer.email</code> o <code>customer.phone</code> - Al menos uno requerido</li>
-                <li><code>shipping_address.address</code> - Dirección de entrega</li>
-                <li><code>shipping_address.city</code> - Ciudad</li>
-                <li><code>items[]</code> - Al menos un producto</li>
+                <li><code>customer.email</code> o <code>customer.phone</code> - Al menos uno</li>
+                <li className="text-green-600 dark:text-green-400">
+                  <code>shipping_address.google_maps_url</code> - Link de Google Maps
+                  <span className="text-muted-foreground"> (o address + city)</span>
+                </li>
+                <li><code>items[]</code> - Al menos un producto con name, quantity, price</li>
                 <li><code>totals.total</code> - Total del pedido</li>
                 <li><code>payment_method</code> - cash_on_delivery | online | pending</li>
               </ul>
             </div>
+
+            <Alert className="border-green-500/30 bg-green-500/10">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <AlertDescription className="text-sm">
+                <strong>Formatos de Google Maps aceptados:</strong>
+                <ul className="mt-1 text-xs space-y-0.5">
+                  <li>• https://maps.google.com/...</li>
+                  <li>• https://www.google.com/maps/...</li>
+                  <li>• https://goo.gl/maps/...</li>
+                  <li>• https://maps.app.goo.gl/...</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
           </TabsContent>
 
           {/* Tab: Logs */}

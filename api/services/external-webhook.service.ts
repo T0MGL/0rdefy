@@ -23,11 +23,12 @@ export interface ExternalOrderPayload {
   };
 
   shipping_address: {
-    address: string;
-    city: string;
+    address?: string;
+    city?: string;
     country?: string;
     reference?: string;
     notes?: string;
+    google_maps_url?: string;
   };
 
   items: Array<{
@@ -102,12 +103,12 @@ export class ExternalWebhookService {
 
   /**
    * Genera un nuevo API Key seguro
-   * Formato: wh_ + 32 bytes hex = 68 caracteres total
+   * Formato: wh_ + 30 bytes hex = 63 caracteres total (cabe en VARCHAR(64))
    */
   static generateApiKey(): { key: string; prefix: string } {
-    const randomBytes = crypto.randomBytes(32).toString('hex');
-    const key = `wh_${randomBytes}`;
-    const prefix = key.substring(0, 12) + '...';
+    const randomBytes = crypto.randomBytes(30).toString('hex'); // 60 chars hex
+    const key = `wh_${randomBytes}`; // 63 chars total
+    const prefix = key.substring(0, 10) + '...';
     return { key, prefix };
   }
 
@@ -230,14 +231,37 @@ export class ExternalWebhookService {
     }
 
     // Shipping address validation
+    // Requiere: (address + city) O google_maps_url
     if (!payload.shipping_address) {
       errors.push({ field: 'shipping_address', message: 'Shipping address is required' });
     } else {
-      if (!payload.shipping_address.address || payload.shipping_address.address.trim() === '') {
-        errors.push({ field: 'shipping_address.address', message: 'Address is required' });
-      }
-      if (!payload.shipping_address.city || payload.shipping_address.city.trim() === '') {
-        errors.push({ field: 'shipping_address.city', message: 'City is required' });
+      const hasManualAddress = payload.shipping_address.address && payload.shipping_address.address.trim() !== '';
+      const hasCity = payload.shipping_address.city && payload.shipping_address.city.trim() !== '';
+      const hasGoogleMapsUrl = payload.shipping_address.google_maps_url && payload.shipping_address.google_maps_url.trim() !== '';
+
+      // Validar que tenga dirección manual completa O google_maps_url
+      if (!hasGoogleMapsUrl) {
+        // Sin Google Maps URL, requiere address + city
+        if (!hasManualAddress) {
+          errors.push({ field: 'shipping_address.address', message: 'Address is required (or provide google_maps_url)' });
+        }
+        if (!hasCity) {
+          errors.push({ field: 'shipping_address.city', message: 'City is required (or provide google_maps_url)' });
+        }
+      } else {
+        // Validar formato de Google Maps URL
+        const validGoogleMapsPatterns = [
+          /^https?:\/\/(www\.)?google\.[a-z.]+\/maps/i,
+          /^https?:\/\/maps\.google\.[a-z.]+/i,
+          /^https?:\/\/goo\.gl\/maps/i,
+          /^https?:\/\/maps\.app\.goo\.gl/i
+        ];
+        const isValidGoogleMapsUrl = validGoogleMapsPatterns.some(pattern =>
+          pattern.test(payload.shipping_address.google_maps_url!)
+        );
+        if (!isValidGoogleMapsUrl) {
+          errors.push({ field: 'shipping_address.google_maps_url', message: 'Invalid Google Maps URL format' });
+        }
       }
     }
 
@@ -322,15 +346,21 @@ export class ExternalWebhookService {
       }
 
       // 3. Crear nuevo cliente
+      // Si solo hay google_maps_url, guardar el link como referencia
+      const hasGoogleMapsOnly = shippingAddress.google_maps_url &&
+        (!shippingAddress.address || shippingAddress.address.trim() === '');
+
       const newCustomer = {
         store_id: storeId,
         name: customerData.name,
         email: customerData.email || null,
         phone: customerData.phone ? this.normalizePhone(customerData.phone) : null,
-        address: shippingAddress.address,
-        city: shippingAddress.city,
+        address: hasGoogleMapsOnly ? 'Ver ubicación en Google Maps' : shippingAddress.address,
+        city: shippingAddress.city || (hasGoogleMapsOnly ? 'Ver en mapa' : null),
         country: shippingAddress.country || 'Paraguay',
-        notes: shippingAddress.reference || null,
+        notes: shippingAddress.google_maps_url
+          ? `Google Maps: ${shippingAddress.google_maps_url}${shippingAddress.reference ? ` | ${shippingAddress.reference}` : ''}`
+          : (shippingAddress.reference || null),
         source: 'webhook_externo',
         total_orders: 1,
         total_spent: 0
@@ -488,12 +518,19 @@ export class ExternalWebhookService {
       }));
 
       // Construir shipping_address JSONB
+      // Si solo hay google_maps_url, usar "Ver ubicación en Google Maps" como address
+      const hasGoogleMapsOnly = payload.shipping_address.google_maps_url &&
+        (!payload.shipping_address.address || payload.shipping_address.address.trim() === '');
+
       const shippingAddressJson = {
-        address1: payload.shipping_address.address,
-        city: payload.shipping_address.city,
+        address1: hasGoogleMapsOnly
+          ? 'Ver ubicación en Google Maps'
+          : payload.shipping_address.address,
+        city: payload.shipping_address.city || 'Ver en mapa',
         country: payload.shipping_address.country || 'Paraguay',
         reference: payload.shipping_address.reference || null,
-        notes: payload.shipping_address.notes || null
+        notes: payload.shipping_address.notes || null,
+        google_maps_url: payload.shipping_address.google_maps_url || null
       };
 
       const orderData = {
@@ -508,9 +545,14 @@ export class ExternalWebhookService {
         customer_email: payload.customer.email || null,
         customer_phone: payload.customer.phone || null,
 
-        // Shipping
+        // Shipping - customer_address es el campo denormalizado que se muestra en la UI
         shipping_address: shippingAddressJson,
+        customer_address: hasGoogleMapsOnly
+          ? 'Ver ubicación en Google Maps'
+          : (payload.shipping_address.address || ''),
+        address_reference: payload.shipping_address.reference || null,
         delivery_notes: payload.shipping_address.notes || null,
+        google_maps_link: payload.shipping_address.google_maps_url || null,
 
         // Products
         line_items: lineItems,
