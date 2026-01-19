@@ -232,33 +232,42 @@ export default function Orders() {
     toastRef.current = toast;
   }, [toast]);
 
-  // Smart polling - only polls when page is visible
-  // queryFn uses refs to access latest filter values without re-creating the polling interval
-  const { refetch } = useSmartPolling({
-    queryFn: async () => {
-      const result = await ordersService.getAll({
-        ...dateParamsRef.current,
-        limit: pagination.limit,
-        offset: 0
+  // Use ref for pagination.limit to avoid queryFn recreation
+  const paginationLimitRef = useRef(pagination.limit);
+  useEffect(() => {
+    paginationLimitRef.current = pagination.limit;
+  }, [pagination.limit]);
+
+  // Memoize queryFn to prevent infinite re-renders
+  // CRITICAL: This function must be stable to avoid recreating the polling interval
+  const queryFn = useCallback(async () => {
+    const result = await ordersService.getAll({
+      ...dateParamsRef.current,
+      limit: paginationLimitRef.current,
+      offset: 0
+    });
+    const data = result.data;
+    const paginationData = result.pagination;
+
+    // Check for new orders
+    if (data.length > previousCountRef.current && previousCountRef.current > 0) {
+      const newOrdersCount = data.length - previousCountRef.current;
+      toastRef.current({
+        title: `🔔 ${newOrdersCount} Nuevo${newOrdersCount > 1 ? 's' : ''} Pedido${newOrdersCount > 1 ? 's' : ''}!`,
+        description: `Tienes ${newOrdersCount} nuevo${newOrdersCount > 1 ? 's' : ''} pedido${newOrdersCount > 1 ? 's' : ''}`,
       });
-      const data = result.data;
-      const paginationData = result.pagination;
+    }
 
-      // Check for new orders
-      if (data.length > previousCountRef.current && previousCountRef.current > 0) {
-        const newOrdersCount = data.length - previousCountRef.current;
-        toastRef.current({
-          title: `🔔 ${newOrdersCount} Nuevo${newOrdersCount > 1 ? 's' : ''} Pedido${newOrdersCount > 1 ? 's' : ''}!`,
-          description: `Tienes ${newOrdersCount} nuevo${newOrdersCount > 1 ? 's' : ''} pedido${newOrdersCount > 1 ? 's' : ''}`,
-        });
-      }
+    setOrders(data);
+    setPagination(paginationData);
+    previousCountRef.current = data.length;
+    setIsLoading(false);
+    return data;
+  }, []); // Empty deps - uses refs for all values to stay stable
 
-      setOrders(data);
-      setPagination(paginationData);
-      previousCountRef.current = data.length;
-      setIsLoading(false);
-      return data;
-    },
+  // Smart polling - only polls when page is visible
+  const { refetch } = useSmartPolling({
+    queryFn,
     interval: 60000, // Poll every 60 seconds when page is visible (75% reduction in API calls)
     enabled: true,
     fetchOnMount: true,
@@ -292,11 +301,20 @@ export default function Orders() {
     }
   }, [isLoadingMore, pagination, dateParams, toast]);
 
+  // Store refetch in ref to avoid including it in effect dependencies
+  // This prevents infinite loops while still allowing the effect to call refetch
+  const refetchRef = useRef(refetch);
+  useEffect(() => {
+    refetchRef.current = refetch;
+  }, [refetch]);
+
   // Refetch when date range changes - reset pagination
+  // CRITICAL: Do NOT include refetch in dependencies - it causes infinite loops
+  // Instead, use refetchRef to access the latest refetch function
   useEffect(() => {
     setPagination(prev => ({ ...prev, offset: 0 }));
-    refetch();
-  }, [dateParams, refetch]);
+    refetchRef.current();
+  }, [dateParams]); // Only dateParams - refetch accessed via ref
 
   // Process URL query parameters for filtering and navigation from notifications
   useEffect(() => {

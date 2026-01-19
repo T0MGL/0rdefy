@@ -2262,7 +2262,7 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
         // 3. Get minimal ads data (only for active campaign tracking)
         const { data: ads, error: adsError } = await supabaseAdmin
             .from('campaigns')
-            .select('id, status, name, investment, start_date, end_date')
+            .select('id, status, campaign_name, investment')
             .eq('store_id', storeId)
             .in('status', ['active', 'scheduled']);
 
@@ -2300,10 +2300,8 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
         const transformedAds = (ads || []).map(a => ({
             id: a.id,
             status: a.status,
-            name: a.name,
+            name: a.campaign_name,
             investment: a.investment,
-            startDate: a.start_date,
-            endDate: a.end_date,
         }));
 
         const transformedCarriers = (carriers || []).map(c => ({
