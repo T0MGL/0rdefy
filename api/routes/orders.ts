@@ -678,6 +678,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 total_discounts,
                 neighborhood,
                 address_reference,
+                line_items,
                 order_line_items (
                     id,
                     product_id,
