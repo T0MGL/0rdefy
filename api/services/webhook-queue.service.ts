@@ -15,6 +15,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ShopifyWebhookService } from './shopify-webhook.service';
 import { ShopifyWebhookManager } from './shopify-webhook-manager.service';
+import { logger } from '../utils/logger';
 
 interface WebhookQueueItem {
   id: string;
