@@ -48,8 +48,7 @@ import { externalWebhooksRouter } from './routes/external-webhooks';
 import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
-import { requestLoggerMiddleware } from './utils/logger';
-import { logger } from '../utils/logger';
+import { requestLoggerMiddleware, logger } from './utils/logger';
 
 // Load environment variables
 dotenv.config();
