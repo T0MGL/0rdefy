@@ -104,11 +104,12 @@ export class ExternalWebhookService {
   /**
    * Genera un nuevo API Key seguro
    * Formato: wh_ + 30 bytes hex = 63 caracteres total (cabe en VARCHAR(64))
+   * Prefix: 12 caracteres max (cabe en VARCHAR(12))
    */
   static generateApiKey(): { key: string; prefix: string } {
     const randomBytes = crypto.randomBytes(30).toString('hex'); // 60 chars hex
     const key = `wh_${randomBytes}`; // 63 chars total
-    const prefix = key.substring(0, 10) + '...';
+    const prefix = key.substring(0, 8) + '...'; // 11 chars total
     return { key, prefix };
   }
 
