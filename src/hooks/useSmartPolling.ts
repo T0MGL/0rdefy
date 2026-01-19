@@ -24,6 +24,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createNamespacedLogger } from '@/utils/logger';
+
+const log = createNamespacedLogger('SmartPolling');
 
 export interface UseSmartPollingOptions<T> {
   /**
@@ -142,13 +145,13 @@ export function useSmartPolling<T>({
   const fetchData = useCallback(async () => {
     // Don't fetch if component is unmounted
     if (!isMountedRef.current) {
-      console.log('[SmartPolling] Skipped fetch: component unmounted');
+      log.debug('Skipped fetch: component unmounted');
       return;
     }
 
     // Don't fetch if page is not visible (use ref to avoid dependency)
     if (!document.hidden && !isPageVisibleRef.current) {
-      console.log('[SmartPolling] Skipped fetch: page not visible');
+      log.debug('Skipped fetch: page not visible');
       return;
     }
 
@@ -160,7 +163,7 @@ export function useSmartPolling<T>({
 
       // Check again after async operation
       if (!isMountedRef.current) {
-        console.log('[SmartPolling] Discarding result: component unmounted during fetch');
+        log.debug('Discarding result: component unmounted during fetch');
         return;
       }
 
@@ -170,7 +173,7 @@ export function useSmartPolling<T>({
         onSuccess(result);
       }
 
-      console.log('[SmartPolling] ✅ Data fetched successfully');
+      log.debug('Data fetched successfully');
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
 
@@ -181,7 +184,7 @@ export function useSmartPolling<T>({
           onError(error);
         }
 
-        console.error('[SmartPolling] ❌ Fetch failed:', error.message);
+        log.error('Fetch failed', error);
       }
     } finally {
       if (isMountedRef.current) {
@@ -193,11 +196,11 @@ export function useSmartPolling<T>({
   // Start polling
   const startPolling = useCallback(() => {
     if (isPollingRef.current) {
-      console.log('[SmartPolling] Already polling, skipping start');
+      log.debug('Already polling, skipping start');
       return;
     }
 
-    console.log('[SmartPolling] 🚀 Starting polling (interval: ${interval}ms)');
+    log.debug(`Starting polling (interval: ${interval}ms)`);
     isPollingRef.current = true;
     setIsPolling(true);
 
@@ -224,11 +227,11 @@ export function useSmartPolling<T>({
   // Stop polling
   const stopPolling = useCallback(() => {
     if (!isPollingRef.current) {
-      console.log('[SmartPolling] Not polling, skipping stop');
+      log.debug('Not polling, skipping stop');
       return;
     }
 
-    console.log('[SmartPolling] ⏸️  Stopping polling');
+    log.debug('Stopping polling');
     isPollingRef.current = false;
     setIsPolling(false);
 
@@ -250,19 +253,25 @@ export function useSmartPolling<T>({
 
   // Handle visibility change (tab active/inactive, window minimized)
   // Using refs to prevent effect re-runs and listener churn
+  // Store fetchData in ref to avoid memory leak from dependency changes
+  const fetchDataRef = useRef(fetchData);
+  useEffect(() => {
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
       setIsPageVisible(isVisible);
 
       if (isVisible) {
-        console.log('[SmartPolling] 👀 Page visible - resuming polling');
+        log.debug('Page visible - resuming polling');
         if (enabledRef.current && isPollingRef.current) {
-          // Fetch immediately on becoming visible
-          fetchData();
+          // Fetch immediately on becoming visible (use ref to prevent stale closure)
+          fetchDataRef.current();
         }
       } else {
-        console.log('[SmartPolling] 😴 Page hidden - pausing polling');
+        log.debug('Page hidden - pausing polling');
       }
     };
 
@@ -272,16 +281,23 @@ export function useSmartPolling<T>({
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [fetchData]); // Only fetchData (now stable) in dependencies
+  }, []); // ✅ Empty dependencies - listener added only once, cleaned up on unmount
 
-  // Handle enabled state change
+  // Handle enabled state change - use ref to avoid infinite loop
+  const startPollingRef = useRef(startPolling);
+  const stopPollingRef = useRef(stopPolling);
+  useEffect(() => {
+    startPollingRef.current = startPolling;
+    stopPollingRef.current = stopPolling;
+  }, [startPolling, stopPolling]);
+
   useEffect(() => {
     if (enabled) {
-      startPolling();
+      startPollingRef.current();
     } else {
-      stopPolling();
+      stopPollingRef.current();
     }
-  }, [enabled, startPolling, stopPolling]);
+  }, [enabled]); // Only re-run when enabled changes, not when functions change
 
   // Fetch on mount if requested
   useEffect(() => {
@@ -294,7 +310,7 @@ export function useSmartPolling<T>({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log('[SmartPolling] 🧹 Component unmounting - cleaning up');
+      log.debug('Component unmounting - cleaning up');
       isMountedRef.current = false;
       stopPolling();
     };
