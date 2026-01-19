@@ -77,7 +77,7 @@ carriersRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('[GET /api/carriers] Error:', error);
+        logger.error('API', '[GET /api/carriers] Error:', error);
         res.status(500).json({
             error: 'Error al obtener transportadoras',
             message: error.message
@@ -107,7 +107,7 @@ carriersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
 
         res.json(data);
     } catch (error: any) {
-        console.error(`[GET /api/carriers/${req.params.id}] Error:`, error);
+        logger.error('API', `[GET /api/carriers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener transportadora',
             message: error.message
@@ -145,7 +145,7 @@ carriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthReques
             .order('zone_name', { ascending: true });
 
         if (zonesError) {
-            console.error('[GET /api/carriers/:id/zones] Error:', zonesError);
+            logger.error('API', '[GET /api/carriers/:id/zones] Error:', zonesError);
             return res.status(500).json({
                 error: 'Error al obtener zonas de transportadora',
                 message: zonesError.message
@@ -157,7 +157,7 @@ carriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthReques
             data: zones || []
         });
     } catch (error: any) {
-        console.error(`[GET /api/carriers/${req.params.id}/zones] Error:`, error);
+        logger.error('API', `[GET /api/carriers/${req.params.id}/zones] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener zonas de transportadora',
             message: error.message
@@ -223,7 +223,7 @@ carriersRouter.post('/', async (req: AuthRequest, res: Response) => {
             data
         });
     } catch (error: any) {
-        console.error('[POST /api/carriers] Error:', error);
+        logger.error('API', '[POST /api/carriers] Error:', error);
         res.status(500).json({
             error: 'Error al crear transportadora',
             message: error.message
@@ -279,7 +279,7 @@ carriersRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/carriers/${req.params.id}] Error:`, error);
+        logger.error('API', `[PUT /api/carriers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar transportadora',
             message: error.message
@@ -313,7 +313,7 @@ carriersRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, 
             id: data.id
         });
     } catch (error: any) {
-        console.error(`[DELETE /api/carriers/${req.params.id}] Error:`, error);
+        logger.error('API', `[DELETE /api/carriers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar transportadora',
             message: error.message
@@ -363,7 +363,7 @@ carriersRouter.patch('/:id/toggle', validateUUIDParam('id'), async (req: AuthReq
             data
         });
     } catch (error: any) {
-        console.error(`[PATCH /api/carriers/${req.params.id}/toggle] Error:`, error);
+        logger.error('API', `[PATCH /api/carriers/${req.params.id}/toggle] Error:`, error);
         res.status(500).json({
             error: 'Error al cambiar estado de transportadora',
             message: error.message
@@ -382,7 +382,7 @@ carriersRouter.get('/:id/performance', validateUUIDParam('id'), async (req: Auth
     try {
         const { id } = req.params;
 
-        console.log(`📊 [CARRIERS] Fetching performance for courier ${id}`);
+        logger.info('API', `📊 [CARRIERS] Fetching performance for courier ${id}`);
 
         const performance = await calculateCourierDeliveryRate(id);
 
@@ -396,7 +396,7 @@ carriersRouter.get('/:id/performance', validateUUIDParam('id'), async (req: Auth
             data: performance
         });
     } catch (error: any) {
-        console.error(`[GET /api/carriers/${req.params.id}/performance] Error:`, error);
+        logger.error('API', `[GET /api/carriers/${req.params.id}/performance] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener rendimiento del courier',
             message: error.message
@@ -409,7 +409,7 @@ carriersRouter.get('/:id/performance', validateUUIDParam('id'), async (req: Auth
 // ================================================================
 carriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) => {
     try {
-        console.log(`📊 [CARRIERS] Fetching all courier performance for store ${req.storeId}`);
+        logger.info('API', `📊 [CARRIERS] Fetching all courier performance for store ${req.storeId}`);
 
         const performance = await getCourierPerformanceByStore(req.storeId);
 
@@ -418,7 +418,7 @@ carriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) =
             count: performance.length
         });
     } catch (error: any) {
-        console.error('[GET /api/carriers/performance/all] Error:', error);
+        logger.error('API', '[GET /api/carriers/performance/all] Error:', error);
         res.status(500).json({
             error: 'Error al obtener rendimiento del courier',
             message: error.message
@@ -433,7 +433,7 @@ carriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
     try {
         const { limit = '5' } = req.query;
 
-        console.log(`🏆 [CARRIERS] Fetching top ${limit} couriers for store ${req.storeId}`);
+        logger.info('API', `🏆 [CARRIERS] Fetching top ${limit} couriers for store ${req.storeId}`);
 
         const topCouriers = await getTopCouriers(req.storeId, parseInt(limit as string, 10));
 
@@ -442,7 +442,7 @@ carriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
             count: topCouriers.length
         });
     } catch (error: any) {
-        console.error('[GET /api/carriers/performance/top] Error:', error);
+        logger.error('API', '[GET /api/carriers/performance/top] Error:', error);
         res.status(500).json({
             error: 'Error al obtener mejores couriers',
             message: error.message
@@ -457,7 +457,7 @@ carriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
     try {
         const { threshold = '80' } = req.query;
 
-        console.log(`⚠️ [CARRIERS] Fetching underperforming couriers (threshold: ${threshold}%)`);
+        logger.info('API', `⚠️ [CARRIERS] Fetching underperforming couriers (threshold: ${threshold}%)`);
 
         const underperformingCouriers = await getUnderperformingCouriers(
             req.storeId,
@@ -469,7 +469,7 @@ carriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
             count: underperformingCouriers.length
         });
     } catch (error: any) {
-        console.error('[GET /api/carriers/performance/underperforming] Error:', error);
+        logger.error('API', '[GET /api/carriers/performance/underperforming] Error:', error);
         res.status(500).json({
             error: 'Error al obtener couriers con bajo rendimiento',
             message: error.message

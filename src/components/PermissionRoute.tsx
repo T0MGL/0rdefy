@@ -38,7 +38,7 @@ export function PermissionRoute({ children, module }: PermissionRouteProps) {
 
   // Check module permission
   if (!permissions.canAccessModule(module)) {
-    console.warn(`[PermissionRoute] Access denied to ${module} for role ${permissions.currentRole}`);
+    logger.warn(`[PermissionRoute] Access denied to ${module} for role ${permissions.currentRole}`);
     // Redirect to dashboard - they don't have permission for this module
     return <Navigate to="/" replace />;
   }

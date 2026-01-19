@@ -71,7 +71,7 @@ export async function sendCollaboratorInvite(
   data: CollaboratorInviteData
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (!isEmailEnabled()) {
-    console.log('📧 [EMAIL] Resend not configured, skipping email to:', to);
+    logger.info('BACKEND', '📧 [EMAIL] Resend not configured, skipping email to:', to);
     return { success: true, messageId: 'skipped-no-api-key' };
   }
 
@@ -160,14 +160,14 @@ Si no esperabas esta invitación, puedes ignorar este email.
     });
 
     if (error) {
-      console.error('❌ [EMAIL] Resend error:', error);
+      logger.error('BACKEND', '❌ [EMAIL] Resend error:', error);
       return { success: false, error: error.message };
     }
 
-    console.log('✅ [EMAIL] Invitation sent to:', to, 'messageId:', result?.id);
+    logger.info('BACKEND', '✅ [EMAIL] Invitation sent to:', to, 'messageId:', result?.id);
     return { success: true, messageId: result?.id };
   } catch (err: any) {
-    console.error('❌ [EMAIL] Exception:', err);
+    logger.error('BACKEND', '❌ [EMAIL] Exception:', err);
     return { success: false, error: err.message };
   }
 }
@@ -180,7 +180,7 @@ export async function sendPasswordReset(
   data: PasswordResetData
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (!isEmailEnabled()) {
-    console.log('📧 [EMAIL] Resend not configured, skipping password reset to:', to);
+    logger.info('BACKEND', '📧 [EMAIL] Resend not configured, skipping password reset to:', to);
     return { success: true, messageId: 'skipped-no-api-key' };
   }
 
@@ -254,14 +254,14 @@ Si no solicitaste restablecer tu contraseña, puedes ignorar este email.
     });
 
     if (error) {
-      console.error('❌ [EMAIL] Resend error:', error);
+      logger.error('BACKEND', '❌ [EMAIL] Resend error:', error);
       return { success: false, error: error.message };
     }
 
-    console.log('✅ [EMAIL] Password reset sent to:', to, 'messageId:', result?.id);
+    logger.info('BACKEND', '✅ [EMAIL] Password reset sent to:', to, 'messageId:', result?.id);
     return { success: true, messageId: result?.id };
   } catch (err: any) {
-    console.error('❌ [EMAIL] Exception:', err);
+    logger.error('BACKEND', '❌ [EMAIL] Exception:', err);
     return { success: false, error: err.message };
   }
 }
@@ -274,7 +274,7 @@ export async function sendWelcomeEmail(
   data: WelcomeEmailData
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (!isEmailEnabled()) {
-    console.log('📧 [EMAIL] Resend not configured, skipping welcome email to:', to);
+    logger.info('BACKEND', '📧 [EMAIL] Resend not configured, skipping welcome email to:', to);
     return { success: true, messageId: 'skipped-no-api-key' };
   }
 
@@ -356,14 +356,14 @@ Ir a Ordefy: ${APP_URL}
     });
 
     if (error) {
-      console.error('❌ [EMAIL] Resend error:', error);
+      logger.error('BACKEND', '❌ [EMAIL] Resend error:', error);
       return { success: false, error: error.message };
     }
 
-    console.log('✅ [EMAIL] Welcome email sent to:', to, 'messageId:', result?.id);
+    logger.info('BACKEND', '✅ [EMAIL] Welcome email sent to:', to, 'messageId:', result?.id);
     return { success: true, messageId: result?.id };
   } catch (err: any) {
-    console.error('❌ [EMAIL] Exception:', err);
+    logger.error('BACKEND', '❌ [EMAIL] Exception:', err);
     return { success: false, error: err.message };
   }
 }

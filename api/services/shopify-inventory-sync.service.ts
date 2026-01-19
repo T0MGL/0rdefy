@@ -26,7 +26,7 @@ export class ShopifyInventorySyncService {
     newStock: number;
   }): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`📦 [INVENTORY-SYNC] Starting sync for product ${params.productId}, new stock: ${params.newStock}`);
+      logger.info('BACKEND', `📦 [INVENTORY-SYNC] Starting sync for product ${params.productId}, new stock: ${params.newStock}`);
 
       // 1. Get product details
       const { data: product, error: productError } = await this.supabaseAdmin
@@ -42,7 +42,7 @@ export class ShopifyInventorySyncService {
 
       // 2. Check if product is linked to Shopify
       if (!product.shopify_variant_id && !product.shopify_product_id) {
-        console.log(`⚠️  [INVENTORY-SYNC] Product ${params.productId} is not linked to Shopify, skipping sync`);
+        logger.info('BACKEND', `⚠️  [INVENTORY-SYNC] Product ${params.productId} is not linked to Shopify, skipping sync`);
         return {
           success: true,
           error: 'Product not linked to Shopify'
@@ -58,7 +58,7 @@ export class ShopifyInventorySyncService {
         .single();
 
       if (integrationError || !integration) {
-        console.log(`⚠️  [INVENTORY-SYNC] No active Shopify integration found for store ${params.storeId}`);
+        logger.info('BACKEND', `⚠️  [INVENTORY-SYNC] No active Shopify integration found for store ${params.storeId}`);
         return {
           success: false,
           error: 'No active Shopify integration'
@@ -72,7 +72,7 @@ export class ShopifyInventorySyncService {
         params.newStock
       );
 
-      console.log(`✅ [INVENTORY-SYNC] Successfully synced inventory to Shopify for "${product.name}"`);
+      logger.info('BACKEND', `✅ [INVENTORY-SYNC] Successfully synced inventory to Shopify for "${product.name}"`);
 
       // 5. Update sync status in database
       await this.supabaseAdmin
@@ -83,12 +83,12 @@ export class ShopifyInventorySyncService {
         })
         .eq('id', params.productId);
 
-      console.log(`✅ [INVENTORY-SYNC] Successfully synced inventory to Shopify for product ${params.productId}`);
+      logger.info('BACKEND', `✅ [INVENTORY-SYNC] Successfully synced inventory to Shopify for product ${params.productId}`);
 
       return { success: true };
 
     } catch (error: any) {
-      console.error(`❌ [INVENTORY-SYNC] Error syncing inventory:`, error);
+      logger.error('BACKEND', `❌ [INVENTORY-SYNC] Error syncing inventory:`, error);
 
       // Mark product as having sync error
       await this.supabaseAdmin
@@ -98,7 +98,7 @@ export class ShopifyInventorySyncService {
           last_synced_at: new Date().toISOString()
         })
         .eq('id', params.productId)
-        .catch(err => console.error('Error updating sync status:', err));
+        .catch(err => logger.error('BACKEND', 'Error updating sync status:', err));
 
       return {
         success: false,
@@ -125,7 +125,7 @@ export class ShopifyInventorySyncService {
       errors: [] as Array<{ productId: string; error: string }>
     };
 
-    console.log(`📦 [INVENTORY-SYNC] Starting batch sync for ${params.products.length} products`);
+    logger.info('BACKEND', `📦 [INVENTORY-SYNC] Starting batch sync for ${params.products.length} products`);
 
     for (const product of params.products) {
       const result = await this.syncInventoryToShopify({
@@ -148,7 +148,7 @@ export class ShopifyInventorySyncService {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    console.log(`✅ [INVENTORY-SYNC] Batch sync complete: ${results.success} success, ${results.failed} failed`);
+    logger.info('BACKEND', `✅ [INVENTORY-SYNC] Batch sync complete: ${results.success} success, ${results.failed} failed`);
 
     return results;
   }

@@ -84,7 +84,7 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('[GET /api/customers] Error:', error);
+        logger.error('API', '[GET /api/customers] Error:', error);
         res.status(500).json({
             error: 'Error al obtener clientes',
             message: error.message
@@ -114,7 +114,7 @@ customersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, re
 
         res.json(data);
     } catch (error: any) {
-        console.error(`[GET /api/customers/${req.params.id}] Error:`, error);
+        logger.error('API', `[GET /api/customers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener cliente',
             message: error.message
@@ -166,7 +166,7 @@ customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequ
             }
         });
     } catch (error: any) {
-        console.error(`[GET /api/customers/${req.params.id}/orders] Error:`, error);
+        logger.error('API', `[GET /api/customers/${req.params.id}/orders] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener pedidos del cliente',
             message: error.message
@@ -226,7 +226,7 @@ customersRouter.post('/', async (req: AuthRequest, res: Response) => {
             data
         });
     } catch (error: any) {
-        console.error('[POST /api/customers] Error:', error);
+        logger.error('API', '[POST /api/customers] Error:', error);
         res.status(500).json({
             error: 'Error al crear cliente',
             message: error.message
@@ -278,7 +278,7 @@ customersRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, re
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/customers/${req.params.id}] Error:`, error);
+        logger.error('API', `[PUT /api/customers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar cliente',
             message: error.message
@@ -361,7 +361,7 @@ customersRouter.get('/stats/overview', async (req: AuthRequest, res: Response) =
             }
         });
     } catch (error: any) {
-        console.error('[GET /api/customers/stats/overview] Error:', error);
+        logger.error('API', '[GET /api/customers/stats/overview] Error:', error);
         res.status(500).json({
             error: 'Error al obtener estadísticas del cliente',
             message: error.message
@@ -400,7 +400,7 @@ customersRouter.get('/search', async (req: AuthRequest, res: Response) => {
             data: data || []
         });
     } catch (error: any) {
-        console.error('[GET /api/customers/search] Error:', error);
+        logger.error('API', '[GET /api/customers/search] Error:', error);
         res.status(500).json({
             error: 'Error al buscar clientes',
             message: error.message
@@ -451,7 +451,7 @@ customersRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest,
             id: data.id
         });
     } catch (error: any) {
-        console.error(`[DELETE /api/customers/${req.params.id}] Error:`, error);
+        logger.error('API', `[DELETE /api/customers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar cliente',
             message: error.message

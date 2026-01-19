@@ -35,7 +35,7 @@ export default function Login() {
       setErrors({});
       setIsLoading(true);
 
-      console.log('🔐 [LOGIN] Form submitted');
+      logger.log('🔐 [LOGIN] Form submitted');
 
       // Validate form
       loginSchema.parse(formData);
@@ -44,7 +44,7 @@ export default function Login() {
       const result = await signIn(formData.email, formData.password);
 
       if (result.error) {
-        console.error('❌ [LOGIN] Failed:', result.error);
+        logger.error('❌ [LOGIN] Failed:', result.error);
 
         // Check if access was revoked (user was removed from all stores)
         const isAccessRevoked = result.error.toLowerCase().includes('acceso ha sido revocado') ||
@@ -87,7 +87,7 @@ export default function Login() {
         return;
       }
 
-      console.log('✅ [LOGIN] Successful, redirecting...');
+      logger.log('✅ [LOGIN] Successful, redirecting...');
 
       toast({
         title: "¡Bienvenido!",

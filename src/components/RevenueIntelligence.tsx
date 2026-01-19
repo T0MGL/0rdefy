@@ -67,7 +67,7 @@ export function RevenueIntelligence() {
         setTopProducts(productsData);
         setOrders(ordersResponse.data || []);
       } catch (error) {
-        console.error('Error loading revenue intelligence data:', error);
+        logger.error('Error loading revenue intelligence data:', error);
       } finally {
         setIsLoading(false);
       }

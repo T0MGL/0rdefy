@@ -70,14 +70,14 @@ export class WebhookQueueService {
         .single();
 
       if (error) {
-        console.error('❌ [WEBHOOK-QUEUE] Error enqueuing webhook:', error);
+        logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error enqueuing webhook:', error);
         throw error;
       }
 
-      console.log(`✅ [WEBHOOK-QUEUE] Enqueued webhook: ${data.id} (topic: ${item.topic})`);
+      logger.info('BACKEND', `✅ [WEBHOOK-QUEUE] Enqueued webhook: ${data.id} (topic: ${item.topic})`);
       return data.id;
     } catch (error) {
-      console.error('❌ [WEBHOOK-QUEUE] Fatal error enqueuing webhook:', error);
+      logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Fatal error enqueuing webhook:', error);
       throw error;
     }
   }
@@ -88,11 +88,11 @@ export class WebhookQueueService {
    */
   startProcessing(): void {
     if (this.processing) {
-      console.warn('⚠️ [WEBHOOK-QUEUE] Processing already started');
+      logger.warn('BACKEND', '⚠️ [WEBHOOK-QUEUE] Processing already started');
       return;
     }
 
-    console.log('🚀 [WEBHOOK-QUEUE] Starting webhook queue processor');
+    logger.info('BACKEND', '🚀 [WEBHOOK-QUEUE] Starting webhook queue processor');
     this.processing = true;
 
     // Procesar inmediatamente
@@ -108,7 +108,7 @@ export class WebhookQueueService {
    * Detener procesamiento de la cola
    */
   stopProcessing(): void {
-    console.log('🛑 [WEBHOOK-QUEUE] Stopping webhook queue processor');
+    logger.info('BACKEND', '🛑 [WEBHOOK-QUEUE] Stopping webhook queue processor');
     this.processing = false;
     if (this.intervalId) {
       clearInterval(this.intervalId);
@@ -131,7 +131,7 @@ export class WebhookQueueService {
         .limit(this.concurrentLimit);
 
       if (error) {
-        console.error('❌ [WEBHOOK-QUEUE] Error fetching pending webhooks:', error);
+        logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error fetching pending webhooks:', error);
         return;
       }
 
@@ -139,7 +139,7 @@ export class WebhookQueueService {
         return; // No hay webhooks pendientes
       }
 
-      console.log(`🔄 [WEBHOOK-QUEUE] Processing ${pendingWebhooks.length} webhooks...`);
+      logger.info('BACKEND', `🔄 [WEBHOOK-QUEUE] Processing ${pendingWebhooks.length} webhooks...`);
 
       // Procesar todos en paralelo (hasta el límite de concurrencia)
       const promises = pendingWebhooks.map(webhook =>
@@ -149,7 +149,7 @@ export class WebhookQueueService {
       await Promise.allSettled(promises);
 
     } catch (error) {
-      console.error('❌ [WEBHOOK-QUEUE] Error processing queue:', error);
+      logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error processing queue:', error);
     }
   }
 
@@ -166,7 +166,7 @@ export class WebhookQueueService {
         .update({ status: 'processing' })
         .eq('id', webhook.id);
 
-      console.log(`⏳ [WEBHOOK-QUEUE] Processing webhook ${webhook.id} (topic: ${webhook.topic})`);
+      logger.info('BACKEND', `⏳ [WEBHOOK-QUEUE] Processing webhook ${webhook.id} (topic: ${webhook.topic})`);
 
       // Procesar según el topic
       // IMPORTANTE: Usar supabaseAdmin para evitar errores de RLS
@@ -208,7 +208,7 @@ export class WebhookQueueService {
           break;
 
         default:
-          console.warn(`⚠️ [WEBHOOK-QUEUE] Unknown topic: ${webhook.topic}`);
+          logger.warn('BACKEND', `⚠️ [WEBHOOK-QUEUE] Unknown topic: ${webhook.topic}`);
           result = { success: false, error: 'Unknown topic' };
       }
 
@@ -232,7 +232,7 @@ export class WebhookQueueService {
           processingTime
         );
 
-        console.log(`✅ [WEBHOOK-QUEUE] Webhook ${webhook.id} completed in ${processingTime}ms`);
+        logger.info('BACKEND', `✅ [WEBHOOK-QUEUE] Webhook ${webhook.id} completed in ${processingTime}ms`);
 
       } else {
         // Error - reintentar o marcar como fallido
@@ -240,7 +240,7 @@ export class WebhookQueueService {
       }
 
     } catch (error: any) {
-      console.error(`❌ [WEBHOOK-QUEUE] Error processing webhook ${webhook.id}:`, error);
+      logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Error processing webhook ${webhook.id}:`, error);
       await this.handleWebhookError(webhook, error.message);
     }
   }
@@ -274,7 +274,7 @@ export class WebhookQueueService {
         '500'
       );
 
-      console.error(`❌ [WEBHOOK-QUEUE] Webhook ${webhook.id} failed permanently after ${newRetryCount} attempts`);
+      logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Webhook ${webhook.id} failed permanently after ${newRetryCount} attempts`);
 
     } else {
       // Programar siguiente reintento con exponential backoff
@@ -292,7 +292,7 @@ export class WebhookQueueService {
         })
         .eq('id', webhook.id);
 
-      console.log(
+      logger.info('BACKEND', 
         `⏳ [WEBHOOK-QUEUE] Webhook ${webhook.id} will retry in ${backoffSeconds}s (attempt ${newRetryCount}/${webhook.max_retries})`
       );
     }
@@ -314,7 +314,7 @@ export class WebhookQueueService {
       .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()); // últimas 24 horas
 
     if (error || !data) {
-      console.error('❌ [WEBHOOK-QUEUE] Error fetching queue stats:', error);
+      logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error fetching queue stats:', error);
       return { pending: 0, processing: 0, completed: 0, failed: 0, total: 0 };
     }
 
@@ -341,12 +341,12 @@ export class WebhookQueueService {
       .select('id');
 
     if (error) {
-      console.error('❌ [WEBHOOK-QUEUE] Error cleaning up old webhooks:', error);
+      logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error cleaning up old webhooks:', error);
       return 0;
     }
 
     const deleted = data?.length || 0;
-    console.log(`🧹 [WEBHOOK-QUEUE] Cleaned up ${deleted} old completed webhooks`);
+    logger.info('BACKEND', `🧹 [WEBHOOK-QUEUE] Cleaned up ${deleted} old completed webhooks`);
     return deleted;
   }
 }

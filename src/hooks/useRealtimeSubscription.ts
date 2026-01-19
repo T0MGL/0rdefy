@@ -10,7 +10,7 @@
  *   table: 'products',
  *   event: 'INSERT',
  *   callback: (payload) => {
- *     console.log('New product:', payload.new);
+ *     logger.log('New product:', payload.new);
  *     refetchProducts();
  *   }
  * });
@@ -87,14 +87,14 @@ export function useRealtimeSubscription({
     const storeId = localStorage.getItem('current_store_id');
 
     if (filterByStore && !storeId) {
-      console.warn(`[Realtime] No store_id found in localStorage. Subscription to ${table} skipped.`);
+      logger.warn(`[Realtime] No store_id found in localStorage. Subscription to ${table} skipped.`);
       return;
     }
 
     // Create a unique channel name
     const channelName = `realtime:${table}:${event}:${storeId || 'global'}`;
 
-    console.log(`[Realtime] Subscribing to ${table} (${event}) for store ${storeId}`);
+    logger.log(`[Realtime] Subscribing to ${table} (${event}) for store ${storeId}`);
 
     // Create channel
     let channel = supabase.channel(channelName);
@@ -119,7 +119,7 @@ export function useRealtimeSubscription({
         filter: filterString || undefined,
       },
       (payload) => {
-        console.log(`[Realtime] ${table} ${payload.eventType}:`, payload);
+        logger.log(`[Realtime] ${table} ${payload.eventType}:`, payload);
         callback(payload);
       }
     );
@@ -127,11 +127,11 @@ export function useRealtimeSubscription({
     // Subscribe and handle status
     channel.subscribe((status, err) => {
       if (status === 'SUBSCRIBED') {
-        console.log(`[Realtime] ✅ Subscribed to ${table} (${event})`);
+        logger.log(`[Realtime] ✅ Subscribed to ${table} (${event})`);
       } else if (status === 'CLOSED') {
-        console.log(`[Realtime] ⚠️  Subscription to ${table} closed`);
+        logger.log(`[Realtime] ⚠️  Subscription to ${table} closed`);
       } else if (status === 'CHANNEL_ERROR') {
-        console.error(`[Realtime] ❌ Subscription error for ${table}:`, err);
+        logger.error(`[Realtime] ❌ Subscription error for ${table}:`, err);
         if (showToastOnError) {
           toast({
             title: 'Realtime Error',
@@ -146,7 +146,7 @@ export function useRealtimeSubscription({
 
     // Cleanup on unmount
     return () => {
-      console.log(`[Realtime] Unsubscribing from ${table}`);
+      logger.log(`[Realtime] Unsubscribing from ${table}`);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;

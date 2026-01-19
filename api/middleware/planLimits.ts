@@ -45,7 +45,7 @@ async function getStoreUsage(storeId: string): Promise<{
     });
 
     if (error) {
-      console.error('[PlanLimits] Error getting store usage:', error.message);
+      logger.error('BACKEND', '[PlanLimits] Error getting store usage:', error.message);
       return null;
     }
 
@@ -73,7 +73,7 @@ async function getStoreUsage(storeId: string): Promise<{
       usersLimit: usage.max_users,
     };
   } catch (error: any) {
-    console.error('[PlanLimits] Exception:', error.message);
+    logger.error('BACKEND', '[PlanLimits] Exception:', error.message);
     return null;
   }
 }
@@ -96,7 +96,7 @@ export async function checkOrderLimit(
     const usage = await getStoreUsage(storeId);
     if (!usage) {
       // SECURITY: Fail closed - if we can't verify limits, deny the action
-      console.error('[PlanLimits] Could not get usage, denying action (fail-closed)');
+      logger.error('BACKEND', '[PlanLimits] Could not get usage, denying action (fail-closed)');
       return res.status(503).json({
         error: 'SERVICE_UNAVAILABLE',
         message: 'No se pudo verificar los límites de tu plan. Por favor, intenta de nuevo.',
@@ -138,7 +138,7 @@ export async function checkOrderLimit(
 
     next();
   } catch (error: any) {
-    console.error('[PlanLimits] checkOrderLimit error:', error.message);
+    logger.error('BACKEND', '[PlanLimits] checkOrderLimit error:', error.message);
     // SECURITY: Fail closed - deny action on error
     return res.status(503).json({
       error: 'SERVICE_UNAVAILABLE',
@@ -165,7 +165,7 @@ export async function checkProductLimit(
     const usage = await getStoreUsage(storeId);
     if (!usage) {
       // SECURITY: Fail closed - if we can't verify limits, deny the action
-      console.error('[PlanLimits] Could not get usage, denying action (fail-closed)');
+      logger.error('BACKEND', '[PlanLimits] Could not get usage, denying action (fail-closed)');
       return res.status(503).json({
         error: 'SERVICE_UNAVAILABLE',
         message: 'No se pudo verificar los límites de tu plan. Por favor, intenta de nuevo.',
@@ -207,7 +207,7 @@ export async function checkProductLimit(
 
     next();
   } catch (error: any) {
-    console.error('[PlanLimits] checkProductLimit error:', error.message);
+    logger.error('BACKEND', '[PlanLimits] checkProductLimit error:', error.message);
     // SECURITY: Fail closed - deny action on error
     return res.status(503).json({
       error: 'SERVICE_UNAVAILABLE',
@@ -241,7 +241,7 @@ export function requireFeature(feature: string) {
       });
 
       if (error) {
-        console.error('[PlanLimits] Feature check error:', error.message);
+        logger.error('BACKEND', '[PlanLimits] Feature check error:', error.message);
         // SECURITY: Fail closed - deny access on error
         return res.status(503).json({
           error: 'SERVICE_UNAVAILABLE',
@@ -277,7 +277,7 @@ export function requireFeature(feature: string) {
 
       next();
     } catch (error: any) {
-      console.error('[PlanLimits] requireFeature error:', error.message);
+      logger.error('BACKEND', '[PlanLimits] requireFeature error:', error.message);
       // SECURITY: Fail closed - deny access on error
       return res.status(503).json({
         error: 'SERVICE_UNAVAILABLE',
@@ -326,7 +326,7 @@ export async function getPlanUsage(
 
     next();
   } catch (error: any) {
-    console.error('[PlanLimits] getPlanUsage error:', error.message);
+    logger.error('BACKEND', '[PlanLimits] getPlanUsage error:', error.message);
     next();
   }
 }

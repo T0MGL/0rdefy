@@ -171,18 +171,18 @@ export default function Onboarding() {
       const data = await response.json();
 
       if (!response.ok) {
-        console.error('❌ [ONBOARDING] Server error:', data);
+        logger.error('❌ [ONBOARDING] Server error:', data);
         const errorMessage = data.error || data.details || 'Error al completar onboarding';
         const error = new Error(errorMessage) as Error & { code?: string };
         error.code = data.code;
         throw error;
       }
 
-      console.log('✅ [ONBOARDING] Success:', data);
+      logger.log('✅ [ONBOARDING] Success:', data);
 
       // Validate response data
       if (!data.user || !data.store || !data.store.id) {
-        console.error('❌ [ONBOARDING] Invalid response data:', data);
+        logger.error('❌ [ONBOARDING] Invalid response data:', data);
         throw new Error('Respuesta inválida del servidor');
       }
 
@@ -191,7 +191,7 @@ export default function Onboarding() {
       localStorage.setItem('current_store_id', data.store.id);
       localStorage.setItem('onboarding_completed', 'true');
 
-      console.log('✅ [ONBOARDING] LocalStorage updated');
+      logger.log('✅ [ONBOARDING] LocalStorage updated');
 
       toast({
         title: "¡Configuración completada!",
@@ -199,12 +199,12 @@ export default function Onboarding() {
       });
 
       // Navigate to plan selection
-      console.log('🔄 [ONBOARDING] Navigating to plan selection...');
+      logger.log('🔄 [ONBOARDING] Navigating to plan selection...');
       const pathWithShopifyParams = preserveShopifyParams('/onboarding/plan');
       navigate(pathWithShopifyParams, { replace: true });
 
     } catch (error: any) {
-      console.error('💥 [ONBOARDING] Error:', error);
+      logger.error('💥 [ONBOARDING] Error:', error);
 
       // Check if it's a network error
       if (error.message === 'Failed to fetch' || !error.message) {

@@ -15,16 +15,25 @@ const getAuthHeaders = (): HeadersInit => {
 };
 
 export const adsService = {
-  async getAll(): Promise<Ad[]> {
+  async getAll(options?: { limit?: number; offset?: number }): Promise<Ad[]> {
     try {
-      const response = await fetch(`${API_URL}/api/campaigns`, {
+      const params = new URLSearchParams();
+      if (options?.limit) {
+        params.append('limit', options.limit.toString());
+      }
+      if (options?.offset) {
+        params.append('offset', options.offset.toString());
+      }
+      const url = `${API_URL}/api/campaigns${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const response = await fetch(url, {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error('Error al obtener campañas');
       const data = await response.json();
       return data.data || [];
     } catch (error) {
-      console.error('Error fetching campaigns:', error);
+      logger.error('Error fetching campaigns:', error);
       return [];
     }
   },
@@ -37,7 +46,7 @@ export const adsService = {
       if (!response.ok) return undefined;
       return await response.json();
     } catch (error) {
-      console.error('Error fetching campaign:', error);
+      logger.error('Error fetching campaign:', error);
       return undefined;
     }
   },

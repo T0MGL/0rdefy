@@ -75,7 +75,7 @@ merchandiseRouter.get('/', async (req: AuthRequest, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('[GET /api/merchandise] Error:', error);
+    logger.error('API', '[GET /api/merchandise] Error:', error);
     res.status(500).json({
       error: 'Error al obtener envíos',
       message: error.message
@@ -135,7 +135,7 @@ merchandiseRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       items: enrichedItems
     });
   } catch (error: any) {
-    console.error(`[GET /api/merchandise/${req.params.id}] Error:`, error);
+    logger.error('API', `[GET /api/merchandise/${req.params.id}] Error:`, error);
     res.status(500).json({
       error: 'Error al obtener envío',
       message: error.message
@@ -246,7 +246,7 @@ merchandiseRouter.post('/', async (req: AuthRequest, res: Response) => {
       items: createdItems
     });
   } catch (error: any) {
-    console.error('[POST /api/merchandise] Error:', error);
+    logger.error('API', '[POST /api/merchandise] Error:', error);
     res.status(500).json({
       error: 'Error al crear envío',
       message: error.message
@@ -307,7 +307,7 @@ merchandiseRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(data);
   } catch (error: any) {
-    console.error(`[PATCH /api/merchandise/${req.params.id}] Error:`, error);
+    logger.error('API', `[PATCH /api/merchandise/${req.params.id}] Error:`, error);
     res.status(500).json({
       error: 'Error al actualizar envío',
       message: error.message
@@ -483,7 +483,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
             }));
 
           if (productsToSync.length > 0) {
-            console.log(`🔄 [MERCHANDISE-RECEIVE] Syncing ${productsToSync.length} products to Shopify...`);
+            logger.info('API', `🔄 [MERCHANDISE-RECEIVE] Syncing ${productsToSync.length} products to Shopify...`);
 
             const { ShopifyInventorySyncService } = await import('../services/shopify-inventory-sync.service');
             const syncService = new ShopifyInventorySyncService(supabaseAdmin);
@@ -493,7 +493,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
               products: productsToSync
             });
 
-            console.log(`✅ [MERCHANDISE-RECEIVE] Shopify sync complete: ${syncResult.success} success, ${syncResult.failed} failed`);
+            logger.info('API', `✅ [MERCHANDISE-RECEIVE] Shopify sync complete: ${syncResult.success} success, ${syncResult.failed} failed`);
 
             if (syncResult.failed > 0) {
               syncResult.errors.forEach(err => {
@@ -501,11 +501,11 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
               });
             }
           } else {
-            console.log(`ℹ️  [MERCHANDISE-RECEIVE] No Shopify-linked products to sync`);
+            logger.info('API', `ℹ️  [MERCHANDISE-RECEIVE] No Shopify-linked products to sync`);
           }
         }
       } catch (syncError: any) {
-        console.error('[MERCHANDISE-RECEIVE] Error syncing to Shopify:', syncError);
+        logger.error('API', '[MERCHANDISE-RECEIVE] Error syncing to Shopify:', syncError);
         syncWarnings.push('Error al sincronizar inventario con Shopify: ' + syncError.message);
       }
     }
@@ -517,7 +517,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
       sync_warnings: syncWarnings.length > 0 ? syncWarnings : undefined
     });
   } catch (error: any) {
-    console.error(`[POST /api/merchandise/${req.params.id}/receive] Error:`, error);
+    logger.error('API', `[POST /api/merchandise/${req.params.id}/receive] Error:`, error);
     res.status(500).json({
       error: 'Error al recibir envío',
       message: error.message
@@ -566,7 +566,7 @@ merchandiseRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json({ success: true });
   } catch (error: any) {
-    console.error(`[DELETE /api/merchandise/${req.params.id}] Error:`, error);
+    logger.error('API', `[DELETE /api/merchandise/${req.params.id}] Error:`, error);
     res.status(500).json({
       error: 'Error al eliminar envío',
       message: error.message
@@ -598,7 +598,7 @@ merchandiseRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
 
     res.json(stats);
   } catch (error: any) {
-    console.error('[GET /api/merchandise/stats/summary] Error:', error);
+    logger.error('API', '[GET /api/merchandise/stats/summary] Error:', error);
     res.status(500).json({
       error: 'Error al obtener estadísticas',
       message: error.message

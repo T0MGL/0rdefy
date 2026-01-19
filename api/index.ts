@@ -49,6 +49,7 @@ import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
 import { requestLoggerMiddleware } from './utils/logger';
+import { logger } from '../utils/logger';
 
 // Load environment variables
 dotenv.config();
@@ -94,29 +95,29 @@ function validateEnvironment() {
     }
 
     if (missing.length > 0) {
-        console.error('================================================================');
-        console.error('❌ FATAL: Missing required environment variables:');
-        missing.forEach(v => console.error(`   - ${v}`));
-        console.error('================================================================');
-        console.error('Please set these variables in your .env file');
+        logger.error('================================================================');
+        logger.error('❌ FATAL: Missing required environment variables:');
+        missing.forEach(v => logger.error(`   - ${v}`));
+        logger.error('================================================================');
+        logger.error('Please set these variables in your .env file');
         process.exit(1);
     }
 
     if (warnings.length > 0) {
-        console.warn('================================================================');
-        console.warn('⚠️  WARNING: Optional environment variables not set:');
-        warnings.forEach(v => console.warn(`   - ${v}`));
-        console.warn('================================================================');
-        console.warn('Some features may not work correctly');
+        logger.warn('================================================================');
+        logger.warn('⚠️  WARNING: Optional environment variables not set:');
+        warnings.forEach(v => logger.warn(`   - ${v}`));
+        logger.warn('================================================================');
+        logger.warn('Some features may not work correctly');
     }
 
     // Validate JWT_SECRET length
     const jwtSecret = process.env.JWT_SECRET;
     if (jwtSecret && jwtSecret.length < 32) {
-        console.warn('⚠️  WARNING: JWT_SECRET should be at least 32 characters');
+        logger.warn('⚠️  WARNING: JWT_SECRET should be at least 32 characters');
     }
 
-    console.log('✅ Environment validation passed');
+    logger.info('✅ Environment validation passed');
 }
 
 // Run validation before starting server
@@ -198,7 +199,7 @@ const apiLimiter = rateLimit({
     standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
     legacyHeaders: false,  // Disable `X-RateLimit-*` headers
     handler: (req: Request, res: Response) => {
-        console.warn(`⚠️ Rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn(`⚠️ Rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Requests',
             message: 'You have exceeded the rate limit. Please try again later.',
@@ -220,7 +221,7 @@ const authLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req: Request, res: Response) => {
-        console.warn(`🚨 Auth rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn(`🚨 Auth rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Authentication Attempts',
             message: 'Too many authentication attempts from this IP. Please try again later.',
@@ -243,7 +244,7 @@ const webhookLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req: Request, res: Response) => {
-        console.warn(`⚠️ Webhook rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn(`⚠️ Webhook rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Webhook Rate Limit Exceeded',
             message: 'Too many webhook requests. Please slow down.',
@@ -265,7 +266,7 @@ const writeOperationsLimiter = rateLimit({
     legacyHeaders: false,
     skip: (req: Request) => req.method === 'GET', // Only apply to write operations
     handler: (req: Request, res: Response) => {
-        console.warn(`⚠️ Write operations rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn(`⚠️ Write operations rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Write Operations',
             message: 'You have exceeded the write operations limit. Please try again later.',
@@ -287,7 +288,7 @@ const deliveryTokenLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req: Request, res: Response) => {
-        console.warn(`🚨 Delivery token rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn(`🚨 Delivery token rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Requests',
             message: 'Demasiados intentos. Por favor intenta nuevamente en un minuto.',
@@ -320,7 +321,7 @@ app.use(cors({
             return callback(null, true);
         }
 
-        console.warn(`⚠️ CORS rejected request from origin: ${origin}`);
+        logger.warn(`⚠️ CORS rejected request from origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
@@ -353,7 +354,7 @@ app.use((req: any, res: Response, next: NextFunction) => {
             try {
                 req.body = JSON.parse(data);
             } catch (e) {
-                console.error('❌ Failed to parse webhook JSON:', e);
+                logger.error('❌ Failed to parse webhook JSON:', e);
                 req.body = {};
             }
             next();
@@ -555,7 +556,7 @@ app.use((req: Request, res: Response) => {
 
 // Global error handler
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    console.error('[ERROR]', err);
+    logger.error('[ERROR]', err);
 
     // Database errors
     if (err.code === '23505') {
@@ -597,37 +598,37 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 // ================================================================
 
 app.listen(PORT, () => {
-    console.log('================================================================');
-    console.log('🚀 ORDEFY API SERVER STARTED');
-    console.log('================================================================');
-    console.log(`📡 Server running on: http://localhost:${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 CORS Origins: ${ALLOWED_ORIGINS.join(', ')}`);
-    console.log('================================================================');
-    console.log('📚 Available Endpoints:');
-    console.log('   GET  /health                    - Health check');
-    console.log('   GET  /api/stores                - List stores');
-    console.log('   GET  /api/orders                - List orders');
-    console.log('   POST /api/orders                - Create order');
-    console.log('   GET  /api/products              - List products');
-    console.log('   POST /api/products              - Create product');
-    console.log('   GET  /api/customers             - List customers');
-    console.log('   GET  /api/suppliers             - List suppliers');
-    console.log('   GET  /api/analytics/*           - Analytics endpoints');
-    console.log('   GET  /api/additional-values     - List additional values');
-    console.log('   GET  /api/campaigns             - List campaigns/ads');
-    console.log('   GET  /api/carriers              - List carriers');
-    console.log('================================================================');
+    logger.info('================================================================');
+    logger.info('🚀 ORDEFY API SERVER STARTED');
+    logger.info('================================================================');
+    logger.info(`📡 Server running on: http://localhost:${PORT}`);
+    logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`🔗 CORS Origins: ${ALLOWED_ORIGINS.join(', ')}`);
+    logger.info('================================================================');
+    logger.info('📚 Available Endpoints:');
+    logger.info('   GET  /health                    - Health check');
+    logger.info('   GET  /api/stores                - List stores');
+    logger.info('   GET  /api/orders                - List orders');
+    logger.info('   POST /api/orders                - Create order');
+    logger.info('   GET  /api/products              - List products');
+    logger.info('   POST /api/products              - Create product');
+    logger.info('   GET  /api/customers             - List customers');
+    logger.info('   GET  /api/suppliers             - List suppliers');
+    logger.info('   GET  /api/analytics/*           - Analytics endpoints');
+    logger.info('   GET  /api/additional-values     - List additional values');
+    logger.info('   GET  /api/campaigns             - List campaigns/ads');
+    logger.info('   GET  /api/carriers              - List carriers');
+    logger.info('================================================================');
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down gracefully...');
+    logger.info('SIGTERM received, shutting down gracefully...');
     process.exit(0);
 });
 
 process.on('SIGINT', () => {
-    console.log('SIGINT received, shutting down gracefully...');
+    logger.info('SIGINT received, shutting down gracefully...');
     process.exit(0);
 });
 

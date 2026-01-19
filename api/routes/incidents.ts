@@ -28,7 +28,7 @@ incidentsRouter.get('/order/:order_id/active', async (req: Request, res: Respons
     try {
         const { order_id } = req.params;
 
-        console.log('🔍 [INCIDENTS] Fetching active incident for order:', order_id);
+        logger.info('API', '🔍 [INCIDENTS] Fetching active incident for order:', order_id);
 
         // Get active incident with retry attempts
         const { data: incident, error } = await supabaseAdmin
@@ -52,7 +52,7 @@ incidentsRouter.get('/order/:order_id/active', async (req: Request, res: Respons
             .maybeSingle();
 
         if (error) {
-            console.error('❌ [INCIDENTS] Error fetching incident:', error);
+            logger.error('API', '❌ [INCIDENTS] Error fetching incident:', error);
             return res.status(500).json({ error: 'Error al obtener incidente' });
         }
 
@@ -81,7 +81,7 @@ incidentsRouter.get('/order/:order_id/active', async (req: Request, res: Respons
             }
         });
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -105,7 +105,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
             });
         }
 
-        console.log(`✅ [INCIDENTS] Completing retry ${retry_id} with status:`, status);
+        logger.info('API', `✅ [INCIDENTS] Completing retry ${retry_id} with status:`, status);
 
         // Get retry attempt details
         const { data: retryAttempt, error: fetchError } = await supabaseAdmin
@@ -115,7 +115,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
             .single();
 
         if (fetchError || !retryAttempt) {
-            console.error('❌ [INCIDENTS] Retry not found:', fetchError);
+            logger.error('API', '❌ [INCIDENTS] Retry not found:', fetchError);
             return res.status(404).json({ error: 'Retry attempt not found' });
         }
 
@@ -127,7 +127,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
             .single();
 
         if (incidentError || !incident) {
-            console.error('❌ [INCIDENTS] Incident not found:', incidentError);
+            logger.error('API', '❌ [INCIDENTS] Incident not found:', incidentError);
             return res.status(404).json({ error: 'Incident not found' });
         }
 
@@ -146,7 +146,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
             .eq('id', retry_id);
 
         if (updateError) {
-            console.error('❌ [INCIDENTS] Error updating retry:', updateError);
+            logger.error('API', '❌ [INCIDENTS] Error updating retry:', updateError);
             return res.status(500).json({ error: 'Error al actualizar intento de reintento' });
         }
 
@@ -179,7 +179,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
 
         // The trigger will automatically update the incident status
 
-        console.log(`✅ [INCIDENTS] Retry ${retry_id} marked as ${status}`);
+        logger.info('API', `✅ [INCIDENTS] Retry ${retry_id} marked as ${status}`);
 
         res.json({
             message: status === 'delivered' ? 'Delivery confirmed' : 'Retry attempt failed',
@@ -191,7 +191,7 @@ incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Resp
             }
         });
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -213,7 +213,7 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
     try {
         const { status, limit = '50', offset = '0' } = req.query;
 
-        console.log('📋 [INCIDENTS] Fetching incidents:', {
+        logger.info('API', '📋 [INCIDENTS] Fetching incidents:', {
             store_id: req.storeId,
             status,
             limit,
@@ -258,7 +258,7 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
         const { data, error, count } = await query;
 
         if (error) {
-            console.error('❌ [INCIDENTS] Error:', error);
+            logger.error('API', '❌ [INCIDENTS] Error:', error);
             return res.status(500).json({ error: 'Error al obtener incidentes' });
         }
 
@@ -272,7 +272,7 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -316,7 +316,7 @@ incidentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
         res.json(data);
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -327,7 +327,7 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
         const { id } = req.params;
         const { scheduled_date, notes } = req.body;
 
-        console.log('📅 [INCIDENTS] Scheduling retry for incident:', id);
+        logger.info('API', '📅 [INCIDENTS] Scheduling retry for incident:', id);
 
         // Get incident
         const { data: incident, error: fetchError } = await supabaseAdmin
@@ -389,18 +389,18 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
             .single();
 
         if (createError) {
-            console.error('❌ [INCIDENTS] Error creating retry:', createError);
+            logger.error('API', '❌ [INCIDENTS] Error creating retry:', createError);
             return res.status(500).json({ error: 'Error al programar reintento' });
         }
 
-        console.log('✅ [INCIDENTS] Retry scheduled:', retry.id);
+        logger.info('API', '✅ [INCIDENTS] Retry scheduled:', retry.id);
 
         res.status(201).json({
             message: 'Retry attempt scheduled',
             data: retry
         });
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -426,7 +426,7 @@ incidentsRouter.post('/:id/resolve', async (req: AuthRequest, res: Response) => 
             });
         }
 
-        console.log('✅ [INCIDENTS] Resolving incident:', id, 'as', resolution_type);
+        logger.info('API', '✅ [INCIDENTS] Resolving incident:', id, 'as', resolution_type);
 
         // Update incident
         const { data: incident, error } = await supabaseAdmin
@@ -474,14 +474,14 @@ incidentsRouter.post('/:id/resolve', async (req: AuthRequest, res: Response) => 
             .update(orderUpdates)
             .eq('id', incident.order_id);
 
-        console.log('✅ [INCIDENTS] Incident resolved', resolution_type === 'delivered' ? 'and order marked as delivered' : '');
+        logger.info('API', '✅ [INCIDENTS] Incident resolved', resolution_type === 'delivered' ? 'and order marked as delivered' : '');
 
         res.json({
             message: resolution_type === 'delivered' ? 'Incident resolved and order marked as delivered' : 'Incident resolved',
             data: incident
         });
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -512,14 +512,14 @@ incidentsRouter.put('/:id/retry/:retry_id', async (req: AuthRequest, res: Respon
             return res.status(404).json({ error: 'Retry attempt not found' });
         }
 
-        console.log('✅ [INCIDENTS] Retry updated:', retry_id);
+        logger.info('API', '✅ [INCIDENTS] Retry updated:', retry_id);
 
         res.json({
             message: 'Retry attempt updated',
             data
         });
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -536,7 +536,7 @@ incidentsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
             .eq('store_id', req.storeId);
 
         if (error) {
-            console.error('❌ [INCIDENTS] Error deleting:', error);
+            logger.error('API', '❌ [INCIDENTS] Error deleting:', error);
             return res.status(500).json({ error: 'Error al eliminar incidente' });
         }
 
@@ -546,11 +546,11 @@ incidentsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
             .update({ has_active_incident: false })
             .eq('id', id);
 
-        console.log('🗑️ [INCIDENTS] Deleted:', id);
+        logger.info('API', '🗑️ [INCIDENTS] Deleted:', id);
 
         res.json({ message: 'Incident deleted' });
     } catch (error: any) {
-        console.error('💥 [INCIDENTS] Error:', error);
+        logger.error('API', '💥 [INCIDENTS] Error:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

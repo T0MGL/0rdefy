@@ -18,13 +18,13 @@ export const ShopifyInitializer: React.FC<ShopifyInitializerProps> = ({ children
 
   useEffect(() => {
     if (sessionToken) {
-      console.log('[ShopifyInitializer] Session token is ready for API calls');
+      logger.log('[ShopifyInitializer] Session token is ready for API calls');
     }
   }, [sessionToken]);
 
   useEffect(() => {
     if (error) {
-      console.error('[ShopifyInitializer] Error initializing App Bridge:', error);
+      logger.error('[ShopifyInitializer] Error initializing App Bridge:', error);
     }
   }, [error]);
 

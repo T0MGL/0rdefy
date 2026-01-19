@@ -218,7 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // CRITICAL: Define signOut BEFORE any useEffect that uses it
   const signOut = useCallback(async () => {
-    console.log('👋 [AUTH] Signing out');
+    logger.log('👋 [AUTH] Signing out');
 
     // Call backend to terminate session
     try {
@@ -229,10 +229,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             'Authorization': `Bearer ${token}`
           }
         });
-        console.log('✅ [AUTH] Session terminated on server');
+        logger.log('✅ [AUTH] Session terminated on server');
       }
     } catch (err) {
-      console.error('⚠️ [AUTH] Failed to terminate session on server:', err);
+      logger.error('⚠️ [AUTH] Failed to terminate session on server:', err);
       // Continue with client-side logout even if server call fails
     }
 
@@ -245,11 +245,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStores([]);
     setCurrentStore(null);
 
-    console.log('✅ [AUTH] Signed out successfully');
+    logger.log('✅ [AUTH] Signed out successfully');
   }, []); // No dependencies - uses setters which are stable
 
   useEffect(() => {
-    console.log('🔄 [AUTH] Initializing auth state...');
+    logger.log('🔄 [AUTH] Initializing auth state...');
 
     const token = localStorage.getItem('auth_token');
     const savedUser = localStorage.getItem('user');
@@ -260,7 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const parsedUser = safeJsonParse<User | null>(savedUser, null);
 
       if (parsedUser) {
-        console.log('✅ [AUTH] Found existing session:', parsedUser.email);
+        logger.log('✅ [AUTH] Found existing session:', parsedUser.email);
 
         setUser(parsedUser);
         setStores(parsedUser.stores || []);
@@ -274,12 +274,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } else {
         // Parse failed - clear corrupted data
-        console.error('❌ [AUTH] Failed to parse saved user data - clearing session');
+        logger.error('❌ [AUTH] Failed to parse saved user data - clearing session');
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user');
       }
     } else {
-      console.log('⚠️ [AUTH] No existing session found');
+      logger.log('⚠️ [AUTH] No existing session found');
     }
 
     setLoading(false);
@@ -288,7 +288,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Listen for session expiration events from api.client.ts
   useEffect(() => {
     const handleSessionExpired = () => {
-      console.warn('⚠️ [AUTH] Session expired event received. Logging out...');
+      logger.warn('⚠️ [AUTH] Session expired event received. Logging out...');
       signOut();
     };
 
@@ -303,7 +303,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // This saves resources and is sufficient for 7-day tokens
 
   const signIn = async (email: string, password: string) => {
-    console.log('🔐 [AUTH] Signing in:', email);
+    logger.log('🔐 [AUTH] Signing in:', email);
 
     try {
       const response = await axios.post(`${API_URL}/login`, {
@@ -311,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
       });
 
-      console.log('✅ [AUTH] Login response:', response.data);
+      logger.log('✅ [AUTH] Login response:', response.data);
 
       if (response.data.success) {
         const userData = response.data.user;
@@ -322,12 +322,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Save onboarding completion status based on server response
         if (response.data.onboardingCompleted) {
           localStorage.setItem('onboarding_completed', 'true');
-          console.log('✅ [AUTH] User has already completed onboarding');
+          logger.log('✅ [AUTH] User has already completed onboarding');
         } else {
           // Clear onboarding_completed if server says it's not done
           // This handles cases where old localStorage data might be stale
           localStorage.removeItem('onboarding_completed');
-          console.log('⚠️ [AUTH] User needs to complete onboarding');
+          logger.log('⚠️ [AUTH] User needs to complete onboarding');
         }
 
         if (userData.stores && userData.stores.length > 0) {
@@ -338,14 +338,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
         setStores(userData.stores || []);
 
-        console.log('🎉 [AUTH] Login successful');
+        logger.log('🎉 [AUTH] Login successful');
         return { error: undefined };
       } else {
-        console.error('❌ [AUTH] Login failed:', response.data.error);
+        logger.error('❌ [AUTH] Login failed:', response.data.error);
         return { error: response.data.error || 'Error al iniciar sesión' };
       }
     } catch (err: any) {
-      console.error('💥 [AUTH] Login error:', err);
+      logger.error('💥 [AUTH] Login error:', err);
 
       if (err.response) {
         const errorData = err.response.data;
@@ -354,7 +354,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Special handling for ACCESS_REVOKED (user was removed from all stores)
         if (errorCode === 'ACCESS_REVOKED') {
-          console.warn('⛔ [AUTH] Access revoked - user was removed from stores');
+          logger.warn('⛔ [AUTH] Access revoked - user was removed from stores');
         }
 
         return { error: errorMessage };
@@ -367,7 +367,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, name: string, referralCode?: string) => {
-    console.log('📝 [AUTH] Signing up:', email, referralCode ? `with referral: ${referralCode}` : '');
+    logger.log('📝 [AUTH] Signing up:', email, referralCode ? `with referral: ${referralCode}` : '');
 
     try {
       const response = await axios.post(`${API_URL}/register`, {
@@ -377,7 +377,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         referralCode,
       });
 
-      console.log('✅ [AUTH] Registration response:', response.data);
+      logger.log('✅ [AUTH] Registration response:', response.data);
 
       if (response.data.success) {
         const userData = response.data.user;
@@ -396,14 +396,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
         setStores(userData.stores || []);
 
-        console.log('🎉 [AUTH] Registration successful - user needs to complete onboarding');
+        logger.log('🎉 [AUTH] Registration successful - user needs to complete onboarding');
         return { error: undefined };
       } else {
-        console.error('❌ [AUTH] Registration failed:', response.data.error);
+        logger.error('❌ [AUTH] Registration failed:', response.data.error);
         return { error: response.data.error || 'Error al crear la cuenta' };
       }
     } catch (err: any) {
-      console.error('💥 [AUTH] Registration error:', err);
+      logger.error('💥 [AUTH] Registration error:', err);
 
       if (err.response) {
         return { error: err.response.data.error || 'Error al crear la cuenta' };
@@ -419,7 +419,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
   const switchStore = async (storeId: string) => {
-    console.log('🔄 [AUTH] Switching store:', storeId);
+    logger.log('🔄 [AUTH] Switching store:', storeId);
 
     const store = stores.find(s => s.id === storeId);
     if (store) {
@@ -438,7 +438,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Since API calls usually depend on currentStore or get it from localStorage/context
       await queryClient.invalidateQueries();
 
-      console.log('✅ [AUTH] Switched to store:', store.name);
+      logger.log('✅ [AUTH] Switched to store:', store.name);
 
       // Navigate to dashboard to ensure fresh state (optional, but good UX)
       // window.location.href = '/'; // Still reload? No, we want soft switch.
@@ -447,7 +447,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updateProfile = async (data: { userName?: string; userPhone?: string; storeName?: string }) => {
-    console.log('📝 [AUTH] Updating profile:', data);
+    logger.log('📝 [AUTH] Updating profile:', data);
 
     try {
       const response = await axios.put(`${API_URL}/profile`, data, {
@@ -456,7 +456,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      console.log('✅ [AUTH] Profile update response:', response.data);
+      logger.log('✅ [AUTH] Profile update response:', response.data);
 
       if (response.data.success) {
         const userData = response.data.user;
@@ -477,14 +477,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        console.log('🎉 [AUTH] Profile updated successfully');
+        logger.log('🎉 [AUTH] Profile updated successfully');
         return { error: undefined };
       } else {
-        console.error('❌ [AUTH] Profile update failed:', response.data.error);
+        logger.error('❌ [AUTH] Profile update failed:', response.data.error);
         return { error: response.data.error || 'Error al actualizar perfil' };
       }
     } catch (err: any) {
-      console.error('💥 [AUTH] Profile update error:', err);
+      logger.error('💥 [AUTH] Profile update error:', err);
 
       if (err.response) {
         return { error: err.response.data.error || 'Error al actualizar perfil' };
@@ -497,7 +497,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
-    console.log('🔐 [AUTH] Changing password');
+    logger.log('🔐 [AUTH] Changing password');
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -508,14 +508,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (response.data.success) {
-        console.log('✅ [AUTH] Password changed successfully');
+        logger.log('✅ [AUTH] Password changed successfully');
         return { success: true };
       } else {
-        console.error('❌ [AUTH] Password change failed:', response.data.error);
+        logger.error('❌ [AUTH] Password change failed:', response.data.error);
         return { error: response.data.error || 'Error al cambiar contraseña' };
       }
     } catch (err: any) {
-      console.error('💥 [AUTH] Password change error:', err);
+      logger.error('💥 [AUTH] Password change error:', err);
 
       if (err.response?.status === 401) {
         return { error: 'Contraseña actual incorrecta' };
@@ -530,7 +530,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteAccount = async (password: string) => {
-    console.log('🗑️ [AUTH] Deleting account');
+    logger.log('🗑️ [AUTH] Deleting account');
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -541,16 +541,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (response.data.success) {
-        console.log('✅ [AUTH] Account deleted successfully');
+        logger.log('✅ [AUTH] Account deleted successfully');
         // Clear all local data
         signOut();
         return { success: true };
       } else {
-        console.error('❌ [AUTH] Account deletion failed:', response.data.error);
+        logger.error('❌ [AUTH] Account deletion failed:', response.data.error);
         return { error: response.data.error || 'Error al eliminar cuenta' };
       }
     } catch (err: any) {
-      console.error('💥 [AUTH] Account deletion error:', err);
+      logger.error('💥 [AUTH] Account deletion error:', err);
 
       if (err.response?.status === 401) {
         return { error: 'Contraseña incorrecta' };
@@ -565,7 +565,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const createStore = async (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => {
-    console.log('🏪 [AUTH] Creating new store:', data.name);
+    logger.log('🏪 [AUTH] Creating new store:', data.name);
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -585,7 +585,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.data.data) {
         const newStore = response.data.data;
-        console.log('✅ [AUTH] Store created successfully:', newStore.id);
+        logger.log('✅ [AUTH] Store created successfully:', newStore.id);
 
         // Update current user with the new store
         if (user) {
@@ -614,11 +614,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         return { success: true, storeId: newStore.id };
       } else {
-        console.error('❌ [AUTH] Store creation failed:', response.data.error);
+        logger.error('❌ [AUTH] Store creation failed:', response.data.error);
         return { error: response.data.error || 'Error al crear tienda' };
       }
     } catch (err: any) {
-      console.error('💥 [AUTH] Store creation error:', err);
+      logger.error('💥 [AUTH] Store creation error:', err);
 
       if (err.response) {
         return { error: err.response.data.error || err.response.data.message || 'Error al crear tienda' };
@@ -631,7 +631,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteStore = async (storeId: string) => {
-    console.log('🗑️ [AUTH] Deleting store:', storeId);
+    logger.log('🗑️ [AUTH] Deleting store:', storeId);
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -642,7 +642,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (response.data) {
-        console.log('✅ [AUTH] Store deleted successfully');
+        logger.log('✅ [AUTH] Store deleted successfully');
 
         // Update user state - remove the deleted store
         if (user) {
@@ -673,11 +673,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         return { success: true };
       } else {
-        console.error('❌ [AUTH] Store deletion failed');
+        logger.error('❌ [AUTH] Store deletion failed');
         return { error: 'Error al eliminar tienda' };
       }
     } catch (err: any) {
-      console.error('💥 [AUTH] Store deletion error:', err);
+      logger.error('💥 [AUTH] Store deletion error:', err);
 
       if (err.response?.status === 400) {
         return { error: err.response.data.message || 'No puedes eliminar tu última tienda' };

@@ -65,7 +65,7 @@ export default function Billing({ embedded = false }: BillingProps) {
 
       if (fromOnboarding && !tourCompleted) {
         // New user just completed their first payment - trigger tour and go to dashboard
-        console.log('[Billing] New user from onboarding, triggering tour');
+        logger.log('[Billing] New user from onboarding, triggering tour');
         setTourPending();
         // Clear the search params and redirect to dashboard
         setTimeout(() => {

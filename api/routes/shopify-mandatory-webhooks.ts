@@ -18,10 +18,10 @@ shopifyMandatoryWebhooksRouter.post(
       const shopDomain = req.shopDomain;
       const integration = req.integration;
 
-      console.log(`🗑️  App uninstalled webhook received for: ${shopDomain}`);
+      logger.info('API', `🗑️  App uninstalled webhook received for: ${shopDomain}`);
 
       if (!integration) {
-        console.error('❌ Integration not found in request');
+        logger.error('API', '❌ Integration not found in request');
         return res.status(200).json({ received: true, message: 'Integration not found' });
       }
 
@@ -37,7 +37,7 @@ shopifyMandatoryWebhooksRouter.post(
         .eq('shop_domain', shopDomain);
 
       if (deleteError) {
-        console.error('❌ Error deleting integration:', deleteError);
+        logger.error('API', '❌ Error deleting integration:', deleteError);
         // Still return 200 to Shopify
         return res.status(200).json({
           received: true,
@@ -45,9 +45,9 @@ shopifyMandatoryWebhooksRouter.post(
         });
       }
 
-      console.log(`✅ Successfully deleted integration for: ${shopDomain}`);
-      console.log(`   - Store ID: ${integration.store_id}`);
-      console.log(`   - Integration ID: ${integration.id}`);
+      logger.info('API', `✅ Successfully deleted integration for: ${shopDomain}`);
+      logger.info('API', `   - Store ID: ${integration.store_id}`);
+      logger.info('API', `   - Integration ID: ${integration.id}`);
 
       // Shopify requires 200 response
       res.status(200).json({
@@ -57,7 +57,7 @@ shopifyMandatoryWebhooksRouter.post(
       });
 
     } catch (error: any) {
-      console.error('❌ Error processing app/uninstalled webhook:', error);
+      logger.error('API', '❌ Error processing app/uninstalled webhook:', error);
       // Always return 200 to Shopify to prevent retries
       res.status(200).json({
         received: true,
@@ -82,11 +82,11 @@ shopifyMandatoryWebhooksRouter.post(
       const integration = req.integration;
       const payload = req.body;
 
-      console.log(`📋 App subscription update webhook received for: ${shopDomain}`);
-      console.log(`   Status: ${payload.status}`);
+      logger.info('API', `📋 App subscription update webhook received for: ${shopDomain}`);
+      logger.info('API', `   Status: ${payload.status}`);
 
       if (!integration) {
-        console.error('❌ Integration not found in request');
+        logger.error('API', '❌ Integration not found in request');
         return res.status(200).json({ received: true, message: 'Integration not found' });
       }
 
@@ -95,7 +95,7 @@ shopifyMandatoryWebhooksRouter.post(
       const shouldDeactivate = deactivateStatuses.includes(payload.status?.toLowerCase());
 
       if (shouldDeactivate) {
-        console.log(`⚠️  Deactivating integration due to status: ${payload.status}`);
+        logger.info('API', `⚠️  Deactivating integration due to status: ${payload.status}`);
 
         // Mark integration as inactive
         const { error: updateError } = await supabaseAdmin
@@ -107,16 +107,16 @@ shopifyMandatoryWebhooksRouter.post(
           .eq('shop_domain', shopDomain);
 
         if (updateError) {
-          console.error('❌ Error deactivating integration:', updateError);
+          logger.error('API', '❌ Error deactivating integration:', updateError);
           return res.status(200).json({
             received: true,
             error: 'Error al desactivar integración',
           });
         }
 
-        console.log(`✅ Successfully deactivated integration for: ${shopDomain}`);
+        logger.info('API', `✅ Successfully deactivated integration for: ${shopDomain}`);
       } else {
-        console.log(`ℹ️  No action needed for status: ${payload.status}`);
+        logger.info('API', `ℹ️  No action needed for status: ${payload.status}`);
       }
 
       // Shopify requires 200 response
@@ -129,7 +129,7 @@ shopifyMandatoryWebhooksRouter.post(
       });
 
     } catch (error: any) {
-      console.error('❌ Error processing app/subscriptions-update webhook:', error);
+      logger.error('API', '❌ Error processing app/subscriptions-update webhook:', error);
       // Always return 200 to Shopify to prevent retries
       res.status(200).json({
         received: true,

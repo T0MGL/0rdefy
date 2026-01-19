@@ -37,7 +37,7 @@ export class ShopifyGraphQLClientService {
 
       return response.data.data;
     } catch (error: any) {
-      console.error('GraphQL query failed:', error);
+      logger.error('BACKEND', 'GraphQL query failed:', error);
       throw error;
     }
   }

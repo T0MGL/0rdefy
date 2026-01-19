@@ -77,7 +77,7 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
       setProgress(data);
       setIsDismissed(data.hasDismissed);
     } catch (error) {
-      console.error('Error loading onboarding progress:', error);
+      logger.error('Error loading onboarding progress:', error);
     } finally {
       setIsLoading(false);
     }

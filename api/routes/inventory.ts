@@ -53,8 +53,8 @@ inventoryRouter.get('/movements', async (req: AuthRequest, res: Response) => {
         const limitNum = Math.min(parseInt(limit as string, 10) || 100, 500);
         const offsetNum = parseInt(offset as string, 10) || 0;
 
-        console.log(`📊 [INVENTORY] Fetching movements for store ${req.storeId}`);
-        console.log(`   Filters:`, { product_id, date_from, date_to, movement_type, search });
+        logger.info('API', `📊 [INVENTORY] Fetching movements for store ${req.storeId}`);
+        logger.info('API', `   Filters:`, { product_id, date_from, date_to, movement_type, search });
 
         // Build the query
         let query = supabaseAdmin
@@ -131,11 +131,11 @@ inventoryRouter.get('/movements', async (req: AuthRequest, res: Response) => {
         const { data, error } = await query;
 
         if (error) {
-            console.error('❌ [INVENTORY] Error fetching movements:', error);
+            logger.error('API', '❌ [INVENTORY] Error fetching movements:', error);
             return res.status(500).json({ error: error.message });
         }
 
-        console.log(`✓ [INVENTORY] Retrieved ${data?.length || 0} movements`);
+        logger.info('API', `✓ [INVENTORY] Retrieved ${data?.length || 0} movements`);
 
         return res.json({
             data: data || [],
@@ -144,7 +144,7 @@ inventoryRouter.get('/movements', async (req: AuthRequest, res: Response) => {
             offset: offsetNum
         });
     } catch (error) {
-        console.error('❌ [INVENTORY] Unexpected error:', error);
+        logger.error('API', '❌ [INVENTORY] Unexpected error:', error);
         return res.status(500).json({
             error: 'Error al obtener movimientos de inventario',
             details: error instanceof Error ? error.message : 'Error desconocido'
@@ -162,7 +162,7 @@ inventoryRouter.get('/movements/summary', async (req: AuthRequest, res: Response
     try {
         const { date_from, date_to } = req.query;
 
-        console.log(`📊 [INVENTORY] Fetching summary for store ${req.storeId}`);
+        logger.info('API', `📊 [INVENTORY] Fetching summary for store ${req.storeId}`);
 
         // Build base query
         let query = supabaseAdmin
@@ -184,7 +184,7 @@ inventoryRouter.get('/movements/summary', async (req: AuthRequest, res: Response
         const { data, error } = await query;
 
         if (error) {
-            console.error('❌ [INVENTORY] Error fetching summary:', error);
+            logger.error('API', '❌ [INVENTORY] Error fetching summary:', error);
             return res.status(500).json({ error: error.message });
         }
 
@@ -222,11 +222,11 @@ inventoryRouter.get('/movements/summary', async (req: AuthRequest, res: Response
             summary.net_change += change;
         });
 
-        console.log(`✓ [INVENTORY] Summary calculated:`, summary);
+        logger.info('API', `✓ [INVENTORY] Summary calculated:`, summary);
 
         return res.json(summary);
     } catch (error) {
-        console.error('❌ [INVENTORY] Unexpected error:', error);
+        logger.error('API', '❌ [INVENTORY] Unexpected error:', error);
         return res.status(500).json({
             error: 'Error al obtener resumen de inventario',
             details: error instanceof Error ? error.message : 'Error desconocido'
@@ -248,7 +248,7 @@ inventoryRouter.get('/movements/product/:id', async (req: AuthRequest, res: Resp
         const limitNum = Math.min(parseInt(limit as string, 10) || 50, 200);
         const offsetNum = parseInt(offset as string, 10) || 0;
 
-        console.log(`📊 [INVENTORY] Fetching movements for product ${id}`);
+        logger.info('API', `📊 [INVENTORY] Fetching movements for product ${id}`);
 
         const { data, error, count } = await supabaseAdmin
             .from('inventory_movements')
@@ -272,11 +272,11 @@ inventoryRouter.get('/movements/product/:id', async (req: AuthRequest, res: Resp
             .range(offsetNum, offsetNum + limitNum - 1);
 
         if (error) {
-            console.error('❌ [INVENTORY] Error fetching product movements:', error);
+            logger.error('API', '❌ [INVENTORY] Error fetching product movements:', error);
             return res.status(500).json({ error: error.message });
         }
 
-        console.log(`✓ [INVENTORY] Retrieved ${data?.length || 0} movements for product`);
+        logger.info('API', `✓ [INVENTORY] Retrieved ${data?.length || 0} movements for product`);
 
         return res.json({
             data: data || [],
@@ -285,7 +285,7 @@ inventoryRouter.get('/movements/product/:id', async (req: AuthRequest, res: Resp
             offset: offsetNum
         });
     } catch (error) {
-        console.error('❌ [INVENTORY] Unexpected error:', error);
+        logger.error('API', '❌ [INVENTORY] Unexpected error:', error);
         return res.status(500).json({
             error: 'Error al obtener movimientos del producto',
             details: error instanceof Error ? error.message : 'Error desconocido'
@@ -311,7 +311,7 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        console.log(`📝 [INVENTORY] Manual adjustment for product ${product_id}: ${quantity_change}`);
+        logger.info('API', `📝 [INVENTORY] Manual adjustment for product ${product_id}: ${quantity_change}`);
 
         // Use atomic RPC function with row-level locking to prevent race conditions
         const { data: rpcResult, error: rpcError } = await supabaseAdmin
@@ -323,11 +323,11 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
             });
 
         if (rpcError) {
-            console.error('❌ [INVENTORY] RPC error:', rpcError);
+            logger.error('API', '❌ [INVENTORY] RPC error:', rpcError);
 
             // Fallback to non-atomic approach if RPC not available (migration not run yet)
             if (rpcError.message?.includes('function') || rpcError.code === '42883') {
-                console.warn('⚠️ [INVENTORY] RPC not available, using fallback (run migration 049)');
+                logger.warn('API', '⚠️ [INVENTORY] RPC not available, using fallback (run migration 049)');
 
                 // Get current product stock
                 const { data: product, error: productError } = await supabaseAdmin
@@ -338,7 +338,7 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
                     .single();
 
                 if (productError || !product) {
-                    console.error('❌ [INVENTORY] Product not found:', productError);
+                    logger.error('API', '❌ [INVENTORY] Product not found:', productError);
                     return productNotFound(res, undefined, product_id);
                 }
 
@@ -356,7 +356,7 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
                     .eq('store_id', req.storeId);
 
                 if (updateError) {
-                    console.error('❌ [INVENTORY] Error updating stock:', updateError);
+                    logger.error('API', '❌ [INVENTORY] Error updating stock:', updateError);
                     return databaseError(res, updateError);
                 }
 
@@ -376,10 +376,10 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
                     .single();
 
                 if (movementError) {
-                    console.error('❌ [INVENTORY] Error logging movement:', movementError);
+                    logger.error('API', '❌ [INVENTORY] Error logging movement:', movementError);
                 }
 
-                console.log(`✓ [INVENTORY] Stock adjusted (fallback): ${stock_before} → ${stock_after}`);
+                logger.info('API', `✓ [INVENTORY] Stock adjusted (fallback): ${stock_before} → ${stock_after}`);
 
                 return res.json({
                     success: true,
@@ -401,11 +401,11 @@ inventoryRouter.post('/adjust', async (req: AuthRequest, res: Response) => {
             return databaseError(res, rpcError);
         }
 
-        console.log(`✓ [INVENTORY] Stock adjusted atomically:`, rpcResult);
+        logger.info('API', `✓ [INVENTORY] Stock adjusted atomically:`, rpcResult);
 
         return res.json(rpcResult);
     } catch (error) {
-        console.error('❌ [INVENTORY] Unexpected error:', error);
+        logger.error('API', '❌ [INVENTORY] Unexpected error:', error);
         return serverError(res, error);
     }
 });

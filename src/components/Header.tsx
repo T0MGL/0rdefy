@@ -11,10 +11,6 @@ import { Bell, ChevronDown, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
 import { GlobalViewToggle } from './GlobalViewToggle';
-import { ordersService } from '@/services/orders.service';
-import { productsService } from '@/services/products.service';
-import { adsService } from '@/services/ads.service';
-import { carriersService } from '@/services/carriers.service';
 import { analyticsService } from '@/services/analytics.service';
 import { notificationsService } from '@/services/notifications.service';
 import type { Order, DashboardOverview } from '@/types';
@@ -86,24 +82,25 @@ export function Header() {
   // Load data for notifications and alerts - memoized to prevent stale closures
   const loadData = useCallback(async () => {
     try {
-      const [ordersResponse, productsData, adsData, carriersData, overviewData] = await Promise.all([
-        ordersService.getAll(),
-        productsService.getAll(),
-        adsService.getAll(),
-        carriersService.getAll(),
+      // Use new lightweight notification data endpoint + overview for alerts
+      const [notificationData, overviewData] = await Promise.all([
+        analyticsService.getNotificationData(),
         analyticsService.getOverview(),
       ]);
-      setOrders(ordersResponse.data || []);
-      setCarriers(carriersData);
+
       setOverview(overviewData);
 
       // Update notifications service with new data (only if user has smart_alerts feature)
-      if (hasSmartAlerts) {
+      if (hasSmartAlerts && notificationData) {
+        // Store orders and carriers for alert generation
+        setOrders(notificationData.orders as any);
+        setCarriers(notificationData.carriers as any);
+
         notificationsService.updateNotifications({
-          orders: ordersResponse.data || [],
-          products: productsData,
-          ads: adsData,
-          carriers: carriersData,
+          orders: notificationData.orders as any,
+          products: notificationData.products as any,
+          ads: notificationData.ads as any,
+          carriers: notificationData.carriers as any,
         });
 
         // Get updated notifications
@@ -115,7 +112,7 @@ export function Header() {
         setUnreadCount(0);
       }
     } catch (error) {
-      console.error('Error loading header data:', error);
+      logger.error('Error loading header data:', error);
     }
   }, [hasSmartAlerts]);
 

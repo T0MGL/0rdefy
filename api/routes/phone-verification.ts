@@ -55,7 +55,7 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
 
     // SECURITY: If RPC fails, deny the request (fail-closed)
     if (rpcError) {
-      console.error('[PhoneVerification] RPC error checking rate limit:', rpcError);
+      logger.error('API', '[PhoneVerification] RPC error checking rate limit:', rpcError);
       return res.status(500).json({
         error: 'Error al verificar límite de solicitudes. Intenta nuevamente.'
       });
@@ -73,7 +73,7 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
       .rpc('generate_verification_code');
 
     if (codeGenError || !codeData) {
-      console.error('[PhoneVerification] Error generating verification code:', codeGenError);
+      logger.error('API', '[PhoneVerification] Error generating verification code:', codeGenError);
       return res.status(500).json({
         error: 'Error al generar código de verificación. Intenta nuevamente.'
       });
@@ -93,7 +93,7 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
       });
 
     if (insertError) {
-      console.error('Error saving verification code:', insertError);
+      logger.error('API', 'Error saving verification code:', insertError);
       return res.status(500).json({ error: 'Error al generar código de verificación' });
     }
 
@@ -101,7 +101,7 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
     try {
       await whatsappService.sendVerificationCode(phone, code);
     } catch (whatsappError) {
-      console.error('WhatsApp send error:', whatsappError);
+      logger.error('API', 'WhatsApp send error:', whatsappError);
       return res.status(500).json({
         error: 'Error al enviar código por WhatsApp. Intenta nuevamente.'
       });
@@ -122,7 +122,7 @@ router.post('/request', verifyToken, async (req: Request, res: Response) => {
     });
 
   } catch (error) {
-    console.error('Error requesting verification code:', error);
+    logger.error('API', 'Error requesting verification code:', error);
     res.status(500).json({ error: 'Error al solicitar código de verificación' });
   }
 });
@@ -199,7 +199,7 @@ router.post('/verify', verifyToken, async (req: Request, res: Response) => {
     });
 
   } catch (error) {
-    console.error('Error verifying code:', error);
+    logger.error('API', 'Error verifying code:', error);
     res.status(500).json({ error: 'Error al verificar código' });
   }
 });
@@ -231,7 +231,7 @@ router.get('/status', verifyToken, async (req: Request, res: Response) => {
     });
 
   } catch (error) {
-    console.error('Error getting verification status:', error);
+    logger.error('API', 'Error getting verification status:', error);
     res.status(500).json({ error: 'Error al obtener estado de verificación' });
   }
 });
@@ -261,7 +261,7 @@ router.post('/resend', verifyToken, async (req: Request, res: Response) => {
     return router.handle(req, res);
 
   } catch (error) {
-    console.error('Error resending verification code:', error);
+    logger.error('API', 'Error resending verification code:', error);
     res.status(500).json({ error: 'Error al reenviar código' });
   }
 });

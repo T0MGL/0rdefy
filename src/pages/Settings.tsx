@@ -169,7 +169,7 @@ export default function Settings() {
       }
       setSessions(data);
     } catch (error) {
-      console.error('Error loading sessions:', error);
+      logger.error('Error loading sessions:', error);
       toast({
         title: 'Error',
         description: 'No se pudieron cargar las sesiones activas',
@@ -186,7 +186,7 @@ export default function Settings() {
       const response = await getActivity(20, 0);
       setActivityLog(response.data);
     } catch (error) {
-      console.error('Error loading activity:', error);
+      logger.error('Error loading activity:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cargar el registro de actividad',
@@ -206,7 +206,7 @@ export default function Settings() {
       });
       loadSessions(); // Reload sessions
     } catch (error) {
-      console.error('Error terminating session:', error);
+      logger.error('Error terminating session:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cerrar la sesión',
@@ -224,7 +224,7 @@ export default function Settings() {
       });
       loadSessions(); // Reload sessions
     } catch (error) {
-      console.error('Error terminating all sessions:', error);
+      logger.error('Error terminating all sessions:', error);
       toast({
         title: 'Error',
         description: 'No se pudieron cerrar las sesiones',
@@ -267,7 +267,7 @@ export default function Settings() {
         });
       }
     } catch (error: any) {
-      console.error('Avatar upload error:', error);
+      logger.error('Avatar upload error:', error);
       toast({
         title: "Error",
         description: error.response?.data?.error || "No se pudo subir la imagen",
@@ -332,7 +332,7 @@ export default function Settings() {
       // Reload the page to apply timezone changes
       setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
-      console.error('Error updating timezone:', error);
+      logger.error('Error updating timezone:', error);
       toast({
         title: "Error",
         description: "No se pudo actualizar la zona horaria",
@@ -364,7 +364,7 @@ export default function Settings() {
       // Reload the page to apply currency changes
       setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
-      console.error('Error updating currency:', error);
+      logger.error('Error updating currency:', error);
       toast({
         title: "Error",
         description: "No se pudo actualizar la moneda",

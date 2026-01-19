@@ -47,15 +47,15 @@ shopifyComplianceRouter.post(
       const integration = req.integration;
       const payload = req.body;
 
-      console.log('================================================================');
-      console.log('📋 GDPR: Customer Data Request Received');
-      console.log('================================================================');
-      console.log(`Shop Domain: ${shopDomain}`);
-      console.log(`Customer ID: ${payload.customer?.id}`);
-      console.log(`Customer Email: ${payload.customer?.email}`);
-      console.log(`Data Request ID: ${payload.data_request?.id}`);
-      console.log(`Orders Requested: ${payload.orders_requested?.length || 0}`);
-      console.log('================================================================');
+      logger.info('API', '================================================================');
+      logger.info('API', '📋 GDPR: Customer Data Request Received');
+      logger.info('API', '================================================================');
+      logger.info('API', `Shop Domain: ${shopDomain}`);
+      logger.info('API', `Customer ID: ${payload.customer?.id}`);
+      logger.info('API', `Customer Email: ${payload.customer?.email}`);
+      logger.info('API', `Data Request ID: ${payload.data_request?.id}`);
+      logger.info('API', `Orders Requested: ${payload.orders_requested?.length || 0}`);
+      logger.info('API', '================================================================');
 
       // Log the request to database for audit trail
       if (integration) {
@@ -71,7 +71,7 @@ shopifyComplianceRouter.post(
           });
 
         if (logError) {
-          console.error('❌ Error logging webhook event:', logError);
+          logger.error('API', '❌ Error logging webhook event:', logError);
         }
       }
 
@@ -82,8 +82,8 @@ shopifyComplianceRouter.post(
       // 3. Send it to the customer via email or make it available for download
       // 4. Track the request in your system
 
-      console.log('✅ Customer data request logged successfully');
-      console.log('⚠️  NOTE: Implement data export logic in production');
+      logger.info('API', '✅ Customer data request logged successfully');
+      logger.info('API', '⚠️  NOTE: Implement data export logic in production');
 
       // Return 200 OK to acknowledge receipt
       res.status(200).json({
@@ -94,8 +94,8 @@ shopifyComplianceRouter.post(
       });
 
     } catch (error: any) {
-      console.error('❌ Error processing customers/data_request webhook:', error);
-      console.error(error.stack);
+      logger.error('API', '❌ Error processing customers/data_request webhook:', error);
+      logger.error('API', error.stack);
 
       // Always return 200 to Shopify to prevent retries
       // Log the error for investigation
@@ -139,14 +139,14 @@ shopifyComplianceRouter.post(
       const integration = req.integration;
       const payload = req.body;
 
-      console.log('================================================================');
-      console.log('🗑️  GDPR: Customer Redaction Request Received');
-      console.log('================================================================');
-      console.log(`Shop Domain: ${shopDomain}`);
-      console.log(`Customer ID: ${payload.customer?.id}`);
-      console.log(`Customer Email: ${payload.customer?.email}`);
-      console.log(`Orders to Redact: ${payload.orders_to_redact?.length || 0}`);
-      console.log('================================================================');
+      logger.info('API', '================================================================');
+      logger.info('API', '🗑️  GDPR: Customer Redaction Request Received');
+      logger.info('API', '================================================================');
+      logger.info('API', `Shop Domain: ${shopDomain}`);
+      logger.info('API', `Customer ID: ${payload.customer?.id}`);
+      logger.info('API', `Customer Email: ${payload.customer?.email}`);
+      logger.info('API', `Orders to Redact: ${payload.orders_to_redact?.length || 0}`);
+      logger.info('API', '================================================================');
 
       // Log the request to database for audit trail
       if (integration) {
@@ -162,7 +162,7 @@ shopifyComplianceRouter.post(
           });
 
         if (logError) {
-          console.error('❌ Error logging webhook event:', logError);
+          logger.error('API', '❌ Error logging webhook event:', logError);
         }
       }
 
@@ -200,8 +200,8 @@ shopifyComplianceRouter.post(
       //     .eq('store_id', integration.store_id);
       // }
 
-      console.log('✅ Customer redaction request logged successfully');
-      console.log('⚠️  NOTE: Implement data redaction logic in production');
+      logger.info('API', '✅ Customer redaction request logged successfully');
+      logger.info('API', '⚠️  NOTE: Implement data redaction logic in production');
 
       // Return 200 OK to acknowledge receipt
       res.status(200).json({
@@ -212,8 +212,8 @@ shopifyComplianceRouter.post(
       });
 
     } catch (error: any) {
-      console.error('❌ Error processing customers/redact webhook:', error);
-      console.error(error.stack);
+      logger.error('API', '❌ Error processing customers/redact webhook:', error);
+      logger.error('API', error.stack);
 
       // Always return 200 to Shopify to prevent retries
       res.status(200).json({
@@ -250,12 +250,12 @@ shopifyComplianceRouter.post(
       const integration = req.integration;
       const payload = req.body;
 
-      console.log('================================================================');
-      console.log('🏪 GDPR: Shop Redaction Request Received');
-      console.log('================================================================');
-      console.log(`Shop Domain: ${shopDomain}`);
-      console.log(`Shop ID: ${payload.shop_id}`);
-      console.log('================================================================');
+      logger.info('API', '================================================================');
+      logger.info('API', '🏪 GDPR: Shop Redaction Request Received');
+      logger.info('API', '================================================================');
+      logger.info('API', `Shop Domain: ${shopDomain}`);
+      logger.info('API', `Shop ID: ${payload.shop_id}`);
+      logger.info('API', '================================================================');
 
       // Log the request to database for audit trail
       if (integration) {
@@ -271,14 +271,14 @@ shopifyComplianceRouter.post(
           });
 
         if (logError) {
-          console.error('❌ Error logging webhook event:', logError);
+          logger.error('API', '❌ Error logging webhook event:', logError);
         }
       }
 
       // Delete the Shopify integration and all associated data
       // This webhook is sent 48 hours after app uninstallation
       if (integration) {
-        console.log(`🗑️  Deleting shop data for: ${shopDomain}`);
+        logger.info('API', `🗑️  Deleting shop data for: ${shopDomain}`);
 
         // Delete integration (CASCADE will handle related data)
         const { error: deleteError } = await supabaseAdmin
@@ -287,9 +287,9 @@ shopifyComplianceRouter.post(
           .eq('shop_domain', shopDomain);
 
         if (deleteError) {
-          console.error('❌ Error deleting integration:', deleteError);
+          logger.error('API', '❌ Error deleting integration:', deleteError);
         } else {
-          console.log(`✅ Successfully deleted integration for: ${shopDomain}`);
+          logger.info('API', `✅ Successfully deleted integration for: ${shopDomain}`);
         }
 
         // Optionally: Delete or anonymize products/orders synced from this shop
@@ -301,7 +301,7 @@ shopifyComplianceRouter.post(
         //   .not('shopify_product_id', 'is', null);
       }
 
-      console.log('✅ Shop redaction request processed successfully');
+      logger.info('API', '✅ Shop redaction request processed successfully');
 
       // Return 200 OK to acknowledge receipt
       res.status(200).json({
@@ -312,8 +312,8 @@ shopifyComplianceRouter.post(
       });
 
     } catch (error: any) {
-      console.error('❌ Error processing shop/redact webhook:', error);
-      console.error(error.stack);
+      logger.error('API', '❌ Error processing shop/redact webhook:', error);
+      logger.error('API', error.stack);
 
       // Always return 200 to Shopify to prevent retries
       res.status(200).json({

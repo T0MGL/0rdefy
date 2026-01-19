@@ -91,7 +91,7 @@ export default function Integrations() {
           );
         }
       } catch (error) {
-        console.error('Error checking existing integrations:', error);
+        logger.error('Error checking existing integrations:', error);
       } finally {
         setIsLoadingIntegrations(false);
       }

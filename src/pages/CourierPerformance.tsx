@@ -73,7 +73,7 @@ export default function CourierPerformance() {
         setUnderperforming(underData.data || []);
       }
     } catch (error) {
-      console.error('Error fetching courier performance:', error);
+      logger.error('Error fetching courier performance:', error);
     } finally {
       setLoading(false);
     }

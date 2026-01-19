@@ -26,8 +26,8 @@ export class ShopifyWebhookSetupService {
     // Get API_URL from environment (ngrok URL or production URL)
     this.apiUrl = process.env.API_URL || 'http://localhost:3001';
 
-    console.log(`🔌 [WEBHOOK-SETUP] Initialized for shop: ${integration.shop_domain}`);
-    console.log(`🔌 [WEBHOOK-SETUP] API URL: ${this.apiUrl}`);
+    logger.info('BACKEND', `🔌 [WEBHOOK-SETUP] Initialized for shop: ${integration.shop_domain}`);
+    logger.info('BACKEND', `🔌 [WEBHOOK-SETUP] API URL: ${this.apiUrl}`);
   }
 
   /**
@@ -45,7 +45,7 @@ export class ShopifyWebhookSetupService {
     const skipped: string[] = [];
 
     try {
-      console.log('🔌 [WEBHOOK-SETUP] Starting webhook setup...');
+      logger.info('BACKEND', '🔌 [WEBHOOK-SETUP] Starting webhook setup...');
 
       // Define webhooks to register
       const webhooksToRegister: WebhookConfig[] = [
@@ -67,9 +67,9 @@ export class ShopifyWebhookSetupService {
       ];
 
       // Step 1: Get existing webhooks
-      console.log('📋 [WEBHOOK-SETUP] Fetching existing webhooks...');
+      logger.info('BACKEND', '📋 [WEBHOOK-SETUP] Fetching existing webhooks...');
       const existingWebhooks = await this.shopifyClient.listWebhooks();
-      console.log(`📋 [WEBHOOK-SETUP] Found ${existingWebhooks.length} existing webhooks`);
+      logger.info('BACKEND', `📋 [WEBHOOK-SETUP] Found ${existingWebhooks.length} existing webhooks`);
 
       // Step 2: Register each webhook
       for (const webhookConfig of webhooksToRegister) {
@@ -80,7 +80,7 @@ export class ShopifyWebhookSetupService {
           );
 
           if (existingWebhook) {
-            console.log(`⏭️  [WEBHOOK-SETUP] Webhook already exists: ${webhookConfig.topic}`);
+            logger.info('BACKEND', `⏭️  [WEBHOOK-SETUP] Webhook already exists: ${webhookConfig.topic}`);
             skipped.push(webhookConfig.topic);
             continue;
           }
@@ -91,13 +91,13 @@ export class ShopifyWebhookSetupService {
           );
 
           if (oldWebhook) {
-            console.log(`🗑️  [WEBHOOK-SETUP] Deleting old webhook: ${webhookConfig.topic} (${oldWebhook.address})`);
+            logger.info('BACKEND', `🗑️  [WEBHOOK-SETUP] Deleting old webhook: ${webhookConfig.topic} (${oldWebhook.address})`);
             await this.shopifyClient.deleteWebhook(oldWebhook.id.toString());
           }
 
           // Create new webhook
-          console.log(`✨ [WEBHOOK-SETUP] Creating webhook: ${webhookConfig.topic}`);
-          console.log(`   Address: ${webhookConfig.address}`);
+          logger.info('BACKEND', `✨ [WEBHOOK-SETUP] Creating webhook: ${webhookConfig.topic}`);
+          logger.info('BACKEND', `   Address: ${webhookConfig.address}`);
 
           await this.shopifyClient.createWebhook(
             webhookConfig.topic,
@@ -105,19 +105,19 @@ export class ShopifyWebhookSetupService {
           );
 
           registered.push(webhookConfig.topic);
-          console.log(`✅ [WEBHOOK-SETUP] Registered: ${webhookConfig.topic}`);
+          logger.info('BACKEND', `✅ [WEBHOOK-SETUP] Registered: ${webhookConfig.topic}`);
 
         } catch (error: any) {
-          console.error(`❌ [WEBHOOK-SETUP] Error registering ${webhookConfig.topic}:`, error.message);
+          logger.error('BACKEND', `❌ [WEBHOOK-SETUP] Error registering ${webhookConfig.topic}:`, error.message);
           errors.push(`${webhookConfig.topic}: ${error.message}`);
         }
       }
 
       // Step 3: Summary
-      console.log('📊 [WEBHOOK-SETUP] Summary:');
-      console.log(`   ✅ Registered: ${registered.length}`);
-      console.log(`   ⏭️  Skipped: ${skipped.length}`);
-      console.log(`   ❌ Errors: ${errors.length}`);
+      logger.info('BACKEND', '📊 [WEBHOOK-SETUP] Summary:');
+      logger.info('BACKEND', `   ✅ Registered: ${registered.length}`);
+      logger.info('BACKEND', `   ⏭️  Skipped: ${skipped.length}`);
+      logger.info('BACKEND', `   ❌ Errors: ${errors.length}`);
 
       return {
         success: errors.length === 0,
@@ -127,7 +127,7 @@ export class ShopifyWebhookSetupService {
       };
 
     } catch (error: any) {
-      console.error('❌ [WEBHOOK-SETUP] Fatal error:', error.message);
+      logger.error('BACKEND', '❌ [WEBHOOK-SETUP] Fatal error:', error.message);
       return {
         success: false,
         registered,
@@ -150,7 +150,7 @@ export class ShopifyWebhookSetupService {
     const misconfigured: Array<{ topic: string; expected: string; actual: string }> = [];
 
     try {
-      console.log('🔍 [WEBHOOK-SETUP] Verifying webhooks...');
+      logger.info('BACKEND', '🔍 [WEBHOOK-SETUP] Verifying webhooks...');
 
       const existingWebhooks = await this.shopifyClient.listWebhooks();
 
@@ -164,19 +164,19 @@ export class ShopifyWebhookSetupService {
         const webhook = existingWebhooks.find((w: any) => w.topic === expected.topic);
 
         if (!webhook) {
-          console.log(`❌ [WEBHOOK-SETUP] Missing: ${expected.topic}`);
+          logger.info('BACKEND', `❌ [WEBHOOK-SETUP] Missing: ${expected.topic}`);
           missing.push(expected.topic);
         } else if (webhook.address !== expected.address) {
-          console.log(`⚠️  [WEBHOOK-SETUP] Misconfigured: ${expected.topic}`);
-          console.log(`   Expected: ${expected.address}`);
-          console.log(`   Actual: ${webhook.address}`);
+          logger.info('BACKEND', `⚠️  [WEBHOOK-SETUP] Misconfigured: ${expected.topic}`);
+          logger.info('BACKEND', `   Expected: ${expected.address}`);
+          logger.info('BACKEND', `   Actual: ${webhook.address}`);
           misconfigured.push({
             topic: expected.topic,
             expected: expected.address,
             actual: webhook.address
           });
         } else {
-          console.log(`✅ [WEBHOOK-SETUP] Valid: ${expected.topic}`);
+          logger.info('BACKEND', `✅ [WEBHOOK-SETUP] Valid: ${expected.topic}`);
         }
       }
 
@@ -187,7 +187,7 @@ export class ShopifyWebhookSetupService {
       };
 
     } catch (error: any) {
-      console.error('❌ [WEBHOOK-SETUP] Error verifying webhooks:', error.message);
+      logger.error('BACKEND', '❌ [WEBHOOK-SETUP] Error verifying webhooks:', error.message);
       return {
         valid: false,
         missing: [],
@@ -209,24 +209,24 @@ export class ShopifyWebhookSetupService {
     let removed = 0;
 
     try {
-      console.log('🗑️  [WEBHOOK-SETUP] Removing all webhooks...');
+      logger.info('BACKEND', '🗑️  [WEBHOOK-SETUP] Removing all webhooks...');
 
       const existingWebhooks = await this.shopifyClient.listWebhooks();
-      console.log(`📋 [WEBHOOK-SETUP] Found ${existingWebhooks.length} webhooks to remove`);
+      logger.info('BACKEND', `📋 [WEBHOOK-SETUP] Found ${existingWebhooks.length} webhooks to remove`);
 
       for (const webhook of existingWebhooks) {
         try {
-          console.log(`🗑️  [WEBHOOK-SETUP] Deleting: ${webhook.topic} (ID: ${webhook.id})`);
+          logger.info('BACKEND', `🗑️  [WEBHOOK-SETUP] Deleting: ${webhook.topic} (ID: ${webhook.id})`);
           await this.shopifyClient.deleteWebhook(webhook.id.toString());
           removed++;
-          console.log(`✅ [WEBHOOK-SETUP] Deleted: ${webhook.topic}`);
+          logger.info('BACKEND', `✅ [WEBHOOK-SETUP] Deleted: ${webhook.topic}`);
         } catch (error: any) {
-          console.error(`❌ [WEBHOOK-SETUP] Error deleting ${webhook.topic}:`, error.message);
+          logger.error('BACKEND', `❌ [WEBHOOK-SETUP] Error deleting ${webhook.topic}:`, error.message);
           errors.push(`${webhook.topic}: ${error.message}`);
         }
       }
 
-      console.log(`📊 [WEBHOOK-SETUP] Removed ${removed} webhooks`);
+      logger.info('BACKEND', `📊 [WEBHOOK-SETUP] Removed ${removed} webhooks`);
 
       return {
         success: errors.length === 0,
@@ -235,7 +235,7 @@ export class ShopifyWebhookSetupService {
       };
 
     } catch (error: any) {
-      console.error('❌ [WEBHOOK-SETUP] Fatal error:', error.message);
+      logger.error('BACKEND', '❌ [WEBHOOK-SETUP] Fatal error:', error.message);
       return {
         success: false,
         removed,

@@ -206,7 +206,7 @@ export default function Carriers() {
         setPerformanceStats(data.data || []);
       }
     } catch (error) {
-      console.error('Error loading performance stats:', error);
+      logger.error('Error loading performance stats:', error);
     }
   };
 

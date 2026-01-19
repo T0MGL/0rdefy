@@ -58,7 +58,7 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   // DEBUG: Log payment data
   useEffect(() => {
     if (data) {
-      console.log('🎫 [LABEL] Label data received:', {
+      logger.log('🎫 [LABEL] Label data received:', {
         financialStatus: data.financialStatus,
         paymentMethod: data.paymentMethod,
         codAmount: data.codAmount,
@@ -79,7 +79,7 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
         errorCorrectionLevel: 'M',
       })
         .then(setQrCodeUrl)
-        .catch((err) => console.error('QR error:', err));
+        .catch((err) => logger.error('QR error:', err));
     }
   }, [deliveryUrl, data?.deliveryToken]);
 
@@ -102,16 +102,16 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   };
 
   const handlePrint = () => {
-    console.log('🖨️ [LABEL] Print button clicked');
+    logger.log('🖨️ [LABEL] Print button clicked');
 
     // Get the label content HTML
     const labelContainer = document.getElementById('thermal-label-print-container');
     if (!labelContainer) {
-      console.error('🖨️ [LABEL] Label container not found');
+      logger.error('🖨️ [LABEL] Label container not found');
       return;
     }
 
-    console.log('🖨️ [LABEL] Label container HTML length:', labelContainer.innerHTML.length);
+    logger.log('🖨️ [LABEL] Label container HTML length:', labelContainer.innerHTML.length);
 
     // Create hidden iframe for isolated printing
     const iframe = document.createElement('iframe');
@@ -125,7 +125,7 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
 
     const iframeDoc = iframe.contentWindow?.document;
     if (!iframeDoc) {
-      console.error('🖨️ [LABEL] No iframe document available');
+      logger.error('🖨️ [LABEL] No iframe document available');
       document.body.removeChild(iframe);
       return;
     }
@@ -172,26 +172,26 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
     `);
     iframeDoc.close();
 
-    console.log('🖨️ [LABEL] HTML written to iframe, waiting for images to load...');
+    logger.log('🖨️ [LABEL] HTML written to iframe, waiting for images to load...');
 
     // Wait for images and content to load, then print
     setTimeout(() => {
-      console.log('🖨️ [LABEL] Opening print dialog...');
+      logger.log('🖨️ [LABEL] Opening print dialog...');
       try {
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
-        console.log('🖨️ [LABEL] Print dialog opened successfully');
+        logger.log('🖨️ [LABEL] Print dialog opened successfully');
       } catch (error) {
-        console.error('🖨️ [LABEL] Print error:', error);
+        logger.error('🖨️ [LABEL] Print error:', error);
       }
 
       // Clean up after print dialog closes
       setTimeout(() => {
-        console.log('🖨️ [LABEL] Cleaning up iframe');
+        logger.log('🖨️ [LABEL] Cleaning up iframe');
         try {
           document.body.removeChild(iframe);
         } catch (e) {
-          console.error('🖨️ [LABEL] Cleanup error:', e);
+          logger.error('🖨️ [LABEL] Cleanup error:', e);
         }
         if (onPrinted) {
           onPrinted();

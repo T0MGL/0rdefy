@@ -66,9 +66,9 @@ export class ShopifyClientService {
     // Initialize GraphQL client for product operations (REQUIRED - REST is deprecated)
     try {
       this.graphqlClient = new ShopifyGraphQLClientService(integration);
-      console.log('[Shopify] ✅ GraphQL API initialized (2025-10)');
+      logger.info('BACKEND', '[Shopify] ✅ GraphQL API initialized (2025-10)');
     } catch (error: any) {
-      console.error('[Shopify] ❌ CRITICAL: GraphQL initialization failed:', error.message);
+      logger.error('BACKEND', '[Shopify] ❌ CRITICAL: GraphQL initialization failed:', error.message);
       throw new Error(`GraphQL client initialization failed: ${error.message}`);
     }
 
@@ -155,7 +155,7 @@ export class ShopifyClientService {
         errorMessage = 'Unable to reach Shopify. Please check your internet connection.';
       }
 
-      console.error('❌ [SHOPIFY-CLIENT] Connection test failed:', {
+      logger.error('BACKEND', '❌ [SHOPIFY-CLIENT] Connection test failed:', {
         error_type: errorType,
         error_message: errorMessage,
         shop_domain: this.integration.shop_domain
@@ -180,7 +180,7 @@ export class ShopifyClientService {
     fields?: string;
   } = {}): Promise<{ products: ShopifyProduct[]; pagination: any }> {
     // Use GraphQL API exclusively (REST is deprecated for products in 2025-10)
-    console.log('✅ Using GraphQL API 2025-10 for products');
+    logger.info('BACKEND', '✅ Using GraphQL API 2025-10 for products');
 
     const result = await this.graphqlClient.getProducts({
       first: params.limit || 50,
@@ -201,7 +201,7 @@ export class ShopifyClientService {
   }
 
   async getAllProducts(): Promise<ShopifyProduct[]> {
-    console.log('📦 [SHOPIFY-CLIENT] Fetching ALL products with pagination...');
+    logger.info('BACKEND', '📦 [SHOPIFY-CLIENT] Fetching ALL products with pagination...');
 
     let allProducts: ShopifyProduct[] = [];
     let cursor: string | undefined;
@@ -220,18 +220,18 @@ export class ShopifyClientService {
         allProducts = [...allProducts, ...result.products];
         cursor = result.pagination.next_cursor;
         hasMore = result.pagination.has_next;
-        console.log(`📄 [SHOPIFY-CLIENT] Page ${page}: ${result.products.length} products (total: ${allProducts.length})`);
+        logger.info('BACKEND', `📄 [SHOPIFY-CLIENT] Page ${page}: ${result.products.length} products (total: ${allProducts.length})`);
         page++;
       }
     }
 
-    console.log(`✅ [SHOPIFY-CLIENT] Fetched ${allProducts.length} total products`);
+    logger.info('BACKEND', `✅ [SHOPIFY-CLIENT] Fetched ${allProducts.length} total products`);
     return allProducts;
   }
 
   async getProduct(productId: string): Promise<ShopifyProduct> {
     // GraphQL ONLY - REST deprecated in 2025-10
-    console.log('✅ Using GraphQL API 2025-10 for product');
+    logger.info('BACKEND', '✅ Using GraphQL API 2025-10 for product');
     const product = await this.graphqlClient.getProduct(productId);
     return this.convertGraphQLProductToREST(product);
   }
@@ -252,7 +252,7 @@ export class ShopifyClientService {
     images?: Array<{ src: string; alt?: string }>;
   }): Promise<ShopifyProduct> {
     // GraphQL ONLY - REST deprecated in 2025-10
-    console.log('✅ Using GraphQL API 2025-10 for product creation');
+    logger.info('BACKEND', '✅ Using GraphQL API 2025-10 for product creation');
 
     // Convert REST format to GraphQL format
     const graphqlInput: any = {
@@ -278,7 +278,7 @@ export class ShopifyClientService {
 
   async updateProduct(productId: string, productData: Partial<ShopifyProduct>): Promise<ShopifyProduct> {
     // GraphQL ONLY - REST deprecated in 2025-10
-    console.log('✅ Using GraphQL API 2025-10 for product update');
+    logger.info('BACKEND', '✅ Using GraphQL API 2025-10 for product update');
 
     // Convert REST format to GraphQL format
     const graphqlInput: any = {};
@@ -302,13 +302,13 @@ export class ShopifyClientService {
 
   async deleteProduct(productId: string): Promise<void> {
     // GraphQL ONLY - REST deprecated in 2025-10
-    console.log('✅ Using GraphQL API 2025-10 for product deletion');
+    logger.info('BACKEND', '✅ Using GraphQL API 2025-10 for product deletion');
     await this.graphqlClient.deleteProduct(productId);
   }
 
   async updateInventory(inventoryItemId: string, quantity: number, locationId?: string): Promise<void> {
     // GraphQL ONLY - REST deprecated in 2025-10
-    console.log('✅ Using GraphQL API 2025-10 for inventory update');
+    logger.info('BACKEND', '✅ Using GraphQL API 2025-10 for inventory update');
 
     // Get location if not provided
     let location = locationId;

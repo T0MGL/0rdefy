@@ -96,7 +96,7 @@ export class ShopifyWebhookManager {
 
       if (!insertError && inserted) {
         // Successfully acquired lock
-        console.log(`🔒 Idempotency lock acquired: ${idempotencyKey}`);
+        logger.info('BACKEND', `🔒 Idempotency lock acquired: ${idempotencyKey}`);
         return { acquired: true, is_duplicate: false };
       }
 
@@ -111,7 +111,7 @@ export class ShopifyWebhookManager {
           .eq('idempotency_key', idempotencyKey)
           .single();
 
-        console.warn(`⚠️ Duplicate webhook detected (atomic): ${idempotencyKey}`);
+        logger.warn('BACKEND', `⚠️ Duplicate webhook detected (atomic): ${idempotencyKey}`);
         return {
           acquired: false,
           is_duplicate: true,
@@ -121,10 +121,10 @@ export class ShopifyWebhookManager {
       }
 
       // Other error - log and allow processing (fail-open for availability)
-      console.error('❌ Error acquiring idempotency lock:', insertError);
+      logger.error('BACKEND', '❌ Error acquiring idempotency lock:', insertError);
       return { acquired: true, is_duplicate: false };
     } catch (error) {
-      console.error('❌ Error in tryAcquireIdempotencyLock:', error);
+      logger.error('BACKEND', '❌ Error in tryAcquireIdempotencyLock:', error);
       // Fail-open: allow processing on error to avoid blocking legitimate webhooks
       return { acquired: true, is_duplicate: false };
     }
@@ -154,12 +154,12 @@ export class ShopifyWebhookManager {
 
       if (error && error.code !== 'PGRST116') {
         // PGRST116 = no rows returned
-        console.error('❌ Error checking idempotency:', error);
+        logger.error('BACKEND', '❌ Error checking idempotency:', error);
         return { is_duplicate: false };
       }
 
       if (existing) {
-        console.warn(`⚠️ Duplicate webhook detected: ${idempotencyKey}`);
+        logger.warn('BACKEND', `⚠️ Duplicate webhook detected: ${idempotencyKey}`);
         return {
           is_duplicate: true,
           original_event_id: existing.id,
@@ -169,7 +169,7 @@ export class ShopifyWebhookManager {
 
       return { is_duplicate: false };
     } catch (error) {
-      console.error('❌ Error in checkIdempotency:', error);
+      logger.error('BACKEND', '❌ Error in checkIdempotency:', error);
       return { is_duplicate: false };
     }
   }
@@ -197,9 +197,9 @@ export class ShopifyWebhookManager {
         .eq('integration_id', integrationId)
         .eq('idempotency_key', idempotencyKey);
 
-      console.log(`✅ Idempotency record completed: ${idempotencyKey} (success: ${success})`);
+      logger.info('BACKEND', `✅ Idempotency record completed: ${idempotencyKey} (success: ${success})`);
     } catch (error) {
-      console.error('❌ Error completing idempotency record:', error);
+      logger.error('BACKEND', '❌ Error completing idempotency record:', error);
     }
   }
 
@@ -234,9 +234,9 @@ export class ShopifyWebhookManager {
         onConflict: 'integration_id,idempotency_key'
       });
 
-      console.log(`✅ Idempotency key recorded: ${idempotencyKey}`);
+      logger.info('BACKEND', `✅ Idempotency key recorded: ${idempotencyKey}`);
     } catch (error) {
-      console.error('❌ Error recording idempotency:', error);
+      logger.error('BACKEND', '❌ Error recording idempotency:', error);
     }
   }
 
@@ -292,14 +292,14 @@ export class ShopifyWebhookManager {
         .single();
 
       if (insertError) {
-        console.error('❌ Error adding to retry queue:', insertError);
+        logger.error('BACKEND', '❌ Error adding to retry queue:', insertError);
         return null;
       }
 
-      console.log(`📋 Added webhook to retry queue: ${data.id}`);
+      logger.info('BACKEND', `📋 Added webhook to retry queue: ${data.id}`);
       return data.id;
     } catch (error) {
-      console.error('❌ Error in addToRetryQueue:', error);
+      logger.error('BACKEND', '❌ Error in addToRetryQueue:', error);
       return null;
     }
   }
@@ -328,7 +328,7 @@ export class ShopifyWebhookManager {
         return { processed: 0, succeeded: 0, failed: 0, still_pending: 0 };
       }
 
-      console.log(`🔄 Processing ${retries.length} webhook retries...`);
+      logger.info('BACKEND', `🔄 Processing ${retries.length} webhook retries...`);
 
       let succeeded = 0;
       let failed = 0;
@@ -366,7 +366,7 @@ export class ShopifyWebhookManager {
             );
 
             succeeded++;
-            console.log(`✅ Webhook retry succeeded: ${retry.id}`);
+            logger.info('BACKEND', `✅ Webhook retry succeeded: ${retry.id}`);
           } else {
             // Failed - update retry count and schedule next attempt
             const newRetryCount = retry.retry_count + 1;
@@ -386,7 +386,7 @@ export class ShopifyWebhookManager {
                 .eq('id', retry.id);
 
               failed++;
-              console.error(`❌ Webhook retry failed permanently: ${retry.id}`);
+              logger.error('BACKEND', `❌ Webhook retry failed permanently: ${retry.id}`);
             } else {
               // Schedule next retry with exponential backoff
               const backoffSeconds = Math.min(
@@ -419,7 +419,7 @@ export class ShopifyWebhookManager {
                 .eq('id', retry.id);
 
               stillPending++;
-              console.log(
+              logger.info('BACKEND', 
                 `⏳ Webhook retry rescheduled: ${retry.id} (attempt ${newRetryCount}/${retry.max_retries})`
               );
             }
@@ -434,13 +434,13 @@ export class ShopifyWebhookManager {
             );
           }
         } catch (error: any) {
-          console.error(`❌ Error processing retry ${retry.id}:`, error);
+          logger.error('BACKEND', `❌ Error processing retry ${retry.id}:`, error);
           // Don't update status - let it retry naturally
           stillPending++;
         }
       }
 
-      console.log(
+      logger.info('BACKEND', 
         `🔄 Retry queue processed: ${succeeded} succeeded, ${failed} failed, ${stillPending} still pending`
       );
 
@@ -451,7 +451,7 @@ export class ShopifyWebhookManager {
         still_pending: stillPending,
       };
     } catch (error) {
-      console.error('❌ Error processing retry queue:', error);
+      logger.error('BACKEND', '❌ Error processing retry queue:', error);
       return { processed: 0, succeeded: 0, failed: 0, still_pending: 0 };
     }
   }
@@ -474,7 +474,7 @@ export class ShopifyWebhookManager {
         };
       }
 
-      console.log(`🔄 Reprocessing webhook: ${topic} (attempt ${retry.retry_count + 1})`);
+      logger.info('BACKEND', `🔄 Reprocessing webhook: ${topic} (attempt ${retry.retry_count + 1})`);
 
       const webhookService = new ShopifyWebhookService(this.supabase);
 
@@ -524,7 +524,7 @@ export class ShopifyWebhookManager {
         }
 
         default:
-          console.warn(`⚠️ Unknown webhook topic for retry: ${topic}`);
+          logger.warn('BACKEND', `⚠️ Unknown webhook topic for retry: ${topic}`);
           return {
             success: false,
             error: `Unknown webhook topic: ${topic}`,
@@ -533,7 +533,7 @@ export class ShopifyWebhookManager {
           };
       }
     } catch (error: any) {
-      console.error('❌ Error reprocessing webhook:', error);
+      logger.error('BACKEND', '❌ Error reprocessing webhook:', error);
       return {
         success: false,
         error: error.message || 'Unknown error during reprocessing',
@@ -562,7 +562,7 @@ export class ShopifyWebhookManager {
         p_error_code: errorCode || null,
       });
     } catch (error) {
-      console.error('❌ Error recording webhook metric:', error);
+      logger.error('BACKEND', '❌ Error recording webhook metric:', error);
     }
   }
 
@@ -666,7 +666,7 @@ export class ShopifyWebhookManager {
         },
       };
     } catch (error) {
-      console.error('❌ Error getting webhook health:', error);
+      logger.error('BACKEND', '❌ Error getting webhook health:', error);
       return {
         total_received: 0,
         total_processed: 0,
@@ -692,15 +692,15 @@ export class ShopifyWebhookManager {
         .select('id');
 
       if (error) {
-        console.error('❌ Error cleaning up idempotency keys:', error);
+        logger.error('BACKEND', '❌ Error cleaning up idempotency keys:', error);
         return 0;
       }
 
       const deleted = data?.length || 0;
-      console.log(`🧹 Cleaned up ${deleted} expired idempotency keys`);
+      logger.info('BACKEND', `🧹 Cleaned up ${deleted} expired idempotency keys`);
       return deleted;
     } catch (error) {
-      console.error('❌ Error in cleanupExpiredKeys:', error);
+      logger.error('BACKEND', '❌ Error in cleanupExpiredKeys:', error);
       return 0;
     }
   }

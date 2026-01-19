@@ -98,7 +98,7 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
   let logId: string | null = null;
 
   try {
-    console.log('📦 [SHOPIFY SYNC] Starting products import...');
+    logger.info('API', '📦 [SHOPIFY SYNC] Starting products import...');
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
@@ -109,7 +109,7 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
 
     // Fetch all products from Shopify (using GraphQL)
     const shopifyProducts = await shopifyClient.getAllProducts();
-    console.log(`📦 [SHOPIFY SYNC] Fetched ${shopifyProducts.length} products from Shopify`);
+    logger.info('API', `📦 [SHOPIFY SYNC] Fetched ${shopifyProducts.length} products from Shopify`);
 
     let synced = 0;
     let skipped = 0;
@@ -154,10 +154,10 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
 
         // Log progress every 10 items
         if (synced % 10 === 0) {
-          console.log(`📦 [SHOPIFY SYNC] Progress: ${synced}/${shopifyProducts.length} products`);
+          logger.info('API', `📦 [SHOPIFY SYNC] Progress: ${synced}/${shopifyProducts.length} products`);
         }
       } catch (error: any) {
-        console.error(`❌ [SHOPIFY SYNC] Error syncing product ${shopifyProduct.id}:`, error);
+        logger.error('API', `❌ [SHOPIFY SYNC] Error syncing product ${shopifyProduct.id}:`, error);
         errors.push({
           product_id: shopifyProduct.id,
           product_name: shopifyProduct.title,
@@ -185,8 +185,8 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
     }
 
     const duration = Date.now() - startTime;
-    console.log(`✅ [SHOPIFY SYNC] Products sync completed in ${duration}ms`);
-    console.log(`📊 [SHOPIFY SYNC] Synced: ${synced}, Skipped: ${skipped}`);
+    logger.info('API', `✅ [SHOPIFY SYNC] Products sync completed in ${duration}ms`);
+    logger.info('API', `📊 [SHOPIFY SYNC] Synced: ${synced}, Skipped: ${skipped}`);
 
     res.json({
       success: true,
@@ -196,7 +196,7 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
       duration_ms: duration,
     });
   } catch (error: any) {
-    console.error('💥 [SHOPIFY SYNC] Products sync failed:', error);
+    logger.error('API', '💥 [SHOPIFY SYNC] Products sync failed:', error);
 
     if (logId) {
       await updateSyncLog(logId, 'failed', 0, 0, 0, [{ error: error.message }]);
@@ -217,7 +217,7 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
   let logId: string | null = null;
 
   try {
-    console.log('👥 [SHOPIFY SYNC] Starting customers import...');
+    logger.info('API', '👥 [SHOPIFY SYNC] Starting customers import...');
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
@@ -237,7 +237,7 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
       pageInfo = result.pagination.next_cursor;
       hasMore = result.pagination.has_next;
     }
-    console.log(`👥 [SHOPIFY SYNC] Fetched ${shopifyCustomers.length} customers from Shopify`);
+    logger.info('API', `👥 [SHOPIFY SYNC] Fetched ${shopifyCustomers.length} customers from Shopify`);
 
     let synced = 0;
     let skipped = 0;
@@ -248,7 +248,7 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
       try {
         // Skip customers without email (required in Ordefy)
         if (!shopifyCustomer.email) {
-          console.warn(`⚠️  [SHOPIFY SYNC] Skipping customer ${shopifyCustomer.id}: no email`);
+          logger.warn('API', `⚠️  [SHOPIFY SYNC] Skipping customer ${shopifyCustomer.id}: no email`);
           skipped++;
           continue;
         }
@@ -280,10 +280,10 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
 
         // Log progress every 10 items
         if (synced % 10 === 0) {
-          console.log(`👥 [SHOPIFY SYNC] Progress: ${synced}/${shopifyCustomers.length} customers`);
+          logger.info('API', `👥 [SHOPIFY SYNC] Progress: ${synced}/${shopifyCustomers.length} customers`);
         }
       } catch (error: any) {
-        console.error(`❌ [SHOPIFY SYNC] Error syncing customer ${shopifyCustomer.id}:`, error);
+        logger.error('API', `❌ [SHOPIFY SYNC] Error syncing customer ${shopifyCustomer.id}:`, error);
         errors.push({
           customer_id: shopifyCustomer.id,
           customer_email: shopifyCustomer.email,
@@ -311,8 +311,8 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
     }
 
     const duration = Date.now() - startTime;
-    console.log(`✅ [SHOPIFY SYNC] Customers sync completed in ${duration}ms`);
-    console.log(`📊 [SHOPIFY SYNC] Synced: ${synced}, Skipped: ${skipped}`);
+    logger.info('API', `✅ [SHOPIFY SYNC] Customers sync completed in ${duration}ms`);
+    logger.info('API', `📊 [SHOPIFY SYNC] Synced: ${synced}, Skipped: ${skipped}`);
 
     res.json({
       success: true,
@@ -322,7 +322,7 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
       duration_ms: duration,
     });
   } catch (error: any) {
-    console.error('💥 [SHOPIFY SYNC] Customers sync failed:', error);
+    logger.error('API', '💥 [SHOPIFY SYNC] Customers sync failed:', error);
 
     if (logId) {
       await updateSyncLog(logId, 'failed', 0, 0, 0, [{ error: error.message }]);
@@ -343,7 +343,7 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
   let logId: string | null = null;
 
   try {
-    console.log('📊 [SHOPIFY SYNC] Starting inventory sync...');
+    logger.info('API', '📊 [SHOPIFY SYNC] Starting inventory sync...');
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
@@ -369,7 +369,7 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
       });
     }
 
-    console.log(`📊 [SHOPIFY SYNC] Updating ${products.length} product inventories...`);
+    logger.info('API', `📊 [SHOPIFY SYNC] Updating ${products.length} product inventories...`);
 
     let synced = 0;
     let skipped = 0;
@@ -382,10 +382,10 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
         synced++;
 
         if (synced % 10 === 0) {
-          console.log(`📊 [SHOPIFY SYNC] Progress: ${synced}/${products.length} inventories`);
+          logger.info('API', `📊 [SHOPIFY SYNC] Progress: ${synced}/${products.length} inventories`);
         }
       } catch (error: any) {
-        console.error(`❌ [SHOPIFY SYNC] Error updating inventory for ${product.name}:`, error);
+        logger.error('API', `❌ [SHOPIFY SYNC] Error updating inventory for ${product.name}:`, error);
         errors.push({
           product_id: product.id,
           product_name: product.name,
@@ -401,7 +401,7 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
     }
 
     const duration = Date.now() - startTime;
-    console.log(`✅ [SHOPIFY SYNC] Inventory sync completed in ${duration}ms`);
+    logger.info('API', `✅ [SHOPIFY SYNC] Inventory sync completed in ${duration}ms`);
 
     res.json({
       success: true,
@@ -411,7 +411,7 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
       duration_ms: duration,
     });
   } catch (error: any) {
-    console.error('💥 [SHOPIFY SYNC] Inventory sync failed:', error);
+    logger.error('API', '💥 [SHOPIFY SYNC] Inventory sync failed:', error);
 
     if (logId) {
       await updateSyncLog(logId, 'failed', 0, 0, 0, [{ error: error.message }]);
@@ -466,7 +466,7 @@ shopifySyncRouter.get('/sync/status', async (req: AuthRequest, res: Response) =>
       recent_logs: recentLogs || [],
     });
   } catch (error: any) {
-    console.error('❌ [SHOPIFY SYNC] Error getting status:', error);
+    logger.error('API', '❌ [SHOPIFY SYNC] Error getting status:', error);
     res.status(500).json({
       error: error.message,
     });
@@ -499,7 +499,7 @@ shopifySyncRouter.post('/sync/config', async (req: AuthRequest, res: Response) =
       message: 'Sync configuration updated',
     });
   } catch (error: any) {
-    console.error('❌ [SHOPIFY SYNC] Error updating config:', error);
+    logger.error('API', '❌ [SHOPIFY SYNC] Error updating config:', error);
     res.status(500).json({
       error: error.message,
     });

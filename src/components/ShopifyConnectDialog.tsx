@@ -55,7 +55,7 @@ export function ShopifyConnectDialog({ open, onOpenChange, onBack }: ShopifyConn
       return;
     }
 
-    console.log('🚀 [SHOPIFY-CONNECT] Starting OAuth for shop:', cleanDomain);
+    logger.log('🚀 [SHOPIFY-CONNECT] Starting OAuth for shop:', cleanDomain);
 
     setIsLoading(true);
 
@@ -67,7 +67,7 @@ export function ShopifyConnectDialog({ open, onOpenChange, onBack }: ShopifyConn
         currentStore?.id
       );
     } catch (err: any) {
-      console.error('❌ [SHOPIFY-CONNECT] Error:', err);
+      logger.error('❌ [SHOPIFY-CONNECT] Error:', err);
       setError('Error al iniciar conexión. Intenta nuevamente.');
       setIsLoading(false);
     }

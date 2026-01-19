@@ -30,7 +30,7 @@ export class ShopifyImportService {
     import_types: Array<'products' | 'customers' | 'orders'>;
     force_full_sync?: boolean;
   }): Promise<string[]> {
-    console.log('🔄 [SHOPIFY-IMPORT] Starting import:', {
+    logger.info('SERVICE', '🔄 [SHOPIFY-IMPORT] Starting import:', {
       job_type: params.job_type,
       import_types: params.import_types,
       force_full_sync: params.force_full_sync,
@@ -48,16 +48,16 @@ export class ShopifyImportService {
       });
       jobIds.push(jobId);
 
-      console.log(`✅ [SHOPIFY-IMPORT] Created job ${jobId} for ${import_type}`);
+      logger.info('SERVICE', `✅ [SHOPIFY-IMPORT] Created job ${jobId} for ${import_type}`);
 
       // Start background processing
       this.processImportJob(jobId).catch(error => {
-        console.error(`❌ [SHOPIFY-IMPORT] Error processing job ${jobId}:`, error);
+        logger.error('SERVICE', `❌ [SHOPIFY-IMPORT] Error processing job ${jobId}:`, error);
         this.markJobFailed(jobId, error.message);
       });
     }
 
-    console.log(`🎯 [SHOPIFY-IMPORT] Started ${jobIds.length} import jobs:`, jobIds);
+    logger.info('SERVICE', `🎯 [SHOPIFY-IMPORT] Started ${jobIds.length} import jobs:`, jobIds);
     return jobIds;
   }
 
@@ -87,14 +87,14 @@ export class ShopifyImportService {
 
   // Process import job with pagination
   private async processImportJob(jobId: string): Promise<void> {
-    console.log(`🚀 [SHOPIFY-IMPORT] Processing job ${jobId}`);
+    logger.info('SERVICE', `🚀 [SHOPIFY-IMPORT] Processing job ${jobId}`);
 
     // Update job to running status
     await this.updateJobStatus(jobId, 'running', { started_at: new Date().toISOString() });
 
     try {
       const job = await this.getJob(jobId);
-      console.log(`📋 [SHOPIFY-IMPORT] Job details:`, {
+      logger.info('SERVICE', `📋 [SHOPIFY-IMPORT] Job details:`, {
         id: job.id,
         type: job.import_type,
         status: job.status,
@@ -103,22 +103,22 @@ export class ShopifyImportService {
 
       switch (job.import_type) {
         case 'products':
-          console.log(`📦 [SHOPIFY-IMPORT] Starting products import for job ${jobId}`);
+          logger.info('SERVICE', `📦 [SHOPIFY-IMPORT] Starting products import for job ${jobId}`);
           await this.importProducts(job);
           break;
         case 'customers':
-          console.log(`👥 [SHOPIFY-IMPORT] Starting customers import for job ${jobId}`);
+          logger.info('SERVICE', `👥 [SHOPIFY-IMPORT] Starting customers import for job ${jobId}`);
           await this.importCustomers(job);
           break;
         case 'orders':
-          console.log(`🛒 [SHOPIFY-IMPORT] Starting orders import for job ${jobId}`);
+          logger.info('SERVICE', `🛒 [SHOPIFY-IMPORT] Starting orders import for job ${jobId}`);
           await this.importOrders(job);
           break;
         default:
           throw new Error(`Unknown import type: ${job.import_type}`);
       }
 
-      console.log(`✅ [SHOPIFY-IMPORT] Job ${jobId} completed successfully`);
+      logger.info('SERVICE', `✅ [SHOPIFY-IMPORT] Job ${jobId} completed successfully`);
 
       // Mark job as completed
       await this.updateJobStatus(jobId, 'completed', {
@@ -133,8 +133,8 @@ export class ShopifyImportService {
         .eq('id', this.integration.id);
 
     } catch (error: any) {
-      console.error(`❌ [SHOPIFY-IMPORT] Import job ${jobId} failed:`, error);
-      console.error(`❌ [SHOPIFY-IMPORT] Error details:`, {
+      logger.error('SERVICE', `❌ [SHOPIFY-IMPORT] Import job ${jobId} failed:`, error);
+      logger.error('SERVICE', `❌ [SHOPIFY-IMPORT] Error details:`, {
         message: error.message,
         stack: error.stack,
         response: error.response?.data
@@ -145,7 +145,7 @@ export class ShopifyImportService {
 
   // Import products with pagination
   private async importProducts(job: ShopifyImportJob): Promise<void> {
-    console.log(`📦 [SHOPIFY-IMPORT] Starting product import with pagination (page_size: ${job.page_size})`);
+    logger.info('SERVICE', `📦 [SHOPIFY-IMPORT] Starting product import with pagination (page_size: ${job.page_size})`);
 
     let hasMore = true;
     let pageInfo: string | undefined;
@@ -155,37 +155,37 @@ export class ShopifyImportService {
     // Get total count estimate
     let totalEstimate = 0;
     try {
-      console.log(`📊 [SHOPIFY-IMPORT] Getting product count estimate...`);
+      logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Getting product count estimate...`);
       const { products: sampleProducts } = await this.shopifyClient.getProducts({ limit: 1 });
       if (sampleProducts.length > 0) {
         totalEstimate = sampleProducts[0].id;
-        console.log(`📊 [SHOPIFY-IMPORT] Estimated total products: ~${totalEstimate}`);
+        logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Estimated total products: ~${totalEstimate}`);
       }
     } catch (error) {
-      console.warn('⚠️  [SHOPIFY-IMPORT] Could not estimate product count:', error);
+      logger.warn('SERVICE', '⚠️  [SHOPIFY-IMPORT] Could not estimate product count:', error);
     }
 
     if (totalEstimate > 0) {
       await this.updateJobProgress(job.id, { total_items: totalEstimate });
     }
 
-    console.log(`🔄 [SHOPIFY-IMPORT] Starting product pagination loop...`);
+    logger.info('SERVICE', `🔄 [SHOPIFY-IMPORT] Starting product pagination loop...`);
     let pageCount = 0;
 
     while (hasMore) {
       try {
         pageCount++;
-        console.log(`📄 [SHOPIFY-IMPORT] Fetching page ${pageCount} (cursor: ${pageInfo || 'initial'})...`);
+        logger.info('SERVICE', `📄 [SHOPIFY-IMPORT] Fetching page ${pageCount} (cursor: ${pageInfo || 'initial'})...`);
 
         const { products, pagination } = await this.shopifyClient.getProducts({
           limit: job.page_size,
           page_info: pageInfo
         });
 
-        console.log(`📦 [SHOPIFY-IMPORT] Received ${products.length} products from Shopify API`);
+        logger.info('SERVICE', `📦 [SHOPIFY-IMPORT] Received ${products.length} products from Shopify API`);
 
         if (products.length === 0) {
-          console.log(`✅ [SHOPIFY-IMPORT] No more products to fetch. Ending pagination.`);
+          logger.info('SERVICE', `✅ [SHOPIFY-IMPORT] No more products to fetch. Ending pagination.`);
           hasMore = false;
           break;
         }
@@ -204,7 +204,7 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
-            console.error(`Error al importar producto ${shopifyProduct.id}:`, error);
+            logger.error('SERVICE', `Error al importar producto ${shopifyProduct.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
               failed_items: (job.failed_items || 0) + 1
@@ -216,7 +216,7 @@ export class ShopifyImportService {
         hasMore = pagination.has_next;
         pageInfo = pagination.next_cursor;
 
-        console.log(`📊 [SHOPIFY-IMPORT] Page ${pageCount} complete. Processed: ${processedCount} total. Has more: ${hasMore}`);
+        logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Page ${pageCount} complete. Processed: ${processedCount} total. Has more: ${hasMore}`);
 
         await this.updateJobProgress(job.id, {
           last_cursor: pageInfo,
@@ -227,7 +227,7 @@ export class ShopifyImportService {
         await new Promise(resolve => setTimeout(resolve, 100));
 
       } catch (error: any) {
-        console.error('Error fetching products page:', error);
+        logger.error('SERVICE', 'Error fetching products page:', error);
 
         // Retry logic
         if (job.retry_count < job.max_retries) {
@@ -256,20 +256,20 @@ export class ShopifyImportService {
 
         // If RPC function doesn't exist, proceed with shipment creation (graceful degradation)
         if (rpcError) {
-          console.warn(`⚠️  [SHOPIFY-IMPORT] Duplicate check RPC not available, proceeding with shipment creation: ${rpcError.message}`);
-          console.log(`📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
+          logger.warn('SERVICE', `⚠️  [SHOPIFY-IMPORT] Duplicate check RPC not available, proceeding with shipment creation: ${rpcError.message}`);
+          logger.info('SERVICE', `📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
           await this.createAutomaticInboundShipment(importedProducts);
         } else if (duplicateCheck && duplicateCheck.length > 0 && duplicateCheck[0].has_duplicate) {
-          console.warn(
+          logger.warn('SERVICE', 
             `⚠️  [SHOPIFY-IMPORT] Skipping automatic inbound shipment - already created today: ` +
             `${duplicateCheck[0].existing_reference} at ${duplicateCheck[0].created_at}`
           );
         } else {
-          console.log(`📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
+          logger.info('SERVICE', `📦 [SHOPIFY-IMPORT] Creating automatic inbound shipment for ${importedProducts.length} products...`);
           await this.createAutomaticInboundShipment(importedProducts);
         }
       } catch (error: any) {
-        console.error('❌ [SHOPIFY-IMPORT] Error al crear envío de entrada automático:', error);
+        logger.error('SERVICE', '❌ [SHOPIFY-IMPORT] Error al crear envío de entrada automático:', error);
         // Don't fail the import job if shipment creation fails
       }
     }
@@ -277,7 +277,7 @@ export class ShopifyImportService {
 
   // Import customers with pagination
   private async importCustomers(job: ShopifyImportJob): Promise<void> {
-    console.log(`👥 [SHOPIFY-IMPORT] Starting customer import with pagination (page_size: ${job.page_size})`);
+    logger.info('SERVICE', `👥 [SHOPIFY-IMPORT] Starting customer import with pagination (page_size: ${job.page_size})`);
 
     let hasMore = true;
     let pageInfo: string | undefined;
@@ -287,17 +287,17 @@ export class ShopifyImportService {
     while (hasMore) {
       try {
         pageCount++;
-        console.log(`📄 [SHOPIFY-IMPORT] Fetching customer page ${pageCount} (cursor: ${pageInfo || 'initial'})...`);
+        logger.info('SERVICE', `📄 [SHOPIFY-IMPORT] Fetching customer page ${pageCount} (cursor: ${pageInfo || 'initial'})...`);
 
         const { customers, pagination } = await this.shopifyClient.getCustomers({
           limit: job.page_size,
           page_info: pageInfo
         });
 
-        console.log(`👥 [SHOPIFY-IMPORT] Received ${customers.length} customers from Shopify API`);
+        logger.info('SERVICE', `👥 [SHOPIFY-IMPORT] Received ${customers.length} customers from Shopify API`);
 
         if (customers.length === 0) {
-          console.log(`✅ [SHOPIFY-IMPORT] No more customers to fetch. Ending pagination.`);
+          logger.info('SERVICE', `✅ [SHOPIFY-IMPORT] No more customers to fetch. Ending pagination.`);
           hasMore = false;
           break;
         }
@@ -312,7 +312,7 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
-            console.error(`Error al importar cliente ${shopifyCustomer.id}:`, error);
+            logger.error('SERVICE', `Error al importar cliente ${shopifyCustomer.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
               failed_items: (job.failed_items || 0) + 1
@@ -323,7 +323,7 @@ export class ShopifyImportService {
         hasMore = pagination.has_next;
         pageInfo = pagination.next_cursor;
 
-        console.log(`📊 [SHOPIFY-IMPORT] Customer page ${pageCount} complete. Processed: ${processedCount} total. Has more: ${hasMore}`);
+        logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Customer page ${pageCount} complete. Processed: ${processedCount} total. Has more: ${hasMore}`);
 
         await this.updateJobProgress(job.id, {
           last_cursor: pageInfo,
@@ -333,7 +333,7 @@ export class ShopifyImportService {
         await new Promise(resolve => setTimeout(resolve, 100));
 
       } catch (error: any) {
-        console.error('❌ [SHOPIFY-IMPORT] Error fetching customers page:', error);
+        logger.error('SERVICE', '❌ [SHOPIFY-IMPORT] Error fetching customers page:', error);
 
         if (job.retry_count < job.max_retries) {
           await this.supabaseAdmin
@@ -363,7 +363,7 @@ export class ShopifyImportService {
         totalCount = await this.shopifyClient.getOrderCount({ status: 'any' });
         await this.updateJobProgress(job.id, { total_items: totalCount });
       } catch (error) {
-        console.warn('Could not get order count');
+        logger.warn('SERVICE', 'Could not get order count');
       }
     }
 
@@ -390,7 +390,7 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
-            console.error(`Error al importar pedido ${shopifyOrder.id}:`, error);
+            logger.error('SERVICE', `Error al importar pedido ${shopifyOrder.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
               failed_items: (job.failed_items || 0) + 1
@@ -409,7 +409,7 @@ export class ShopifyImportService {
         await new Promise(resolve => setTimeout(resolve, 100));
 
       } catch (error: any) {
-        console.error('Error fetching orders page:', error);
+        logger.error('SERVICE', 'Error fetching orders page:', error);
 
         if (job.retry_count < job.max_retries) {
           await this.supabaseAdmin
@@ -428,6 +428,11 @@ export class ShopifyImportService {
 
   // Upsert product to database
   private async upsertProduct(shopifyProduct: ShopifyProduct): Promise<{ id: string; stock: number; name: string; cost: number } | null> {
+    // CRITICAL FIX (Bug #4): Validate variants array exists and has elements before accessing [0]
+    if (!shopifyProduct.variants || shopifyProduct.variants.length === 0) {
+      logger.warn('SHOPIFY_IMPORT', `Product ${shopifyProduct.id} has no variants, skipping`);
+      return null;
+    }
     const variant = shopifyProduct.variants[0];
     if (!variant) return null;
 
@@ -670,7 +675,7 @@ export class ShopifyImportService {
 
         // Log if product not found
         if (!productId && shopifyProductId) {
-          console.warn(
+          logger.warn('SERVICE', 
             `⚠️  [IMPORT] Product not found for line item: ` +
             `Shopify Product ID ${shopifyProductId}, Variant ID ${shopifyVariantId}, SKU "${sku}". ` +
             `Line item will be created without product mapping.`
@@ -708,15 +713,15 @@ export class ShopifyImportService {
           });
 
         if (insertError) {
-          console.error(`Error inserting line item:`, insertError);
+          logger.error('SERVICE', `Error inserting line item:`, insertError);
           throw new Error(`Error al insertar línea de pedido: ${insertError.message}`);
         }
       }
 
-      console.log(`✅ [IMPORT] Created ${lineItems.length} normalized line items for order ${orderId}`);
+      logger.info('SERVICE', `✅ [IMPORT] Created ${lineItems.length} normalized line items for order ${orderId}`);
 
     } catch (error: any) {
-      console.error('[IMPORT] Error creating line items for order:', error);
+      logger.error('SERVICE', '[IMPORT] Error creating line items for order:', error);
       throw error;
     }
   }
@@ -758,7 +763,7 @@ export class ShopifyImportService {
       .update(progress)
       .eq('id', jobId);
 
-    if (error) console.error('Error al actualizar progreso del trabajo:', error);
+    if (error) logger.error('SERVICE', 'Error al actualizar progreso del trabajo:', error);
   }
 
   private async markJobFailed(jobId: string, errorMessage: string): Promise<void> {
@@ -778,13 +783,13 @@ export class ShopifyImportService {
         .rpc('generate_inbound_reference', { p_store_id: this.integration.store_id });
 
       if (refError) {
-        console.error('❌ Error generating inbound reference:', refError);
+        logger.error('SERVICE', '❌ Error generating inbound reference:', refError);
         throw refError;
       }
 
       const reference = referenceData as string;
 
-      console.log(`📦 [SHOPIFY-IMPORT] Creating inbound shipment with reference: ${reference}`);
+      logger.info('SERVICE', `📦 [SHOPIFY-IMPORT] Creating inbound shipment with reference: ${reference}`);
 
       // Create the inbound shipment
       const today = getTodayInTimezone();
@@ -809,11 +814,11 @@ export class ShopifyImportService {
         .single();
 
       if (shipmentError) {
-        console.error('❌ Error creating inbound shipment:', shipmentError);
+        logger.error('SERVICE', '❌ Error creating inbound shipment:', shipmentError);
         throw shipmentError;
       }
 
-      console.log(`✅ [SHOPIFY-IMPORT] Inbound shipment created: ${shipment.id}`);
+      logger.info('SERVICE', `✅ [SHOPIFY-IMPORT] Inbound shipment created: ${shipment.id}`);
 
       // Create shipment items
       const shipmentItems = products.map(product => ({
@@ -831,11 +836,11 @@ export class ShopifyImportService {
         .insert(shipmentItems);
 
       if (itemsError) {
-        console.error('❌ Error creating shipment items:', itemsError);
+        logger.error('SERVICE', '❌ Error creating shipment items:', itemsError);
         throw itemsError;
       }
 
-      console.log(`✅ [SHOPIFY-IMPORT] Created ${shipmentItems.length} shipment items`);
+      logger.info('SERVICE', `✅ [SHOPIFY-IMPORT] Created ${shipmentItems.length} shipment items`);
 
       // Create inventory movements for audit trail
       const inventoryMovements = products
@@ -857,17 +862,17 @@ export class ShopifyImportService {
           .insert(inventoryMovements);
 
         if (movementsError) {
-          console.warn('⚠️ [SHOPIFY-IMPORT] Could not create inventory movements:', movementsError);
+          logger.warn('SERVICE', '⚠️ [SHOPIFY-IMPORT] Could not create inventory movements:', movementsError);
           // Don't fail the import if movements can't be created
         } else {
-          console.log(`✅ [SHOPIFY-IMPORT] Created ${inventoryMovements.length} inventory movement records`);
+          logger.info('SERVICE', `✅ [SHOPIFY-IMPORT] Created ${inventoryMovements.length} inventory movement records`);
         }
       }
 
-      console.log(`📊 [SHOPIFY-IMPORT] Total stock imported: ${products.reduce((sum, p) => sum + p.stock, 0)} units`);
+      logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Total stock imported: ${products.reduce((sum, p) => sum + p.stock, 0)} units`);
 
     } catch (error: any) {
-      console.error('❌ [SHOPIFY-IMPORT] Error creating automatic inbound shipment:', error);
+      logger.error('SERVICE', '❌ [SHOPIFY-IMPORT] Error creating automatic inbound shipment:', error);
       throw error;
     }
   }

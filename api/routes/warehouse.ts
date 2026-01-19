@@ -41,7 +41,7 @@ router.get('/orders/confirmed', async (req, res) => {
 
     res.json(orders);
   } catch (error) {
-    console.error('Error fetching confirmed orders:', error);
+    logger.error('API', 'Error fetching confirmed orders:', error);
     res.status(500).json({
       error: 'Error al obtener pedidos confirmados',
       details: error.message
@@ -65,7 +65,7 @@ router.get('/sessions/active', async (req, res) => {
 
     res.json(sessions);
   } catch (error) {
-    console.error('Error fetching active sessions:', error);
+    logger.error('API', 'Error fetching active sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones activas',
       details: error.message
@@ -100,7 +100,7 @@ router.post('/sessions', async (req, res) => {
 
     res.status(201).json(session);
   } catch (error) {
-    console.error('Error creating picking session:', error);
+    logger.error('API', 'Error creating picking session:', error);
     return serverError(res, error);
   }
 });
@@ -125,7 +125,7 @@ router.get('/sessions/:sessionId/picking-list', validateUUIDParam('sessionId'), 
 
     res.json(pickingList);
   } catch (error) {
-    console.error('Error fetching picking list:', error);
+    logger.error('API', 'Error fetching picking list:', error);
     return serverError(res, error);
   }
 });
@@ -160,7 +160,7 @@ router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionI
 
     res.json(updated);
   } catch (error) {
-    console.error('Error updating picking progress:', error);
+    logger.error('API', 'Error updating picking progress:', error);
     // Use 400 for validation errors (stock), 500 for technical errors
     const isValidationError = error.message?.includes('Stock') ||
                               error.message?.includes('stock') ||
@@ -189,7 +189,7 @@ router.post('/sessions/:sessionId/finish-picking', validateUUIDParam('sessionId'
 
     res.json(session);
   } catch (error) {
-    console.error('Error finishing picking:', error);
+    logger.error('API', 'Error finishing picking:', error);
     // Use 400 for validation errors (stock, incomplete picking), 500 for technical errors
     const isValidationError = error.message?.includes('Stock') ||
                               error.message?.includes('stock') ||
@@ -221,7 +221,7 @@ router.get('/sessions/:sessionId/packing-list', validateUUIDParam('sessionId'), 
 
     res.json(packingList);
   } catch (error) {
-    console.error('Error fetching packing list:', error);
+    logger.error('API', 'Error fetching packing list:', error);
     res.status(500).json({
       error: 'Error al obtener lista de empaque',
       details: error.message
@@ -261,7 +261,7 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
 
     res.json(updated);
   } catch (error) {
-    console.error('Error updating packing progress:', error);
+    logger.error('API', 'Error updating packing progress:', error);
 
     // Provide user-friendly error messages for common validation errors
     const isValidationError = error.message?.includes('not found') ||
@@ -296,7 +296,7 @@ router.post('/sessions/:sessionId/complete', validateUUIDParam('sessionId'), asy
 
     res.json(session);
   } catch (error) {
-    console.error('Error completing session:', error);
+    logger.error('API', 'Error completing session:', error);
     // Use 400 for validation errors (stock, incomplete packing), 500 for technical errors
     const isValidationError = error.message?.includes('Stock') ||
                               error.message?.includes('empacar') ||
@@ -333,7 +333,7 @@ router.post('/sessions/:sessionId/abandon', validateUUIDParam('sessionId'), asyn
 
     res.json(result);
   } catch (error) {
-    console.error('Error abandoning session:', error);
+    logger.error('API', 'Error abandoning session:', error);
     const isValidationError = error.message?.includes('not found') ||
                               error.message?.includes('completed') ||
                               error.message?.includes('already');
@@ -365,7 +365,7 @@ router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessi
 
     res.json(result);
   } catch (error) {
-    console.error('Error removing order from session:', error);
+    logger.error('API', 'Error removing order from session:', error);
     res.status(500).json({
       error: 'Error al eliminar pedido de la sesión',
       details: error.message
@@ -386,7 +386,7 @@ router.post('/cleanup-sessions', async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    console.error('Error cleaning up sessions:', error);
+    logger.error('API', 'Error cleaning up sessions:', error);
     res.status(500).json({
       error: 'Error al limpiar sesiones',
       details: error.message
@@ -410,7 +410,7 @@ router.get('/sessions/stale', async (req, res) => {
 
     res.json(staleSessions);
   } catch (error) {
-    console.error('Error fetching stale sessions:', error);
+    logger.error('API', 'Error fetching stale sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones obsoletas',
       details: error.message

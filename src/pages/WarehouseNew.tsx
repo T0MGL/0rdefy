@@ -82,7 +82,7 @@ export default function WarehouseNew() {
       setConfirmedOrders(orders);
       setActiveSessions(sessions);
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      logger.error('Error loading dashboard data:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'load_dashboard',
@@ -101,7 +101,7 @@ export default function WarehouseNew() {
       setSessionOrders(data.orders);
       return data;
     } catch (error) {
-      console.error('Error loading picking list:', error);
+      logger.error('Error loading picking list:', error);
       throw error;
     }
   }, []);
@@ -112,7 +112,7 @@ export default function WarehouseNew() {
       setPackingData(data);
       return data;
     } catch (error) {
-      console.error('Error loading packing list:', error);
+      logger.error('Error loading packing list:', error);
       throw error;
     }
   }, []);
@@ -202,7 +202,7 @@ export default function WarehouseNew() {
         description: `Preparando ${selectedOrderIds.size} pedido(s) - ${newSession.code}`,
       });
     } catch (error: any) {
-      console.error('Error creating session:', error);
+      logger.error('Error creating session:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'create_session',
@@ -233,7 +233,7 @@ export default function WarehouseNew() {
         description: `Continuando con ${sessionToResume.code}`,
       });
     } catch (error) {
-      console.error('Error resuming session:', error);
+      logger.error('Error resuming session:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cargar la sesión',
@@ -263,7 +263,7 @@ export default function WarehouseNew() {
     try {
       await warehouseService.updatePickingProgress(session.id, productId, quantity);
     } catch (error: any) {
-      console.error('Error updating picking progress:', error);
+      logger.error('Error updating picking progress:', error);
       // Revert on error
       setPickingList(previousList);
       toast({
@@ -305,7 +305,7 @@ export default function WarehouseNew() {
         description: 'Ahora puedes empacar los pedidos',
       });
     } catch (error: any) {
-      console.error('Error finishing picking:', error);
+      logger.error('Error finishing picking:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo completar la recolección',
@@ -365,7 +365,7 @@ export default function WarehouseNew() {
       // Reload to sync with server
       await loadPackingList(session.id);
     } catch (error: any) {
-      console.error('Error packing item:', error);
+      logger.error('Error packing item:', error);
       // Revert on error
       setPackingData(previousData);
       toast({
@@ -445,7 +445,7 @@ export default function WarehouseNew() {
         });
       }
     } catch (error) {
-      console.error('Print error:', error);
+      logger.error('Print error:', error);
       toast({
         title: 'Error de impresión',
         description: 'No se pudo generar el PDF para imprimir',
@@ -503,7 +503,7 @@ export default function WarehouseNew() {
         });
       }
     } catch (error) {
-      console.error('Batch print error:', error);
+      logger.error('Batch print error:', error);
       toast({
         title: 'Error de impresión',
         description: 'No se pudieron generar las etiquetas',
@@ -526,7 +526,7 @@ export default function WarehouseNew() {
         description: 'Todos los pedidos están listos para enviar',
       });
     } catch (error: any) {
-      console.error('Error completing session:', error);
+      logger.error('Error completing session:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo completar la sesión',
@@ -557,7 +557,7 @@ export default function WarehouseNew() {
         description: 'Los pedidos fueron restaurados al estado "Confirmado"',
       });
     } catch (error: any) {
-      console.error('Error cancelling session:', error);
+      logger.error('Error cancelling session:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo cancelar la sesión',

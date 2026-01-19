@@ -91,7 +91,7 @@ export function useRealtimeTable<T extends { id: string }>({
   // Handle all realtime events
   const handleRealtimeChange = useCallback(
     (payload: RealtimePostgresChangesPayload<T>) => {
-      console.log(`[useRealtimeTable] ${table} change:`, payload.eventType);
+      logger.log(`[useRealtimeTable] ${table} change:`, payload.eventType);
 
       switch (payload.eventType) {
         case 'INSERT':

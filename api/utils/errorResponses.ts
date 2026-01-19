@@ -229,11 +229,11 @@ export function duplicateEntry(res: Response, entity: string, field: string, val
 }
 
 export function databaseError(res: Response, error?: any) {
-  console.error('Database error:', error);
+  logger.error('BACKEND', 'Database error:', error);
   return sendError(res, 'DATABASE_ERROR', {}, 500);
 }
 
 export function serverError(res: Response, error?: any) {
-  console.error('Server error:', error);
+  logger.error('BACKEND', 'Server error:', error);
   return sendError(res, 'SERVER_ERROR', {}, 500);
 }

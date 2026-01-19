@@ -99,7 +99,7 @@ export function OrderConfirmationDialog({
         const allProducts = await productsService.getAll();
         setProducts(allProducts);
       } catch (error) {
-        console.error('Error fetching products:', error);
+        logger.error('Error fetching products:', error);
         setProducts([]);
       } finally {
         setLoadingProducts(false);
@@ -147,7 +147,7 @@ export function OrderConfirmationDialog({
           setCarrierZones([]);
         }
       } catch (error) {
-        console.error('Error fetching carrier zones:', error);
+        logger.error('Error fetching carrier zones:', error);
         setCarrierZones([]);
       } finally {
         setLoadingZones(false);
@@ -236,7 +236,7 @@ export function OrderConfirmationDialog({
             description: upsellAdded ? 'Se agregó el upsell al pedido' : 'Se removió el upsell del pedido',
           });
         } catch (error) {
-          console.error('Error updating upsell:', error);
+          logger.error('Error updating upsell:', error);
         }
       };
 
@@ -356,7 +356,7 @@ export function OrderConfirmationDialog({
       onConfirmed();
       onOpenChange(false);
     } catch (error: any) {
-      console.error('Error confirming order:', error);
+      logger.error('Error confirming order:', error);
 
       toast({
         title: 'Error al confirmar',
@@ -401,7 +401,7 @@ export function OrderConfirmationDialog({
 
       await printLabelPDF(labelData);
     } catch (error) {
-      console.error('Error printing from dialog:', error);
+      logger.error('Error printing from dialog:', error);
       toast({
         title: 'Error de impresión',
         description: 'No se pudo generar la etiqueta.',

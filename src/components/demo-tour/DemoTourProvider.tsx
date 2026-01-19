@@ -637,9 +637,9 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
         });
       }
 
-      console.log('[DemoTour] Demo data cleaned up successfully');
+      logger.log('[DemoTour] Demo data cleaned up successfully');
     } catch (error) {
-      console.error('[DemoTour] Error cleaning up demo data:', error);
+      logger.error('[DemoTour] Error cleaning up demo data:', error);
     }
   }, [state.demoData]);
 

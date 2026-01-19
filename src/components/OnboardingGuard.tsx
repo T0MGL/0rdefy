@@ -32,14 +32,14 @@ export function OnboardingGuard({ children }: { children: React.ReactNode }) {
 
     // If authenticated but not completed onboarding and not on onboarding pages
     if (!isOnboardingCompleted && !onboardingPaths.includes(location.pathname)) {
-      console.log('🔄 [OnboardingGuard] User authenticated but onboarding not completed, redirecting to /onboarding');
+      logger.log('🔄 [OnboardingGuard] User authenticated but onboarding not completed, redirecting to /onboarding');
       const pathWithShopifyParams = preserveShopifyParams('/onboarding');
       navigate(pathWithShopifyParams, { replace: true });
     }
 
     // If completed and on onboarding page (but not plan selection), redirect to dashboard
     if (isOnboardingCompleted && location.pathname === '/onboarding') {
-      console.log('✅ [OnboardingGuard] Onboarding already completed, redirecting to dashboard');
+      logger.log('✅ [OnboardingGuard] Onboarding already completed, redirecting to dashboard');
       const pathWithShopifyParams = preserveShopifyParams('/');
       navigate(pathWithShopifyParams, { replace: true });
     }

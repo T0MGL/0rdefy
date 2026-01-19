@@ -165,7 +165,7 @@ export default function Products() {
         description: 'El producto ha sido publicado exitosamente en Shopify.',
       });
     } catch (error: any) {
-      console.error('Error al publicar producto:', error);
+      logger.error('Error al publicar producto:', error);
       showErrorToast(toast, error, {
         module: 'products',
         action: 'publish_to_shopify',
@@ -212,7 +212,7 @@ export default function Products() {
         description: `${stockAdjustment > 0 ? 'Se agregaron' : 'Se restaron'} ${Math.abs(stockAdjustment)} unidades`,
       });
     } catch (error) {
-      console.error('Error al ajustar stock:', error);
+      logger.error('Error al ajustar stock:', error);
       showErrorToast(toast, error, {
         module: 'products',
         action: 'adjust_stock',
@@ -261,7 +261,7 @@ export default function Products() {
         description: deletionMessage,
       });
     } catch (error) {
-      console.error('Error al eliminar producto:', error);
+      logger.error('Error al eliminar producto:', error);
       showErrorToast(toast, error, {
         module: 'products',
         action: 'delete',
@@ -272,17 +272,31 @@ export default function Products() {
   };
 
   const handleSubmit = async (data: any) => {
+    // Store previous state for rollback
+    const previousProducts = products;
+
     try {
       if (selectedProduct) {
         const totalCost = data.cost + (data.packaging_cost || 0) + (data.additional_costs || 0);
+        const optimisticProduct = {
+          ...selectedProduct,
+          ...data,
+          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
+        };
+
+        // Optimistic update BEFORE request
+        setProducts(prev =>
+          prev.map(p => (p.id === selectedProduct.id ? optimisticProduct : p))
+        );
+
         const updatedProduct = await productsService.update(selectedProduct.id, {
           ...data,
-          profitability: ((data.price - totalCost) / data.price * 100).toFixed(1),
+          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
           sales: selectedProduct.sales,
         });
 
+        // Update with server response
         if (updatedProduct) {
-          // Optimistic update: update in local state
           setProducts(prev =>
             prev.map(p => (p.id === selectedProduct.id ? updatedProduct : p))
           );
@@ -303,14 +317,26 @@ export default function Products() {
         });
       } else {
         const totalCost = data.cost + (data.packaging_cost || 0) + (data.additional_costs || 0);
+
+        // Optimistic update with temporary ID
+        const tempId = `temp-${Date.now()}`;
+        const optimisticProduct = {
+          id: tempId,
+          ...data,
+          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
+          sales: 0,
+        };
+
+        setProducts(prev => [optimisticProduct, ...prev]);
+
         const newProduct = await productsService.create({
           ...data,
-          profitability: ((data.price - totalCost) / data.price * 100).toFixed(1),
+          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
           sales: 0,
         });
 
-        // Optimistic update: add to local state
-        setProducts(prev => [newProduct, ...prev]);
+        // Replace temp product with real one
+        setProducts(prev => prev.map(p => p.id === tempId ? newProduct : p));
 
         toast({
           title: 'Producto creado',
@@ -320,7 +346,11 @@ export default function Products() {
 
       setDialogOpen(false);
     } catch (error) {
-      console.error('Error al guardar producto:', error);
+      logger.error('Error al guardar producto:', error);
+
+      // ROLLBACK: Restore previous state on error
+      setProducts(previousProducts);
+
       showErrorToast(toast, error, {
         module: 'products',
         action: selectedProduct ? 'update' : 'create',

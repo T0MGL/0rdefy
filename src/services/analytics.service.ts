@@ -281,6 +281,27 @@ export const analyticsService = {
       return null;
     }
   },
+
+  /**
+   * Get lightweight data for notification engine
+   * Returns only minimal fields needed - avoids loading full order details
+   * Much faster than loading full orders/products/ads/carriers separately
+   */
+  getNotificationData: async (): Promise<NotificationData | null> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/analytics/notification-data`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status}`);
+      }
+      const result = await response.json();
+      return result.data || null;
+    } catch (error) {
+      console.error('Error loading notification data:', error);
+      return null;
+    }
+  },
 };
 
 // Tipos para las nuevas métricas
@@ -348,6 +369,33 @@ export interface IncidentsMetrics {
   // Tasas
   successRate: number;
   avgRetries: number;
+}
+
+// Tipo para datos de notificaciones (lightweight)
+export interface NotificationData {
+  orders: Array<{
+    id: string;
+    status: string;
+    date: string;
+    customer: string;
+  }>;
+  products: Array<{
+    id: string;
+    name: string;
+    stock: number;
+  }>;
+  ads: Array<{
+    id: string;
+    status: string;
+    name: string;
+    investment: number;
+    startDate: string;
+    endDate: string;
+  }>;
+  carriers: Array<{
+    id: string;
+    name: string;
+  }>;
 }
 
 // Tipos para métricas de costos de envío

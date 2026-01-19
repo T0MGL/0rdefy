@@ -65,7 +65,7 @@ export default function CarrierDetail() {
         }
 
       } catch (error) {
-        console.error('Error loading carrier data:', error);
+        logger.error('Error loading carrier data:', error);
         toast({ title: 'Error', description: 'No se pudieron cargar los datos', variant: 'destructive' });
       } finally {
         setLoading(false);
@@ -192,7 +192,7 @@ export default function CarrierDetail() {
       ));
       setSelectedOrders([]);
     } catch (error) {
-      console.error('Error settling orders:', error);
+      logger.error('Error settling orders:', error);
       toast({ title: 'Error', description: 'Falló el registro del pago.', variant: 'destructive' });
     }
   };

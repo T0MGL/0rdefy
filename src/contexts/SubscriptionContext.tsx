@@ -189,7 +189,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
       // Check if request was aborted before setting state
       if (signal?.aborted) {
-        console.log('[SubscriptionContext] Request aborted, skipping state update');
+        logger.log('[SubscriptionContext] Request aborted, skipping state update');
         return;
       }
 
@@ -199,11 +199,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } catch (err: any) {
       // Don't set error if request was aborted
       if (signal?.aborted) {
-        console.log('[SubscriptionContext] Request aborted during error handling');
+        logger.log('[SubscriptionContext] Request aborted during error handling');
         return;
       }
 
-      console.error('Failed to fetch subscription:', err);
+      logger.error('Failed to fetch subscription:', err);
       setError(err.message || 'Error al cargar suscripción');
       // Set default free plan on error
       setSubscription({

@@ -156,14 +156,14 @@ export async function uploadFile(
       });
 
     if (error) {
-      console.error(`Storage upload error [${bucket}]:`, error);
+      logger.error('BACKEND', `Storage upload error [${bucket}]:`, error);
       return { success: false, error: error.message };
     }
 
     // Get public URL
     const publicUrl = getPublicUrl(bucket, filePath);
 
-    console.log(`✓ Uploaded to ${bucket}/${filePath}`);
+    logger.info('BACKEND', `✓ Uploaded to ${bucket}/${filePath}`);
 
     return {
       success: true,
@@ -171,7 +171,7 @@ export async function uploadFile(
       path: filePath
     };
   } catch (err: any) {
-    console.error(`Storage upload exception [${bucket}]:`, err);
+    logger.error('BACKEND', `Storage upload exception [${bucket}]:`, err);
     return { success: false, error: err.message };
   }
 }
@@ -228,14 +228,14 @@ export async function deleteFile(bucket: BucketName, filePath: string): Promise<
       .remove([filePath]);
 
     if (error) {
-      console.error(`Storage delete error [${bucket}]:`, error);
+      logger.error('BACKEND', `Storage delete error [${bucket}]:`, error);
       return false;
     }
 
-    console.log(`✓ Deleted ${bucket}/${filePath}`);
+    logger.info('BACKEND', `✓ Deleted ${bucket}/${filePath}`);
     return true;
   } catch (err: any) {
-    console.error(`Storage delete exception [${bucket}]:`, err);
+    logger.error('BACKEND', `Storage delete exception [${bucket}]:`, err);
     return false;
   }
 }
@@ -258,7 +258,7 @@ async function deleteUserAvatars(storeId: string, userId: string): Promise<void>
     const filePaths = files.map(f => `${folderPath}/${f.name}`);
     await supabaseAdmin.storage.from('avatars').remove(filePaths);
 
-    console.log(`✓ Cleaned up ${files.length} old avatar(s) for user ${userId}`);
+    logger.info('BACKEND', `✓ Cleaned up ${files.length} old avatar(s) for user ${userId}`);
   } catch (err) {
     // Ignore cleanup errors
   }
@@ -280,7 +280,7 @@ export async function deleteProductImages(storeId: string, productId: string): P
     const filePaths = files.map(f => `${folderPath}/${f.name}`);
     await supabaseAdmin.storage.from('products').remove(filePaths);
 
-    console.log(`✓ Deleted ${files.length} product image(s) for product ${productId}`);
+    logger.info('BACKEND', `✓ Deleted ${files.length} product image(s) for product ${productId}`);
   } catch (err) {
     // Ignore cleanup errors
   }

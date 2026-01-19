@@ -159,7 +159,7 @@ export function generateNotifications(
           });
         } catch (error) {
           // Skip this notification if there's an error processing it
-          console.warn('Error generating critical pending notification:', error);
+          logger.warn('Error generating critical pending notification:', error);
         }
       }
 
@@ -233,7 +233,7 @@ export function generateNotifications(
           });
         }
       } catch (error) {
-        console.warn('Error generating tomorrow deliveries notification:', error);
+        logger.warn('Error generating tomorrow deliveries notification:', error);
       }
     }
 
@@ -438,7 +438,7 @@ export function generateNotifications(
 
   } catch (error) {
     // Critical error in notification generation - return empty to prevent app crash
-    console.error('Critical error in generateNotifications:', error);
+    logger.error('Critical error in generateNotifications:', error);
     return [];
   }
 }

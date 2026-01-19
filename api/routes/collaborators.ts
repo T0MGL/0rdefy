@@ -249,10 +249,10 @@ collaboratorsRouter.post(
         if (emailResult && emailResult.success) {
           emailSent = true;
         } else {
-          console.warn(`[COLLABORATOR] Email invite failed for ${email}: ${emailResult?.error || 'Unknown error'}`);
+          logger.warn('API', `[COLLABORATOR] Email invite failed for ${maskEmail(email)}: ${emailResult?.error || 'Unknown error'}`); // Redacted email (GDPR/CCPA compliance)
         }
       } else {
-        console.log(`[COLLABORATOR] Email service disabled (no API key), invitation link must be sent manually: ${inviteUrl}`);
+        logger.info('API', `[COLLABORATOR] Email service disabled (no API key), invitation link must be sent manually: ${inviteUrl}`);
       }
 
       res.status(201).json({
@@ -567,9 +567,9 @@ collaboratorsRouter.post(
 
       if (linkError) {
         // ROLLBACK: Revert invitation claim and delete new user if created
-        console.error('[ROLLBACK] User linking failed, attempting rollback:', {
+        logger.error('API', '[ROLLBACK] User linking failed, attempting rollback:', {
           invitationId: invitation.id,
-          userId,
+          userId: userId.substring(0, 8) + '...' + userId.substring(userId.length - 4), // Redacted UUID (GDPR/CCPA compliance)
           isExistingUser,
           linkError: linkError.message
         });
@@ -583,7 +583,7 @@ collaboratorsRouter.post(
           .eq('id', invitation.id);
 
         if (rollbackInvError) {
-          console.error('[ROLLBACK CRITICAL] Failed to revert invitation:', {
+          logger.error('API', '[ROLLBACK CRITICAL] Failed to revert invitation:', {
             invitationId: invitation.id,
             error: rollbackInvError.message,
             impact: 'Invitation marked as used but user not linked - manual cleanup required'
@@ -599,9 +599,9 @@ collaboratorsRouter.post(
             .eq('id', userId);
 
           if (deleteUserError) {
-            console.error('[ROLLBACK CRITICAL] Failed to delete orphaned user:', {
-              userId,
-              email: invitation.invited_email,
+            logger.error('API', '[ROLLBACK CRITICAL] Failed to delete orphaned user:', {
+              userId: userId.substring(0, 8) + '...' + userId.substring(userId.length - 4), // Redacted UUID
+              email: maskEmail(invitation.invited_email), // Redacted email (GDPR/CCPA compliance)
               error: deleteUserError.message,
               impact: 'Orphaned user exists - manual cleanup required'
             });
@@ -610,19 +610,21 @@ collaboratorsRouter.post(
         }
 
         // Log cleanup instructions server-side only (SECURITY: never expose SQL to client)
+        // PII REDACTION: Mask sensitive data in logs for GDPR/CCPA compliance
         if (rollbackErrors.length > 0) {
-          console.error('[MANUAL CLEANUP REQUIRED]', {
+          logger.error('API', '[MANUAL CLEANUP REQUIRED]', {
             invitationId: invitation.id,
-            userId,
-            email: invitation.invited_email,
+            userId: userId.substring(0, 8) + '...' + userId.substring(userId.length - 4), // Redacted UUID
+            email: maskEmail(invitation.invited_email), // Redacted email
             failedRollbacks: rollbackErrors,
-            cleanupSQL: {
+            cleanupInstructions: {
               invitation: rollbackErrors.includes('invitation')
-                ? `UPDATE collaborator_invitations SET used = false, used_at = null, used_by_user_id = null WHERE id = '${invitation.id}'`
+                ? 'UPDATE collaborator_invitations SET used = false, used_at = null, used_by_user_id = null WHERE id = ?'
                 : null,
               user: rollbackErrors.includes('user')
-                ? `DELETE FROM users WHERE id = '${userId}' AND email = '${invitation.invited_email}'`
-                : null
+                ? 'DELETE FROM users WHERE id = ? AND email = ?'
+                : null,
+              note: 'Use invitation ID and user ID from this log entry to execute cleanup'
             }
           });
         }

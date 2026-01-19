@@ -86,13 +86,13 @@ export function ShopifyDiagnostics() {
             setWebhooks(webhooksData.webhooks || []);
           }
         } catch (err) {
-          console.error('Error loading webhooks:', err);
+          logger.error('Error loading webhooks:', err);
         }
       } else {
         setIntegration(null);
       }
     } catch (error) {
-      console.error('Error loading diagnostics:', error);
+      logger.error('Error loading diagnostics:', error);
       toast({
         title: 'Error al cargar diagnósticos',
         description: 'No se pudo cargar la información de diagnóstico',

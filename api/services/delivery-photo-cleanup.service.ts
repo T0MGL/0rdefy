@@ -18,7 +18,7 @@ function extractStoragePath(url: string): string | null {
     const match = url.match(/delivery-photos\/(.+)$/);
     return match ? match[1] : null;
   } catch (error) {
-    console.error('Error extracting storage path:', error);
+    logger.error('BACKEND', 'Error extracting storage path:', error);
     return null;
   }
 }
@@ -39,7 +39,7 @@ export async function cleanupOldDeliveryPhotos(): Promise<{
   };
 
   try {
-    console.log('🧹 [CLEANUP] Starting delivery photos cleanup...');
+    logger.info('BACKEND', '🧹 [CLEANUP] Starting delivery photos cleanup...');
 
     // 1. Buscar delivery_attempts con fotos de más de 1 día
     const { data: oldAttempts, error: queryError } = await supabaseAdmin
@@ -49,23 +49,23 @@ export async function cleanupOldDeliveryPhotos(): Promise<{
       .lt('actual_date', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
 
     if (queryError) {
-      console.error('❌ [CLEANUP] Error querying old attempts:', queryError);
+      logger.error('BACKEND', '❌ [CLEANUP] Error querying old attempts:', queryError);
       throw queryError;
     }
 
     if (!oldAttempts || oldAttempts.length === 0) {
-      console.log('✅ [CLEANUP] No old photos found');
+      logger.info('BACKEND', '✅ [CLEANUP] No old photos found');
       return result;
     }
 
-    console.log(`📋 [CLEANUP] Found ${oldAttempts.length} old photos to delete`);
+    logger.info('BACKEND', `📋 [CLEANUP] Found ${oldAttempts.length} old photos to delete`);
 
     // 2. Eliminar cada foto del bucket
     for (const attempt of oldAttempts) {
       const path = extractStoragePath(attempt.photo_url);
 
       if (!path) {
-        console.warn(`⚠️ [CLEANUP] Could not extract path from: ${attempt.photo_url}`);
+        logger.warn('BACKEND', `⚠️ [CLEANUP] Could not extract path from: ${attempt.photo_url}`);
         result.errors++;
         result.details.push(`Invalid URL: ${attempt.id}`);
         continue;
@@ -77,7 +77,7 @@ export async function cleanupOldDeliveryPhotos(): Promise<{
         .remove([path]);
 
       if (deleteError) {
-        console.error(`❌ [CLEANUP] Error deleting file ${path}:`, deleteError);
+        logger.error('BACKEND', `❌ [CLEANUP] Error deleting file ${path}:`, deleteError);
         result.errors++;
         result.details.push(`Delete failed: ${attempt.id} - ${deleteError.message}`);
         continue;
@@ -90,7 +90,7 @@ export async function cleanupOldDeliveryPhotos(): Promise<{
         .eq('id', attempt.id);
 
       if (updateError) {
-        console.error(`❌ [CLEANUP] Error updating record ${attempt.id}:`, updateError);
+        logger.error('BACKEND', `❌ [CLEANUP] Error updating record ${attempt.id}:`, updateError);
         result.errors++;
         result.details.push(`Update failed: ${attempt.id} - ${updateError.message}`);
         continue;
@@ -98,14 +98,14 @@ export async function cleanupOldDeliveryPhotos(): Promise<{
 
       result.deleted++;
       result.details.push(`Deleted: ${path}`);
-      console.log(`✅ [CLEANUP] Deleted photo: ${path}`);
+      logger.info('BACKEND', `✅ [CLEANUP] Deleted photo: ${path}`);
     }
 
-    console.log(`🎉 [CLEANUP] Cleanup complete: ${result.deleted} deleted, ${result.errors} errors`);
+    logger.info('BACKEND', `🎉 [CLEANUP] Cleanup complete: ${result.deleted} deleted, ${result.errors} errors`);
 
     return result;
   } catch (error: any) {
-    console.error('💥 [CLEANUP] Unexpected error:', error);
+    logger.error('BACKEND', '💥 [CLEANUP] Unexpected error:', error);
     throw error;
   }
 }
@@ -131,7 +131,7 @@ export async function uploadDeliveryPhoto(
     const fileName = `${orderId}-${timestamp}.${extension}`;
     const filePath = `${storeId}/${fileName}`;
 
-    console.log(`📤 [UPLOAD] Uploading photo: ${filePath}`);
+    logger.info('BACKEND', `📤 [UPLOAD] Uploading photo: ${filePath}`);
 
     // Subir archivo al bucket
     const { data, error } = await supabaseAdmin.storage
@@ -142,7 +142,7 @@ export async function uploadDeliveryPhoto(
       });
 
     if (error) {
-      console.error('❌ [UPLOAD] Error uploading photo:', error);
+      logger.error('BACKEND', '❌ [UPLOAD] Error uploading photo:', error);
       throw error;
     }
 
@@ -151,11 +151,11 @@ export async function uploadDeliveryPhoto(
       .from('delivery-photos')
       .getPublicUrl(filePath);
 
-    console.log(`✅ [UPLOAD] Photo uploaded: ${urlData.publicUrl}`);
+    logger.info('BACKEND', `✅ [UPLOAD] Photo uploaded: ${urlData.publicUrl}`);
 
     return urlData.publicUrl;
   } catch (error: any) {
-    console.error('💥 [UPLOAD] Unexpected error:', error);
+    logger.error('BACKEND', '💥 [UPLOAD] Unexpected error:', error);
     throw error;
   }
 }

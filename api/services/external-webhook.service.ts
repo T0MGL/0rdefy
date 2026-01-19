@@ -128,13 +128,13 @@ export class ExternalWebhookService {
         .single();
 
       if (error || !data) {
-        console.log(`❌ [ExternalWebhook] Invalid API key for store ${storeId}`);
+        logger.info('BACKEND', `❌ [ExternalWebhook] Invalid API key for store ${storeId}`);
         return null;
       }
 
       return data as WebhookConfig;
     } catch (error) {
-      console.error('❌ [ExternalWebhook] Error validating API key:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error validating API key:', error);
       return null;
     }
   }
@@ -202,7 +202,7 @@ export class ExternalWebhookService {
           expires_at: expiresAt.toISOString()
         });
     } catch (error) {
-      console.error('❌ [ExternalWebhook] Error recording idempotency:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error recording idempotency:', error);
     }
   }
 
@@ -299,7 +299,7 @@ export class ExternalWebhookService {
           .single();
 
         if (byEmail) {
-          console.log(`✅ [ExternalWebhook] Found existing customer by email: ${customerData.email}`);
+          logger.info('BACKEND', `✅ [ExternalWebhook] Found existing customer by email: ${customerData.email}`);
           return { customerId: byEmail.id, isNew: false };
         }
       }
@@ -315,7 +315,7 @@ export class ExternalWebhookService {
           .single();
 
         if (byPhone) {
-          console.log(`✅ [ExternalWebhook] Found existing customer by phone: ${normalizedPhone}`);
+          logger.info('BACKEND', `✅ [ExternalWebhook] Found existing customer by phone: ${normalizedPhone}`);
           return { customerId: byPhone.id, isNew: false };
         }
       }
@@ -342,14 +342,14 @@ export class ExternalWebhookService {
         .single();
 
       if (error) {
-        console.error('❌ [ExternalWebhook] Error creating customer:', error);
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error creating customer:', error);
         throw new Error(`Error al crear cliente: ${error.message}`);
       }
 
-      console.log(`✅ [ExternalWebhook] Created new customer: ${created.id}`);
+      logger.info('BACKEND', `✅ [ExternalWebhook] Created new customer: ${created.id}`);
       return { customerId: created.id, isNew: true };
     } catch (error) {
-      console.error('❌ [ExternalWebhook] Error in findOrCreateCustomer:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error in findOrCreateCustomer:', error);
       throw error;
     }
   }
@@ -426,7 +426,7 @@ export class ExternalWebhookService {
       // 3. Verificar idempotency
       const idempotencyCheck = await this.checkIdempotency(config.id, idempotencyKey);
       if (idempotencyCheck.isDuplicate) {
-        console.log(`⚠️ [ExternalWebhook] Duplicate order detected: ${idempotencyKey}`);
+        logger.info('BACKEND', `⚠️ [ExternalWebhook] Duplicate order detected: ${idempotencyKey}`);
 
         // Actualizar log
         if (logId) {
@@ -443,7 +443,7 @@ export class ExternalWebhookService {
       // 4. Validar payload
       const validation = this.validatePayload(payload);
       if (!validation.valid) {
-        console.log(`❌ [ExternalWebhook] Validation failed:`, validation.errors);
+        logger.info('BACKEND', `❌ [ExternalWebhook] Validation failed:`, validation.errors);
 
         // Actualizar log
         if (logId) {
@@ -542,7 +542,7 @@ export class ExternalWebhookService {
         .single();
 
       if (orderError) {
-        console.error('❌ [ExternalWebhook] Error creating order:', orderError);
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error creating order:', orderError);
 
         // Actualizar log
         if (logId) {
@@ -571,7 +571,7 @@ export class ExternalWebhookService {
           .eq('id', logId);
       }
 
-      console.log(`✅ [ExternalWebhook] Order created successfully: ${order.order_number} (${order.id})`);
+      logger.info('BACKEND', `✅ [ExternalWebhook] Order created successfully: ${order.order_number} (${order.id})`);
 
       return {
         success: true,
@@ -581,7 +581,7 @@ export class ExternalWebhookService {
       };
 
     } catch (error: any) {
-      console.error('❌ [ExternalWebhook] Error processing order:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error processing order:', error);
 
       // Actualizar log con error
       if (logId) {
@@ -616,7 +616,7 @@ export class ExternalWebhookService {
         })
         .eq('id', logId);
     } catch (error) {
-      console.error('❌ [ExternalWebhook] Error updating log status:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error updating log status:', error);
     }
   }
 
@@ -641,7 +641,7 @@ export class ExternalWebhookService {
 
       return data as WebhookConfig;
     } catch (error) {
-      console.error('❌ [ExternalWebhook] Error getting config:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error getting config:', error);
       return null;
     }
   }
@@ -682,14 +682,14 @@ export class ExternalWebhookService {
         .single();
 
       if (error) {
-        console.error('❌ [ExternalWebhook] Error creating config:', error);
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error creating config:', error);
         return { error: `Error al crear configuración de webhook: ${error.message}` };
       }
 
-      console.log(`✅ [ExternalWebhook] Created webhook config for store ${storeId}`);
+      logger.info('BACKEND', `✅ [ExternalWebhook] Created webhook config for store ${storeId}`);
       return { config: data as WebhookConfig, apiKey };
     } catch (error: any) {
-      console.error('❌ [ExternalWebhook] Error creating config:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error creating config:', error);
       return { error: error.message || 'Unknown error' };
     }
   }
@@ -714,7 +714,7 @@ export class ExternalWebhookService {
         return { error: `Error al regenerar clave API: ${error.message}` };
       }
 
-      console.log(`✅ [ExternalWebhook] Regenerated API key for store ${storeId}`);
+      logger.info('BACKEND', `✅ [ExternalWebhook] Regenerated API key for store ${storeId}`);
       return { apiKey };
     } catch (error: any) {
       return { error: error.message || 'Unknown error' };
@@ -738,7 +738,7 @@ export class ExternalWebhookService {
         return { success: false, error: error.message };
       }
 
-      console.log(`✅ [ExternalWebhook] Disabled webhook for store ${storeId}`);
+      logger.info('BACKEND', `✅ [ExternalWebhook] Disabled webhook for store ${storeId}`);
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -759,7 +759,7 @@ export class ExternalWebhookService {
         return { success: false, error: error.message };
       }
 
-      console.log(`✅ [ExternalWebhook] Deleted webhook config for store ${storeId}`);
+      logger.info('BACKEND', `✅ [ExternalWebhook] Deleted webhook config for store ${storeId}`);
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -796,7 +796,7 @@ export class ExternalWebhookService {
         .range(offset, offset + limit - 1);
 
       if (error) {
-        console.error('❌ [ExternalWebhook] Error getting logs:', error);
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error getting logs:', error);
         return { logs: [], total: 0, page, totalPages: 0 };
       }
 
@@ -810,7 +810,7 @@ export class ExternalWebhookService {
         totalPages
       };
     } catch (error) {
-      console.error('❌ [ExternalWebhook] Error getting logs:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error getting logs:', error);
       return { logs: [], total: 0, page, totalPages: 0 };
     }
   }
@@ -833,7 +833,7 @@ export class ExternalWebhookService {
 
       return data as WebhookLog;
     } catch (error) {
-      console.error('❌ [ExternalWebhook] Error getting log:', error);
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error getting log:', error);
       return null;
     }
   }

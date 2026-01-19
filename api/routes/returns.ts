@@ -40,7 +40,7 @@ router.get('/eligible-orders', async (req, res) => {
     const orders = await returnsService.getEligibleOrders(storeId);
     res.json(orders);
   } catch (error) {
-    console.error('Error fetching eligible orders:', error);
+    logger.error('API', 'Error fetching eligible orders:', error);
     res.status(500).json({
       error: 'Error al obtener pedidos elegibles',
       details: error.message,
@@ -62,7 +62,7 @@ router.get('/sessions', async (req, res) => {
     const sessions = await returnsService.getReturnSessions(storeId);
     res.json(sessions);
   } catch (error) {
-    console.error('Error fetching return sessions:', error);
+    logger.error('API', 'Error fetching return sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones de devolución',
       details: error.message,
@@ -87,13 +87,13 @@ router.get('/sessions/:id', async (req, res) => {
 
     // SECURITY: Verify session belongs to the authenticated user's store
     if (session.store_id !== storeId) {
-      console.warn(`[Returns] Unauthorized access attempt: user from store ${storeId} tried to access session from store ${session.store_id}`);
+      logger.warn('API', `[Returns] Unauthorized access attempt: user from store ${storeId} tried to access session from store ${session.store_id}`);
       return res.status(404).json({ error: 'Sesión de devolución no encontrada' });
     }
 
     res.json(session);
   } catch (error) {
-    console.error('Error fetching return session:', error);
+    logger.error('API', 'Error fetching return session:', error);
     res.status(500).json({
       error: 'Error al obtener sesión de devolución',
       details: error.message,
@@ -138,7 +138,7 @@ router.post('/sessions', async (req, res) => {
 
     res.status(201).json(session);
   } catch (error) {
-    console.error('Error creating return session:', error);
+    logger.error('API', 'Error creating return session:', error);
     res.status(500).json({
       error: 'Error al crear sesión de devolución',
       details: error.message,
@@ -180,7 +180,7 @@ router.patch('/items/:id', async (req, res) => {
     const item = await returnsService.updateReturnItem(id, updates, storeId);
     res.json(item);
   } catch (error) {
-    console.error('Error updating return item:', error);
+    logger.error('API', 'Error updating return item:', error);
     res.status(500).json({
       error: 'Error al actualizar ítem de devolución',
       details: error.message,
@@ -204,14 +204,14 @@ router.post('/sessions/:id/complete', async (req, res) => {
     // SECURITY: Verify session belongs to this store before completing
     const session = await returnsService.getReturnSession(id);
     if (session.store_id !== storeId) {
-      console.warn(`[Returns] Unauthorized complete attempt: store ${storeId} tried to complete session from store ${session.store_id}`);
+      logger.warn('API', `[Returns] Unauthorized complete attempt: store ${storeId} tried to complete session from store ${session.store_id}`);
       return res.status(404).json({ error: 'Sesión de devolución no encontrada' });
     }
 
     const result = await returnsService.completeReturnSession(id);
     res.json(result);
   } catch (error) {
-    console.error('Error completing return session:', error);
+    logger.error('API', 'Error completing return session:', error);
     res.status(500).json({
       error: 'Error al completar sesión de devolución',
       details: error.message,
@@ -235,14 +235,14 @@ router.post('/sessions/:id/cancel', async (req, res) => {
     // SECURITY: Verify session belongs to this store before cancelling
     const session = await returnsService.getReturnSession(id);
     if (session.store_id !== storeId) {
-      console.warn(`[Returns] Unauthorized cancel attempt: store ${storeId} tried to cancel session from store ${session.store_id}`);
+      logger.warn('API', `[Returns] Unauthorized cancel attempt: store ${storeId} tried to cancel session from store ${session.store_id}`);
       return res.status(404).json({ error: 'Sesión de devolución no encontrada' });
     }
 
     await returnsService.cancelReturnSession(id);
     res.json({ message: 'Sesión de devolución cancelada exitosamente' });
   } catch (error) {
-    console.error('Error cancelling return session:', error);
+    logger.error('API', 'Error cancelling return session:', error);
     res.status(500).json({
       error: 'Error al cancelar sesión de devolución',
       details: error.message,
@@ -264,7 +264,7 @@ router.get('/stats', async (req, res) => {
     const stats = await returnsService.getReturnStats(storeId);
     res.json(stats);
   } catch (error) {
-    console.error('Error fetching return stats:', error);
+    logger.error('API', 'Error fetching return stats:', error);
     res.status(500).json({
       error: 'Error al obtener estadísticas de devoluciones',
       details: error.message,

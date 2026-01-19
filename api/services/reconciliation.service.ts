@@ -36,7 +36,7 @@ export class ReconciliationService {
     errors: string[];
   }> {
     const startTime = Date.now();
-    console.log('🔄 [RECONCILIATION] Starting full reconciliation...');
+    logger.info('BACKEND', '🔄 [RECONCILIATION] Starting full reconciliation...');
 
     const results = {
       success: true,
@@ -57,16 +57,16 @@ export class ReconciliationService {
       if (error) throw error;
 
       if (!integrations || integrations.length === 0) {
-        console.log('ℹ️ [RECONCILIATION] No active integrations found');
+        logger.info('BACKEND', 'ℹ️ [RECONCILIATION] No active integrations found');
         return results;
       }
 
-      console.log(`📊 [RECONCILIATION] Found ${integrations.length} active integrations`);
+      logger.info('BACKEND', `📊 [RECONCILIATION] Found ${integrations.length} active integrations`);
 
       // Procesar cada integración
       for (const integration of integrations) {
         try {
-          console.log(`\n🔄 [RECONCILIATION] Processing integration: ${integration.shop_domain}`);
+          logger.info('BACKEND', `\n🔄 [RECONCILIATION] Processing integration: ${integration.shop_domain}`);
 
           // Reconciliar órdenes (más crítico)
           const orderResults = await this.reconcileOrders(integration);
@@ -83,20 +83,20 @@ export class ReconciliationService {
           results.integrations_processed++;
 
         } catch (error: any) {
-          console.error(`❌ [RECONCILIATION] Error processing ${integration.shop_domain}:`, error);
+          logger.error('BACKEND', `❌ [RECONCILIATION] Error processing ${integration.shop_domain}:`, error);
           results.errors.push(`${integration.shop_domain}: ${error.message}`);
           results.success = false;
         }
       }
 
       const duration = Date.now() - startTime;
-      console.log('\n✅ [RECONCILIATION] Completed reconciliation in', duration, 'ms');
-      console.log('📊 [RECONCILIATION] Results:', results);
+      logger.info('BACKEND', '\n✅ [RECONCILIATION] Completed reconciliation in', duration, 'ms');
+      logger.info('BACKEND', '📊 [RECONCILIATION] Results:', results);
 
       return results;
 
     } catch (error: any) {
-      console.error('❌ [RECONCILIATION] Fatal error:', error);
+      logger.error('BACKEND', '❌ [RECONCILIATION] Fatal error:', error);
       results.success = false;
       results.errors.push(error.message);
       return results;
@@ -125,7 +125,7 @@ export class ReconciliationService {
       const sinceId = lastOrder?.shopify_order_id || null;
       const createdAtMin = lastOrder?.created_at || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // últimas 24 horas por defecto
 
-      console.log(`📥 [RECONCILIATION] Fetching orders since: ${createdAtMin}`);
+      logger.info('BACKEND', `📥 [RECONCILIATION] Fetching orders since: ${createdAtMin}`);
 
       const { orders } = await shopifyClient.getOrders({
         limit: 50, // Fetch max 50 orders per reconciliation
@@ -146,7 +146,7 @@ export class ReconciliationService {
 
         if (!existingOrder) {
           // Orden no existe - crear usando el webhook service
-          console.log(`➕ [RECONCILIATION] Syncing missing order: ${order.order_number}`);
+          logger.info('BACKEND', `➕ [RECONCILIATION] Syncing missing order: ${order.order_number}`);
 
           const result = await webhookService.processOrderCreatedWebhook(
             order,
@@ -157,16 +157,16 @@ export class ReconciliationService {
           if (result.success) {
             synced++;
           } else {
-            console.error(`❌ [RECONCILIATION] Error al sincronizar pedido ${order.order_number}:`, result.error);
+            logger.error('BACKEND', `❌ [RECONCILIATION] Error al sincronizar pedido ${order.order_number}:`, result.error);
           }
         }
       }
 
-      console.log(`✅ [RECONCILIATION] Synced ${synced} orders for ${integration.shop_domain}`);
+      logger.info('BACKEND', `✅ [RECONCILIATION] Synced ${synced} orders for ${integration.shop_domain}`);
       return { synced };
 
     } catch (error: any) {
-      console.error(`❌ [RECONCILIATION] Error reconciling orders:`, error);
+      logger.error('BACKEND', `❌ [RECONCILIATION] Error reconciling orders:`, error);
       return { synced: 0 };
     }
   }
@@ -192,7 +192,7 @@ export class ReconciliationService {
         return { synced: 0 };
       }
 
-      console.log(`📦 [RECONCILIATION] Found ${staleProducts.length} stale products`);
+      logger.info('BACKEND', `📦 [RECONCILIATION] Found ${staleProducts.length} stale products`);
 
       let synced = 0;
 
@@ -213,15 +213,15 @@ export class ReconciliationService {
           }
 
         } catch (error: any) {
-          console.error(`❌ [RECONCILIATION] Error syncing product ${product.shopify_product_id}:`, error);
+          logger.error('BACKEND', `❌ [RECONCILIATION] Error syncing product ${product.shopify_product_id}:`, error);
         }
       }
 
-      console.log(`✅ [RECONCILIATION] Synced ${synced} products for ${integration.shop_domain}`);
+      logger.info('BACKEND', `✅ [RECONCILIATION] Synced ${synced} products for ${integration.shop_domain}`);
       return { synced };
 
     } catch (error: any) {
-      console.error(`❌ [RECONCILIATION] Error reconciling products:`, error);
+      logger.error('BACKEND', `❌ [RECONCILIATION] Error reconciling products:`, error);
       return { synced: 0 };
     }
   }
@@ -235,7 +235,7 @@ export class ReconciliationService {
       // En el futuro se puede implementar lógica similar a productos
       return { synced: 0 };
     } catch (error: any) {
-      console.error(`❌ [RECONCILIATION] Error reconciling customers:`, error);
+      logger.error('BACKEND', `❌ [RECONCILIATION] Error reconciling customers:`, error);
       return { synced: 0 };
     }
   }
@@ -282,8 +282,8 @@ export class ReconciliationService {
       }
 
       if (gaps.length > 0) {
-        console.warn(`⚠️ [RECONCILIATION] Detected ${gaps.length} gaps in order sequence for ${integration.shop_domain}`);
-        console.warn('⚠️ [RECONCILIATION] Gaps:', gaps);
+        logger.warn('BACKEND', `⚠️ [RECONCILIATION] Detected ${gaps.length} gaps in order sequence for ${integration.shop_domain}`);
+        logger.warn('BACKEND', '⚠️ [RECONCILIATION] Gaps:', gaps);
       }
 
       return {
@@ -292,7 +292,7 @@ export class ReconciliationService {
       };
 
     } catch (error: any) {
-      console.error(`❌ [RECONCILIATION] Error detecting gaps:`, error);
+      logger.error('BACKEND', `❌ [RECONCILIATION] Error detecting gaps:`, error);
       return { has_gaps: false, gaps: [] };
     }
   }

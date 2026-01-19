@@ -57,7 +57,7 @@ export function RecommendedActions() {
         setCarriers(carriersData);
         setOverview(overviewData);
       } catch (error) {
-        console.error('Error loading recommendation data:', error);
+        logger.error('Error loading recommendation data:', error);
       } finally {
         setIsLoading(false);
       }

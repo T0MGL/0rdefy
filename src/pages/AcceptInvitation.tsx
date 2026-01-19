@@ -89,7 +89,7 @@ export default function AcceptInvitation() {
         setShowSessionWarning(true);
       } catch (e) {
         // Invalid user data, clear it
-        console.warn('Invalid session data found, will be cleared on accept');
+        logger.warn('Invalid session data found, will be cleared on accept');
       }
     }
   };
@@ -126,7 +126,7 @@ export default function AcceptInvitation() {
         setInvitation(data.invitation);
       }
     } catch (err) {
-      console.error('Error validating token:', err);
+      logger.error('Error validating token:', err);
       setError('Error al validar la invitación');
     } finally {
       setLoading(false);
@@ -182,7 +182,7 @@ export default function AcceptInvitation() {
       // Redirect to dashboard with full page reload to initialize auth context
       window.location.href = '/';
     } catch (err: any) {
-      console.error('Error accepting invitation:', err);
+      logger.error('Error accepting invitation:', err);
       setError(err.message || 'Error al aceptar la invitación');
     } finally {
       setAccepting(false);

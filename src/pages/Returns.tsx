@@ -76,7 +76,7 @@ export default function Returns() {
       setSessions(sessionsData);
       setReturnsMetrics(metricsData);
     } catch (error) {
-      console.error('Error loading sessions:', error);
+      logger.error('Error loading sessions:', error);
       toast({
         title: 'Error',
         description: 'No se pudieron cargar las sesiones de devoluciones',
@@ -102,17 +102,23 @@ export default function Returns() {
       const activeSessionOrders = new Set<string>();
       const activeSessions = inProgressSessions.filter(s => s.status === 'in_progress');
 
-      for (const session of activeSessions) {
-        // Fetch session details to get order IDs
-        const sessionDetail = await returnsService.getReturnSession(session.id);
-        sessionDetail.orders.forEach((order: any) => {
-          activeSessionOrders.add(order.order_id);
+      // Fetch all session details in parallel instead of sequentially
+      const sessionDetails = await Promise.all(
+        activeSessions.map(session => returnsService.getReturnSession(session.id))
+      );
+
+      // Process all session orders with null safety
+      sessionDetails.forEach(sessionDetail => {
+        sessionDetail?.orders?.forEach((order: any) => {
+          if (order?.order_id) {
+            activeSessionOrders.add(order.order_id);
+          }
         });
-      }
+      });
 
       setOrdersInActiveSessions(activeSessionOrders);
     } catch (error) {
-      console.error('Error loading eligible orders:', error);
+      logger.error('Error loading eligible orders:', error);
       toast({
         title: 'Error',
         description: 'No se pudieron cargar los pedidos elegibles',
@@ -137,7 +143,7 @@ export default function Returns() {
       setAcceptedItems(accepted);
       setRejectedItems(rejected);
     } catch (error) {
-      console.error('Error loading session:', error);
+      logger.error('Error loading session:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cargar la sesión',
@@ -212,7 +218,7 @@ export default function Returns() {
       setSelectedOrders(new Set());
       setSessionNotes('');
     } catch (error: any) {
-      console.error('Error creating session:', error);
+      logger.error('Error creating session:', error);
       const errorMessage = error?.message || 'No se pudo crear la sesión';
       toast({
         title: 'Error',
@@ -263,7 +269,7 @@ export default function Returns() {
         await loadSession(currentSession.id);
       }
     } catch (error) {
-      console.error('Error updating item:', error);
+      logger.error('Error updating item:', error);
 
       // Revert optimistic update on error
       setItems(previousItems);
@@ -311,7 +317,7 @@ export default function Returns() {
       setAcceptedItems([]);
       setRejectedItems([]);
     } catch (error) {
-      console.error('Error completing session:', error);
+      logger.error('Error completing session:', error);
       toast({
         title: 'Error',
         description: 'No se pudo completar la sesión',
@@ -340,7 +346,7 @@ export default function Returns() {
       setView('sessions');
       setCurrentSession(null);
     } catch (error) {
-      console.error('Error cancelling session:', error);
+      logger.error('Error cancelling session:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cancelar la sesión',

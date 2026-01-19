@@ -6,6 +6,7 @@ import { requireFeature } from '../middleware/planLimits';
 import { Module } from '../permissions';
 import * as settlementsService from '../services/settlements.service';
 import { getTodayInTimezone } from '../utils/dateUtils';
+import { logger } from '../utils/logger';
 
 export const settlementsRouter = Router();
 
@@ -27,7 +28,7 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const { date, carrier_id, status, limit = '50', offset = '0' } = req.query;
 
-    console.log('💰 [SETTLEMENTS] Fetching settlements:', {
+    logger.info('SETTLEMENTS', 'Fetching settlements', {
       store_id: req.storeId,
       date,
       carrier_id,
@@ -64,7 +65,7 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
     const { data, error, count } = await query;
 
     if (error) {
-      console.error('❌ [SETTLEMENTS] Error:', error);
+      logger.error('SETTLEMENTS', 'Error fetching settlements', error);
       return res.status(500).json({ error: 'Error al obtener liquidaciones' });
     }
 
@@ -78,7 +79,7 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Unexpected error:', error);
+    logger.error('SETTLEMENTS', 'Unexpected error', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -91,7 +92,7 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
     const { carrier_id } = req.query;
     const today = getTodayInTimezone();
 
-    console.log('📅 [SETTLEMENTS] Fetching today settlement:', { today, carrier_id });
+    logger.info('SETTLEMENTS', 'Fetching today settlement', { today, carrier_id });
 
     let query = supabaseAdmin
       .from('daily_settlements')
@@ -110,7 +111,7 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
     const { data, error } = await query;
 
     if (error) {
-      console.error('❌ [SETTLEMENTS] Error:', error);
+      logger.error('❌ [SETTLEMENTS] Error:', error);
       return res.status(500).json({ error: 'Error al obtener liquidación de hoy' });
     }
 
@@ -124,7 +125,7 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
       .lt('updated_at', new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0]);
 
     if (ordersError) {
-      console.error('⚠️ [SETTLEMENTS] Error fetching orders:', ordersError);
+      logger.error('⚠️ [SETTLEMENTS] Error fetching orders:', ordersError);
     }
 
     res.json({
@@ -133,7 +134,7 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
       expected_cash: deliveredOrders?.reduce((sum, o) => sum + Number(o.total_price || 0), 0) || 0
     });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -158,7 +159,7 @@ settlementsRouter.get('/orders-to-dispatch', async (req: AuthRequest, res: Respo
 
     res.json(result);
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error fetching orders to dispatch:', error);
+    logger.error('❌ [DISPATCH] Error fetching orders to dispatch:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -182,7 +183,7 @@ settlementsRouter.get('/dispatch-sessions', async (req: AuthRequest, res: Respon
 
     res.json(result);
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error fetching dispatch sessions:', error);
+    logger.error('❌ [DISPATCH] Error fetching dispatch sessions:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -197,7 +198,7 @@ settlementsRouter.get('/dispatch-sessions/:id', async (req: AuthRequest, res: Re
     const session = await settlementsService.getDispatchSessionById(id, req.storeId!);
     res.json(session);
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error fetching dispatch session:', error);
+    logger.error('❌ [DISPATCH] Error fetching dispatch session:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -217,7 +218,7 @@ settlementsRouter.post('/dispatch-sessions', async (req: AuthRequest, res: Respo
       return res.status(400).json({ error: 'Se requiere el array de order_ids' });
     }
 
-    console.log('📦 [DISPATCH] Creating dispatch session:', {
+    logger.info('DISPATCH', 'Creating dispatch session', {
       carrier_id,
       order_count: order_ids.length
     });
@@ -229,11 +230,11 @@ settlementsRouter.post('/dispatch-sessions', async (req: AuthRequest, res: Respo
       req.userId!
     );
 
-    console.log('✅ [DISPATCH] Session created:', session.session_code);
+    logger.info('DISPATCH', 'Session created', { session_code: session.session_code });
 
     res.status(201).json(session);
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error creating dispatch session:', error);
+    logger.error('❌ [DISPATCH] Error creating dispatch session:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -262,7 +263,7 @@ settlementsRouter.get('/dispatch-sessions/:id/export', async (req: AuthRequest, 
       res.send(excelBuffer);
     }
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error exporting:', error);
+    logger.error('❌ [DISPATCH] Error exporting:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -280,15 +281,15 @@ settlementsRouter.post('/dispatch-sessions/:id/import', async (req: AuthRequest,
       return res.status(400).json({ error: 'Se requiere el array de resultados' });
     }
 
-    console.log('📥 [DISPATCH] Importing results for session:', id, 'rows:', results.length);
+    logger.info('DISPATCH', 'Importing results for session', { id, rows: results.length });
 
     const importResult = await settlementsService.importDispatchResults(id, req.storeId!, results);
 
-    console.log('✅ [DISPATCH] Import complete:', importResult);
+    logger.info('DISPATCH', 'Import complete', importResult);
 
     res.json(importResult);
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error importing results:', error);
+    logger.error('❌ [DISPATCH] Error importing results:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -301,15 +302,15 @@ settlementsRouter.post('/dispatch-sessions/:id/process', async (req: AuthRequest
   try {
     const { id } = req.params;
 
-    console.log('💰 [DISPATCH] Processing settlement for session:', id);
+    logger.info('DISPATCH', 'Processing settlement for session', { id });
 
     const settlement = await settlementsService.processSettlement(id, req.storeId!, req.userId!);
 
-    console.log('✅ [DISPATCH] Settlement created:', settlement.settlement_code);
+    logger.info('DISPATCH', 'Settlement created', { settlement_code: settlement.settlement_code });
 
     res.status(201).json(settlement);
   } catch (error: any) {
-    console.error('❌ [DISPATCH] Error processing settlement:', error);
+    logger.error('❌ [DISPATCH] Error processing settlement:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -337,7 +338,7 @@ settlementsRouter.get('/v2', async (req: AuthRequest, res: Response) => {
 
     res.json(result);
   } catch (error: any) {
-    console.error('❌ [SETTLEMENTS V2] Error:', error);
+    logger.error('❌ [SETTLEMENTS V2] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -352,7 +353,7 @@ settlementsRouter.get('/v2/:id', async (req: AuthRequest, res: Response) => {
     const settlement = await settlementsService.getSettlementById(id, req.storeId!);
     res.json(settlement);
   } catch (error: any) {
-    console.error('❌ [SETTLEMENTS V2] Error:', error);
+    logger.error('❌ [SETTLEMENTS V2] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -380,11 +381,11 @@ settlementsRouter.post('/v2/:id/pay', async (req: AuthRequest, res: Response) =>
       notes
     });
 
-    console.log('✅ [SETTLEMENTS V2] Payment recorded:', id, amount);
+    logger.info('SETTLEMENTS', 'Payment recorded', { id, amount });
 
     res.json(settlement);
   } catch (error: any) {
-    console.error('❌ [SETTLEMENTS V2] Error:', error);
+    logger.error('❌ [SETTLEMENTS V2] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -408,7 +409,7 @@ settlementsRouter.get('/zones', async (req: AuthRequest, res: Response) => {
 
     res.json(zones);
   } catch (error: any) {
-    console.error('❌ [ZONES] Error:', error);
+    logger.error('❌ [ZONES] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -438,11 +439,11 @@ settlementsRouter.post('/zones', async (req: AuthRequest, res: Response) => {
       is_active
     });
 
-    console.log('✅ [ZONES] Zone created/updated:', zone_name, rate);
+    logger.info('✅ [ZONES] Zone created/updated:', zone_name, rate);
 
     res.status(201).json(zone);
   } catch (error: any) {
-    console.error('❌ [ZONES] Error:', error);
+    logger.error('❌ [ZONES] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -462,15 +463,15 @@ settlementsRouter.post('/zones/bulk', async (req: AuthRequest, res: Response) =>
       return res.status(400).json({ error: 'Se requiere el array de zonas' });
     }
 
-    console.log('📥 [ZONES] Bulk importing zones for carrier:', carrier_id, 'count:', zones.length);
+    logger.info('📥 [ZONES] Bulk importing zones for carrier:', carrier_id, 'count:', zones.length);
 
     const result = await settlementsService.bulkUpsertCarrierZones(req.storeId!, carrier_id, zones);
 
-    console.log('✅ [ZONES] Bulk import complete:', result);
+    logger.info('✅ [ZONES] Bulk import complete:', result);
 
     res.json(result);
   } catch (error: any) {
-    console.error('❌ [ZONES] Bulk import error:', error);
+    logger.error('❌ [ZONES] Bulk import error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -485,11 +486,11 @@ settlementsRouter.delete('/zones/:id', async (req: AuthRequest, res: Response) =
 
     await settlementsService.deleteCarrierZone(id, req.storeId!);
 
-    console.log('🗑️ [ZONES] Zone deleted:', id);
+    logger.info('🗑️ [ZONES] Zone deleted:', id);
 
     res.json({ success: true });
   } catch (error: any) {
-    console.error('❌ [ZONES] Delete error:', error);
+    logger.error('❌ [ZONES] Delete error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -504,13 +505,13 @@ settlementsRouter.delete('/zones/:id', async (req: AuthRequest, res: Response) =
  */
 settlementsRouter.get('/shipped-orders-grouped', async (req: AuthRequest, res: Response) => {
   try {
-    console.log('📦 [SETTLEMENTS] Fetching shipped orders grouped by carrier/date');
+    logger.info('📦 [SETTLEMENTS] Fetching shipped orders grouped by carrier/date');
 
     const groups = await settlementsService.getShippedOrdersGrouped(req.storeId!);
 
     res.json({ data: groups });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error fetching grouped orders:', error);
+    logger.error('💥 [SETTLEMENTS] Error fetching grouped orders:', error);
     res.status(500).json({ error: error.message || 'Error interno del servidor' });
   }
 });
@@ -523,7 +524,7 @@ settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: R
   try {
     const { carrier_id, dispatch_date, orders, total_amount_collected, discrepancy_notes, confirm_discrepancy } = req.body;
 
-    console.log('📝 [SETTLEMENTS] Processing manual reconciliation:', {
+    logger.info('📝 [SETTLEMENTS] Processing manual reconciliation:', {
       carrier_id,
       dispatch_date,
       orders_count: orders?.length,
@@ -551,11 +552,11 @@ settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: R
       }
     );
 
-    console.log('✅ [SETTLEMENTS] Manual reconciliation completed:', settlement.settlement_code);
+    logger.info('✅ [SETTLEMENTS] Manual reconciliation completed:', settlement.settlement_code);
 
     res.json({ data: settlement });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error in manual reconciliation:', error);
+    logger.error('💥 [SETTLEMENTS] Error in manual reconciliation:', error);
     res.status(500).json({ error: error.message || 'Error interno del servidor' });
   }
 });
@@ -580,7 +581,7 @@ settlementsRouter.get('/summary/v2', async (req: AuthRequest, res: Response) => 
 
     res.json(summary);
   } catch (error: any) {
-    console.error('❌ [SETTLEMENTS] Summary error:', error);
+    logger.error('❌ [SETTLEMENTS] Summary error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -594,7 +595,7 @@ settlementsRouter.get('/pending-by-carrier', async (req: AuthRequest, res: Respo
     const pending = await settlementsService.getPendingByCarrier(req.storeId!);
     res.json(pending);
   } catch (error: any) {
-    console.error('❌ [SETTLEMENTS] Pending by carrier error:', error);
+    logger.error('❌ [SETTLEMENTS] Pending by carrier error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -607,7 +608,7 @@ settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
   try {
     const { start_date, end_date } = req.query;
 
-    console.log('📊 [SETTLEMENTS] Fetching stats');
+    logger.info('📊 [SETTLEMENTS] Fetching stats');
 
     let query = supabaseAdmin
       .from('daily_settlements')
@@ -625,7 +626,7 @@ settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
     const { data, error } = await query;
 
     if (error) {
-      console.error('❌ [SETTLEMENTS] Error:', error);
+      logger.error('❌ [SETTLEMENTS] Error:', error);
       return res.status(500).json({ error: 'Error al obtener estadísticas' });
     }
 
@@ -642,7 +643,7 @@ settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
 
     res.json(stats);
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -659,13 +660,13 @@ settlementsRouter.get('/stats/summary', async (req: AuthRequest, res: Response) 
 // ================================================================
 settlementsRouter.get('/carrier-accounts', async (req: AuthRequest, res: Response) => {
   try {
-    console.log('💰 [CARRIER ACCOUNTS] Fetching balances for store:', req.storeId);
+    logger.info('💰 [CARRIER ACCOUNTS] Fetching balances for store:', req.storeId);
 
     const balances = await settlementsService.getCarrierBalances(req.storeId!);
 
     res.json({ data: balances });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al obtener balances de transportadoras' });
   }
 });
@@ -675,13 +676,13 @@ settlementsRouter.get('/carrier-accounts', async (req: AuthRequest, res: Respons
 // ================================================================
 settlementsRouter.get('/carrier-accounts/summary', async (req: AuthRequest, res: Response) => {
   try {
-    console.log('💰 [CARRIER ACCOUNTS] Fetching summary for store:', req.storeId);
+    logger.info('💰 [CARRIER ACCOUNTS] Fetching summary for store:', req.storeId);
 
     const summary = await settlementsService.getCarrierAccountSummary(req.storeId!);
 
     res.json({ data: summary });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al obtener resumen de cuenta' });
   }
 });
@@ -694,7 +695,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId', async (req: AuthRequest, r
     const { carrierId } = req.params;
     const { from_date, to_date } = req.query;
 
-    console.log('💰 [CARRIER ACCOUNTS] Fetching detail for carrier:', carrierId);
+    logger.info('💰 [CARRIER ACCOUNTS] Fetching detail for carrier:', carrierId);
 
     const [summary, config] = await Promise.all([
       settlementsService.getCarrierBalanceSummary(
@@ -711,7 +712,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId', async (req: AuthRequest, r
 
     res.json({ data: { ...summary, config } });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al obtener detalle de transportadora' });
   }
 });
@@ -724,7 +725,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId/movements', async (req: Auth
     const { carrierId } = req.params;
     const { from_date, to_date, movement_type, limit, offset } = req.query;
 
-    console.log('💰 [CARRIER ACCOUNTS] Fetching movements for carrier:', carrierId);
+    logger.info('💰 [CARRIER ACCOUNTS] Fetching movements for carrier:', carrierId);
 
     const result = await settlementsService.getCarrierMovements(
       req.storeId!,
@@ -740,7 +741,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId/movements', async (req: Auth
 
     res.json(result);
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al obtener movimientos' });
   }
 });
@@ -752,13 +753,13 @@ settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', async (req: Auth
   try {
     const { carrierId } = req.params;
 
-    console.log('💰 [CARRIER ACCOUNTS] Fetching unsettled for carrier:', carrierId);
+    logger.info('💰 [CARRIER ACCOUNTS] Fetching unsettled for carrier:', carrierId);
 
     const movements = await settlementsService.getUnsettledMovements(req.storeId!, carrierId);
 
     res.json({ data: movements });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al obtener movimientos pendientes' });
   }
 });
@@ -771,7 +772,7 @@ settlementsRouter.patch('/carrier-accounts/:carrierId/config', async (req: AuthR
     const { carrierId } = req.params;
     const { settlement_type, charges_failed_attempts, payment_schedule, failed_attempt_fee_percent } = req.body;
 
-    console.log('💰 [CARRIER ACCOUNTS] Updating config for carrier:', carrierId);
+    logger.info('💰 [CARRIER ACCOUNTS] Updating config for carrier:', carrierId);
 
     // Validate failed_attempt_fee_percent if provided
     if (failed_attempt_fee_percent !== undefined) {
@@ -790,7 +791,7 @@ settlementsRouter.patch('/carrier-accounts/:carrierId/config', async (req: AuthR
 
     res.json({ message: 'Configuración actualizada' });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al actualizar configuración' });
   }
 });
@@ -811,7 +812,7 @@ settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', async (req: Au
       return res.status(400).json({ error: 'type debe ser "credit" o "debit"' });
     }
 
-    console.log('💰 [CARRIER ACCOUNTS] Creating adjustment for carrier:', carrierId);
+    logger.info('💰 [CARRIER ACCOUNTS] Creating adjustment for carrier:', carrierId);
 
     const movement = await settlementsService.createAdjustmentMovement(
       req.storeId!,
@@ -824,7 +825,7 @@ settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', async (req: Au
 
     res.status(201).json({ data: movement });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al crear ajuste' });
   }
 });
@@ -857,7 +858,7 @@ settlementsRouter.post('/carrier-payments', async (req: AuthRequest, res: Respon
       });
     }
 
-    console.log('💰 [CARRIER PAYMENTS] Registering payment:', {
+    logger.info('💰 [CARRIER PAYMENTS] Registering payment:', {
       carrier_id,
       amount,
       direction,
@@ -878,11 +879,11 @@ settlementsRouter.post('/carrier-payments', async (req: AuthRequest, res: Respon
       }
     );
 
-    console.log('✅ [CARRIER PAYMENTS] Payment registered:', result.paymentCode);
+    logger.info('✅ [CARRIER PAYMENTS] Payment registered:', result.paymentCode);
 
     res.status(201).json({ data: result });
   } catch (error: any) {
-    console.error('💥 [CARRIER PAYMENTS] Error:', error);
+    logger.error('💥 [CARRIER PAYMENTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al registrar pago' });
   }
 });
@@ -894,7 +895,7 @@ settlementsRouter.get('/carrier-payments', async (req: AuthRequest, res: Respons
   try {
     const { carrier_id, from_date, to_date, status, limit, offset } = req.query;
 
-    console.log('💰 [CARRIER PAYMENTS] Fetching payments');
+    logger.info('💰 [CARRIER PAYMENTS] Fetching payments');
 
     const result = await settlementsService.getCarrierPayments(
       req.storeId!,
@@ -910,7 +911,7 @@ settlementsRouter.get('/carrier-payments', async (req: AuthRequest, res: Respons
 
     res.json(result);
   } catch (error: any) {
-    console.error('💥 [CARRIER PAYMENTS] Error:', error);
+    logger.error('💥 [CARRIER PAYMENTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al obtener pagos' });
   }
 });
@@ -920,18 +921,18 @@ settlementsRouter.get('/carrier-payments', async (req: AuthRequest, res: Respons
 // ================================================================
 settlementsRouter.post('/backfill-movements', async (req: AuthRequest, res: Response) => {
   try {
-    console.log('💰 [CARRIER ACCOUNTS] Backfilling movements for store:', req.storeId);
+    logger.info('💰 [CARRIER ACCOUNTS] Backfilling movements for store:', req.storeId);
 
     const result = await settlementsService.backfillCarrierMovements(req.storeId!);
 
-    console.log('✅ [CARRIER ACCOUNTS] Backfill complete:', result);
+    logger.info('✅ [CARRIER ACCOUNTS] Backfill complete:', result);
 
     res.json({
       message: 'Relleno completado',
       data: result,
     });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error:', error);
+    logger.error('💥 [CARRIER ACCOUNTS] Error:', error);
     res.status(500).json({ error: error.message || 'Error al rellenar movimientos' });
   }
 });
@@ -969,7 +970,7 @@ settlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       .eq('settlement_id', id);
 
     if (ordersError) {
-      console.error('⚠️ [SETTLEMENTS] Error fetching orders:', ordersError);
+      logger.error('⚠️ [SETTLEMENTS] Error fetching orders:', ordersError);
     }
 
     res.json({
@@ -977,7 +978,7 @@ settlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       orders: orders || []
     });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -998,7 +999,7 @@ settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Se requiere settlement_date' });
     }
 
-    console.log('💰 [SETTLEMENTS] Creating settlement:', {
+    logger.info('💰 [SETTLEMENTS] Creating settlement:', {
       settlement_date,
       carrier_id,
       orders_count: order_ids.length
@@ -1043,7 +1044,7 @@ settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
       .single();
 
     if (settlementError || !settlement) {
-      console.error('❌ [SETTLEMENTS] Error creating:', settlementError);
+      logger.error('❌ [SETTLEMENTS] Error creating:', settlementError);
       return res.status(500).json({
         error: 'Error al crear liquidación',
         message: settlementError?.message || 'Error desconocido',
@@ -1070,18 +1071,18 @@ settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
         .insert(settlementOrders);
 
       if (linkError) {
-        console.error('⚠️ [SETTLEMENTS] Error linking orders:', linkError);
+        logger.error('⚠️ [SETTLEMENTS] Error linking orders:', linkError);
       }
     }
 
-    console.log('✅ [SETTLEMENTS] Created:', settlement.id);
+    logger.info('✅ [SETTLEMENTS] Created:', settlement.id);
 
     res.status(201).json({
       message: 'Liquidación creada',
       data: settlement
     });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -1114,14 +1115,14 @@ settlementsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Liquidación no encontrada' });
     }
 
-    console.log('✅ [SETTLEMENTS] Updated:', id);
+    logger.info('✅ [SETTLEMENTS] Updated:', id);
 
     res.json({
       message: 'Liquidación actualizada',
       data
     });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -1138,7 +1139,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
       return res.status(400).json({ error: 'Se requiere collected_cash' });
     }
 
-    console.log('✅ [SETTLEMENTS] Completing settlement:', id);
+    logger.info('✅ [SETTLEMENTS] Completing settlement:', id);
 
     const { data, error } = await supabaseAdmin
       .from('daily_settlements')
@@ -1159,7 +1160,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
 
     const difference = Number(collected_cash) - Number(data.expected_cash);
 
-    console.log('💰 [SETTLEMENTS] Completed:', {
+    logger.info('💰 [SETTLEMENTS] Completed:', {
       id,
       expected: data.expected_cash,
       collected: collected_cash,
@@ -1174,7 +1175,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
       }
     });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -1194,15 +1195,15 @@ settlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       .eq('store_id', req.storeId);
 
     if (error) {
-      console.error('❌ [SETTLEMENTS] Error deleting:', error);
+      logger.error('❌ [SETTLEMENTS] Error deleting:', error);
       return res.status(500).json({ error: 'Error al eliminar liquidación' });
     }
 
-    console.log('🗑️ [SETTLEMENTS] Deleted:', id);
+    logger.info('🗑️ [SETTLEMENTS] Deleted:', id);
 
     res.json({ message: 'Liquidación eliminada' });
   } catch (error: any) {
-    console.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('💥 [SETTLEMENTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

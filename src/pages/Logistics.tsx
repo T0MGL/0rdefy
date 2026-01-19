@@ -65,7 +65,7 @@ export default function Logistics() {
         setShippingCosts(shippingData);
         setLogisticsMetrics(logisticsData);
       } catch (error) {
-        console.error('Error loading logistics data:', error);
+        logger.error('Error loading logistics data:', error);
       } finally {
         setIsLoading(false);
       }

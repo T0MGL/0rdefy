@@ -39,11 +39,17 @@ const calculateProfitability = (price: number, cost: number): string => {
 };
 
 export const productsService = {
-  getAll: async (source?: 'local' | 'shopify'): Promise<Product[]> => {
+  getAll: async (options?: { source?: 'local' | 'shopify'; limit?: number; offset?: number }): Promise<Product[]> => {
     try {
       const params = new URLSearchParams();
-      if (source) {
-        params.append('source', source);
+      if (options?.source) {
+        params.append('source', options.source);
+      }
+      if (options?.limit) {
+        params.append('limit', options.limit.toString());
+      }
+      if (options?.offset) {
+        params.append('offset', options.offset.toString());
       }
       const url = `${API_BASE_URL}/products${params.toString() ? `?${params.toString()}` : ''}`;
 
@@ -74,7 +80,7 @@ export const productsService = {
         shopify_variant_id: p.shopify_variant_id || null,
       }));
     } catch (error) {
-      console.error('Error loading products:', error);
+      logger.error('Error loading products:', error);
       return [];
     }
   },
@@ -108,7 +114,7 @@ export const productsService = {
         shopify_variant_id: data.shopify_variant_id || null,
       };
     } catch (error) {
-      console.error('Error loading product:', error);
+      logger.error('Error loading product:', error);
       return undefined;
     }
   },
@@ -162,7 +168,7 @@ export const productsService = {
         shopify_variant_id: result.data.shopify_variant_id || null,
       };
     } catch (error) {
-      console.error('Error creating product:', error);
+      logger.error('Error creating product:', error);
       throw error;
     }
   },
@@ -216,7 +222,7 @@ export const productsService = {
         shopify_variant_id: result.data.shopify_variant_id || null,
       };
     } catch (error) {
-      console.error('Error updating product:', error);
+      logger.error('Error updating product:', error);
       return undefined;
     }
   },
@@ -240,7 +246,7 @@ export const productsService = {
       }
       return true;
     } catch (error) {
-      console.error('Error deleting product:', error);
+      logger.error('Error deleting product:', error);
       return false;
     }
   },
@@ -261,7 +267,7 @@ export const productsService = {
       const result = await response.json();
       return result.products || [];
     } catch (error) {
-      console.error('Error loading Shopify products:', error);
+      logger.error('Error loading Shopify products:', error);
       return [];
     }
   },
@@ -308,7 +314,7 @@ export const productsService = {
         shopify_variant_id: result.data.shopify_variant_id || null,
       };
     } catch (error) {
-      console.error('Error creating product from Shopify:', error);
+      logger.error('Error creating product from Shopify:', error);
       throw error;
     }
   },
@@ -327,7 +333,7 @@ export const productsService = {
 
       return true;
     } catch (error) {
-      console.error('Error publishing product to Shopify:', error);
+      logger.error('Error publishing product to Shopify:', error);
       throw error;
     }
   },

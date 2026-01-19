@@ -63,7 +63,7 @@ export default function Merchandise() {
       // Use Promise.allSettled to handle partial failures gracefully
       const results = await Promise.allSettled([
         merchandiseService.getAll(statusFilter === 'all' ? {} : { status: statusFilter }),
-        productsService.getAll('local'), // Only load local products (not from Shopify)
+        productsService.getAll({ source: 'local' }), // Only load local products (not from Shopify)
         suppliersService.getAll(),
       ]);
 
@@ -75,21 +75,21 @@ export default function Merchandise() {
         setShipments(shipmentsResult.value);
       } else {
         errors.push('envíos');
-        console.error('Error loading shipments:', shipmentsResult.reason);
+        logger.error('Error loading shipments:', shipmentsResult.reason);
       }
 
       if (productsResult.status === 'fulfilled') {
         setProducts(productsResult.value);
       } else {
         errors.push('productos');
-        console.error('Error loading products:', productsResult.reason);
+        logger.error('Error loading products:', productsResult.reason);
       }
 
       if (suppliersResult.status === 'fulfilled') {
         setSuppliers(suppliersResult.value);
       } else {
         errors.push('proveedores');
-        console.error('Error loading suppliers:', suppliersResult.reason);
+        logger.error('Error loading suppliers:', suppliersResult.reason);
       }
 
       // Show error only if something failed
@@ -171,7 +171,7 @@ export default function Merchandise() {
         });
       }
     } catch (error: any) {
-      console.error('Error loading shipment:', error);
+      logger.error('Error loading shipment:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo cargar los detalles del envío',

@@ -57,7 +57,7 @@ deliveryAttemptsRouter.post('/upload-photo', upload.single('file'), async (req: 
       return res.status(400).json({ error: 'Se requiere order_id' });
     }
 
-    console.log('📤 [DELIVERY-PHOTO] Uploading photo for order:', order_id);
+    logger.info('API', '📤 [DELIVERY-PHOTO] Uploading photo for order:', order_id);
 
     // Upload photo to Supabase Storage
     const photoUrl = await uploadDeliveryPhoto(
@@ -67,14 +67,14 @@ deliveryAttemptsRouter.post('/upload-photo', upload.single('file'), async (req: 
       req.file.mimetype
     );
 
-    console.log('✅ [DELIVERY-PHOTO] Photo uploaded successfully:', photoUrl);
+    logger.info('API', '✅ [DELIVERY-PHOTO] Photo uploaded successfully:', photoUrl);
 
     res.json({
       message: 'Photo uploaded successfully',
       url: photoUrl,
     });
   } catch (error: any) {
-    console.error('💥 [DELIVERY-PHOTO] Error:', error);
+    logger.error('API', '💥 [DELIVERY-PHOTO] Error:', error);
     res.status(500).json({ error: error.message || 'Error al subir foto' });
   }
 });
@@ -87,7 +87,7 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const { order_id, status, limit = '50', offset = '0' } = req.query;
 
-    console.log('📋 [DELIVERY-ATTEMPTS] Fetching attempts:', {
+    logger.info('API', '📋 [DELIVERY-ATTEMPTS] Fetching attempts:', {
       store_id: req.storeId,
       order_id,
       status,
@@ -117,7 +117,7 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
     const { data, error, count } = await query;
 
     if (error) {
-      console.error('❌ [DELIVERY-ATTEMPTS] Error:', error);
+      logger.error('API', '❌ [DELIVERY-ATTEMPTS] Error:', error);
       return res.status(500).json({ error: 'Error al obtener intentos de entrega' });
     }
 
@@ -131,7 +131,7 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('💥 [DELIVERY-ATTEMPTS] Unexpected error:', error);
+    logger.error('API', '💥 [DELIVERY-ATTEMPTS] Unexpected error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -156,7 +156,7 @@ deliveryAttemptsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(data);
   } catch (error: any) {
-    console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
+    logger.error('API', '💥 [DELIVERY-ATTEMPTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -178,7 +178,7 @@ deliveryAttemptsRouter.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Se requieren order_id y scheduled_date' });
     }
 
-    console.log('📝 [DELIVERY-ATTEMPTS] Creating attempt for order:', order_id);
+    logger.info('API', '📝 [DELIVERY-ATTEMPTS] Creating attempt for order:', order_id);
 
     // Get current attempt count for this order
     const { data: existingAttempts } = await supabaseAdmin
@@ -208,7 +208,7 @@ deliveryAttemptsRouter.post('/', async (req: AuthRequest, res: Response) => {
       .single();
 
     if (error) {
-      console.error('❌ [DELIVERY-ATTEMPTS] Error creating:', error);
+      logger.error('API', '❌ [DELIVERY-ATTEMPTS] Error creating:', error);
       return res.status(500).json({ error: 'Error al crear intento de entrega' });
     }
 
@@ -218,14 +218,14 @@ deliveryAttemptsRouter.post('/', async (req: AuthRequest, res: Response) => {
       .update({ delivery_attempts: attempt_number })
       .eq('id', order_id);
 
-    console.log('✅ [DELIVERY-ATTEMPTS] Created:', data.id);
+    logger.info('API', '✅ [DELIVERY-ATTEMPTS] Created:', data.id);
 
     res.status(201).json({
       message: 'Delivery attempt created',
       data
     });
   } catch (error: any) {
-    console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
+    logger.error('API', '💥 [DELIVERY-ATTEMPTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -259,14 +259,14 @@ deliveryAttemptsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Intento de entrega no encontrado' });
     }
 
-    console.log('✅ [DELIVERY-ATTEMPTS] Updated:', id);
+    logger.info('API', '✅ [DELIVERY-ATTEMPTS] Updated:', id);
 
     res.json({
       message: 'Delivery attempt updated',
       data
     });
   } catch (error: any) {
-    console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
+    logger.error('API', '💥 [DELIVERY-ATTEMPTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -279,7 +279,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
     const { id } = req.params;
     const { photo_url, notes, payment_method } = req.body;
 
-    console.log('✅ [DELIVERY-ATTEMPTS] Marking as delivered:', id);
+    logger.info('API', '✅ [DELIVERY-ATTEMPTS] Marking as delivered:', id);
 
     // Validate payment_method if provided
     const validPaymentMethods = ['efectivo', 'tarjeta', 'transferencia', 'yape', 'plin', 'otro'];
@@ -320,7 +320,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
 
     // If there's an active incident, resolve it automatically
     if (activeIncident) {
-      console.log('🔄 [DELIVERY-ATTEMPTS] Auto-resolving active incident:', activeIncident.id);
+      logger.info('API', '🔄 [DELIVERY-ATTEMPTS] Auto-resolving active incident:', activeIncident.id);
 
       await supabaseAdmin
         .from('delivery_incidents')
@@ -347,7 +347,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
       .eq('id', attempt.order_id);
 
     if (orderError) {
-      console.error('⚠️ [DELIVERY-ATTEMPTS] Could not update order:', orderError);
+      logger.error('API', '⚠️ [DELIVERY-ATTEMPTS] Could not update order:', orderError);
     }
 
     res.json({
@@ -358,7 +358,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
       incident_resolved: !!activeIncident
     });
   } catch (error: any) {
-    console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
+    logger.error('API', '💥 [DELIVERY-ATTEMPTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -375,7 +375,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
       return res.status(400).json({ error: 'Se requiere failed_reason' });
     }
 
-    console.log('❌ [DELIVERY-ATTEMPTS] Marking as failed:', id);
+    logger.info('API', '❌ [DELIVERY-ATTEMPTS] Marking as failed:', id);
 
     // Update delivery attempt
     const { data: attempt, error: attemptError } = await supabaseAdmin
@@ -410,7 +410,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
       .eq('id', attempt.order_id);
 
     if (orderError) {
-      console.error('⚠️ [DELIVERY-ATTEMPTS] Could not update order:', orderError);
+      logger.error('API', '⚠️ [DELIVERY-ATTEMPTS] Could not update order:', orderError);
     }
 
     res.json({
@@ -418,7 +418,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
       data: attempt
     });
   } catch (error: any) {
-    console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
+    logger.error('API', '💥 [DELIVERY-ATTEMPTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -437,15 +437,15 @@ deliveryAttemptsRouter.delete('/:id', async (req: AuthRequest, res: Response) =>
       .eq('store_id', req.storeId);
 
     if (error) {
-      console.error('❌ [DELIVERY-ATTEMPTS] Error deleting:', error);
+      logger.error('API', '❌ [DELIVERY-ATTEMPTS] Error deleting:', error);
       return res.status(500).json({ error: 'Error al eliminar intento de entrega' });
     }
 
-    console.log('🗑️ [DELIVERY-ATTEMPTS] Deleted:', id);
+    logger.info('API', '🗑️ [DELIVERY-ATTEMPTS] Deleted:', id);
 
     res.json({ message: 'Delivery attempt deleted' });
   } catch (error: any) {
-    console.error('💥 [DELIVERY-ATTEMPTS] Error:', error);
+    logger.error('API', '💥 [DELIVERY-ATTEMPTS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

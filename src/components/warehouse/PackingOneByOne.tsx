@@ -551,7 +551,7 @@ export function PackingOneByOne({
                   await onCancelSession();
                   setCancelDialog(false);
                 } catch (error) {
-                  console.error('Error cancelling session:', error);
+                  logger.error('Error cancelling session:', error);
                 } finally {
                   setCancelling(false);
                 }

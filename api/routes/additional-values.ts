@@ -88,7 +88,7 @@ additionalValuesRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('[GET /api/additional-values] Error:', error);
+        logger.error('API', '[GET /api/additional-values] Error:', error);
         res.status(500).json({
             error: 'Error al obtener valores adicionales',
             message: error.message
@@ -139,7 +139,7 @@ additionalValuesRouter.get('/summary', async (req: AuthRequest, res: Response) =
 
         res.json(summary);
     } catch (error: any) {
-        console.error('[GET /api/additional-values/summary] Error:', error);
+        logger.error('API', '[GET /api/additional-values/summary] Error:', error);
         res.status(500).json({
             error: 'Error al obtener resumen',
             message: error.message
@@ -169,7 +169,7 @@ additionalValuesRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
         res.json(data);
     } catch (error: any) {
-        console.error(`[GET /api/additional-values/${req.params.id}] Error:`, error);
+        logger.error('API', `[GET /api/additional-values/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener valor adicional',
             message: error.message
@@ -241,7 +241,7 @@ additionalValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
             data
         });
     } catch (error: any) {
-        console.error('[POST /api/additional-values] Error:', error);
+        logger.error('API', '[POST /api/additional-values] Error:', error);
         res.status(500).json({
             error: 'Error al crear valor adicional',
             message: error.message
@@ -321,7 +321,7 @@ additionalValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/additional-values/${req.params.id}] Error:`, error);
+        logger.error('API', `[PUT /api/additional-values/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar valor adicional',
             message: error.message
@@ -355,7 +355,7 @@ additionalValuesRouter.delete('/:id', async (req: AuthRequest, res: Response) =>
             id: data.id
         });
     } catch (error: any) {
-        console.error(`[DELETE /api/additional-values/${req.params.id}] Error:`, error);
+        logger.error('API', `[DELETE /api/additional-values/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar valor adicional',
             message: error.message

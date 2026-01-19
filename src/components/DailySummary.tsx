@@ -73,7 +73,7 @@ export function DailySummary() {
         setOrders(ordersResponse.data || []);
         setOverview(overviewData);
       } catch (error) {
-        console.error('Error loading daily summary data:', error);
+        logger.error('Error loading daily summary data:', error);
       } finally {
         setIsLoading(false);
       }

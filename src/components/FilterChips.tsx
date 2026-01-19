@@ -40,7 +40,7 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
         }
         setSavedFilters(parsed);
       } catch {
-        console.error('[FilterChips] Failed to parse saved filters, using defaults');
+        logger.error('[FilterChips] Failed to parse saved filters, using defaults');
         useDefaults = true;
       }
     }

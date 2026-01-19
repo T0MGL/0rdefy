@@ -104,7 +104,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       });
     } catch (error) {
       // Error handled by parent, form state preserved for retry
-      console.error('Error submitting order form:', error);
+      logger.error('Error submitting order form:', error);
     }
   };
 

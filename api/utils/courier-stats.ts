@@ -20,7 +20,7 @@ export async function calculateCourierDeliveryRate(courierId: string) {
       .single();
 
     if (error) {
-      console.error('[Courier Stats] Error fetching courier performance:', error);
+      logger.error('BACKEND', '[Courier Stats] Error fetching courier performance:', error);
       return null;
     }
 
@@ -37,7 +37,7 @@ export async function calculateCourierDeliveryRate(courierId: string) {
       avg_delivery_time_hours: data.avg_delivery_time_hours || null
     };
   } catch (error) {
-    console.error('[Courier Stats] Error calculating delivery rate:', error);
+    logger.error('BACKEND', '[Courier Stats] Error calculating delivery rate:', error);
     return null;
   }
 }
@@ -56,7 +56,7 @@ export async function getCourierPerformanceByStore(storeId: string) {
       .order('delivery_rate', { ascending: false });
 
     if (error) {
-      console.error('[Courier Stats] Error fetching store courier performance:', error);
+      logger.error('BACKEND', '[Courier Stats] Error fetching store courier performance:', error);
       return [];
     }
 
@@ -75,7 +75,7 @@ export async function getCourierPerformanceByStore(storeId: string) {
       avg_delivery_time_hours: courier.avg_delivery_time_hours || null
     }));
   } catch (error) {
-    console.error('[Courier Stats] Error fetching courier performance:', error);
+    logger.error('BACKEND', '[Courier Stats] Error fetching courier performance:', error);
     return [];
   }
 }
@@ -97,7 +97,7 @@ export async function getTopCouriers(storeId: string, limit: number = 5) {
       .limit(limit);
 
     if (error) {
-      console.error('[Courier Stats] Error fetching top couriers:', error);
+      logger.error('BACKEND', '[Courier Stats] Error fetching top couriers:', error);
       return [];
     }
 
@@ -111,7 +111,7 @@ export async function getTopCouriers(storeId: string, limit: number = 5) {
       avg_delivery_time_hours: courier.avg_delivery_time_hours || null
     }));
   } catch (error) {
-    console.error('[Courier Stats] Error fetching top couriers:', error);
+    logger.error('BACKEND', '[Courier Stats] Error fetching top couriers:', error);
     return [];
   }
 }
@@ -133,7 +133,7 @@ export async function getUnderperformingCouriers(storeId: string, threshold: num
       .order('delivery_rate', { ascending: true });
 
     if (error) {
-      console.error('[Courier Stats] Error fetching underperforming couriers:', error);
+      logger.error('BACKEND', '[Courier Stats] Error fetching underperforming couriers:', error);
       return [];
     }
 
@@ -147,7 +147,7 @@ export async function getUnderperformingCouriers(storeId: string, threshold: num
       pending_orders: courier.pending_orders || 0
     }));
   } catch (error) {
-    console.error('[Courier Stats] Error fetching underperforming couriers:', error);
+    logger.error('BACKEND', '[Courier Stats] Error fetching underperforming couriers:', error);
     return [];
   }
 }

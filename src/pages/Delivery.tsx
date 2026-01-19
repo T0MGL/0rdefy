@@ -104,7 +104,7 @@ export default function Delivery() {
             incident: incidentResult.has_incident ? incidentResult.data : null,
           });
         } catch (incidentError) {
-          console.error('Error fetching incident:', incidentError);
+          logger.error('Error fetching incident:', incidentError);
           setState({
             type: 'pending',
             data: result.data,
@@ -112,7 +112,7 @@ export default function Delivery() {
         }
       }
     } catch (error) {
-      console.error('Error fetching order:', error);
+      logger.error('Error fetching order:', error);
       setState({
         type: 'not_found',
         message: 'Error al cargar el pedido',
@@ -176,7 +176,7 @@ export default function Delivery() {
 
       fetchOrderByToken(token!);
     } catch (error: any) {
-      console.error('Error confirming delivery:', error);
+      logger.error('Error confirming delivery:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo confirmar la entrega',
@@ -233,7 +233,7 @@ export default function Delivery() {
 
       fetchOrderByToken(token!);
     } catch (error: any) {
-      console.error('Error reporting failure:', error);
+      logger.error('Error reporting failure:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo reportar la falla',
@@ -290,7 +290,7 @@ export default function Delivery() {
         message: '¡Gracias por tu calificación! Tu opinión nos ayuda a mejorar',
       });
     } catch (error: any) {
-      console.error('Error submitting rating:', error);
+      logger.error('Error submitting rating:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo enviar la calificación',
@@ -532,7 +532,7 @@ export default function Delivery() {
                       throw new Error('Error al reactivar pedido');
                     }
                   } catch (error) {
-                    console.error('Error reactivating order:', error);
+                    logger.error('Error reactivating order:', error);
                     toast({
                       title: 'Error',
                       description: 'No se pudo reagendar el pedido',
@@ -577,7 +577,7 @@ export default function Delivery() {
                         throw new Error('Error al cancelar pedido');
                       }
                     } catch (error) {
-                      console.error('Error cancelling order:', error);
+                      logger.error('Error cancelling order:', error);
                       toast({
                         title: 'Error',
                         description: 'No se pudo cancelar el pedido',

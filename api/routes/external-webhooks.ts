@@ -67,7 +67,7 @@ externalWebhooksRouter.get('/config', async (req: any, res: Response) => {
       config: safeConfig
     });
   } catch (error: any) {
-    console.error('[ExternalWebhooks] Error getting config:', error);
+    logger.error('API', '[ExternalWebhooks] Error getting config:', error);
     return res.status(500).json({
       error: 'server_error',
       message: 'Error al obtener configuración de webhook'
@@ -129,7 +129,7 @@ externalWebhooksRouter.post('/setup', async (req: any, res: Response) => {
       return res.status(500).json({ error: result.error });
     }
 
-    console.log(`[ExternalWebhooks] Created webhook for store ${storeId}`);
+    logger.info('API', `[ExternalWebhooks] Created webhook for store ${storeId}`);
 
     return res.status(201).json({
       success: true,
@@ -144,7 +144,7 @@ externalWebhooksRouter.post('/setup', async (req: any, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('[ExternalWebhooks] Error in setup:', error);
+    logger.error('API', '[ExternalWebhooks] Error in setup:', error);
     return res.status(500).json({
       error: 'server_error',
       message: 'Error al configurar webhook'
@@ -179,7 +179,7 @@ externalWebhooksRouter.post('/regenerate-key', async (req: any, res: Response) =
       return res.status(500).json({ error: result.error });
     }
 
-    console.log(`[ExternalWebhooks] Regenerated API key for store ${storeId}`);
+    logger.info('API', `[ExternalWebhooks] Regenerated API key for store ${storeId}`);
 
     return res.json({
       success: true,
@@ -187,7 +187,7 @@ externalWebhooksRouter.post('/regenerate-key', async (req: any, res: Response) =
       api_key: result.apiKey
     });
   } catch (error: any) {
-    console.error('[ExternalWebhooks] Error regenerating key:', error);
+    logger.error('API', '[ExternalWebhooks] Error regenerating key:', error);
     return res.status(500).json({
       error: 'server_error',
       message: 'Error al regenerar clave API'
@@ -215,7 +215,7 @@ externalWebhooksRouter.delete('/config', async (req: any, res: Response) => {
         return res.status(500).json({ error: result.error });
       }
 
-      console.log(`[ExternalWebhooks] Deleted webhook for store ${storeId}`);
+      logger.info('API', `[ExternalWebhooks] Deleted webhook for store ${storeId}`);
       return res.json({
         success: true,
         message: 'Webhook configuration deleted permanently'
@@ -227,14 +227,14 @@ externalWebhooksRouter.delete('/config', async (req: any, res: Response) => {
         return res.status(500).json({ error: result.error });
       }
 
-      console.log(`[ExternalWebhooks] Disabled webhook for store ${storeId}`);
+      logger.info('API', `[ExternalWebhooks] Disabled webhook for store ${storeId}`);
       return res.json({
         success: true,
         message: 'Webhook disabled'
       });
     }
   } catch (error: any) {
-    console.error('[ExternalWebhooks] Error deleting config:', error);
+    logger.error('API', '[ExternalWebhooks] Error deleting config:', error);
     return res.status(500).json({
       error: 'server_error',
       message: 'Error al eliminar configuración de webhook'
@@ -263,7 +263,7 @@ externalWebhooksRouter.get('/logs', async (req: any, res: Response) => {
       ...result
     });
   } catch (error: any) {
-    console.error('[ExternalWebhooks] Error getting logs:', error);
+    logger.error('API', '[ExternalWebhooks] Error getting logs:', error);
     return res.status(500).json({
       error: 'server_error',
       message: 'Error al obtener logs de webhook'
@@ -298,7 +298,7 @@ externalWebhooksRouter.get('/logs/:logId', async (req: any, res: Response) => {
       log
     });
   } catch (error: any) {
-    console.error('[ExternalWebhooks] Error getting log:', error);
+    logger.error('API', '[ExternalWebhooks] Error getting log:', error);
     return res.status(500).json({
       error: 'server_error',
       message: 'Error al obtener detalles de log'
@@ -464,7 +464,7 @@ externalWebhooksRouter.post('/orders/:storeId', async (req: Request, res: Respon
     );
 
     const processingTime = Date.now() - startTime;
-    console.log(`[ExternalWebhook] Processed order in ${processingTime}ms:`, {
+    logger.info('API', `[ExternalWebhook] Processed order in ${processingTime}ms:`, {
       storeId,
       success: result.success,
       orderId: result.orderId,
@@ -509,7 +509,7 @@ externalWebhooksRouter.post('/orders/:storeId', async (req: Request, res: Respon
     });
 
   } catch (error: any) {
-    console.error('[ExternalWebhook] Error processing order:', error);
+    logger.error('API', '[ExternalWebhook] Error processing order:', error);
     return res.status(500).json({
       success: false,
       error: 'server_error',

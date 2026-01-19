@@ -13,7 +13,7 @@ const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
 
 if (!SHOPIFY_API_KEY) {
-  console.warn('WARNING: SHOPIFY_API_KEY environment variable is not set. Shopify session token validation will fail.');
+  logger.warn('BACKEND', 'WARNING: SHOPIFY_API_KEY environment variable is not set. Shopify session token validation will fail.');
 }
 
 const JWT_ALGORITHM = 'HS256';
@@ -70,7 +70,7 @@ function verifyShopifySessionToken(token: string): any {
     return decoded;
   } catch (error: any) {
     if (process.env.NODE_ENV === 'development') {
-      console.error('Shopify session token verification failed:', error.message);
+      logger.error('BACKEND', 'Shopify session token verification failed:', error.message);
     }
     throw error;
   }
@@ -90,7 +90,7 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
     // Si es un token de sesión de Shopify, usar validación de Shopify
     if (isShopifySession) {
       if (process.env.NODE_ENV === 'development') {
-        console.log('[Auth] Verifying Shopify session token');
+        logger.info('BACKEND', '[Auth] Verifying Shopify session token');
       }
 
       const decoded = verifyShopifySessionToken(token);
@@ -104,7 +104,7 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
       // El 'dest' es el shop domain (ej: mystore.myshopify.com)
 
       if (process.env.NODE_ENV === 'development') {
-        console.log('[Auth] Shopify session validated:', {
+        logger.info('BACKEND', '[Auth] Shopify session validated:', {
           shop: decoded.dest,
           userId: decoded.sub,
         });
@@ -151,7 +151,7 @@ export function verifyToken(req: AuthRequest, res: Response, next: NextFunction)
   } catch (error: any) {
     // Log error internally but don't leak details to client
     if (process.env.NODE_ENV === 'development') {
-      console.error('JWT verification failed:', error.message);
+      logger.error('BACKEND', 'JWT verification failed:', error.message);
     }
     return res.status(401).json({ error: 'No autorizado' });
   }
@@ -166,7 +166,7 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
       const shopDomain = req.shopifySession.dest;
 
       if (process.env.NODE_ENV === 'development') {
-        console.log('[Auth] Looking up store_id for Shopify shop:', shopDomain);
+        logger.info('BACKEND', '[Auth] Looking up store_id for Shopify shop:', shopDomain);
       }
 
       // Buscar la integración de Shopify por shop_domain
@@ -178,7 +178,7 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
         .single();
 
       if (error || !integration) {
-        console.error('[Auth] No active Shopify integration found for shop:', shopDomain);
+        logger.error('BACKEND', '[Auth] No active Shopify integration found for shop:', shopDomain);
         return res.status(403).json({
           error: 'No active integration found for this Shopify store',
           details: 'Please connect your Shopify store first'
@@ -188,10 +188,10 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
       storeId = integration.store_id;
 
       if (process.env.NODE_ENV === 'development') {
-        console.log('[Auth] Found store_id from Shopify integration:', storeId);
+        logger.info('BACKEND', '[Auth] Found store_id from Shopify integration:', storeId);
       }
     } catch (error) {
-      console.error('[Auth] Error looking up Shopify store:', error);
+      logger.error('BACKEND', '[Auth] Error looking up Shopify store:', error);
       return res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
@@ -215,13 +215,13 @@ export async function extractStoreId(req: AuthRequest, res: Response, next: Next
 
       if (error || !userStore) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('Store access check failed:', error?.message || 'No access found or user deactivated');
+          logger.error('BACKEND', 'Store access check failed:', error?.message || 'No access found or user deactivated');
         }
         return res.status(403).json({ error: 'Acceso denegado a esta tienda' });
       }
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.error('Store access verification error:', error);
+        logger.error('BACKEND', 'Store access verification error:', error);
       }
       return res.status(500).json({ error: 'Error interno del servidor' });
     }

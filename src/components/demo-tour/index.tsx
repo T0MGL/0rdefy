@@ -42,36 +42,36 @@ export function DemoTour({ autoStart = true }: DemoTourProps) {
   useEffect(() => {
     // Don't run while auth is still loading
     if (authLoading) {
-      console.log('[DemoTour] Skipping - auth still loading');
+      logger.log('[DemoTour] Skipping - auth still loading');
       return;
     }
 
     // Early returns for conditions that prevent starting
     if (!autoStart) {
-      console.log('[DemoTour] Skipping - autoStart disabled');
+      logger.log('[DemoTour] Skipping - autoStart disabled');
       return;
     }
     if (hasCompletedTour) {
-      console.log('[DemoTour] Skipping - tour already completed');
+      logger.log('[DemoTour] Skipping - tour already completed');
       return;
     }
     if (isActive) {
-      console.log('[DemoTour] Skipping - tour already active');
+      logger.log('[DemoTour] Skipping - tour already active');
       return;
     }
     if (!currentStore) {
-      console.log('[DemoTour] Skipping - no store loaded');
+      logger.log('[DemoTour] Skipping - no store loaded');
       return;
     }
     if (hasTriggeredRef.current) {
-      console.log('[DemoTour] Skipping - already triggered in this session');
+      logger.log('[DemoTour] Skipping - already triggered in this session');
       return;
     }
 
     // Don't start tour during onboarding flow
     const onboardingPaths = ['/onboarding', '/onboarding/plan', '/login', '/signup'];
     if (onboardingPaths.some(path => location.pathname.startsWith(path))) {
-      console.log('[DemoTour] Skipping - on onboarding/auth path:', location.pathname);
+      logger.log('[DemoTour] Skipping - on onboarding/auth path:', location.pathname);
       return;
     }
 
@@ -83,12 +83,12 @@ export function DemoTour({ autoStart = true }: DemoTourProps) {
     const tourPending = localStorage.getItem(TOUR_PENDING_KEY);
 
     if (tourPending !== 'true') {
-      console.log('[DemoTour] Skipping - no pending tour flag');
+      logger.log('[DemoTour] Skipping - no pending tour flag');
       return;
     }
 
     // Clear the pending flag immediately to prevent re-triggering
-    console.log('[DemoTour] Pending tour flag found, clearing and starting tour...');
+    logger.log('[DemoTour] Pending tour flag found, clearing and starting tour...');
     localStorage.removeItem(TOUR_PENDING_KEY);
     hasTriggeredRef.current = true;
 
@@ -97,7 +97,7 @@ export function DemoTour({ autoStart = true }: DemoTourProps) {
       const tourId = permissions.currentRole === Role.OWNER || permissions.currentRole === Role.ADMIN
         ? 'owner-tour'
         : `${permissions.currentRole}-tour`;
-      console.log('[DemoTour] Starting tour:', tourId, 'for role:', permissions.currentRole);
+      logger.log('[DemoTour] Starting tour:', tourId, 'for role:', permissions.currentRole);
       startTour(tourId, true);
     }, 500);
 

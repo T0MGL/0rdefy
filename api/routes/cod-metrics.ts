@@ -32,7 +32,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const { start_date, end_date } = req.query;
 
-    console.log('📊 [COD-METRICS] Fetching metrics for store:', req.storeId);
+    logger.info('API', '📊 [COD-METRICS] Fetching metrics for store:', req.storeId);
 
     // Default to last 30 days if no dates provided
     const endDate = end_date ? new Date(end_date as string) : new Date();
@@ -49,7 +49,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
       .lte('created_at', endDate.toISOString());
 
     if (ordersError) {
-      console.error('❌ [COD-METRICS] Error fetching orders:', ordersError);
+      logger.error('API', '❌ [COD-METRICS] Error fetching orders:', ordersError);
       return res.status(500).json({ error: 'Error al obtener pedidos' });
     }
 
@@ -132,11 +132,11 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
       }
     };
 
-    console.log('✅ [COD-METRICS] Metrics calculated:', metrics);
+    logger.info('API', '✅ [COD-METRICS] Metrics calculated:', metrics);
 
     res.json(metrics);
   } catch (error: any) {
-    console.error('💥 [COD-METRICS] Unexpected error:', error);
+    logger.error('API', '💥 [COD-METRICS] Unexpected error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -148,7 +148,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
   try {
     const { days = '7' } = req.query;
 
-    console.log('📅 [COD-METRICS] Fetching daily breakdown for', days, 'days');
+    logger.info('API', '📅 [COD-METRICS] Fetching daily breakdown for', days, 'days');
 
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - parseInt(days as string, 10) * 24 * 60 * 60 * 1000);
@@ -161,7 +161,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
       .lte('created_at', endDate.toISOString());
 
     if (error) {
-      console.error('❌ [COD-METRICS] Error:', error);
+      logger.error('API', '❌ [COD-METRICS] Error:', error);
       return res.status(500).json({ error: 'Error al obtener pedidos' });
     }
 
@@ -213,7 +213,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('💥 [COD-METRICS] Error:', error);
+    logger.error('API', '💥 [COD-METRICS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -223,7 +223,7 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
 // ================================================================
 codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
   try {
-    console.log('🚚 [COD-METRICS] Fetching metrics by carrier');
+    logger.info('API', '🚚 [COD-METRICS] Fetching metrics by carrier');
 
     const { data: orders, error } = await supabaseAdmin
       .from('orders')
@@ -238,7 +238,7 @@ codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
       .not('carrier_id', 'is', null);
 
     if (error) {
-      console.error('❌ [COD-METRICS] Error:', error);
+      logger.error('API', '❌ [COD-METRICS] Error:', error);
       return res.status(500).json({ error: 'Error al obtener pedidos' });
     }
 
@@ -298,7 +298,7 @@ codMetricsRouter.get('/by-carrier', async (req: AuthRequest, res: Response) => {
       data: Object.values(carrierMetrics)
     });
   } catch (error: any) {
-    console.error('💥 [COD-METRICS] Error:', error);
+    logger.error('API', '💥 [COD-METRICS] Error:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

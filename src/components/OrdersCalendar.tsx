@@ -31,7 +31,7 @@ export function OrdersCalendar() {
         const ordersResponse = await ordersService.getAll();
         setOrders(ordersResponse.data || []);
       } catch (error) {
-        console.error('Error loading orders:', error);
+        logger.error('Error loading orders:', error);
       } finally {
         setIsLoading(false);
       }

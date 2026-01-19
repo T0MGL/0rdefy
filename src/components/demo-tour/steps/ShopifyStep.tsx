@@ -37,7 +37,7 @@ export function ShopifyStep({ onComplete }: ShopifyStepProps) {
         }
       } catch (error) {
         // If error, assume not connected
-        console.log('[ShopifyStep] Error checking connection, assuming not connected');
+        logger.log('[ShopifyStep] Error checking connection, assuming not connected');
       } finally {
         setIsCheckingConnection(false);
       }

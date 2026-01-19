@@ -27,7 +27,7 @@ carrierAccountsRouter.use(extractUserRole);
 // ================================================================
 carrierAccountsRouter.get('/balances', requireModule(Module.CARRIERS), async (req: PermissionRequest, res: Response) => {
   try {
-    console.log(`📊 [CARRIER ACCOUNTS] Fetching balances for store ${req.storeId}`);
+    logger.info('API', `📊 [CARRIER ACCOUNTS] Fetching balances for store ${req.storeId}`);
 
     const balances = await carrierAccountsService.getCarrierBalances(req.storeId!);
 
@@ -41,7 +41,7 @@ carrierAccountsRouter.get('/balances', requireModule(Module.CARRIERS), async (re
       }
     });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error fetching balances:', error);
+    logger.error('API', '💥 [CARRIER ACCOUNTS] Error fetching balances:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener balances de transportadoras',
@@ -58,7 +58,7 @@ carrierAccountsRouter.get('/balances/:carrierId', requireModule(Module.CARRIERS)
     const { carrierId } = req.params;
     const { from_date, to_date } = req.query;
 
-    console.log(`📊 [CARRIER ACCOUNTS] Fetching balance summary for carrier ${carrierId}`);
+    logger.info('API', `📊 [CARRIER ACCOUNTS] Fetching balance summary for carrier ${carrierId}`);
 
     const summary = await carrierAccountsService.getCarrierBalanceSummary(
       carrierId,
@@ -78,7 +78,7 @@ carrierAccountsRouter.get('/balances/:carrierId', requireModule(Module.CARRIERS)
       data: summary
     });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error fetching carrier summary:', error);
+    logger.error('API', '💥 [CARRIER ACCOUNTS] Error fetching carrier summary:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener resumen de transportadora',
@@ -94,7 +94,7 @@ carrierAccountsRouter.get('/movements/unsettled', requireModule(Module.CARRIERS)
   try {
     const { carrier_id } = req.query;
 
-    console.log(`📋 [CARRIER ACCOUNTS] Fetching unsettled movements for store ${req.storeId}`);
+    logger.info('API', `📋 [CARRIER ACCOUNTS] Fetching unsettled movements for store ${req.storeId}`);
 
     const movements = await carrierAccountsService.getUnsettledMovements(
       req.storeId!,
@@ -128,7 +128,7 @@ carrierAccountsRouter.get('/movements/unsettled', requireModule(Module.CARRIERS)
       }
     });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
+    logger.error('API', '💥 [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener movimientos pendientes',
@@ -180,7 +180,7 @@ carrierAccountsRouter.post(
         });
       }
 
-      console.log(`💰 [CARRIER ACCOUNTS] Registering payment for carrier ${carrier_id}`, {
+      logger.info('API', `💰 [CARRIER ACCOUNTS] Registering payment for carrier ${carrier_id}`, {
         amount,
         direction,
         method: payment_method
@@ -205,7 +205,7 @@ carrierAccountsRouter.post(
         payment_id: paymentId
       });
     } catch (error: any) {
-      console.error('💥 [CARRIER ACCOUNTS] Error registering payment:', error);
+      logger.error('API', '💥 [CARRIER ACCOUNTS] Error registering payment:', error);
       res.status(500).json({
         success: false,
         error: 'Error al registrar pago',
@@ -222,7 +222,7 @@ carrierAccountsRouter.get('/payments', requireModule(Module.CARRIERS), async (re
   try {
     const { carrier_id, status } = req.query;
 
-    console.log(`📋 [CARRIER ACCOUNTS] Fetching payment records for store ${req.storeId}`);
+    logger.info('API', `📋 [CARRIER ACCOUNTS] Fetching payment records for store ${req.storeId}`);
 
     const payments = await carrierAccountsService.getPaymentRecords(
       req.storeId!,
@@ -239,7 +239,7 @@ carrierAccountsRouter.get('/payments', requireModule(Module.CARRIERS), async (re
       }
     });
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Error fetching payments:', error);
+    logger.error('API', '💥 [CARRIER ACCOUNTS] Error fetching payments:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener registros de pago',
@@ -264,7 +264,7 @@ carrierAccountsRouter.post(
         });
       }
 
-      console.log(`🔄 [CARRIER ACCOUNTS] Starting backfill for store ${req.storeId}`);
+      logger.info('API', `🔄 [CARRIER ACCOUNTS] Starting backfill for store ${req.storeId}`);
 
       const result = await carrierAccountsService.backfillCarrierMovements(req.storeId!);
 
@@ -275,7 +275,7 @@ carrierAccountsRouter.post(
         movements_created: result.movements_created
       });
     } catch (error: any) {
-      console.error('💥 [CARRIER ACCOUNTS] Error in backfill:', error);
+      logger.error('API', '💥 [CARRIER ACCOUNTS] Error in backfill:', error);
       res.status(500).json({
         success: false,
         error: 'Error al rellenar movimientos',

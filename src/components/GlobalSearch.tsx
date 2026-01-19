@@ -81,7 +81,7 @@ export function GlobalSearch() {
         try {
           setRecentSearches(JSON.parse(storedRecent));
         } catch (error) {
-          console.error('Error loading recent searches:', error);
+          logger.error('Error loading recent searches:', error);
         }
       }
 
@@ -96,7 +96,7 @@ export function GlobalSearch() {
           });
           setFrequentItems(sorted.slice(0, MAX_FREQUENT_ITEMS));
         } catch (error) {
-          console.error('Error loading frequent items:', error);
+          logger.error('Error loading frequent items:', error);
         }
       }
     }
@@ -123,12 +123,18 @@ export function GlobalSearch() {
 
     setIsLoading(true);
     try {
+      // ✅ FIXED: Load only limited data for search (not all records)
+      // Orders: 100 most recent (enough for search)
+      // Products: 200 most popular/recent
+      // Customers: 200 most recent
+      // Ads: 50 most recent
+      // Carriers: All (typically <50 carriers per store)
       const [ordersResponse, productsData, adsData, carriersData, customersData] = await Promise.all([
-        ordersService.getAll(),
-        productsService.getAll(),
-        adsService.getAll(),
-        carriersService.getAll(),
-        customersService.getAll(),
+        ordersService.getAll({ limit: 100 }),
+        productsService.getAll({ limit: 200 }),
+        adsService.getAll({ limit: 50 }),
+        carriersService.getAll({ limit: 50 }),
+        customersService.getAll({ limit: 200 }),
       ]);
 
       const ordersData = ordersResponse.data || [];
@@ -150,7 +156,7 @@ export function GlobalSearch() {
       setCustomers(customersData);
       setHasLoaded(true);
     } catch (error) {
-      console.error('Error loading search data:', error);
+      logger.error('Error loading search data:', error);
       toast.error('Error al cargar datos de búsqueda', {
         description: 'Intenta nuevamente más tarde'
       });

@@ -25,7 +25,7 @@ recurringValuesRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         res.json(data || []);
     } catch (error: any) {
-        console.error('[GET /api/recurring-values] Error:', error);
+        logger.error('API', '[GET /api/recurring-values] Error:', error);
         res.status(500).json({ error: 'Error al obtener valores recurrentes', message: error.message });
     }
 });
@@ -62,7 +62,7 @@ recurringValuesRouter.post('/', async (req: AuthRequest, res: Response) => {
 
         res.status(201).json(data);
     } catch (error: any) {
-        console.error('[POST /api/recurring-values] Error:', error);
+        logger.error('API', '[POST /api/recurring-values] Error:', error);
         res.status(500).json({ error: 'Error al crear valor recurrente', message: error.message });
     }
 });
@@ -112,7 +112,7 @@ recurringValuesRouter.post('/ordefy-subscription', async (req: AuthRequest, res:
 
         res.status(201).json(data);
     } catch (error: any) {
-        console.error('[POST /api/recurring-values/ordefy-subscription] Error:', error);
+        logger.error('API', '[POST /api/recurring-values/ordefy-subscription] Error:', error);
         res.status(500).json({ error: 'Error al crear suscripción', message: error.message });
     }
 });
@@ -143,7 +143,7 @@ recurringValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 
         res.json(data);
     } catch (error: any) {
-        console.error(`[PUT /api/recurring-values/${req.params.id}] Error:`, error);
+        logger.error('API', `[PUT /api/recurring-values/${req.params.id}] Error:`, error);
         res.status(500).json({ error: 'Error al actualizar valor recurrente', message: error.message });
     }
 });
@@ -165,7 +165,7 @@ recurringValuesRouter.delete('/:id', async (req: AuthRequest, res: Response) => 
 
         res.json({ message: 'Recurring value deleted successfully' });
     } catch (error: any) {
-        console.error(`[DELETE /api/recurring-values/${req.params.id}] Error:`, error);
+        logger.error('API', `[DELETE /api/recurring-values/${req.params.id}] Error:`, error);
         res.status(500).json({ error: 'Error al eliminar valor recurrente', message: error.message });
     }
 });

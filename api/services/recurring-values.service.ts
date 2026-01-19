@@ -87,7 +87,7 @@ export class RecurringValuesService {
             }
 
         } catch (error) {
-            console.error('[RecurringValuesService] Error processing values:', error);
+            logger.error('BACKEND', '[RecurringValuesService] Error processing values:', error);
             // Don't throw to prevent blocking the main request
         }
     }

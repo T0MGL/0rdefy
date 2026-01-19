@@ -82,7 +82,7 @@ export function ImageUpload({
         setError(result.error || 'Error al subir imagen');
       }
     } catch (err: any) {
-      console.error('Upload error:', err);
+      logger.error('Upload error:', err);
       setError(err.response?.data?.error || 'Error al subir imagen');
     } finally {
       setIsUploading(false);

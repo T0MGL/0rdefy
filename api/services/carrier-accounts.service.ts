@@ -120,14 +120,14 @@ export async function createDeliveryMovements(
     });
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error creating delivery movements:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error creating delivery movements:', error);
       throw new Error(`Error al crear movimientos de entrega: ${error.message}`);
     }
 
     // SQL function returns array with single row
     const result = Array.isArray(data) ? data[0] : data;
 
-    console.log(`✅ [CARRIER ACCOUNTS] Created movements for order ${orderId}:`, {
+    logger.info('BACKEND', `✅ [CARRIER ACCOUNTS] Created movements for order ${orderId}:`, {
       cod_movement: result?.cod_movement_id || 'none',
       fee_movement: result?.fee_movement_id || 'none',
       cod_amount: result?.total_cod || 0,
@@ -141,7 +141,7 @@ export async function createDeliveryMovements(
       total_fee: 0
     };
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in createDeliveryMovements:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in createDeliveryMovements:', error);
     throw error;
   }
 }
@@ -173,19 +173,19 @@ export async function createFailedDeliveryMovement(
     });
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error creating failed delivery movement:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error creating failed delivery movement:', error);
       throw new Error(`Error al crear movimiento de entrega fallida: ${error.message}`);
     }
 
     if (data) {
-      console.log(`✅ [CARRIER ACCOUNTS] Created failed attempt fee for order ${orderId}`);
+      logger.info('BACKEND', `✅ [CARRIER ACCOUNTS] Created failed attempt fee for order ${orderId}`);
     } else {
-      console.log(`ℹ️ [CARRIER ACCOUNTS] No failed attempt fee for order ${orderId} (carrier doesn't charge)`);
+      logger.info('BACKEND', `ℹ️ [CARRIER ACCOUNTS] No failed attempt fee for order ${orderId} (carrier doesn't charge)`);
     }
 
     return data;
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in createFailedDeliveryMovement:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in createFailedDeliveryMovement:', error);
     throw error;
   }
 }
@@ -217,13 +217,13 @@ export async function getCarrierFeeForZone(
     });
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error getting carrier fee:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error getting carrier fee:', error);
       return 0; // Return 0 on error to prevent breaking flow
     }
 
     return data || 0;
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in getCarrierFeeForZone:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in getCarrierFeeForZone:', error);
     return 0;
   }
 }
@@ -253,13 +253,13 @@ export async function getCarrierBalances(storeId: string): Promise<CarrierBalanc
       .order('net_balance', { ascending: false });
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error fetching balances:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error fetching balances:', error);
       throw new Error(`Error al obtener saldos de transportadoras: ${error.message}`);
     }
 
     return data || [];
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in getCarrierBalances:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in getCarrierBalances:', error);
     throw error;
   }
 }
@@ -287,7 +287,7 @@ export async function getCarrierBalanceSummary(
     });
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error fetching balance summary:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error fetching balance summary:', error);
       throw new Error(`Error al obtener resumen de saldo: ${error.message}`);
     }
 
@@ -295,7 +295,7 @@ export async function getCarrierBalanceSummary(
     const result = Array.isArray(data) ? data[0] : data;
     return result || null;
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in getCarrierBalanceSummary:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in getCarrierBalanceSummary:', error);
     throw error;
   }
 }
@@ -328,13 +328,13 @@ export async function getUnsettledMovements(
     const { data, error } = await query;
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error fetching unsettled movements:', error);
       throw new Error(`Error al obtener movimientos sin liquidar: ${error.message}`);
     }
 
     return data || [];
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in getUnsettledMovements:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in getUnsettledMovements:', error);
     throw error;
   }
 }
@@ -382,14 +382,14 @@ export async function registerCarrierPayment(payment: {
     });
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error registering payment:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error registering payment:', error);
       throw new Error(`Error al registrar pago: ${error.message}`);
     }
 
-    console.log(`✅ [CARRIER ACCOUNTS] Registered payment ${data} for carrier ${payment.carrierId}`);
+    logger.info('BACKEND', `✅ [CARRIER ACCOUNTS] Registered payment ${data} for carrier ${payment.carrierId}`);
     return data;
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in registerCarrierPayment:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in registerCarrierPayment:', error);
     throw error;
   }
 }
@@ -425,13 +425,13 @@ export async function getPaymentRecords(
     const { data, error } = await query;
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error fetching payment records:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error fetching payment records:', error);
       throw new Error(`Error al obtener registros de pago: ${error.message}`);
     }
 
     return data || [];
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in getPaymentRecords:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in getPaymentRecords:', error);
     throw error;
   }
 }
@@ -457,13 +457,13 @@ export async function hasMovementsForOrder(orderId: string): Promise<boolean> {
       .limit(1);
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error checking movements:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error checking movements:', error);
       return false;
     }
 
     return (data && data.length > 0) || false;
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in hasMovementsForOrder:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in hasMovementsForOrder:', error);
     return false;
   }
 }
@@ -484,27 +484,27 @@ export async function backfillCarrierMovements(storeId?: string): Promise<{
   movements_created: number;
 }> {
   try {
-    console.log(`🔄 [CARRIER ACCOUNTS] Starting backfill for store ${storeId || 'ALL'}...`);
+    logger.info('BACKEND', `🔄 [CARRIER ACCOUNTS] Starting backfill for store ${storeId || 'ALL'}...`);
 
     const { data, error } = await supabaseAdmin.rpc('backfill_carrier_movements', {
       p_store_id: storeId || null
     });
 
     if (error) {
-      console.error('❌ [CARRIER ACCOUNTS] Error in backfill:', error);
+      logger.error('BACKEND', '❌ [CARRIER ACCOUNTS] Error in backfill:', error);
       throw new Error(`Error al rellenar movimientos: ${error.message}`);
     }
 
     const result = Array.isArray(data) ? data[0] : data;
 
-    console.log(`✅ [CARRIER ACCOUNTS] Backfill complete:`, result);
+    logger.info('BACKEND', `✅ [CARRIER ACCOUNTS] Backfill complete:`, result);
 
     return {
       orders_processed: result?.orders_processed || 0,
       movements_created: result?.movements_created || 0
     };
   } catch (error: any) {
-    console.error('💥 [CARRIER ACCOUNTS] Exception in backfillCarrierMovements:', error);
+    logger.error('BACKEND', '💥 [CARRIER ACCOUNTS] Exception in backfillCarrierMovements:', error);
     throw error;
   }
 }

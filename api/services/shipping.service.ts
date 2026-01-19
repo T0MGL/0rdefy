@@ -114,7 +114,7 @@ export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShip
       };
     });
   } catch (error) {
-    console.error('Error getting ready to ship orders:', error);
+    logger.error('BACKEND', 'Error getting ready to ship orders:', error);
     throw error;
   }
 }
@@ -141,7 +141,7 @@ export async function createShipment(
 
     return data;
   } catch (error) {
-    console.error('Error creating shipment:', error);
+    logger.error('BACKEND', 'Error creating shipment:', error);
     throw error;
   }
 }
@@ -168,7 +168,7 @@ export async function createShipmentsBatch(
 
     return data || [];
   } catch (error) {
-    console.error('Error creating batch shipments:', error);
+    logger.error('BACKEND', 'Error creating batch shipments:', error);
     throw error;
   }
 }
@@ -192,7 +192,7 @@ export async function getOrderShipments(
 
     return data || [];
   } catch (error) {
-    console.error('Error getting order shipments:', error);
+    logger.error('BACKEND', 'Error getting order shipments:', error);
     throw error;
   }
 }
@@ -229,7 +229,7 @@ export async function getShipments(
       total: count || 0
     };
   } catch (error) {
-    console.error('Error getting shipments:', error);
+    logger.error('BACKEND', 'Error getting shipments:', error);
     throw error;
   }
 }

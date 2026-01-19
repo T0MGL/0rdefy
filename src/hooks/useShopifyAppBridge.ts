@@ -59,12 +59,12 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         // Check if App Bridge was loaded (set by index.html script)
         if (!window.__SHOPIFY_EMBEDDED__) {
-          console.log('[Shopify] Not in embedded mode - App Bridge disabled');
+          logger.log('[Shopify] Not in embedded mode - App Bridge disabled');
           setIsLoading(false);
           return;
         }
 
-        console.log('[Shopify] Embedded mode flag detected, initializing...');
+        logger.log('[Shopify] Embedded mode flag detected, initializing...');
 
         // Get parameters from URL
         const urlParams = new URLSearchParams(window.location.search);
@@ -75,19 +75,19 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         // CRITICAL: Try sessionStorage if parameters are missing from URL
         if (!host) {
           host = sessionStorage.getItem('shopify_host');
-          console.log('[Shopify] Retrieved host from sessionStorage:', host);
+          logger.log('[Shopify] Retrieved host from sessionStorage:', host);
         }
         if (!embedded) {
           embedded = sessionStorage.getItem('shopify_embedded');
         }
         if (!shop) {
           shop = sessionStorage.getItem('shopify_shop');
-          console.log('[Shopify] Retrieved shop from sessionStorage:', shop);
+          logger.log('[Shopify] Retrieved shop from sessionStorage:', shop);
         }
 
         // If still no parameters, we can't initialize (but we're in iframe, so warn)
         if (!host && embedded !== '1' && !shop) {
-          console.warn('[Shopify] ⚠️  In iframe but missing Shopify parameters. App Bridge may not work.');
+          logger.warn('[Shopify] ⚠️  In iframe but missing Shopify parameters. App Bridge may not work.');
           // Don't return - try to initialize anyway
         }
 
@@ -98,9 +98,9 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
           try {
             const decodedHost = atob(host);
             shopDomain = decodedHost.split('/')[0]; // Obtener shop.myshopify.com
-            console.log('[Shopify] Decoded shop domain from host:', shopDomain);
+            logger.log('[Shopify] Decoded shop domain from host:', shopDomain);
           } catch (err) {
-            console.warn('[Shopify] Could not decode host parameter:', err);
+            logger.warn('[Shopify] Could not decode host parameter:', err);
           }
         }
 
@@ -110,13 +110,13 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
           retryCountRef.current++;
 
           if (retryCountRef.current >= MAX_RETRIES) {
-            console.error(`[Shopify] App Bridge failed to load after ${MAX_RETRIES} attempts (${MAX_RETRIES * RETRY_DELAY}ms). Running in standalone mode.`);
+            logger.error(`[Shopify] App Bridge failed to load after ${MAX_RETRIES} attempts (${MAX_RETRIES * RETRY_DELAY}ms). Running in standalone mode.`);
             setIsLoading(false);
             return;
           }
 
           if (retryCountRef.current <= 3) {
-            console.warn(`[Shopify] App Bridge script not loaded yet. Retrying (${retryCountRef.current}/${MAX_RETRIES})...`);
+            logger.warn(`[Shopify] App Bridge script not loaded yet. Retrying (${retryCountRef.current}/${MAX_RETRIES})...`);
           }
 
           // Reintentar después de un breve delay
@@ -126,15 +126,15 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         // Validar que tengamos al menos host o shopDomain
         if (!host && !shopDomain) {
-          console.error('[Shopify] Could not determine shop or host from parameters');
+          logger.error('[Shopify] Could not determine shop or host from parameters');
           setError(new Error('Missing shop and host parameters'));
           setIsLoading(false);
           return;
         }
 
-        console.log('[Shopify] Initializing App Bridge 3.0 CDN');
-        console.log('[Shopify]   Host:', host || 'N/A');
-        console.log('[Shopify]   Shop:', shopDomain || 'N/A');
+        logger.log('[Shopify] Initializing App Bridge 3.0 CDN');
+        logger.log('[Shopify]   Host:', host || 'N/A');
+        logger.log('[Shopify]   Shop:', shopDomain || 'N/A');
 
         // Inicializar App Bridge 3.0 CDN con el client_id del shopify.app.toml
         const CLIENT_ID = 'e4ac05aaca557fdb387681f0f209335d';
@@ -154,13 +154,13 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
           appConfig.shop = shopDomain;
         }
 
-        console.log('[Shopify] Creating app with config:', { ...appConfig, apiKey: '***' });
+        logger.log('[Shopify] Creating app with config:', { ...appConfig, apiKey: '***' });
 
         const shopifyApp = window.shopify.createApp(appConfig);
 
         setApp(shopifyApp);
 
-        console.log('[Shopify] App Bridge 3.0 initialized successfully');
+        logger.log('[Shopify] App Bridge 3.0 initialized successfully');
 
         // Función para obtener el token de sesión usando app.idToken()
         const fetchSessionToken = async () => {
@@ -168,14 +168,14 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
             throw new Error('idToken method not available on app instance');
           }
 
-          console.log('[Shopify] Fetching session token...');
+          logger.log('[Shopify] Fetching session token...');
           const token = await shopifyApp.idToken();
 
           if (!token) {
             throw new Error('Failed to get session token from Shopify');
           }
 
-          console.log('[Shopify] Session token obtained successfully');
+          logger.log('[Shopify] Session token obtained successfully');
           setSessionToken(token);
 
           // Guardar el token en localStorage para uso en API requests
@@ -190,15 +190,15 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         // Renovar el token periódicamente (cada 50 segundos, los tokens de Shopify duran 60s)
         intervalId = setInterval(async () => {
           try {
-            console.log('[Shopify] Refreshing session token...');
+            logger.log('[Shopify] Refreshing session token...');
             await fetchSessionToken();
-            console.log('[Shopify] Session token refreshed');
+            logger.log('[Shopify] Session token refreshed');
           } catch (err) {
-            console.error('[Shopify] Failed to refresh session token:', err);
+            logger.error('[Shopify] Failed to refresh session token:', err);
           }
         }, 50000); // 50 segundos
       } catch (err) {
-        console.error('[Shopify] Error initializing App Bridge:', err);
+        logger.error('[Shopify] Error initializing App Bridge:', err);
         setError(err instanceof Error ? err : new Error('Unknown error'));
       } finally {
         setIsLoading(false);

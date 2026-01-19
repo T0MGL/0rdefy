@@ -77,7 +77,7 @@ export function getCurrentCurrency(): string {
 
     return currentStore?.currency || 'PYG';
   } catch (error) {
-    console.error('Error getting current currency:', error);
+    logger.error('Error getting current currency:', error);
     return 'PYG';
   }
 }
@@ -109,7 +109,7 @@ export function formatCurrency(value: number, currencyCode?: string): string {
     }).format(value);
   } catch (error) {
     // Fallback to manual formatting if Intl fails
-    console.error('Error formatting currency:', error);
+    logger.error('Error formatting currency:', error);
     const formatted = value.toLocaleString(config.locale, {
       minimumFractionDigits: config.decimals,
       maximumFractionDigits: config.decimals,

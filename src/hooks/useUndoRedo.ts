@@ -108,7 +108,7 @@ export function useUndoRedo(options: UseUndoRedoOptions = {}) {
         description: lastAction.description,
       });
     } catch (error) {
-      console.error('Error undoing action:', error);
+      logger.error('Error undoing action:', error);
       toast({
         title: 'Error al deshacer',
         description: 'No se pudo deshacer la acción',
@@ -142,7 +142,7 @@ export function useUndoRedo(options: UseUndoRedoOptions = {}) {
         description: lastAction.description,
       });
     } catch (error) {
-      console.error('Error redoing action:', error);
+      logger.error('Error redoing action:', error);
       toast({
         title: 'Error al rehacer',
         description: 'No se pudo rehacer la acción',

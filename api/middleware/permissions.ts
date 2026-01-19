@@ -48,7 +48,7 @@ export async function extractUserRole(
       .single();
 
     if (error || !userStore) {
-      console.warn(`[extractUserRole] Access denied for user ${userId} in store ${storeId}`);
+      logger.warn('BACKEND', `[extractUserRole] Access denied for user ${userId} in store ${storeId}`);
       return res.status(403).json({
         error: 'Access denied to this store',
         message: 'You do not have access to this store or your access has been revoked'
@@ -57,7 +57,7 @@ export async function extractUserRole(
 
     // Validate that the role is a valid Role enum value (security: prevents accepting invalid roles from DB)
     if (!isValidRole(userStore.role)) {
-      console.error(`[extractUserRole] Invalid role '${userStore.role}' for user ${userId} in store ${storeId}`);
+      logger.error('BACKEND', `[extractUserRole] Invalid role '${userStore.role}' for user ${userId} in store ${storeId}`);
       return res.status(403).json({
         error: 'Invalid role configuration',
         message: 'Your role is not properly configured. Please contact the store owner.'
@@ -67,7 +67,7 @@ export async function extractUserRole(
     req.userRole = userStore.role as Role;
     next();
   } catch (error) {
-    console.error('[extractUserRole] Error extracting user role:', error);
+    logger.error('BACKEND', '[extractUserRole] Error extracting user role:', error);
     return res.status(500).json({
       error: 'Error interno del servidor',
       message: 'Error al determinar permisos de usuario'
@@ -91,7 +91,7 @@ export function requireRole(...allowedRoles: Role[]) {
     }
 
     if (!allowedRoles.includes(req.userRole)) {
-      console.warn(
+      logger.warn('BACKEND', 
         `[requireRole] Permission denied for user ${req.userId} with role ${req.userRole}. Required: ${allowedRoles.join(', ')}`
       );
       return res.status(403).json({
@@ -122,7 +122,7 @@ export function requireModule(module: Module) {
     }
 
     if (!canAccessModule(req.userRole, module)) {
-      console.warn(
+      logger.warn('BACKEND', 
         `[requireModule] Module access denied for user ${req.userId} with role ${req.userRole} to module ${module}`
       );
       return res.status(403).json({
@@ -153,7 +153,7 @@ export function requirePermission(module: Module, permission: Permission) {
     }
 
     if (!hasPermission(req.userRole, module, permission)) {
-      console.warn(
+      logger.warn('BACKEND', 
         `[requirePermission] Permission denied for user ${req.userId} with role ${req.userRole}: ${permission} on ${module}`
       );
       return res.status(403).json({

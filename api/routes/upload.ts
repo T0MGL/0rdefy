@@ -100,7 +100,7 @@ router.post(
         path: result.path
       });
     } catch (err: any) {
-      console.error('Avatar upload error:', err);
+      logger.error('API', 'Avatar upload error:', err);
       res.status(500).json({ error: 'Error al subir avatar' });
     }
   }
@@ -162,7 +162,7 @@ router.post(
         path: result.path
       });
     } catch (err: any) {
-      console.error('Product image upload error:', err);
+      logger.error('API', 'Product image upload error:', err);
       res.status(500).json({ error: 'Error al subir imagen de producto' });
     }
   }
@@ -216,7 +216,7 @@ router.post(
         path: result.path
       });
     } catch (err: any) {
-      console.error('Merchandise image upload error:', err);
+      logger.error('API', 'Merchandise image upload error:', err);
       res.status(500).json({ error: 'Error al subir imagen de mercadería' });
     }
   }
@@ -271,7 +271,7 @@ router.post(
         path: result.path
       });
     } catch (err: any) {
-      console.error('Base64 upload error:', err);
+      logger.error('API', 'Base64 upload error:', err);
       res.status(500).json({ error: 'Error al subir imagen' });
     }
   }
@@ -302,7 +302,7 @@ router.delete(
 
       res.json({ success: true });
     } catch (err: any) {
-      console.error('Product image delete error:', err);
+      logger.error('API', 'Product image delete error:', err);
       res.status(500).json({ error: 'Error al eliminar imágenes de producto' });
     }
   }

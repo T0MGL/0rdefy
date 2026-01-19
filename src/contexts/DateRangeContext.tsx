@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 
 export type DateRangeValue = 'today' | '7d' | '30d' | 'custom';
 
@@ -21,8 +21,10 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
   const [selectedRange, setSelectedRange] = useState<DateRangeValue>('7d');
   const [customRange, setCustomRange] = useState<DateRange | null>(null);
 
-  // Calculate date range based on selected value
-  const getDateRange = (): DateRange => {
+  // CRITICAL FIX (Bug #6): Memoize getDateRange to prevent infinite render loops
+  // Without useCallback, this function is recreated on every render, causing
+  // any useMemo/useCallback that depends on it to re-run infinitely
+  const getDateRange = useCallback((): DateRange => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -62,12 +64,12 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
         };
       }
     }
-  };
+  }, [selectedRange, customRange]); // Only recreate when these dependencies change
 
   // Log when range changes (for debugging)
   useEffect(() => {
     const range = getDateRange();
-    console.log('Date range changed:', {
+    logger.log('Date range changed:', {
       selectedRange,
       from: range.from.toISOString(),
       to: range.to.toISOString(),

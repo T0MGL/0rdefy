@@ -180,7 +180,7 @@ export function TeamManagement() {
       toast.success('Colaborador removido del equipo');
     },
     onError: (error: any) => {
-      console.error('[TeamManagement] Error removing member:', error);
+      logger.error('[TeamManagement] Error removing member:', error);
       toast.error(error?.response?.data?.error || 'Error al remover colaborador');
     }
   });

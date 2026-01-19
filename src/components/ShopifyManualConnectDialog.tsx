@@ -111,7 +111,7 @@ export function ShopifyManualConnectDialog({ open, onOpenChange, onSuccess, onBa
       }, 500);
 
     } catch (error: any) {
-      console.error('Error starting OAuth:', error);
+      logger.error('Error starting OAuth:', error);
       toast({
         title: 'Error al conectar',
         description: error.message || 'No se pudo iniciar la conexion.',

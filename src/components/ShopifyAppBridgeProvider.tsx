@@ -26,7 +26,7 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
     const isInIframe = window.top !== window.self;
 
     if (!isInIframe) {
-      console.log('🏠 [SHOPIFY] Standalone mode - App Bridge disabled');
+      logger.log('🏠 [SHOPIFY] Standalone mode - App Bridge disabled');
       setIsReady(true);
       return;
     }
@@ -37,7 +37,7 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
 
     const initializeAppBridge = async () => {
       try {
-        console.log('✅ [SHOPIFY] Initializing App Bridge with official NPM library');
+        logger.log('✅ [SHOPIFY] Initializing App Bridge with official NPM library');
 
         // Get host from URL params or sessionStorage
         const urlParams = new URLSearchParams(window.location.search);
@@ -57,7 +57,7 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
         const savedHost = host || sessionStorage.getItem('shopify_host');
 
         if (!savedHost) {
-          console.error('❌ [SHOPIFY] No host parameter found');
+          logger.error('❌ [SHOPIFY] No host parameter found');
           setIsReady(true);
           return;
         }
@@ -68,7 +68,7 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
           forceRedirect: true,
         };
 
-        console.log('📦 [SHOPIFY] Config:', {
+        logger.log('📦 [SHOPIFY] Config:', {
           apiKey: API_KEY.substring(0, 8) + '...',
           host: savedHost
         });
@@ -80,31 +80,31 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
         // Set window.shopify for useAppBridge hook compatibility
         window.shopify = app;
 
-        console.log('✅ [SHOPIFY] App Bridge initialized successfully');
+        logger.log('✅ [SHOPIFY] App Bridge initialized successfully');
 
         // Generate session token
         await generateToken(app);
 
         setIsReady(true);
       } catch (error) {
-        console.error('❌ [SHOPIFY] Error initializing App Bridge:', error);
+        logger.error('❌ [SHOPIFY] Error initializing App Bridge:', error);
         setIsReady(true); // Still render the app even if initialization fails
       }
     };
 
     const generateToken = async (app: ClientApplication<any>) => {
       try {
-        console.log('🔑 [SHOPIFY] Generating session token...');
+        logger.log('🔑 [SHOPIFY] Generating session token...');
         const token = await getSessionToken(app);
 
         if (token) {
-          console.log('✅ [SHOPIFY] Token generated via NPM Provider');
+          logger.log('✅ [SHOPIFY] Token generated via NPM Provider');
           localStorage.setItem('shopify_session_token', token);
         } else {
-          console.warn('⚠️ [SHOPIFY] Token is empty');
+          logger.warn('⚠️ [SHOPIFY] Token is empty');
         }
       } catch (error) {
-        console.error('❌ [SHOPIFY] Error generating token:', error);
+        logger.error('❌ [SHOPIFY] Error generating token:', error);
       }
     };
 
@@ -113,7 +113,7 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
     // Setup token refresh interval (every 45 minutes, tokens expire after 1 hour)
     const refreshInterval = setInterval(() => {
       if (appRef.current) {
-        console.log('🔄 [SHOPIFY] Refreshing session token...');
+        logger.log('🔄 [SHOPIFY] Refreshing session token...');
         generateToken(appRef.current);
       }
     }, 45 * 60 * 1000);

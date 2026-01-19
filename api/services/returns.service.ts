@@ -89,7 +89,7 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching eligible orders:', error);
+    logger.error('SERVICE', 'Error fetching eligible orders:', error);
     throw new Error(`Error al obtener pedidos elegibles: ${error.message}`);
   }
 
@@ -113,12 +113,29 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
   const eligibleOrders = data.filter(order => !alreadyReturnedSet.has(order.id));
 
   // Get line items count for remaining eligible orders
+  // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
   const eligibleOrderIds = eligibleOrders.map(o => o.id);
-  const { data: lineItemCounts } = await supabaseAdmin
-    .from('order_line_items')
-    .select('order_id')
-    .in('order_id', eligibleOrderIds)
-    .not('product_id', 'is', null);
+  let lineItemCounts: any[] = [];
+  const PAGE_SIZE = 1000;
+  let page = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data: pageData } = await supabaseAdmin
+      .from('order_line_items')
+      .select('order_id')
+      .in('order_id', eligibleOrderIds)
+      .not('product_id', 'is', null)
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    if (pageData && pageData.length > 0) {
+      lineItemCounts.push(...pageData);
+      hasMore = pageData.length === PAGE_SIZE;
+      page++;
+    } else {
+      hasMore = false;
+    }
+  }
 
   // Count items per order
   const itemCountMap = new Map<string, number>();
@@ -153,7 +170,7 @@ export async function createReturnSession(
     .rpc('generate_return_session_code', { p_store_id: storeId });
 
   if (codeError) {
-    console.error('Error generating session code:', codeError);
+    logger.error('SERVICE', 'Error generating session code:', codeError);
     throw new Error(`Error al generar código de sesión: ${codeError.message}`);
   }
 
@@ -175,7 +192,7 @@ export async function createReturnSession(
     .in('return_sessions.status', ['in_progress', 'completed']);
 
   if (checkError) {
-    console.error('Error checking existing sessions:', checkError);
+    logger.error('SERVICE', 'Error checking existing sessions:', checkError);
     throw new Error(`Error al verificar sesiones existentes: ${checkError.message}`);
   }
 
@@ -209,20 +226,37 @@ export async function createReturnSession(
     .in('id', orderIds);
 
   if (ordersError) {
-    console.error('Error fetching orders:', ordersError);
+    logger.error('SERVICE', 'Error fetching orders:', ordersError);
     throw new Error(`Error al obtener pedidos: ${ordersError.message}`);
   }
 
   // Get line items from order_line_items table
-  const { data: lineItems, error: lineItemsError } = await supabaseAdmin
-    .from('order_line_items')
-    .select('order_id, product_id, quantity, unit_price')
-    .in('order_id', orderIds)
-    .not('product_id', 'is', null); // Only include items with valid product mapping
+  // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
+  let lineItems: any[] = [];
+  const PAGE_SIZE = 1000;
+  let page = 0;
+  let hasMore = true;
 
-  if (lineItemsError) {
-    console.error('Error fetching line items:', lineItemsError);
-    throw new Error(`Error al obtener líneas de pedido: ${lineItemsError.message}`);
+  while (hasMore) {
+    const { data: pageData, error: lineItemsError } = await supabaseAdmin
+      .from('order_line_items')
+      .select('order_id, product_id, quantity, unit_price')
+      .in('order_id', orderIds)
+      .not('product_id', 'is', null) // Only include items with valid product mapping
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    if (lineItemsError) {
+      logger.error('SERVICE', 'Error fetching line items:', lineItemsError);
+      throw new Error(`Error al obtener líneas de pedido: ${lineItemsError.message}`);
+    }
+
+    if (pageData && pageData.length > 0) {
+      lineItems.push(...pageData);
+      hasMore = pageData.length === PAGE_SIZE;
+      page++;
+    } else {
+      hasMore = false;
+    }
   }
 
   // Check if we have any valid line items
@@ -249,7 +283,7 @@ export async function createReturnSession(
     .single();
 
   if (sessionError) {
-    console.error('Error creating session:', sessionError);
+    logger.error('SERVICE', 'Error creating session:', sessionError);
     throw new Error(`Error al crear sesión: ${sessionError.message}`);
   }
 
@@ -265,7 +299,7 @@ export async function createReturnSession(
     .insert(sessionOrders);
 
   if (ordersLinkError) {
-    console.error('Error linking orders:', ordersLinkError);
+    logger.error('SERVICE', 'Error linking orders:', ordersLinkError);
 
     // Handle database-level duplicate order constraint (trigger error)
     if (ordersLinkError.message?.includes('already in an active return session')) {
@@ -295,7 +329,7 @@ export async function createReturnSession(
     .insert(items);
 
   if (itemsError) {
-    console.error('Error creating items:', itemsError);
+    logger.error('SERVICE', 'Error creating items:', itemsError);
     throw new Error(`Error al crear ítems: ${itemsError.message}`);
   }
 
@@ -313,7 +347,7 @@ export async function getReturnSession(sessionId: string): Promise<any> {
     .single();
 
   if (sessionError) {
-    console.error('Error fetching session:', sessionError);
+    logger.error('SERVICE', 'Error fetching session:', sessionError);
     throw new Error(`Error al obtener sesión: ${sessionError.message}`);
   }
 
@@ -327,7 +361,7 @@ export async function getReturnSession(sessionId: string): Promise<any> {
     .eq('session_id', sessionId);
 
   if (ordersError) {
-    console.error('Error fetching session orders:', ordersError);
+    logger.error('SERVICE', 'Error fetching session orders:', ordersError);
     throw new Error(`Error al obtener pedidos de la sesión: ${ordersError.message}`);
   }
 
@@ -342,7 +376,7 @@ export async function getReturnSession(sessionId: string): Promise<any> {
     .order('order_id');
 
   if (itemsError) {
-    console.error('Error fetching session items:', itemsError);
+    logger.error('SERVICE', 'Error fetching session items:', itemsError);
     throw new Error(`Error al obtener ítems de la sesión: ${itemsError.message}`);
   }
 
@@ -364,7 +398,7 @@ export async function getReturnSessions(storeId: string): Promise<ReturnSession[
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching sessions:', error);
+    logger.error('SERVICE', 'Error fetching sessions:', error);
     throw new Error(`Error al obtener sesiones: ${error.message}`);
   }
 
@@ -405,7 +439,7 @@ export async function updateReturnItem(
   // SECURITY: Verify item belongs to session from the authenticated user's store
   const itemStoreId = (currentItem.session as any)?.store_id;
   if (itemStoreId !== storeId) {
-    console.warn(`[Returns] Unauthorized item update attempt: store ${storeId} tried to update item from store ${itemStoreId}`);
+    logger.warn('SERVICE', `[Returns] Unauthorized item update attempt: store ${storeId} tried to update item from store ${itemStoreId}`);
     throw new Error('Ítem de devolución no encontrado');
   }
 
@@ -439,7 +473,7 @@ export async function updateReturnItem(
     .single();
 
   if (error) {
-    console.error('Error updating item:', error);
+    logger.error('SERVICE', 'Error updating item:', error);
     throw new Error(`Error al actualizar ítem: ${error.message}`);
   }
 
@@ -454,7 +488,7 @@ export async function completeReturnSession(sessionId: string): Promise<any> {
     .rpc('complete_return_session', { p_session_id: sessionId });
 
   if (error) {
-    console.error('Error completing session:', error);
+    logger.error('SERVICE', 'Error completing session:', error);
     throw new Error(`Error al completar sesión: ${error.message}`);
   }
 
@@ -491,7 +525,7 @@ export async function cancelReturnSession(sessionId: string): Promise<void> {
     .eq('status', 'in_progress'); // Double-check with WHERE clause for race condition safety
 
   if (error) {
-    console.error('Error cancelling session:', error);
+    logger.error('SERVICE', 'Error cancelling session:', error);
     throw new Error(`Error al cancelar sesión: ${error.message}`);
   }
 }
@@ -507,7 +541,7 @@ export async function getReturnStats(storeId: string): Promise<any> {
     .eq('status', 'completed');
 
   if (error) {
-    console.error('Error fetching return stats:', error);
+    logger.error('SERVICE', 'Error fetching return stats:', error);
     throw new Error(`Error al obtener estadísticas de devoluciones: ${error.message}`);
   }
 

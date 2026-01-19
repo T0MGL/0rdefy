@@ -71,8 +71,18 @@ router.post(
         logger.info('BILLING', 'Duplicate event detected (race-safe), skipping', { eventId: event.id });
         return res.json({ received: true, duplicate: true });
       }
-      // Other insert errors - log but continue (event might still need processing)
-      logger.error('BILLING', 'Idempotency insert error', insertError);
+      // CRITICAL FIX: ALL other insert errors MUST abort processing
+      // Without idempotency protection, we risk duplicate charges/credits
+      logger.error('BILLING', 'Failed to record event for idempotency protection', {
+        eventId: event.id,
+        eventType: event.type,
+        error: insertError.message,
+        code: insertError.code
+      });
+      return res.status(500).json({
+        error: 'Cannot process event safely without idempotency protection',
+        retryable: true
+      });
     }
 
     // If we get here, we successfully acquired the lock (inserted first)
@@ -605,6 +615,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (discountCode) {
     const MAX_RETRIES = 3;
     const RETRY_DELAY_MS = 100;
+    let redemptionSuccess = false;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       const { data: result, error: rpcError } = await supabaseAdmin.rpc(
@@ -624,6 +635,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
       if (result && result.success) {
         logger.info('BILLING', 'Discount code redeemed atomically', { discountCode });
+        redemptionSuccess = true;
         break; // Success, exit retry loop
       }
 
@@ -639,6 +651,20 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         logger.warn('BILLING', 'Discount code redemption failed', { error: result.error, discountCode });
         break;
       }
+    }
+
+    // CRITICAL FIX (Bug #15): Validate redemption success after retry loop
+    // If redemption failed but Stripe already charged with discount, we have a discrepancy
+    if (!redemptionSuccess) {
+      logger.error('BILLING', 'CRITICAL: Discount code failed to record after all retries', {
+        discountCode,
+        userId,
+        sessionId: session.id,
+        subscriptionId: session.subscription,
+        message: 'Stripe charged with discount but DB did not record usage. Manual review required.'
+      });
+      // TODO: Send alert to admin (Slack, email, etc.)
+      // TODO: Consider queuing for manual reconciliation
     }
   }
 

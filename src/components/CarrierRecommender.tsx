@@ -16,7 +16,7 @@ export function CarrierRecommender() {
         const data = await carriersService.getAll();
         setCarriers(data);
       } catch (error) {
-        console.error('Error loading carriers:', error);
+        logger.error('Error loading carriers:', error);
       }
     };
     loadCarriers();

@@ -85,7 +85,7 @@ export class ShopifyProductSyncService {
       return { success: true };
 
     } catch (error: any) {
-      console.error('Error actualizando producto en Shopify:', error);
+      logger.error('BACKEND', 'Error actualizando producto en Shopify:', error);
 
       // Marcar producto como error de sincronización
       await this.supabaseAdmin
@@ -138,7 +138,7 @@ export class ShopifyProductSyncService {
       return { success: true };
 
     } catch (error: any) {
-      console.error('Error eliminando producto de Shopify:', error);
+      logger.error('BACKEND', 'Error eliminando producto de Shopify:', error);
 
       return {
         success: false,
@@ -195,7 +195,7 @@ export class ShopifyProductSyncService {
       .not('shopify_product_id', 'is', null);
 
     if (error) {
-      console.error('Error obteniendo productos pendientes:', error);
+      logger.error('BACKEND', 'Error obteniendo productos pendientes:', error);
       return [];
     }
 
@@ -206,7 +206,7 @@ export class ShopifyProductSyncService {
   async processPendingSync(): Promise<void> {
     const pendingProducts = await this.getPendingSyncProducts();
 
-    console.log(`Procesando ${pendingProducts.length} productos pendientes de sincronización`);
+    logger.info('BACKEND', `Procesando ${pendingProducts.length} productos pendientes de sincronización`);
 
     for (const product of pendingProducts) {
       await this.updateProductInShopify(product.id);
@@ -277,12 +277,12 @@ export class ShopifyProductSyncService {
         })
         .eq('id', productId);
 
-      console.log(`✅ Producto ${productId} publicado exitosamente en Shopify (ID: ${shopifyProduct.id})`);
+      logger.info('BACKEND', `✅ Producto ${productId} publicado exitosamente en Shopify (ID: ${shopifyProduct.id})`);
 
       return { success: true };
 
     } catch (error: any) {
-      console.error('Error publicando producto a Shopify:', error);
+      logger.error('BACKEND', 'Error publicando producto a Shopify:', error);
 
       // Marcar producto como error de sincronización
       await this.supabaseAdmin

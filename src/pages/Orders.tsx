@@ -106,6 +106,8 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
                     <img
                       src={productImage}
                       alt={productName}
+                      loading="lazy"
+                      decoding="async"
                       className="w-8 h-8 rounded object-cover border border-border group-hover:ring-2 group-hover:ring-primary transition-all"
                     />
                   ) : (
@@ -278,7 +280,7 @@ export default function Orders() {
       setOrders(prev => [...prev, ...(result.data as Order[])]);
       setPagination(result.pagination);
     } catch (error) {
-      console.error('Error loading more orders:', error);
+      logger.error('Error loading more orders:', error);
       toast({
         title: 'Error',
         description: 'No se pudieron cargar más pedidos',
@@ -530,16 +532,16 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
   }, [orders, toast]);
 
   const handleCreateOrder = useCallback(async (data: any) => {
-    console.log('🚀 [ORDERS] Creating order with data:', data);
+    logger.log('🚀 [ORDERS] Creating order with data:', data);
 
     try {
       const product = await productsService.getById(data.product);
       if (!product) {
-        console.error('❌ [ORDERS] Product not found:', data.product);
+        logger.error('❌ [ORDERS] Product not found:', data.product);
         return;
       }
 
-      console.log('📦 [ORDERS] Product found:', product.name);
+      logger.log('📦 [ORDERS] Product found:', product.name);
 
       const newOrder = await ordersService.create({
         customer: data.customer,
@@ -555,7 +557,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         confirmedByWhatsApp: false,
       } as any);
 
-      console.log('✅ [ORDERS] Order created:', newOrder);
+      logger.log('✅ [ORDERS] Order created:', newOrder);
 
       const updatedOrdersResponse = await ordersService.getAll();
       setOrders(updatedOrdersResponse.data || []);
@@ -566,7 +568,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         description: 'El pedido ha sido registrado exitosamente.',
       });
     } catch (error) {
-      console.error('💥 [ORDERS] Error creating order:', error);
+      logger.error('💥 [ORDERS] Error creating order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'create',
@@ -616,7 +618,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         });
       }
     } catch (error) {
-      console.error('Error updating order:', error);
+      logger.error('Error updating order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'update',
@@ -672,7 +674,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         try {
           await refetch();
         } catch (refetchError) {
-          console.warn('Refetch after delete failed:', refetchError);
+          logger.warn('Refetch after delete failed:', refetchError);
         }
 
         setDeleteDialogOpen(false);
@@ -686,7 +688,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         });
       }
     } catch (error: any) {
-      console.error('Error deleting order:', error);
+      logger.error('Error deleting order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'delete',
@@ -728,7 +730,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         try {
           await refetch();
         } catch (refetchError) {
-          console.warn('Refetch after delete failed, local state already updated:', refetchError);
+          logger.warn('Refetch after delete failed, local state already updated:', refetchError);
         }
 
         toast({
@@ -737,7 +739,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         });
       }
     } catch (error: any) {
-      console.error('Error permanently deleting order:', error);
+      logger.error('Error permanently deleting order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'permanent_delete',
@@ -757,7 +759,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         });
       }
     } catch (error: any) {
-      console.error('Error restoring order:', error);
+      logger.error('Error restoring order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'restore',
@@ -779,7 +781,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         });
       }
     } catch (error: any) {
-      console.error('Error toggling test status:', error);
+      logger.error('Error toggling test status:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'toggle_test',
@@ -809,7 +811,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         navigate(`/warehouse?session=${session.id}`);
       }
     } catch (error: any) {
-      console.error('Error creating picking session:', error);
+      logger.error('Error creating picking session:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'create_session',
@@ -828,7 +830,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         description: 'Lista de pedidos actualizada',
       });
     } catch (error) {
-      console.error('Error refreshing orders:', error);
+      logger.error('Error refreshing orders:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'refresh',
@@ -934,7 +936,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         });
       }
     } catch (error) {
-      console.error('Error updating order after print:', error);
+      logger.error('Error updating order after print:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'mark_printed',
@@ -980,7 +982,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
             }],
       };
 
-      console.log('🏷️ [ORDERS] Label data for single print:', labelData);
+      logger.log('🏷️ [ORDERS] Label data for single print:', labelData);
 
       const success = await printLabelPDF(labelData);
 
@@ -989,7 +991,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         await handleOrderPrinted(order.id);
       }
     } catch (error) {
-      console.error('Error printing label:', error);
+      logger.error('Error printing label:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'print_label',
@@ -1045,7 +1047,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
             }],
       }));
 
-      console.log('🏷️ [ORDERS] Label data for batch print:', labelsData);
+      logger.log('🏷️ [ORDERS] Label data for batch print:', labelsData);
 
       const success = await printBatchLabelsPDF(labelsData);
 
@@ -1060,7 +1062,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
       }
 
       // PDF generated successfully - use atomic bulk endpoint
-      console.log('✅ [ORDERS] PDF generated successfully, marking orders as printed...');
+      logger.log('✅ [ORDERS] PDF generated successfully, marking orders as printed...');
 
       const result = await ordersService.bulkPrintAndDispatch(
         printableOrders.map(o => o.id)
@@ -1083,7 +1085,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         });
 
         // Log detailed errors for debugging
-        console.error('🚨 [BULK PRINT] Failures:', failures);
+        logger.error('🚨 [BULK PRINT] Failures:', failures);
       } else {
         toast({
           title: '✅ Impresión completada',
@@ -1096,7 +1098,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         setSelectedOrderIds(new Set());
       }
     } catch (error) {
-      console.error('Bulk print error:', error);
+      logger.error('Bulk print error:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'bulk_print',
@@ -1134,7 +1136,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           action={{
             label: 'Crear Primer Pedido',
             onClick: () => {
-              console.log('🖱️ [ORDERS] Empty state button clicked');
+              logger.log('🖱️ [ORDERS] Empty state button clicked');
               setDialogOpen(true);
             },
           }}
@@ -1219,7 +1221,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           />
           <Button
             onClick={() => {
-              console.log('🖱️ [ORDERS] Button clicked');
+              logger.log('🖱️ [ORDERS] Button clicked');
               setDialogOpen(true);
             }}
             className="gap-2"
@@ -1901,7 +1903,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
             const response = await ordersService.getAll();
             setOrders(response.data || []);
           } catch (error) {
-            console.error('Error refreshing orders:', error);
+            logger.error('Error refreshing orders:', error);
             // Keep optimistic update even if refresh fails
           }
         }}

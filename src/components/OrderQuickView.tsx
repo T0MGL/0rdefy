@@ -97,7 +97,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
       await onStatusUpdate(order.id, currentStatus);
       onOpenChange(false);
     } catch (error) {
-      console.error('Error updating status:', error);
+      logger.error('Error updating status:', error);
       setCurrentStatus(order.status); // Revert on error
     } finally {
       setIsSaving(false);

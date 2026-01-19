@@ -172,7 +172,7 @@ export function IncidentRetryChecklist({
       // Notify parent
       onSuccess();
     } catch (error: any) {
-      console.error('Error completing retry:', error);
+      logger.error('Error completing retry:', error);
       toast({
         variant: 'destructive',
         title: 'Error',

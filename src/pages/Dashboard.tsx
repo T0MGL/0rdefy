@@ -66,6 +66,20 @@ export default function Dashboard() {
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
 
+  // Safe accessors for change metrics (prevents null reference errors)
+  const getChange = (metric: string) => {
+    if (!dashboardOverview?.changes) return undefined;
+    const value = (dashboardOverview.changes as any)[metric];
+    return value !== null && value !== undefined ? Math.abs(value) : undefined;
+  };
+
+  const getTrend = (metric: string): 'up' | 'down' | undefined => {
+    if (!dashboardOverview?.changes) return undefined;
+    const value = (dashboardOverview.changes as any)[metric];
+    if (value === null || value === undefined) return undefined;
+    return value >= 0 ? 'up' : 'down';
+  };
+
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
     const range = getDateRange();
@@ -78,7 +92,7 @@ export default function Dashboard() {
       days,
     };
 
-    console.log('📅 Date range calculated:', result);
+    logger.log('📅 Date range calculated:', result);
     return result;
   }, [getDateRange]);
 
@@ -91,20 +105,20 @@ export default function Dashboard() {
       };
 
       const useGlobalView = globalViewEnabled && hasMultipleStores;
-      console.log('📊 [Dashboard] Loading data:', { globalViewEnabled, hasMultipleStores, useGlobalView, storesCount: stores?.length });
+      logger.log('📊 [Dashboard] Loading data:', { globalViewEnabled, hasMultipleStores, useGlobalView, storesCount: stores?.length });
 
       let overview: DashboardOverview | null;
       let chart: ChartData[];
 
       if (useGlobalView) {
         // Fetch unified data from all stores
-        console.log('🌍 [Dashboard] Fetching UNIFIED data from all stores...');
+        logger.log('🌍 [Dashboard] Fetching UNIFIED data from all stores...');
         const [unifiedOverview, unifiedChart] = await Promise.all([
           unifiedService.getAnalyticsOverview(dateParams),
           unifiedService.getAnalyticsChart(dateRange.days, dateParams),
         ]);
 
-        console.log('🌍 [Dashboard] Unified response:', {
+        logger.log('🌍 [Dashboard] Unified response:', {
           stores: unifiedOverview.stores,
           storeCount: unifiedOverview.storeCount,
           hasData: !!unifiedOverview.data,
@@ -139,7 +153,7 @@ export default function Dashboard() {
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
         return;
       }
-      console.error('[Dashboard] Error loading data:', error);
+      logger.error('[Dashboard] Error loading data:', error);
     } finally {
       if (!signal?.aborted) {
         setIsLoading(false);
@@ -238,8 +252,8 @@ export default function Dashboard() {
               </div>
             }
             value={formatCurrency(dashboardOverview.realRevenue ?? dashboardOverview.revenue)}
-            change={dashboardOverview.changes?.realRevenue !== null ? Math.abs(dashboardOverview.changes?.realRevenue || 0) : undefined}
-            trend={dashboardOverview.changes?.realRevenue !== null ? (dashboardOverview.changes?.realRevenue >= 0 ? 'up' : 'down') : undefined}
+            change={getChange('realRevenue')}
+            trend={getTrend('realRevenue')}
             icon={<DollarSign className="text-primary" size={24} />}
             variant="primary"
             subtitle="Solo pedidos entregados"
@@ -266,8 +280,8 @@ export default function Dashboard() {
               </div>
             }
             value={formatCurrency(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit)}
-            change={dashboardOverview.changes?.realNetProfit !== null ? Math.abs(dashboardOverview.changes?.realNetProfit || 0) : undefined}
-            trend={dashboardOverview.changes?.realNetProfit !== null ? (dashboardOverview.changes?.realNetProfit >= 0 ? 'up' : 'down') : undefined}
+            change={getChange('realNetProfit')}
+            trend={getTrend('realNetProfit')}
             icon={<TrendingUp className="text-green-600" size={24} />}
             variant="accent"
             subtitle="Solo pedidos entregados"
@@ -280,8 +294,8 @@ export default function Dashboard() {
               </div>
             }
             value={`${dashboardOverview.deliveryRate}%`}
-            change={dashboardOverview.changes?.deliveryRate !== null ? Math.abs(dashboardOverview.changes?.deliveryRate || 0) : undefined}
-            trend={dashboardOverview.changes?.deliveryRate !== null ? (dashboardOverview.changes?.deliveryRate >= 0 ? 'up' : 'down') : undefined}
+            change={getChange('deliveryRate')}
+            trend={getTrend('deliveryRate')}
             icon={<Truck className="text-purple-600" size={24} />}
             variant="purple"
           />
@@ -293,8 +307,8 @@ export default function Dashboard() {
               </div>
             }
             value={formatCurrency(dashboardOverview.averageOrderValue)}
-            change={dashboardOverview.changes?.averageOrderValue !== null ? Math.abs(dashboardOverview.changes?.averageOrderValue || 0) : undefined}
-            trend={dashboardOverview.changes?.averageOrderValue !== null ? (dashboardOverview.changes?.averageOrderValue >= 0 ? 'up' : 'down') : undefined}
+            change={getChange('averageOrderValue')}
+            trend={getTrend('averageOrderValue')}
             icon={<ShoppingCart className="text-orange-600" size={24} />}
           />
         </div>
@@ -332,16 +346,14 @@ export default function Dashboard() {
               }
               change={
                 dashboardOverview.gasto_publicitario > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0 &&
-                dashboardOverview.changes?.realRoas !== null
-                  ? Math.abs(dashboardOverview.changes?.realRoas || 0)
+                (dashboardOverview.realRevenue ?? 0) > 0
+                  ? getChange('realRoas')
                   : undefined
               }
               trend={
                 dashboardOverview.gasto_publicitario > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0 &&
-                dashboardOverview.changes?.realRoas !== null
-                  ? (dashboardOverview.changes?.realRoas >= 0 ? 'up' : 'down')
+                (dashboardOverview.realRevenue ?? 0) > 0
+                  ? getTrend('realRoas')
                   : undefined
               }
               icon={<Target className="text-green-600" size={20} />}
@@ -367,16 +379,14 @@ export default function Dashboard() {
               }
               change={
                 (dashboardOverview.realCosts ?? 0) > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0 &&
-                dashboardOverview.changes?.realRoi !== null
-                  ? Math.abs(dashboardOverview.changes?.realRoi || 0)
+                (dashboardOverview.realRevenue ?? 0) > 0
+                  ? getChange('realRoi')
                   : undefined
               }
               trend={
                 (dashboardOverview.realCosts ?? 0) > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0 &&
-                dashboardOverview.changes?.realRoi !== null
-                  ? (dashboardOverview.changes?.realRoi >= 0 ? 'up' : 'down')
+                (dashboardOverview.realRevenue ?? 0) > 0
+                  ? getTrend('realRoi')
                   : undefined
               }
               icon={<Target className="text-blue-600" size={20} />}
@@ -394,16 +404,8 @@ export default function Dashboard() {
                   ? `${(dashboardOverview.realGrossMargin ?? dashboardOverview.grossMargin)}%`
                   : 'N/A'
               }
-              change={
-                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realGrossMargin !== null
-                  ? Math.abs(dashboardOverview.changes?.realGrossMargin || 0)
-                  : undefined
-              }
-              trend={
-                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realGrossMargin !== null
-                  ? (dashboardOverview.changes?.realGrossMargin >= 0 ? 'up' : 'down')
-                  : undefined
-              }
+              change={(dashboardOverview.realRevenue ?? 0) > 0 ? getChange('realGrossMargin') : undefined}
+              trend={(dashboardOverview.realRevenue ?? 0) > 0 ? getTrend('realGrossMargin') : undefined}
               icon={<Percent className="text-emerald-600" size={20} />}
               subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
             />
@@ -419,16 +421,8 @@ export default function Dashboard() {
                   ? `${(dashboardOverview.realNetMargin ?? dashboardOverview.netMargin)}%`
                   : 'N/A'
               }
-              change={
-                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realNetMargin !== null
-                  ? Math.abs(dashboardOverview.changes?.realNetMargin || 0)
-                  : undefined
-              }
-              trend={
-                (dashboardOverview.realRevenue ?? 0) > 0 && dashboardOverview.changes?.realNetMargin !== null
-                  ? (dashboardOverview.changes?.realNetMargin >= 0 ? 'up' : 'down')
-                  : undefined
-              }
+              change={(dashboardOverview.realRevenue ?? 0) > 0 ? getChange('realNetMargin') : undefined}
+              trend={(dashboardOverview.realRevenue ?? 0) > 0 ? getTrend('realNetMargin') : undefined}
               icon={<Percent className="text-primary" size={20} />}
               subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
             />
@@ -440,8 +434,8 @@ export default function Dashboard() {
                 </div>
               }
               value={formatCurrency(dashboardOverview.costPerOrder)}
-              change={dashboardOverview.changes?.costPerOrder !== null ? Math.abs(dashboardOverview.changes?.costPerOrder || 0) : undefined}
-              trend={dashboardOverview.changes?.costPerOrder !== null ? (dashboardOverview.changes?.costPerOrder >= 0 ? 'up' : 'down') : undefined}
+              change={getChange('costPerOrder')}
+              trend={getTrend('costPerOrder')}
               icon={<Package2 className="text-gray-600" size={20} />}
             />
           </div>

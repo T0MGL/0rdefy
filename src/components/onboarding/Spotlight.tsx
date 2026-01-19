@@ -101,7 +101,7 @@ export function Spotlight({ padding = 8, borderRadius = 12 }: SpotlightProps) {
           rafId = requestAnimationFrame(updateTargetRect);
         } else {
           // Fallback: show center overlay if element never found
-          console.warn(`[Tour] Element not found after ${maxRetries} retries: ${currentStep.target}`);
+          logger.warn(`[Tour] Element not found after ${maxRetries} retries: ${currentStep.target}`);
           setTargetRect(null);
         }
       }

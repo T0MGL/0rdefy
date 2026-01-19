@@ -59,10 +59,10 @@ async function registerShopifyWebhooks(
     errors: [] as string[]
   };
 
-  console.log(`🔧 [SHOPIFY-WEBHOOKS] Starting webhook registration for ${shop}...`);
-  console.log(`🔐 [SHOPIFY-WEBHOOKS] Granted scopes: ${grantedScopes || 'unknown'}`);
-  console.log(`🔗 [SHOPIFY-WEBHOOKS] API URL: ${API_URL}`);
-  console.log(`📋 [SHOPIFY-WEBHOOKS] Topics to register: ${WEBHOOK_TOPICS.join(', ')}`);
+  logger.info('API', `🔧 [SHOPIFY-WEBHOOKS] Starting webhook registration for ${shop}...`);
+  logger.info('API', `🔐 [SHOPIFY-WEBHOOKS] Granted scopes: ${grantedScopes || 'unknown'}`);
+  logger.info('API', `🔗 [SHOPIFY-WEBHOOKS] API URL: ${API_URL}`);
+  logger.info('API', `📋 [SHOPIFY-WEBHOOKS] Topics to register: ${WEBHOOK_TOPICS.join(', ')}`);
 
   // Verify required scopes are present
   const requiredScopes = ['write_orders', 'write_products'];
@@ -71,15 +71,15 @@ async function registerShopifyWebhooks(
     const missingScopes = requiredScopes.filter(scope => !scopeArray.includes(scope));
 
     if (missingScopes.length > 0) {
-      console.warn(`⚠️  [SHOPIFY-WEBHOOKS] Missing required scopes: ${missingScopes.join(', ')}`);
-      console.warn(`⚠️  [SHOPIFY-WEBHOOKS] Webhook registration may fail`);
+      logger.warn('API', `⚠️  [SHOPIFY-WEBHOOKS] Missing required scopes: ${missingScopes.join(', ')}`);
+      logger.warn('API', `⚠️  [SHOPIFY-WEBHOOKS] Webhook registration may fail`);
     }
   }
 
   // ================================================================
   // STEP 1: List existing webhooks from Shopify
   // ================================================================
-  console.log(`\n📋 [SHOPIFY-WEBHOOKS] Fetching existing webhooks from Shopify...`);
+  logger.info('API', `\n📋 [SHOPIFY-WEBHOOKS] Fetching existing webhooks from Shopify...`);
   let existingWebhooks: any[] = [];
 
   try {
@@ -94,15 +94,15 @@ async function registerShopifyWebhooks(
     );
 
     existingWebhooks = listResponse.data.webhooks || [];
-    console.log(`✅ [SHOPIFY-WEBHOOKS] Found ${existingWebhooks.length} existing webhooks in Shopify`);
+    logger.info('API', `✅ [SHOPIFY-WEBHOOKS] Found ${existingWebhooks.length} existing webhooks in Shopify`);
 
     // Log each existing webhook
     existingWebhooks.forEach((webhook: any) => {
-      console.log(`   └─ ${webhook.topic}: ${webhook.address} (ID: ${webhook.id})`);
+      logger.info('API', `   └─ ${webhook.topic}: ${webhook.address} (ID: ${webhook.id})`);
     });
   } catch (error: any) {
-    console.warn(`⚠️  [SHOPIFY-WEBHOOKS] Could not fetch existing webhooks:`, error.message);
-    console.warn(`   └─ Will attempt to create all webhooks (may get 422 errors)`);
+    logger.warn('API', `⚠️  [SHOPIFY-WEBHOOKS] Could not fetch existing webhooks:`, error.message);
+    logger.warn('API', `   └─ Will attempt to create all webhooks (may get 422 errors)`);
   }
 
   for (const topic of WEBHOOK_TOPICS) {
@@ -110,8 +110,8 @@ async function registerShopifyWebhooks(
       // Construct webhook URL endpoint
       const webhookUrl = `${API_URL}/api/shopify/webhook/${topic.replace('/', '-')}`;
 
-      console.log(`\n🔗 [SHOPIFY-WEBHOOKS] [${topic}] Processing...`);
-      console.log(`   └─ Expected URL: ${webhookUrl}`);
+      logger.info('API', `\n🔗 [SHOPIFY-WEBHOOKS] [${topic}] Processing...`);
+      logger.info('API', `   └─ Expected URL: ${webhookUrl}`);
 
       // ================================================================
       // STEP 2: Check if webhook already exists
@@ -119,12 +119,12 @@ async function registerShopifyWebhooks(
       const existingWebhook = existingWebhooks.find((w: any) => w.topic === topic);
 
       if (existingWebhook) {
-        console.log(`   └─ Found existing webhook in Shopify (ID: ${existingWebhook.id})`);
-        console.log(`   └─ Existing URL: ${existingWebhook.address}`);
+        logger.info('API', `   └─ Found existing webhook in Shopify (ID: ${existingWebhook.id})`);
+        logger.info('API', `   └─ Existing URL: ${existingWebhook.address}`);
 
         // Check if URL matches
         if (existingWebhook.address === webhookUrl) {
-          console.log(`   └─ ✅ URL matches - using existing webhook`);
+          logger.info('API', `   └─ ✅ URL matches - using existing webhook`);
 
           // Save existing webhook to our database
           const { error } = await supabaseAdmin
@@ -140,17 +140,17 @@ async function registerShopifyWebhooks(
             });
 
           if (error && !error.message.includes('duplicate') && !error.message.includes('unique')) {
-            console.warn(`   └─ ⚠️  Database save warning: ${error.message}`);
+            logger.warn('API', `   └─ ⚠️  Database save warning: ${error.message}`);
           }
 
-          console.log(`✅ [SHOPIFY-WEBHOOKS] [${topic}] Verified existing webhook`);
+          logger.info('API', `✅ [SHOPIFY-WEBHOOKS] [${topic}] Verified existing webhook`);
           results.success++;
           continue; // Skip creation, use existing
         } else {
-          console.warn(`   └─ ⚠️  URL mismatch!`);
-          console.warn(`   └─ Expected: ${webhookUrl}`);
-          console.warn(`   └─ Got: ${existingWebhook.address}`);
-          console.log(`   └─ Deleting old webhook and creating new one...`);
+          logger.warn('API', `   └─ ⚠️  URL mismatch!`);
+          logger.warn('API', `   └─ Expected: ${webhookUrl}`);
+          logger.warn('API', `   └─ Got: ${existingWebhook.address}`);
+          logger.info('API', `   └─ Deleting old webhook and creating new one...`);
 
           // Delete old webhook
           try {
@@ -163,20 +163,20 @@ async function registerShopifyWebhooks(
                 timeout: 10000
               }
             );
-            console.log(`   └─ ✅ Old webhook deleted`);
+            logger.info('API', `   └─ ✅ Old webhook deleted`);
           } catch (deleteError: any) {
-            console.error(`   └─ ❌ Failed to delete old webhook:`, deleteError.message);
+            logger.error('API', `   └─ ❌ Failed to delete old webhook:`, deleteError.message);
             // Continue anyway, try to create new one
           }
         }
       } else {
-        console.log(`   └─ No existing webhook found for ${topic}`);
+        logger.info('API', `   └─ No existing webhook found for ${topic}`);
       }
 
       // ================================================================
       // STEP 3: Create new webhook
       // ================================================================
-      console.log(`   └─ Creating new webhook...`);
+      logger.info('API', `   └─ Creating new webhook...`);
 
       const response = await axios.post(
         baseUrl,
@@ -198,7 +198,7 @@ async function registerShopifyWebhooks(
 
       const webhookId = response.data.webhook.id;
 
-      console.log(`   └─ Shopify webhook ID: ${webhookId}`);
+      logger.info('API', `   └─ Shopify webhook ID: ${webhookId}`);
 
       // Save webhook_id in database for later management
       const { error } = await supabaseAdmin
@@ -213,75 +213,75 @@ async function registerShopifyWebhooks(
 
       // Ignore duplicate key errors (webhook already registered)
       if (error && !error.message.includes('duplicate') && !error.message.includes('unique')) {
-        console.error(`   └─ ⚠️  Database save failed: ${error.message}`);
+        logger.error('API', `   └─ ⚠️  Database save failed: ${error.message}`);
         // Don't fail the whole process if DB save fails
       }
 
-      console.log(`✅ [SHOPIFY-WEBHOOKS] [${topic}] Successfully registered`);
+      logger.info('API', `✅ [SHOPIFY-WEBHOOKS] [${topic}] Successfully registered`);
       results.success++;
 
     } catch (error: any) {
       results.failed++;
 
       // Detailed error logging
-      console.error(`❌ [SHOPIFY-WEBHOOKS] [${topic}] Registration FAILED`);
+      logger.error('API', `❌ [SHOPIFY-WEBHOOKS] [${topic}] Registration FAILED`);
 
       if (axios.isAxiosError(error)) {
         const status = error.response?.status;
         const data = error.response?.data;
         const headers = error.response?.headers;
 
-        console.error(`   └─ HTTP Status: ${status}`);
-        console.error(`   └─ Response Data:`, JSON.stringify(data, null, 2));
+        logger.error('API', `   └─ HTTP Status: ${status}`);
+        logger.error('API', `   └─ Response Data:`, JSON.stringify(data, null, 2));
 
         // Specific error handling
         if (status === 401) {
-          console.error(`   └─ ⚠️  AUTHENTICATION ERROR - Access token may be invalid`);
+          logger.error('API', `   └─ ⚠️  AUTHENTICATION ERROR - Access token may be invalid`);
           results.errors.push(`${topic}: Invalid access token (401)`);
         } else if (status === 403) {
-          console.error(`   └─ ⚠️  PERMISSION ERROR - Missing required scope for ${topic}`);
-          console.error(`   └─ Required: write_orders or write_products`);
-          console.error(`   └─ Granted: ${grantedScopes}`);
+          logger.error('API', `   └─ ⚠️  PERMISSION ERROR - Missing required scope for ${topic}`);
+          logger.error('API', `   └─ Required: write_orders or write_products`);
+          logger.error('API', `   └─ Granted: ${grantedScopes}`);
           results.errors.push(`${topic}: Missing scope permission (403)`);
         } else if (status === 422) {
           const errorMessage = data?.errors?.address?.[0] || JSON.stringify(data?.errors);
 
           if (errorMessage.includes('already been taken')) {
-            console.error(`   └─ ⚠️  DUPLICATE ERROR - Webhook already exists for this topic`);
-            console.error(`   └─ This usually means:`);
-            console.error(`      1. Webhook exists in Shopify but wasn't detected in the list`);
-            console.error(`      2. Another integration is using the same URL`);
-            console.error(`   └─ Solution: Go to Shopify admin and manually delete duplicate webhooks`);
+            logger.error('API', `   └─ ⚠️  DUPLICATE ERROR - Webhook already exists for this topic`);
+            logger.error('API', `   └─ This usually means:`);
+            logger.error('API', `      1. Webhook exists in Shopify but wasn't detected in the list`);
+            logger.error('API', `      2. Another integration is using the same URL`);
+            logger.error('API', `   └─ Solution: Go to Shopify admin and manually delete duplicate webhooks`);
             results.errors.push(`${topic}: Webhook already exists (422) - manually delete in Shopify admin`);
           } else {
-            console.error(`   └─ ⚠️  VALIDATION ERROR - Invalid webhook data`);
-            console.error(`   └─ Error details:`, data?.errors || data);
+            logger.error('API', `   └─ ⚠️  VALIDATION ERROR - Invalid webhook data`);
+            logger.error('API', `   └─ Error details:`, data?.errors || data);
             results.errors.push(`${topic}: Validation error (422) - ${JSON.stringify(data?.errors)}`);
           }
         } else if (status === 429) {
-          console.error(`   └─ ⚠️  RATE LIMIT - Too many requests`);
+          logger.error('API', `   └─ ⚠️  RATE LIMIT - Too many requests`);
           results.errors.push(`${topic}: Rate limited (429)`);
         } else {
-          console.error(`   └─ Unexpected error: ${error.message}`);
+          logger.error('API', `   └─ Unexpected error: ${error.message}`);
           results.errors.push(`${topic}: ${error.message}`);
         }
       } else {
-        console.error(`   └─ Non-HTTP error:`, error.message);
+        logger.error('API', `   └─ Non-HTTP error:`, error.message);
         results.errors.push(`${topic}: ${error.message}`);
       }
     }
   }
 
   // Summary
-  console.log(`\n📊 [SHOPIFY-WEBHOOKS] Registration Summary:`);
-  console.log(`   ✅ Success: ${results.success}/${WEBHOOK_TOPICS.length}`);
-  console.log(`   ❌ Failed: ${results.failed}/${WEBHOOK_TOPICS.length}`);
+  logger.info('API', `\n📊 [SHOPIFY-WEBHOOKS] Registration Summary:`);
+  logger.info('API', `   ✅ Success: ${results.success}/${WEBHOOK_TOPICS.length}`);
+  logger.info('API', `   ❌ Failed: ${results.failed}/${WEBHOOK_TOPICS.length}`);
 
   if (results.failed > 0) {
-    console.error(`\n⚠️  [SHOPIFY-WEBHOOKS] ${results.failed} webhook(s) failed to register!`);
-    console.error(`   Errors:`, results.errors);
+    logger.error('API', `\n⚠️  [SHOPIFY-WEBHOOKS] ${results.failed} webhook(s) failed to register!`);
+    logger.error('API', `   Errors:`, results.errors);
   } else {
-    console.log(`\n✨ [SHOPIFY-WEBHOOKS] All webhooks registered successfully!`);
+    logger.info('API', `\n✨ [SHOPIFY-WEBHOOKS] All webhooks registered successfully!`);
   }
 
   return results;
@@ -297,7 +297,7 @@ const validateHmac = (query: any, secret: string): boolean => {
   const { hmac, ...params } = query;
 
   if (!hmac) {
-    console.error('❌ [HMAC] No HMAC provided');
+    logger.error('API', '❌ [HMAC] No HMAC provided');
     return false;
   }
 
@@ -307,7 +307,7 @@ const validateHmac = (query: any, secret: string): boolean => {
     .map(key => `${key}=${params[key]}`)
     .join('&');
 
-  console.log('🔐 [HMAC] Sorted params:', sortedParams);
+  logger.info('API', '🔐 [HMAC] Sorted params:', sortedParams);
 
   // Step 2: Create HMAC-SHA256 hash
   const hash = crypto
@@ -315,8 +315,8 @@ const validateHmac = (query: any, secret: string): boolean => {
     .update(sortedParams)
     .digest('hex');
 
-  console.log('🔐 [HMAC] Calculated:', hash);
-  console.log('🔐 [HMAC] Received:', hmac);
+  logger.info('API', '🔐 [HMAC] Calculated:', hash);
+  logger.info('API', '🔐 [HMAC] Received:', hmac);
 
   // Step 3: Compare with received HMAC (timing-safe comparison)
   const isValid = crypto.timingSafeEqual(
@@ -324,7 +324,7 @@ const validateHmac = (query: any, secret: string): boolean => {
     Buffer.from(hmac as string)
   );
 
-  console.log(isValid ? '✅ [HMAC] Valid' : '❌ [HMAC] Invalid');
+  logger.info('API', isValid ? '✅ [HMAC] Valid' : '❌ [HMAC] Invalid');
   return isValid;
 };
 
@@ -346,11 +346,11 @@ const handleOAuthStart = async (req: Request, res: Response) => {
   try {
     const { shop, user_id, store_id, popup } = req.query;
 
-    console.log('🚀 [SHOPIFY-OAUTH] Auth request:', { shop, user_id, store_id, popup });
+    logger.info('API', '🚀 [SHOPIFY-OAUTH] Auth request:', { shop, user_id, store_id, popup });
 
     // Validate environment variables
     if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET || !SHOPIFY_REDIRECT_URI) {
-      console.error('❌ [SHOPIFY-OAUTH] Missing environment variables');
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Missing environment variables');
       return res.status(500).json({
         error: 'Server configuration error',
         message: 'Shopify OAuth not configured properly'
@@ -375,7 +375,7 @@ const handleOAuthStart = async (req: Request, res: Response) => {
 
     // Generate random state for CSRF protection
     const state = crypto.randomBytes(32).toString('hex');
-    console.log('🔐 [SHOPIFY-OAUTH] Generated state:', state);
+    logger.info('API', '🔐 [SHOPIFY-OAUTH] Generated state:', state);
 
     // Store state in database (expires in 10 minutes)
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -393,14 +393,14 @@ const handleOAuthStart = async (req: Request, res: Response) => {
       }]);
 
     if (stateError) {
-      console.error('❌ [SHOPIFY-OAUTH] Error saving state:', stateError);
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Error saving state:', stateError);
       return res.status(500).json({
         error: 'Database error',
         message: 'Error al inicializar flujo OAuth'
       });
     }
 
-    console.log('✅ [SHOPIFY-OAUTH] State saved to database');
+    logger.info('API', '✅ [SHOPIFY-OAUTH] State saved to database');
 
     // Build Shopify OAuth authorization URL
     const authUrl = new URL(`https://${shop}/admin/oauth/authorize`);
@@ -414,13 +414,13 @@ const handleOAuthStart = async (req: Request, res: Response) => {
       authUrl.searchParams.append('store_id', store_id as string);
     }
 
-    console.log('🔗 [SHOPIFY-OAUTH] Redirecting to:', authUrl.toString());
+    logger.info('API', '🔗 [SHOPIFY-OAUTH] Redirecting to:', authUrl.toString());
 
     // Redirect user to Shopify for authorization
     res.redirect(authUrl.toString());
 
   } catch (error: any) {
-    console.error('💥 [SHOPIFY-OAUTH] Error:', error);
+    logger.error('API', '💥 [SHOPIFY-OAUTH] Error:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       message: error.message
@@ -480,7 +480,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
   try {
     const { code, hmac, shop, state, timestamp, store_id } = req.query;
 
-    console.log('📥 [SHOPIFY-OAUTH] Callback received:', {
+    logger.info('API', '📥 [SHOPIFY-OAUTH] Callback received:', {
       shop,
       state,
       hasCode: !!code,
@@ -489,17 +489,17 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
     // Validate required parameters
     if (!code || !hmac || !shop || !state) {
-      console.error('❌ [SHOPIFY-OAUTH] Missing required parameters');
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Missing required parameters');
       return res.redirect(`${APP_URL}/integrations?status=error&integration=shopify&error=missing_params`);
     }
 
     // Validate HMAC signature
     if (!validateHmac(req.query, SHOPIFY_API_SECRET!)) {
-      console.error('❌ [SHOPIFY-OAUTH] Invalid HMAC signature');
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Invalid HMAC signature');
       return res.redirect(`${APP_URL}/integrations?status=error&integration=shopify&error=invalid_signature`);
     }
 
-    console.log('✅ [SHOPIFY-OAUTH] HMAC validated successfully');
+    logger.info('API', '✅ [SHOPIFY-OAUTH] HMAC validated successfully');
 
     // Validate state parameter (CSRF protection)
     const { data: stateData, error: stateError } = await supabaseAdmin
@@ -511,13 +511,13 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       .single();
 
     if (stateError || !stateData) {
-      console.error('❌ [SHOPIFY-OAUTH] Invalid or expired state:', stateError);
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Invalid or expired state:', stateError);
       return res.redirect(`${APP_URL}/integrations?status=error&integration=shopify&error=invalid_state`);
     }
 
     // Check if state has expired
     if (new Date(stateData.expires_at) < new Date()) {
-      console.error('❌ [SHOPIFY-OAUTH] State has expired');
+      logger.error('API', '❌ [SHOPIFY-OAUTH] State has expired');
       await supabaseAdmin
         .from('shopify_oauth_states')
         .delete()
@@ -525,7 +525,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       return res.redirect(`${APP_URL}/integrations?status=error&integration=shopify&error=expired_state`);
     }
 
-    console.log('✅ [SHOPIFY-OAUTH] State validated successfully');
+    logger.info('API', '✅ [SHOPIFY-OAUTH] State validated successfully');
 
     // Mark state as used to prevent replay attacks
     await supabaseAdmin
@@ -534,7 +534,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       .eq('state', state);
 
     // Exchange authorization code for access token
-    console.log('🔄 [SHOPIFY-OAUTH] Exchanging code for access token...');
+    logger.info('API', '🔄 [SHOPIFY-OAUTH] Exchanging code for access token...');
 
     const tokenResponse = await axios.post(
       `https://${shop}/admin/oauth/access_token`,
@@ -553,12 +553,12 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     const { access_token, scope } = tokenResponse.data;
 
     if (!access_token) {
-      console.error('❌ [SHOPIFY-OAUTH] No access token received');
+      logger.error('API', '❌ [SHOPIFY-OAUTH] No access token received');
       return res.redirect(`${APP_URL}/integrations?status=error&integration=shopify&error=no_token`);
     }
 
-    console.log('✅ [SHOPIFY-OAUTH] Access token received');
-    console.log('📋 [SHOPIFY-OAUTH] Granted scopes:', scope);
+    logger.info('API', '✅ [SHOPIFY-OAUTH] Access token received');
+    logger.info('API', '📋 [SHOPIFY-OAUTH] Granted scopes:', scope);
 
     // Fetch shop info from Shopify API to get shop name
     let shopName = shop as string; // Default to shop domain
@@ -574,10 +574,10 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
       if (shopInfoResponse.data?.shop?.name) {
         shopName = shopInfoResponse.data.shop.name;
-        console.log('✅ [SHOPIFY-OAUTH] Shop name fetched:', shopName);
+        logger.info('API', '✅ [SHOPIFY-OAUTH] Shop name fetched:', shopName);
       }
     } catch (error: any) {
-      console.error('⚠️ [SHOPIFY-OAUTH] Failed to fetch shop name:', error.message);
+      logger.error('API', '⚠️ [SHOPIFY-OAUTH] Failed to fetch shop name:', error.message);
       // Continue with shop domain as fallback
     }
 
@@ -598,7 +598,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       }
     }
 
-    console.log('🏪 [SHOPIFY-OAUTH] Store ID resolved:', finalStoreId);
+    logger.info('API', '🏪 [SHOPIFY-OAUTH] Store ID resolved:', finalStoreId);
 
     // Save integration to database (OAuth flow)
     // OAuth integrations use access_token, NOT api_key/api_secret_key
@@ -626,7 +626,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
     if (existingIntegration) {
       // Update existing integration
-      console.log('🔄 [SHOPIFY-OAUTH] Updating existing integration');
+      logger.info('API', '🔄 [SHOPIFY-OAUTH] Updating existing integration');
       const { error: updateError } = await supabaseAdmin
         .from('shopify_integrations')
         .update({
@@ -639,14 +639,14 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
         .eq('shop', shop);
 
       if (updateError) {
-        console.error('❌ [SHOPIFY-OAUTH] Error updating integration:', updateError);
+        logger.error('API', '❌ [SHOPIFY-OAUTH] Error updating integration:', updateError);
         throw updateError;
       }
 
       integrationIdForWebhooks = existingIntegration.id;
     } else {
       // Create new integration
-      console.log('✨ [SHOPIFY-OAUTH] Creating new integration');
+      logger.info('API', '✨ [SHOPIFY-OAUTH] Creating new integration');
       const { data: newIntegration, error: insertError } = await supabaseAdmin
         .from('shopify_integrations')
         .insert([integrationData])
@@ -654,14 +654,14 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
         .single();
 
       if (insertError || !newIntegration) {
-        console.error('❌ [SHOPIFY-OAUTH] Error saving integration:', insertError);
+        logger.error('API', '❌ [SHOPIFY-OAUTH] Error saving integration:', insertError);
         throw insertError;
       }
 
       integrationIdForWebhooks = newIntegration.id;
     }
 
-    console.log('✅ [SHOPIFY-OAUTH] Integration saved to database');
+    logger.info('API', '✅ [SHOPIFY-OAUTH] Integration saved to database');
 
     // Update store name in the stores table if we have a store_id
     if (finalStoreId && shopName) {
@@ -672,12 +672,12 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
           .eq('id', finalStoreId);
 
         if (updateStoreError) {
-          console.error('⚠️ [SHOPIFY-OAUTH] Failed to update store name:', updateStoreError);
+          logger.error('API', '⚠️ [SHOPIFY-OAUTH] Failed to update store name:', updateStoreError);
         } else {
-          console.log('✅ [SHOPIFY-OAUTH] Store name updated to:', shopName);
+          logger.info('API', '✅ [SHOPIFY-OAUTH] Store name updated to:', shopName);
         }
       } catch (error: any) {
-        console.error('⚠️ [SHOPIFY-OAUTH] Error updating store name:', error.message);
+        logger.error('API', '⚠️ [SHOPIFY-OAUTH] Error updating store name:', error.message);
       }
     }
 
@@ -687,11 +687,11 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     // This is the main reason webhooks might not appear in Shopify
     // If this fails, we still complete OAuth but warn the user
     // ================================================================
-    console.log('\n🎯 [SHOPIFY-OAUTH] ===== STARTING WEBHOOK REGISTRATION =====');
-    console.log(`[SHOPIFY-OAUTH] Shop: ${shop}`);
-    console.log(`[SHOPIFY-OAUTH] Integration ID: ${integrationIdForWebhooks}`);
-    console.log(`[SHOPIFY-OAUTH] Scopes: ${scope}`);
-    console.log(`[SHOPIFY-OAUTH] API URL: ${API_URL}`);
+    logger.info('API', '\n🎯 [SHOPIFY-OAUTH] ===== STARTING WEBHOOK REGISTRATION =====');
+    logger.info('API', `[SHOPIFY-OAUTH] Shop: ${shop}`);
+    logger.info('API', `[SHOPIFY-OAUTH] Integration ID: ${integrationIdForWebhooks}`);
+    logger.info('API', `[SHOPIFY-OAUTH] Scopes: ${scope}`);
+    logger.info('API', `[SHOPIFY-OAUTH] API URL: ${API_URL}`);
 
     const webhookResults = await registerShopifyWebhooks(
       shop as string,
@@ -700,7 +700,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       scope // Pass granted scopes for verification
     );
 
-    console.log('🎯 [SHOPIFY-OAUTH] ===== WEBHOOK REGISTRATION COMPLETE =====\n');
+    logger.info('API', '🎯 [SHOPIFY-OAUTH] ===== WEBHOOK REGISTRATION COMPLETE =====\n');
 
     // Save webhook registration results to integration record
     await supabaseAdmin
@@ -719,7 +719,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       .delete()
       .eq('state', state);
 
-    console.log('🧹 [SHOPIFY-OAUTH] State cleaned up');
+    logger.info('API', '🧹 [SHOPIFY-OAUTH] State cleaned up');
 
     // Build redirect URL with webhook status
     let redirectUrl = `${APP_URL}/integrations?status=success&integration=shopify&shop=${shop}`;
@@ -728,35 +728,35 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     if (webhookResults.failed > 0) {
       redirectUrl += `&webhooks_failed=${webhookResults.failed}`;
       redirectUrl += `&webhooks_success=${webhookResults.success}`;
-      console.warn(`⚠️  [SHOPIFY-OAUTH] ${webhookResults.failed} webhooks failed to register`);
-      console.warn(`   User will be notified via redirect URL`);
+      logger.warn('API', `⚠️  [SHOPIFY-OAUTH] ${webhookResults.failed} webhooks failed to register`);
+      logger.warn('API', `   User will be notified via redirect URL`);
     } else {
       redirectUrl += '&webhooks=ok';
-      console.log('✅ [SHOPIFY-OAUTH] All webhooks registered successfully');
+      logger.info('API', '✅ [SHOPIFY-OAUTH] All webhooks registered successfully');
     }
 
-    console.log('🔗 [SHOPIFY-OAUTH] APP_URL env var:', process.env.APP_URL);
-    console.log('🔗 [SHOPIFY-OAUTH] Final APP_URL:', APP_URL);
+    logger.info('API', '🔗 [SHOPIFY-OAUTH] APP_URL env var:', process.env.APP_URL);
+    logger.info('API', '🔗 [SHOPIFY-OAUTH] Final APP_URL:', APP_URL);
 
     // Check if this is a popup OAuth flow (Shopify embedded mode)
     if (stateData.is_popup) {
-      console.log('🪟 [SHOPIFY-OAUTH] Popup mode detected - redirecting to callback page');
+      logger.info('API', '🪟 [SHOPIFY-OAUTH] Popup mode detected - redirecting to callback page');
       // Redirect to special callback page that closes popup and notifies parent
       const popupCallbackUrl = `${APP_URL}/shopify-oauth-callback?status=success&shop=${shop}${webhookResults.failed > 0 ? `&webhooks_failed=${webhookResults.failed}` : '&webhooks=ok'}`;
-      console.log('🔗 [SHOPIFY-OAUTH] Redirecting popup to:', popupCallbackUrl);
+      logger.info('API', '🔗 [SHOPIFY-OAUTH] Redirecting popup to:', popupCallbackUrl);
       res.redirect(popupCallbackUrl);
     } else {
       // Normal redirect (standalone mode)
-      console.log('🔗 [SHOPIFY-OAUTH] Redirecting to:', redirectUrl);
+      logger.info('API', '🔗 [SHOPIFY-OAUTH] Redirecting to:', redirectUrl);
       res.redirect(redirectUrl);
     }
 
   } catch (error: any) {
-    console.error('💥 [SHOPIFY-OAUTH] Callback error:', error);
+    logger.error('API', '💥 [SHOPIFY-OAUTH] Callback error:', error);
 
     // Log detailed error for debugging
     if (axios.isAxiosError(error)) {
-      console.error('📡 [SHOPIFY-OAUTH] Axios error:', {
+      logger.error('API', '📡 [SHOPIFY-OAUTH] Axios error:', {
         status: error.response?.status,
         data: error.response?.data
       });
@@ -817,7 +817,7 @@ shopifyOAuthRouter.get('/status', async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('💥 [SHOPIFY-OAUTH] Status check error:', error);
+    logger.error('API', '💥 [SHOPIFY-OAUTH] Status check error:', error);
     res.status(500).json({
       error: 'Error interno del servidor',
       message: error.message
@@ -842,7 +842,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
     const authHeader = req.headers['authorization'];
     const storeIdHeader = req.headers['x-store-id'];
 
-    console.log('🔌 [SHOPIFY-OAUTH] Disconnect request:', { shop, hasAuth: !!authHeader, storeId: storeIdHeader });
+    logger.info('API', '🔌 [SHOPIFY-OAUTH] Disconnect request:', { shop, hasAuth: !!authHeader, storeId: storeIdHeader });
 
     if (!shop || typeof shop !== 'string') {
       return res.status(400).json({
@@ -851,7 +851,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
       });
     }
 
-    console.log('🔌 [SHOPIFY-OAUTH] Disconnecting shop:', shop);
+    logger.info('API', '🔌 [SHOPIFY-OAUTH] Disconnecting shop:', shop);
 
     // Get integration with credentials
     const { data: integration, error: fetchError } = await supabaseAdmin
@@ -861,7 +861,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
       .single();
 
     if (fetchError || !integration) {
-      console.error('❌ [SHOPIFY-OAUTH] Integration not found:', shop);
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Integration not found:', shop);
       return res.status(404).json({
         success: false,
         error: 'Integration not found'
@@ -871,26 +871,26 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
     // ================================================================
     // STEP 1: Remove all webhooks from Shopify
     // ================================================================
-    console.log('🗑️ [SHOPIFY-OAUTH] Removing webhooks from Shopify...');
+    logger.info('API', '🗑️ [SHOPIFY-OAUTH] Removing webhooks from Shopify...');
 
     try {
       const { ShopifyWebhookSetupService } = await import('../services/shopify-webhook-setup.service');
       const webhookSetup = new ShopifyWebhookSetupService(integration);
       const removeResult = await webhookSetup.removeAllWebhooks();
 
-      console.log(`✅ [SHOPIFY-OAUTH] Removed ${removeResult.removed} webhooks from Shopify`);
+      logger.info('API', `✅ [SHOPIFY-OAUTH] Removed ${removeResult.removed} webhooks from Shopify`);
       if (removeResult.errors.length > 0) {
-        console.warn('⚠️ [SHOPIFY-OAUTH] Some webhooks failed to remove:', removeResult.errors);
+        logger.warn('API', '⚠️ [SHOPIFY-OAUTH] Some webhooks failed to remove:', removeResult.errors);
       }
     } catch (webhookError: any) {
-      console.error('❌ [SHOPIFY-OAUTH] Error removing webhooks:', webhookError);
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Error removing webhooks:', webhookError);
       // Continue with disconnection even if webhook removal fails
     }
 
     // ================================================================
     // STEP 2: Revoke access token (invalidate credentials)
     // ================================================================
-    console.log('🔐 [SHOPIFY-OAUTH] Revoking access token...');
+    logger.info('API', '🔐 [SHOPIFY-OAUTH] Revoking access token...');
 
     try {
       if (integration.access_token) {
@@ -904,11 +904,11 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
           }
         });
 
-        console.log('✅ [SHOPIFY-OAUTH] Access token revoked successfully');
+        logger.info('API', '✅ [SHOPIFY-OAUTH] Access token revoked successfully');
       }
     } catch (revokeError: any) {
       // Token revocation might fail if already revoked or app uninstalled
-      console.warn('⚠️ [SHOPIFY-OAUTH] Could not revoke token (may already be invalid):', revokeError.message);
+      logger.warn('API', '⚠️ [SHOPIFY-OAUTH] Could not revoke token (may already be invalid):', revokeError.message);
       // Continue with disconnection
     }
 
@@ -924,7 +924,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
       .eq('shop_domain', shop);
 
     if (updateError) {
-      console.error('❌ [SHOPIFY-OAUTH] Error updating integration status:', updateError);
+      logger.error('API', '❌ [SHOPIFY-OAUTH] Error updating integration status:', updateError);
       return res.status(500).json({
         success: false,
         error: 'Error al desconectar integración',
@@ -932,7 +932,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
       });
     }
 
-    console.log('✅ [SHOPIFY-OAUTH] Shop disconnected successfully');
+    logger.info('API', '✅ [SHOPIFY-OAUTH] Shop disconnected successfully');
 
     res.json({
       success: true,
@@ -941,7 +941,7 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
     });
 
   } catch (error: any) {
-    console.error('💥 [SHOPIFY-OAUTH] Disconnect error:', error);
+    logger.error('API', '💥 [SHOPIFY-OAUTH] Disconnect error:', error);
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor',

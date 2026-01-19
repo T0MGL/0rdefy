@@ -69,14 +69,14 @@ const Referral = lazy(() => import("./pages/Referral"));
 const OnboardingPlan = lazy(() => import("./pages/OnboardingPlan"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-// Optimized QueryClient configuration
+// Optimized QueryClient configuration for production cost control
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 30, // 30 seconds (was 5 minutes)
-      gcTime: 1000 * 60 * 5, // 5 minutes (was 10 minutes)
-      refetchOnWindowFocus: true, // Enable window focus refetching for realtime feel
-      refetchOnReconnect: true,
+      staleTime: 1000 * 60 * 5, // 5 minutes - Longer cache reduces API calls
+      gcTime: 1000 * 60 * 10, // 10 minutes - Keeps recently accessed data in memory
+      refetchOnWindowFocus: false, // ✅ DISABLED: Prevents extra API calls on tab switch (was causing 2x requests)
+      refetchOnReconnect: true, // Keep enabled - important for network recovery
       retry: 1,
     },
   },

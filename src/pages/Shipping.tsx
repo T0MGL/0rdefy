@@ -50,7 +50,7 @@ export default function Shipping() {
       const data = await shippingService.getReadyToShipOrders();
       setOrders(data);
     } catch (error) {
-      console.error('Error loading ready to ship orders:', error);
+      logger.error('Error loading ready to ship orders:', error);
       toast({
         title: 'Error',
         description: 'No se pudieron cargar los pedidos preparados',
@@ -163,7 +163,7 @@ export default function Shipping() {
         description: `Planilla profesional descargada con ${selectedOrdersList.length} pedido(s) para el courier`,
       });
     } catch (error: any) {
-      console.error('Error exporting Excel:', error);
+      logger.error('Error exporting Excel:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo exportar la planilla',
@@ -210,7 +210,7 @@ export default function Shipping() {
       setSingleDispatchOrder(null);
       await loadOrders();
     } catch (error: any) {
-      console.error('Error dispatching orders:', error);
+      logger.error('Error dispatching orders:', error);
       toast({
         title: 'Error',
         description: error.response?.data?.details || 'No se pudieron despachar los pedidos',

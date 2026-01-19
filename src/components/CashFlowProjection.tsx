@@ -38,7 +38,7 @@ export function CashFlowProjection() {
       const result = await analyticsService.getCashFlowTimeline(periodType);
       setData(result);
     } catch (error) {
-      console.error('Error loading cash flow timeline:', error);
+      logger.error('Error loading cash flow timeline:', error);
     } finally {
       setIsLoading(false);
     }

@@ -46,16 +46,25 @@ const getHeaders = () => {
 };
 
 export const carriersService = {
-  async getAll(): Promise<Carrier[]> {
+  async getAll(options?: { limit?: number; offset?: number }): Promise<Carrier[]> {
     try {
-      const response = await fetch(`${API_URL}/api/couriers`, {
+      const params = new URLSearchParams();
+      if (options?.limit) {
+        params.append('limit', options.limit.toString());
+      }
+      if (options?.offset) {
+        params.append('offset', options.offset.toString());
+      }
+      const url = `${API_URL}/api/couriers${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const response = await fetch(url, {
         headers: getHeaders(),
       });
       if (!response.ok) throw new Error('Error al obtener transportistas');
       const data = await response.json();
       return data.data || [];
     } catch (error) {
-      console.error('Error fetching couriers:', error);
+      logger.error('Error fetching couriers:', error);
       return [];
     }
   },
@@ -69,7 +78,7 @@ export const carriersService = {
       const data = await response.json();
       return data.data;
     } catch (error) {
-      console.error('Error fetching courier:', error);
+      logger.error('Error fetching courier:', error);
       return undefined;
     }
   },

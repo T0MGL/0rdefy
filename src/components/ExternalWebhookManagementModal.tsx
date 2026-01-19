@@ -99,7 +99,7 @@ export function ExternalWebhookManagementModal({
         setConfig(result.config);
       }
     } catch (error) {
-      console.error('[ExternalWebhookManagement] Error loading config:', error);
+      logger.error('[ExternalWebhookManagement] Error loading config:', error);
     } finally {
       setIsLoading(false);
     }
@@ -114,7 +114,7 @@ export function ExternalWebhookManagementModal({
         setLogsPage(page);
       }
     } catch (error) {
-      console.error('[ExternalWebhookManagement] Error loading logs:', error);
+      logger.error('[ExternalWebhookManagement] Error loading logs:', error);
     }
   };
 

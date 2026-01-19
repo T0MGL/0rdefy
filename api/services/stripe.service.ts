@@ -23,9 +23,9 @@ if (isStripeConfigured) {
   stripe = new Stripe(STRIPE_SECRET_KEY, {
     apiVersion: '2025-02-24.acacia',
   });
-  console.log('[Stripe] Initialized with API key');
+  logger.info('BACKEND', '[Stripe] Initialized with API key');
 } else {
-  console.warn('[Stripe] STRIPE_SECRET_KEY not configured - billing features will be disabled');
+  logger.warn('BACKEND', '[Stripe] STRIPE_SECRET_KEY not configured - billing features will be disabled');
 }
 
 /**
@@ -135,18 +135,18 @@ export function isStripeAvailable(): boolean {
  */
 export async function initializeStripeProducts(): Promise<void> {
   if (!isStripeConfigured) {
-    console.log('[Stripe] Skipping initialization - not configured');
+    logger.info('BACKEND', '[Stripe] Skipping initialization - not configured');
     return;
   }
 
-  console.log('[Stripe] Verifying Stripe connection...');
+  logger.info('BACKEND', '[Stripe] Verifying Stripe connection...');
   try {
     // Just verify we can connect to Stripe
     const products = await getStripe().products.list({ limit: 1 });
-    console.log('[Stripe] Connection verified. Products available.');
-    console.log('[Stripe] Using hardcoded price IDs from dashboard.');
+    logger.info('BACKEND', '[Stripe] Connection verified. Products available.');
+    logger.info('BACKEND', '[Stripe] Using hardcoded price IDs from dashboard.');
   } catch (error) {
-    console.error('[Stripe] Error connecting to Stripe:', error);
+    logger.error('BACKEND', '[Stripe] Error connecting to Stripe:', error);
   }
 }
 
@@ -159,7 +159,7 @@ export async function getOrCreateCustomer(
   email: string,
   name?: string
 ): Promise<string> {
-  console.log('[Stripe] getOrCreateCustomer:', { userId, email });
+  logger.info('BACKEND', '[Stripe] getOrCreateCustomer:', { userId, email });
 
   // Check if subscription record exists for this user
   const { data: subscription, error: subError } = await supabaseAdmin
@@ -169,16 +169,16 @@ export async function getOrCreateCustomer(
     .eq('is_primary', true)
     .single();
 
-  console.log('[Stripe] Subscription lookup result:', { subscription, error: subError?.message });
+  logger.info('BACKEND', '[Stripe] Subscription lookup result:', { subscription, error: subError?.message });
 
   // If subscription exists and has customer ID, return it
   if (subscription?.stripe_customer_id) {
-    console.log('[Stripe] Returning existing customer:', subscription.stripe_customer_id);
+    logger.info('BACKEND', '[Stripe] Returning existing customer:', subscription.stripe_customer_id);
     return subscription.stripe_customer_id;
   }
 
   // Create new Stripe customer
-  console.log('[Stripe] Creating new Stripe customer...');
+  logger.info('BACKEND', '[Stripe] Creating new Stripe customer...');
   const customer = await getStripe().customers.create({
     email,
     name,
@@ -186,11 +186,11 @@ export async function getOrCreateCustomer(
       user_id: userId,  // ⬅️ Changed from store_id to user_id
     },
   });
-  console.log('[Stripe] Created customer:', customer.id);
+  logger.info('BACKEND', '[Stripe] Created customer:', customer.id);
 
   // If subscription record doesn't exist, create it
   if (subError?.code === 'PGRST116' || !subscription) {
-    console.log('[Stripe] Creating new subscription record...');
+    logger.info('BACKEND', '[Stripe] Creating new subscription record...');
     const { error: insertError } = await supabaseAdmin.from('subscriptions').insert({
       user_id: userId,  // ⬅️ Changed from store_id to user_id
       plan: 'free',
@@ -199,17 +199,17 @@ export async function getOrCreateCustomer(
       is_primary: true,
     });
     if (insertError) {
-      console.error('[Stripe] Error creating subscription:', insertError.message);
+      logger.error('BACKEND', '[Stripe] Error creating subscription:', insertError.message);
     }
   } else {
     // Update existing subscription with customer ID
-    console.log('[Stripe] Updating existing subscription with customer ID...');
+    logger.info('BACKEND', '[Stripe] Updating existing subscription with customer ID...');
     const { error: updateError } = await supabaseAdmin
       .from('subscriptions')
       .update({ stripe_customer_id: customer.id })
       .eq('user_id', userId);  // ⬅️ Changed from store_id to user_id
     if (updateError) {
-      console.error('[Stripe] Error updating subscription:', updateError.message);
+      logger.error('BACKEND', '[Stripe] Error updating subscription:', updateError.message);
     }
   }
 
@@ -237,14 +237,14 @@ export async function canStartTrial(
     .limit(1);
 
   if (error) {
-    console.error('[Stripe] Error checking trial eligibility:', error.message);
+    logger.error('BACKEND', '[Stripe] Error checking trial eligibility:', error.message);
     // SECURITY: Fail closed - deny trial if we can't verify
     return false;
   }
 
   // If user has ANY previous trial, deny new trial
   if (existingTrials && existingTrials.length > 0) {
-    console.log('[Stripe] User already used trial:', { userId, previousPlan: existingTrials[0].plan_tried });
+    logger.info('BACKEND', '[Stripe] User already used trial:', { userId, previousPlan: existingTrials[0].plan_tried });
     return false;
   }
 
@@ -276,22 +276,22 @@ export async function createCheckoutSession(params: {
     discountCode,
   } = params;
 
-  console.log('[Stripe] createCheckoutSession called:', { userId, email, plan, billingCycle });
+  logger.info('BACKEND', '[Stripe] createCheckoutSession called:', { userId, email, plan, billingCycle });
 
   if (plan === 'free') {
     throw new Error('Cannot create checkout for free plan');
   }
 
   const priceId = stripePrices[plan]?.[billingCycle];
-  console.log('[Stripe] Price ID for', plan, billingCycle, ':', priceId);
+  logger.info('BACKEND', '[Stripe] Price ID for', plan, billingCycle, ':', priceId);
   if (!priceId) {
     throw new Error(`Price not found for ${plan} ${billingCycle}`);
   }
 
   // Get or create customer (now user-level)
-  console.log('[Stripe] Getting or creating customer for user:', userId);
+  logger.info('BACKEND', '[Stripe] Getting or creating customer for user:', userId);
   const customerId = await getOrCreateCustomer(userId, email);
-  console.log('[Stripe] Customer ID:', customerId);
+  logger.info('BACKEND', '[Stripe] Customer ID:', customerId);
 
   // Check if user can start trial
   const canTrial = await canStartTrial(userId, plan);
@@ -425,7 +425,7 @@ export async function getStripeSubscription(
   try {
     return await getStripe().subscriptions.retrieve(subscriptionId);
   } catch (error) {
-    console.error('[Stripe] Error fetching subscription:', error);
+    logger.error('BACKEND', '[Stripe] Error fetching subscription:', error);
     return null;
   }
 }
@@ -866,7 +866,7 @@ export async function getUserUsage(userId: string): Promise<{
     });
 
     if (error) {
-      console.error('[Stripe] Error getting user usage:', error.message);
+      logger.error('BACKEND', '[Stripe] Error getting user usage:', error.message);
       // Return defaults if RPC doesn't exist yet
       return {
         stores: 0,
@@ -935,7 +935,7 @@ export async function getUserUsage(userId: string): Promise<{
       storeDetails,
     };
   } catch (error: any) {
-    console.error('[Stripe] Exception getting user usage:', error.message);
+    logger.error('BACKEND', '[Stripe] Exception getting user usage:', error.message);
     return {
       stores: 0,
       maxStores: 1,
@@ -961,7 +961,7 @@ export async function getStoreUsage(storeId: string): Promise<{
     });
 
     if (error) {
-      console.error('[Stripe] Error getting store usage:', error.message);
+      logger.error('BACKEND', '[Stripe] Error getting store usage:', error.message);
       // Return defaults if RPC doesn't exist yet
       return {
         orders: { used: 0, limit: 50, percentage: 0 },
@@ -998,7 +998,7 @@ export async function getStoreUsage(storeId: string): Promise<{
       },
     };
   } catch (error: any) {
-    console.error('[Stripe] Exception getting store usage:', error.message);
+    logger.error('BACKEND', '[Stripe] Exception getting store usage:', error.message);
     return {
       orders: { used: 0, limit: 50, percentage: 0 },
       products: { used: 0, limit: 100, percentage: 0 },
@@ -1038,7 +1038,7 @@ export async function getAllPlanLimits(): Promise<any[]> {
  * Generate referral code for user
  */
 export async function generateReferralCode(userId: string): Promise<string> {
-  console.log('[Stripe] generateReferralCode for user:', userId);
+  logger.info('BACKEND', '[Stripe] generateReferralCode for user:', userId);
 
   // Check if user already has a code
   const { data: existingCode, error: lookupError } = await supabaseAdmin
@@ -1049,31 +1049,31 @@ export async function generateReferralCode(userId: string): Promise<string> {
 
   // Handle case where table doesn't exist (42P01 = undefined_table)
   if (lookupError && lookupError.code === '42P01') {
-    console.warn('[Stripe] referral_codes table does not exist - migration 036 may not be applied');
+    logger.warn('BACKEND', '[Stripe] referral_codes table does not exist - migration 036 may not be applied');
     // Return a placeholder code - referrals won't work but won't crash
     return 'PENDING';
   }
 
   if (lookupError && lookupError.code !== 'PGRST116') {
     // PGRST116 = no rows found, which is expected for new users
-    console.error('[Stripe] Error looking up referral code:', lookupError.message, lookupError.code);
+    logger.error('BACKEND', '[Stripe] Error looking up referral code:', lookupError.message, lookupError.code);
   }
 
   if (existingCode) {
-    console.log('[Stripe] Found existing referral code:', existingCode.code);
+    logger.info('BACKEND', '[Stripe] Found existing referral code:', existingCode.code);
     return existingCode.code;
   }
 
   // Generate a simple 6-char code (fallback that always works)
   const fallbackCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-  console.log('[Stripe] Generating new referral code:', fallbackCode);
+  logger.info('BACKEND', '[Stripe] Generating new referral code:', fallbackCode);
 
   // Try RPC first, fall back to direct insert
   const { data: newCode, error: rpcError } = await supabaseAdmin.rpc('generate_referral_code');
 
   const codeToUse = rpcError ? fallbackCode : newCode;
   if (rpcError) {
-    console.log('[Stripe] RPC generate_referral_code failed, using fallback:', rpcError.message);
+    logger.info('BACKEND', '[Stripe] RPC generate_referral_code failed, using fallback:', rpcError.message);
   }
 
   // Insert new referral code
@@ -1085,14 +1085,14 @@ export async function generateReferralCode(userId: string): Promise<string> {
   if (insertError) {
     // If table doesn't exist, return placeholder
     if (insertError.code === '42P01') {
-      console.warn('[Stripe] referral_codes table does not exist');
+      logger.warn('BACKEND', '[Stripe] referral_codes table does not exist');
       return 'PENDING';
     }
-    console.error('[Stripe] Error inserting referral code:', insertError.message);
+    logger.error('BACKEND', '[Stripe] Error inserting referral code:', insertError.message);
     throw new Error(`Error al crear código de referido: ${insertError.message}`);
   }
 
-  console.log('[Stripe] Created new referral code:', codeToUse);
+  logger.info('BACKEND', '[Stripe] Created new referral code:', codeToUse);
   return codeToUse;
 }
 
@@ -1114,7 +1114,7 @@ export async function getReferralStats(userId: string): Promise<{
     trialToPaidRate: number;
   };
 }> {
-  console.log('[Stripe] getReferralStats for user:', userId);
+  logger.info('BACKEND', '[Stripe] getReferralStats for user:', userId);
 
   // Default response for when referrals are not available
   const defaultResponse = {
@@ -1135,16 +1135,16 @@ export async function getReferralStats(userId: string): Promise<{
 
   // Handle case where table doesn't exist
   if (codeError && codeError.code === '42P01') {
-    console.warn('[Stripe] referral_codes table does not exist - migration 036 may not be applied');
+    logger.warn('BACKEND', '[Stripe] referral_codes table does not exist - migration 036 may not be applied');
     return defaultResponse;
   }
 
   if (codeError && codeError.code !== 'PGRST116') {
-    console.error('[Stripe] Error getting referral code:', codeError.message, codeError.code);
+    logger.error('BACKEND', '[Stripe] Error getting referral code:', codeError.message, codeError.code);
   }
 
   if (!referralCode) {
-    console.log('[Stripe] No referral code found, generating one...');
+    logger.info('BACKEND', '[Stripe] No referral code found, generating one...');
     const code = await generateReferralCode(userId);
     return {
       code,
@@ -1156,7 +1156,7 @@ export async function getReferralStats(userId: string): Promise<{
     };
   }
 
-  console.log('[Stripe] Found referral code:', referralCode.code);
+  logger.info('BACKEND', '[Stripe] Found referral code:', referralCode.code);
 
   // Get referrals (may fail if table doesn't exist)
   const { data: referrals, error: refError } = await supabaseAdmin
@@ -1169,7 +1169,7 @@ export async function getReferralStats(userId: string): Promise<{
     .order('created_at', { ascending: false });
 
   if (refError && refError.code !== '42P01') {
-    console.error('[Stripe] Error getting referrals:', refError.message);
+    logger.error('BACKEND', '[Stripe] Error getting referrals:', refError.message);
   }
 
   // Get available credits (may fail if function doesn't exist)
@@ -1179,7 +1179,7 @@ export async function getReferralStats(userId: string): Promise<{
   );
 
   if (creditsError) {
-    console.log('[Stripe] get_available_credits not available:', creditsError.message);
+    logger.info('BACKEND', '[Stripe] get_available_credits not available:', creditsError.message);
   }
 
   // Get funnel analytics (new in migration 037)
@@ -1199,7 +1199,7 @@ export async function getReferralStats(userId: string): Promise<{
       trialToPaidRate: parseFloat(f.trial_to_paid_rate) || 0,
     };
   } else if (funnelError) {
-    console.log('[Stripe] get_referral_funnel not available:', funnelError.message);
+    logger.info('BACKEND', '[Stripe] get_referral_funnel not available:', funnelError.message);
   }
 
   return {
@@ -1247,7 +1247,7 @@ export async function processReferralConversion(
     })
     .eq('id', referral.id);
 
-  console.log(`[Stripe] Referral conversion recorded for user ${referredUserId}. Credit pending 30-day waiting period.`);
+  logger.info('BACKEND', `[Stripe] Referral conversion recorded for user ${referredUserId}. Credit pending 30-day waiting period.`);
 }
 
 export default {

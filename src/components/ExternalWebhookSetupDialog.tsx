@@ -51,7 +51,7 @@ export function ExternalWebhookSetupDialog({ open, onOpenChange, onSuccess }: Ex
       });
 
     } catch (error: any) {
-      console.error('[ExternalWebhookSetup] Error:', error);
+      logger.error('[ExternalWebhookSetup] Error:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo configurar el webhook',

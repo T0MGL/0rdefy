@@ -102,7 +102,7 @@ storesRouter.get('/', verifyToken, async (req: AuthRequest, res: Response) => {
             data: storesWithPlan
         });
     } catch (error: any) {
-        console.error('[GET /api/stores] Error:', error);
+        logger.error('API', '[GET /api/stores] Error:', error);
         res.status(500).json({
             error: 'Error al obtener tiendas',
             message: error.message
@@ -126,7 +126,7 @@ storesRouter.get('/current', verifyToken, extractStoreId, extractUserRole, requi
 
         res.json(store);
     } catch (error: any) {
-        console.error('[GET /api/stores/current] Error:', error);
+        logger.error('API', '[GET /api/stores/current] Error:', error);
         res.status(500).json({
             error: 'Error al obtener tienda actual',
             message: error.message
@@ -155,7 +155,7 @@ storesRouter.get('/:id', verifyToken, async (req: AuthRequest, res: Response) =>
 
         res.json(data);
     } catch (error: any) {
-        console.error(`[GET /api/stores/${req.params.id}] Error:`, error);
+        logger.error('API', `[GET /api/stores/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener tienda',
             message: error.message
@@ -201,7 +201,7 @@ storesRouter.post('/', verifyToken, async (req: AuthRequest, res: Response) => {
             });
 
         if (canCreateError) {
-            console.error('[POST /api/stores] Error checking store limit:', canCreateError);
+            logger.error('API', '[POST /api/stores] Error checking store limit:', canCreateError);
             throw canCreateError;
         }
 
@@ -261,14 +261,14 @@ storesRouter.post('/', verifyToken, async (req: AuthRequest, res: Response) => {
             throw associationError;
         }
 
-        console.log(`✅ [POST /api/stores] Store created and associated with user ${req.userId}`);
+        logger.info('API', `✅ [POST /api/stores] Store created and associated with user ${req.userId}`);
 
         res.status(201).json({
             message: 'Store created successfully',
             data: newStore
         });
     } catch (error: any) {
-        console.error('[POST /api/stores] Error:', error);
+        logger.error('API', '[POST /api/stores] Error:', error);
         res.status(500).json({
             error: 'Error al crear tienda',
             message: error.message
@@ -323,7 +323,7 @@ storesRouter.put('/:id', verifyToken, extractStoreId, extractUserRole, requireMo
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/stores/${req.params.id}] Error:`, error);
+        logger.error('API', `[PUT /api/stores/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar tienda',
             message: error.message
@@ -349,7 +349,7 @@ storesRouter.get('/:id/config', verifyToken, extractStoreId, extractUserRole, re
 
         res.json(config);
     } catch (error: any) {
-        console.error(`[GET /api/stores/${req.params.id}/config] Error:`, error);
+        logger.error('API', `[GET /api/stores/${req.params.id}/config] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener configuración de tienda',
             message: error.message
@@ -456,7 +456,7 @@ storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, re
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/stores/${req.params.id}/config] Error:`, error);
+        logger.error('API', `[PUT /api/stores/${req.params.id}/config] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar configuración de tienda',
             message: error.message
@@ -535,7 +535,7 @@ storesRouter.get('/:id/stats', verifyToken, extractStoreId, extractUserRole, req
             }
         });
     } catch (error: any) {
-        console.error(`[GET /api/stores/${req.params.id}/stats] Error:`, error);
+        logger.error('API', `[GET /api/stores/${req.params.id}/stats] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener estadísticas de tienda',
             message: error.message
@@ -654,9 +654,9 @@ storesRouter.delete('/:id', verifyToken, extractStoreId, extractUserRole, requir
                 throw deleteStoreError;
             }
 
-            console.log(`✅ [DELETE /api/stores/${id}] Store and all related data deleted`);
+            logger.info('API', `✅ [DELETE /api/stores/${id}] Store and all related data deleted`);
         } else {
-            console.log(`✅ [DELETE /api/stores/${id}] User disassociated from store (other users still exist)`);
+            logger.info('API', `✅ [DELETE /api/stores/${id}] User disassociated from store (other users still exist)`);
         }
 
         res.json({
@@ -664,7 +664,7 @@ storesRouter.delete('/:id', verifyToken, extractStoreId, extractUserRole, requir
             id
         });
     } catch (error: any) {
-        console.error(`[DELETE /api/stores/${req.params.id}] Error:`, error);
+        logger.error('API', `[DELETE /api/stores/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar tienda',
             message: error.message

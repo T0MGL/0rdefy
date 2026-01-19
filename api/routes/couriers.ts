@@ -38,7 +38,7 @@ couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
             status
         } = req.query;
 
-        console.log(`📦 [COURIERS] Fetching couriers for store ${req.storeId}, status: ${status}`);
+        logger.info('API', `📦 [COURIERS] Fetching couriers for store ${req.storeId}, status: ${status}`);
 
         // Build base query
         let query = supabaseAdmin
@@ -61,11 +61,11 @@ couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
         const { data, error, count } = await query;
 
         if (error) {
-            console.error('[COURIERS] Query error:', error);
+            logger.error('API', '[COURIERS] Query error:', error);
             throw error;
         }
 
-        console.log(`✅ [COURIERS] Found ${data?.length || 0} couriers`);
+        logger.info('API', `✅ [COURIERS] Found ${data?.length || 0} couriers`);
 
         res.json({
             data: data || [],
@@ -77,7 +77,7 @@ couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('[GET /api/couriers] Error:', error);
+        logger.error('API', '[GET /api/couriers] Error:', error);
         res.status(500).json({
             error: 'Error al obtener couriers',
             message: error.message
@@ -109,7 +109,7 @@ couriersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
             data
         });
     } catch (error: any) {
-        console.error(`[GET /api/couriers/${req.params.id}] Error:`, error);
+        logger.error('API', `[GET /api/couriers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener courier',
             message: error.message
@@ -159,7 +159,7 @@ couriersRouter.post('/', async (req: AuthRequest, res: Response) => {
             data
         });
     } catch (error: any) {
-        console.error('[POST /api/couriers] Error:', error);
+        logger.error('API', '[POST /api/couriers] Error:', error);
         res.status(500).json({
             error: 'Error al crear courier',
             message: error.message
@@ -210,7 +210,7 @@ couriersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/couriers/${req.params.id}] Error:`, error);
+        logger.error('API', `[PUT /api/couriers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar courier',
             message: error.message
@@ -259,14 +259,14 @@ couriersRouter.patch('/:id/toggle', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        console.log(`🔄 [COURIERS] Toggled courier ${id} to ${newStatus ? 'active' : 'inactive'}`);
+        logger.info('API', `🔄 [COURIERS] Toggled courier ${id} to ${newStatus ? 'active' : 'inactive'}`);
 
         res.json({
             message: `Courier ${newStatus ? 'activated' : 'deactivated'} successfully`,
             data
         });
     } catch (error: any) {
-        console.error(`[PATCH /api/couriers/${req.params.id}/toggle] Error:`, error);
+        logger.error('API', `[PATCH /api/couriers/${req.params.id}/toggle] Error:`, error);
         res.status(500).json({
             error: 'Error al cambiar estado de courier',
             message: error.message
@@ -300,7 +300,7 @@ couriersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
             id: data.id
         });
     } catch (error: any) {
-        console.error(`[DELETE /api/couriers/${req.params.id}] Error:`, error);
+        logger.error('API', `[DELETE /api/couriers/${req.params.id}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar courier',
             message: error.message
@@ -319,7 +319,7 @@ couriersRouter.get('/:id/performance', async (req: AuthRequest, res: Response) =
     try {
         const { id } = req.params;
 
-        console.log(`📊 [COURIERS] Fetching performance for courier ${id}`);
+        logger.info('API', `📊 [COURIERS] Fetching performance for courier ${id}`);
 
         const performance = await calculateCourierDeliveryRate(id);
 
@@ -333,7 +333,7 @@ couriersRouter.get('/:id/performance', async (req: AuthRequest, res: Response) =
             data: performance
         });
     } catch (error: any) {
-        console.error(`[GET /api/couriers/${req.params.id}/performance] Error:`, error);
+        logger.error('API', `[GET /api/couriers/${req.params.id}/performance] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener rendimiento del courier',
             message: error.message
@@ -346,7 +346,7 @@ couriersRouter.get('/:id/performance', async (req: AuthRequest, res: Response) =
 // ================================================================
 couriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) => {
     try {
-        console.log(`📊 [COURIERS] Fetching all courier performance for store ${req.storeId}`);
+        logger.info('API', `📊 [COURIERS] Fetching all courier performance for store ${req.storeId}`);
 
         const performance = await getCourierPerformanceByStore(req.storeId);
 
@@ -355,7 +355,7 @@ couriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) =
             count: performance.length
         });
     } catch (error: any) {
-        console.error('[GET /api/couriers/performance/all] Error:', error);
+        logger.error('API', '[GET /api/couriers/performance/all] Error:', error);
         res.status(500).json({
             error: 'Error al obtener rendimiento del courier',
             message: error.message
@@ -370,7 +370,7 @@ couriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
     try {
         const { limit = '5' } = req.query;
 
-        console.log(`🏆 [COURIERS] Fetching top ${limit} couriers for store ${req.storeId}`);
+        logger.info('API', `🏆 [COURIERS] Fetching top ${limit} couriers for store ${req.storeId}`);
 
         const topCouriers = await getTopCouriers(req.storeId, parseInt(limit as string, 10));
 
@@ -379,7 +379,7 @@ couriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
             count: topCouriers.length
         });
     } catch (error: any) {
-        console.error('[GET /api/couriers/performance/top] Error:', error);
+        logger.error('API', '[GET /api/couriers/performance/top] Error:', error);
         res.status(500).json({
             error: 'Error al obtener mejores couriers',
             message: error.message
@@ -394,7 +394,7 @@ couriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
     try {
         const { threshold = '80' } = req.query;
 
-        console.log(`⚠️ [COURIERS] Fetching underperforming couriers (threshold: ${threshold}%)`);
+        logger.info('API', `⚠️ [COURIERS] Fetching underperforming couriers (threshold: ${threshold}%)`);
 
         const underperformingCouriers = await getUnderperformingCouriers(
             req.storeId,
@@ -406,7 +406,7 @@ couriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
             count: underperformingCouriers.length
         });
     } catch (error: any) {
-        console.error('[GET /api/couriers/performance/underperforming] Error:', error);
+        logger.error('API', '[GET /api/couriers/performance/underperforming] Error:', error);
         res.status(500).json({
             error: 'Error al obtener couriers con bajo rendimiento',
             message: error.message
@@ -425,7 +425,7 @@ couriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
-        console.log(`🗺️ [COURIERS] Fetching zones for courier ${id}`);
+        logger.info('API', `🗺️ [COURIERS] Fetching zones for courier ${id}`);
 
         // Verify courier exists and belongs to store
         const { data: courier, error: courierError } = await supabaseAdmin
@@ -459,7 +459,7 @@ couriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
             count: zones?.length || 0
         });
     } catch (error: any) {
-        console.error(`[GET /api/couriers/${req.params.id}/zones] Error:`, error);
+        logger.error('API', `[GET /api/couriers/${req.params.id}/zones] Error:`, error);
         res.status(500).json({
             error: 'Error al obtener zonas del courier',
             message: error.message
@@ -475,7 +475,7 @@ couriersRouter.post('/:id/zones', async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const { zone_name, zone_code, rate, is_active = true } = req.body;
 
-        console.log(`🗺️ [COURIERS] Creating zone for courier ${id}:`, { zone_name, rate });
+        logger.info('API', `🗺️ [COURIERS] Creating zone for courier ${id}:`, { zone_name, rate });
 
         // Validation
         if (!zone_name) {
@@ -531,14 +531,14 @@ couriersRouter.post('/:id/zones', async (req: AuthRequest, res: Response) => {
             throw error;
         }
 
-        console.log(`✅ [COURIERS] Zone created:`, data.id);
+        logger.info('API', `✅ [COURIERS] Zone created:`, data.id);
 
         res.status(201).json({
             message: 'Zone created successfully',
             data
         });
     } catch (error: any) {
-        console.error(`[POST /api/couriers/${req.params.id}/zones] Error:`, error);
+        logger.error('API', `[POST /api/couriers/${req.params.id}/zones] Error:`, error);
         res.status(500).json({
             error: 'Error al crear zona',
             message: error.message
@@ -554,7 +554,7 @@ couriersRouter.put('/zones/:zoneId', async (req: AuthRequest, res: Response) => 
         const { zoneId } = req.params;
         const { zone_name, zone_code, rate, is_active } = req.body;
 
-        console.log(`🗺️ [COURIERS] Updating zone ${zoneId}`);
+        logger.info('API', `🗺️ [COURIERS] Updating zone ${zoneId}`);
 
         const updateData: any = {
             updated_at: new Date().toISOString()
@@ -587,14 +587,14 @@ couriersRouter.put('/zones/:zoneId', async (req: AuthRequest, res: Response) => 
             });
         }
 
-        console.log(`✅ [COURIERS] Zone updated:`, zoneId);
+        logger.info('API', `✅ [COURIERS] Zone updated:`, zoneId);
 
         res.json({
             message: 'Zone updated successfully',
             data
         });
     } catch (error: any) {
-        console.error(`[PUT /api/couriers/zones/${req.params.zoneId}] Error:`, error);
+        logger.error('API', `[PUT /api/couriers/zones/${req.params.zoneId}] Error:`, error);
         res.status(500).json({
             error: 'Error al actualizar zona',
             message: error.message
@@ -609,7 +609,7 @@ couriersRouter.delete('/zones/:zoneId', async (req: AuthRequest, res: Response) 
     try {
         const { zoneId } = req.params;
 
-        console.log(`🗑️ [COURIERS] Deleting zone ${zoneId}`);
+        logger.info('API', `🗑️ [COURIERS] Deleting zone ${zoneId}`);
 
         const { data, error } = await supabaseAdmin
             .from('carrier_zones')
@@ -625,14 +625,14 @@ couriersRouter.delete('/zones/:zoneId', async (req: AuthRequest, res: Response) 
             });
         }
 
-        console.log(`✅ [COURIERS] Zone deleted:`, zoneId);
+        logger.info('API', `✅ [COURIERS] Zone deleted:`, zoneId);
 
         res.json({
             message: 'Zone deleted successfully',
             id: data.id
         });
     } catch (error: any) {
-        console.error(`[DELETE /api/couriers/zones/${req.params.zoneId}] Error:`, error);
+        logger.error('API', `[DELETE /api/couriers/zones/${req.params.zoneId}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar zona',
             message: error.message
@@ -655,7 +655,7 @@ couriersRouter.get('/:id/zones/calculate', async (req: AuthRequest, res: Respons
             });
         }
 
-        console.log(`💰 [COURIERS] Calculating shipping cost for courier ${id}, zone: ${zone_name}`);
+        logger.info('API', `💰 [COURIERS] Calculating shipping cost for courier ${id}, zone: ${zone_name}`);
 
         // Get zone rate
         const { data: zone, error } = await supabaseAdmin
@@ -681,7 +681,7 @@ couriersRouter.get('/:id/zones/calculate', async (req: AuthRequest, res: Respons
             currency: 'PYG'
         });
     } catch (error: any) {
-        console.error(`[GET /api/couriers/${req.params.id}/zones/calculate] Error:`, error);
+        logger.error('API', `[GET /api/couriers/${req.params.id}/zones/calculate] Error:`, error);
         res.status(500).json({
             error: 'Error al calcular costo de envío',
             message: error.message

@@ -30,7 +30,7 @@ class WhatsAppService {
     this.enabled = process.env.WHATSAPP_VERIFICATION_ENABLED === 'true';
 
     if (this.enabled && (!this.phoneNumberId || !this.accessToken)) {
-      console.warn('⚠️  WhatsApp verification is enabled but credentials are missing');
+      logger.warn('BACKEND', '⚠️  WhatsApp verification is enabled but credentials are missing');
     }
   }
 
@@ -39,7 +39,7 @@ class WhatsAppService {
    */
   async sendVerificationCode(phone: string, code: string): Promise<boolean> {
     if (!this.enabled) {
-      console.log(`📱 [DEMO MODE] Verification code for ${phone}: ${code}`);
+      logger.info('BACKEND', `📱 [DEMO MODE] Verification code for ${phone}: ${code}`);
       return true; // In demo mode, always succeed
     }
 
@@ -47,10 +47,10 @@ class WhatsAppService {
       const message = this.buildVerificationMessage(code);
       const response = await this.sendMessage(phone, message);
 
-      console.log(`✅ Verification code sent to ${phone} via WhatsApp`);
+      logger.info('BACKEND', `✅ Verification code sent to ${phone} via WhatsApp`);
       return true;
     } catch (error) {
-      console.error('❌ Error sending WhatsApp verification code:', error);
+      logger.error('BACKEND', '❌ Error sending WhatsApp verification code:', error);
       throw new Error('Error al enviar código de verificación por WhatsApp');
     }
   }
@@ -104,7 +104,7 @@ class WhatsAppService {
    */
   async sendAccountRecoveryMessage(phone: string, email: string): Promise<boolean> {
     if (!this.enabled) {
-      console.log(`📱 [DEMO MODE] Recovery message for ${phone}: Account exists with email ${email}`);
+      logger.info('BACKEND', `📱 [DEMO MODE] Recovery message for ${phone}: Account exists with email ${email}`);
       return true;
     }
 
@@ -116,10 +116,10 @@ class WhatsAppService {
                      `Si no reconoces esta cuenta, contacta a soporte.`;
 
       await this.sendMessage(phone, message);
-      console.log(`✅ Account recovery message sent to ${phone}`);
+      logger.info('BACKEND', `✅ Account recovery message sent to ${phone}`);
       return true;
     } catch (error) {
-      console.error('❌ Error sending account recovery message:', error);
+      logger.error('BACKEND', '❌ Error sending account recovery message:', error);
       return false;
     }
   }

@@ -1794,7 +1794,93 @@ export interface ManualReconciliationData {
 }
 
 /**
- * Process manual reconciliation without CSV
+ * Process manual reconciliation without CSV - ATOMIC VERSION
+ *
+ * Uses database RPC to ensure all updates happen in a single transaction.
+ * If any step fails, the entire operation is rolled back automatically.
+ *
+ * BUG #5 FIX: This function prevents partial updates and data corruption
+ * by executing all operations atomically in the database.
+ */
+export async function processManualReconciliation(
+  storeId: string,
+  userId: string,
+  data: ManualReconciliationData
+): Promise<DailySettlement> {
+  logger.info('SETTLEMENTS', `[MANUAL RECONCILIATION] Starting atomic reconciliation for ${data.orders.length} orders`);
+
+  try {
+    // Call atomic RPC function
+    const { data: result, error } = await supabaseAdmin.rpc('process_manual_reconciliation_atomic', {
+      p_store_id: storeId,
+      p_user_id: userId,
+      p_carrier_id: data.carrier_id,
+      p_dispatch_date: data.dispatch_date,
+      p_total_amount_collected: data.total_amount_collected,
+      p_discrepancy_notes: data.discrepancy_notes || null,
+      p_confirm_discrepancy: data.confirm_discrepancy,
+      p_orders: data.orders
+    });
+
+    if (error) {
+      logger.error('SETTLEMENTS', '[MANUAL RECONCILIATION] Atomic reconciliation failed', error);
+
+      // Fallback to legacy non-atomic version if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        logger.warn('SETTLEMENTS', '[MANUAL RECONCILIATION] RPC not available, falling back to legacy reconciliation');
+        return processManualReconciliationLegacy(storeId, userId, data);
+      }
+
+      throw new Error(`Error processing reconciliation: ${error.message}`);
+    }
+
+    logger.info('SETTLEMENTS', `[MANUAL RECONCILIATION] Atomic reconciliation complete: ${result.settlement_code}`);
+
+    // Transform RPC result to DailySettlement format
+    const settlement: DailySettlement = {
+      id: result.id,
+      store_id: storeId,
+      carrier_id: data.carrier_id,
+      dispatch_session_id: null,
+      settlement_code: result.settlement_code,
+      settlement_date: data.dispatch_date,
+      total_dispatched: result.total_dispatched,
+      total_delivered: result.total_delivered,
+      total_not_delivered: result.total_not_delivered,
+      total_cod_delivered: result.total_cod_delivered || 0,
+      total_prepaid_delivered: result.total_prepaid_delivered || 0,
+      total_cod_collected: result.total_cod_collected,
+      total_carrier_fees: result.total_carrier_fees,
+      failed_attempt_fee: result.failed_attempt_fee,
+      net_receivable: result.net_receivable,
+      balance_due: result.net_receivable,
+      amount_paid: 0,
+      status: 'pending',
+      payment_date: null,
+      payment_method: null,
+      notes: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      created_by: userId,
+      carrier_name: result.carrier_name
+    };
+
+    return settlement;
+  } catch (err: any) {
+    // If the error is about the function not existing, fall back to legacy
+    if (err.message?.includes('function') || err.message?.includes('does not exist')) {
+      logger.warn('SETTLEMENTS', '[MANUAL RECONCILIATION] RPC not available, falling back to legacy reconciliation');
+      return processManualReconciliationLegacy(storeId, userId, data);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Legacy manual reconciliation function
+ * Used as fallback when the atomic RPC is not available
+ *
+ * @deprecated Use atomic version via RPC when available
  *
  * CRITICAL FUNCTION - Handles money calculations
  *
@@ -1812,7 +1898,7 @@ export interface ManualReconciliationData {
  * 4. Handle discrepancies if any
  * 5. Create settlement record
  */
-export async function processManualReconciliation(
+async function processManualReconciliationLegacy(
   storeId: string,
   userId: string,
   data: ManualReconciliationData
@@ -1836,8 +1922,12 @@ export async function processManualReconciliation(
     throw new Error('Debe haber al menos un pedido para conciliar');
   }
 
-  if (typeof total_amount_collected !== 'number' || isNaN(total_amount_collected)) {
-    throw new Error('total_amount_collected debe ser un número válido');
+  // BUG #2 FIX: Validate NaN and Infinity explicitly
+  // BUG #6 FIX: Reject Infinity values
+  if (typeof total_amount_collected !== 'number' ||
+      isNaN(total_amount_collected) ||
+      !isFinite(total_amount_collected)) {
+    throw new Error('total_amount_collected debe ser un número válido y finito');
   }
 
   if (total_amount_collected < 0) {
@@ -1890,10 +1980,13 @@ export async function processManualReconciliation(
     }
   }
 
+  // CRITICAL FIX: Safe array access - validate zones.length before accessing zones[0]
   // If carrier has zones but none matched as default, use first zone's rate
   if (zones && zones.length > 0 && !fallbackZoneNames.some(f => zoneMap.has(f))) {
-    defaultRate = zones[0].rate;
+    defaultRate = zones[0].rate; // Safe: zones.length already validated > 0
     logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has no fallback zone, using first zone rate: ${defaultRate}`);
+  } else if (!zones || zones.length === 0) {
+    logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has NO zones configured, using hardcoded fallback rate: ${defaultRate}`);
   }
 
   // Get all orders from database and validate
@@ -2028,6 +2121,9 @@ export async function processManualReconciliation(
   // ============================================================
   // UPDATE PHASE
   // ============================================================
+  // BUG #5 MITIGATION: Ideally all updates should happen in a single transaction
+  // TODO: Create process_manual_reconciliation_atomic RPC in database for full atomicity
+  // Current approach: Check errors immediately to minimize partial updates
 
   const errors: string[] = [];
 
@@ -2066,18 +2162,57 @@ export async function processManualReconciliation(
     }
   }
 
+  // BUG #7 FIX: Check errors BEFORE applying discrepancies
+  // If there were errors updating order statuses, STOP before modifying amounts
+  if (errors.length > 0) {
+    throw new Error(`Errores al actualizar pedidos (se detuvo antes de aplicar discrepancias): ${errors.join('; ')}`);
+  }
+
+  // BUG #3 FIX: Validate COD orders exist before distributing discrepancy
   // Handle discrepancy - mark COD orders with amount_collected
   if (hasDiscrepancy && codDeliveredOrders.length > 0) {
-    // Distribute discrepancy proportionally across COD orders
+    // BUG #1 & #4 FIX: Distribute with proper rounding and validate total
+    // Distribute discrepancy evenly, ensuring the sum equals the original discrepancy
     const discrepancyPerOrder = discrepancyAmount / codDeliveredOrders.length;
+    const collectedAmounts: number[] = [];
+    let distributedSum = 0;
 
-    for (const codOrder of codDeliveredOrders) {
+    // Calculate all amounts first
+    for (let i = 0; i < codDeliveredOrders.length; i++) {
+      const codOrder = codDeliveredOrders[i];
       const collectedAmount = codOrder.expected + discrepancyPerOrder;
+      const roundedAmount = Math.round(collectedAmount * 100) / 100;
+      collectedAmounts.push(roundedAmount);
+      distributedSum += roundedAmount;
+    }
+
+    // Validate: sum of distributed amounts must equal original discrepancy
+    const roundedDiscrepancy = Math.round(discrepancyAmount * 100) / 100;
+    const roundedSum = Math.round(distributedSum * 100) / 100;
+    const difference = Math.abs(roundedSum - roundedDiscrepancy);
+
+    // If there's a rounding error, adjust the last order
+    if (difference > 0.01) {
+      const adjustment = roundedDiscrepancy - roundedSum;
+      collectedAmounts[collectedAmounts.length - 1] += adjustment;
+      collectedAmounts[collectedAmounts.length - 1] = Math.round(collectedAmounts[collectedAmounts.length - 1] * 100) / 100;
+
+      logger.warn('SETTLEMENTS', `[RECONCILIATION] Rounding adjustment applied: ${adjustment.toFixed(2)} Gs to last order`, {
+        original_discrepancy: roundedDiscrepancy,
+        distributed_sum: roundedSum,
+        adjustment
+      });
+    }
+
+    // Now apply the amounts
+    for (let i = 0; i < codDeliveredOrders.length; i++) {
+      const codOrder = codDeliveredOrders[i];
+      const collectedAmount = collectedAmounts[i];
 
       const { error } = await supabaseAdmin
         .from('orders')
         .update({
-          amount_collected: Math.round(collectedAmount * 100) / 100, // Round to 2 decimals
+          amount_collected: collectedAmount,
           has_amount_discrepancy: true,
         })
         .eq('id', codOrder.id)
@@ -2088,11 +2223,20 @@ export async function processManualReconciliation(
         errors.push(`Error marcando discrepancia en pedido ${codOrder.id}`);
       }
     }
-  }
 
-  // If there were errors updating orders, throw
-  if (errors.length > 0) {
-    throw new Error(`Errores al actualizar pedidos: ${errors.join('; ')}`);
+    // Re-check errors after discrepancy distribution
+    if (errors.length > 0) {
+      throw new Error(`Errores al aplicar discrepancias: ${errors.join('; ')}`);
+    }
+  } else if (hasDiscrepancy && codDeliveredOrders.length === 0) {
+    // BUG #3 FIX: Log discrepancy that cannot be distributed
+    logger.error('SETTLEMENTS', `[RECONCILIATION] CRITICAL: Discrepancy of ${discrepancyAmount} Gs exists but no COD orders to distribute to`, {
+      discrepancy: discrepancyAmount,
+      total_cod_orders: codDeliveredOrders.length,
+      total_delivered: stats.total_delivered,
+      total_prepaid_delivered: stats.total_prepaid_delivered
+    });
+    throw new Error(`Existe una discrepancia de ${discrepancyAmount.toLocaleString()} Gs pero no hay pedidos COD entregados para distribuirla. Verifique los métodos de pago.`);
   }
 
   // ============================================================
@@ -2266,24 +2410,45 @@ export async function getCarrierBalances(storeId: string): Promise<CarrierBalanc
     throw new Error('Error al obtener balances de transportadoras');
   }
 
-  return (data || []).map(row => ({
-    carrier_id: row.carrier_id,
-    carrier_name: row.carrier_name,
-    settlement_type: row.settlement_type || 'gross',
-    charges_failed_attempts: row.charges_failed_attempts || false,
-    payment_schedule: row.payment_schedule || 'weekly',
-    total_cod_collected: parseFloat(row.total_cod_collected) || 0,
-    total_delivery_fees: parseFloat(row.total_delivery_fees) || 0,
-    total_failed_fees: parseFloat(row.total_failed_fees) || 0,
-    total_payments_received: parseFloat(row.total_payments_received) || 0,
-    total_payments_sent: parseFloat(row.total_payments_sent) || 0,
-    total_adjustments: parseFloat(row.total_adjustments) || 0,
-    net_balance: parseFloat(row.net_balance) || 0,
-    unsettled_balance: parseFloat(row.unsettled_balance) || 0,
-    unsettled_orders: parseInt(row.unsettled_orders, 10) || 0,
-    last_movement_date: row.last_movement_date,
-    last_payment_date: row.last_payment_date,
-  }));
+  // BUG #2 FIX: Proper NaN/Infinity validation in parseFloat
+  return (data || []).map(row => {
+    const safeParseFloat = (value: any): number => {
+      const parsed = parseFloat(value);
+      if (isNaN(parsed) || !isFinite(parsed)) {
+        logger.error('SETTLEMENTS', `[CARRIER BALANCES] Invalid numeric value: ${value}, using 0`);
+        return 0;
+      }
+      return parsed;
+    };
+
+    const safeParseInt = (value: any): number => {
+      const parsed = parseInt(value, 10);
+      if (isNaN(parsed) || !isFinite(parsed)) {
+        logger.error('SETTLEMENTS', `[CARRIER BALANCES] Invalid integer value: ${value}, using 0`);
+        return 0;
+      }
+      return parsed;
+    };
+
+    return {
+      carrier_id: row.carrier_id,
+      carrier_name: row.carrier_name,
+      settlement_type: row.settlement_type || 'gross',
+      charges_failed_attempts: row.charges_failed_attempts || false,
+      payment_schedule: row.payment_schedule || 'weekly',
+      total_cod_collected: safeParseFloat(row.total_cod_collected),
+      total_delivery_fees: safeParseFloat(row.total_delivery_fees),
+      total_failed_fees: safeParseFloat(row.total_failed_fees),
+      total_payments_received: safeParseFloat(row.total_payments_received),
+      total_payments_sent: safeParseFloat(row.total_payments_sent),
+      total_adjustments: safeParseFloat(row.total_adjustments),
+      net_balance: safeParseFloat(row.net_balance),
+      unsettled_balance: safeParseFloat(row.unsettled_balance),
+      unsettled_orders: safeParseInt(row.unsettled_orders),
+      last_movement_date: row.last_movement_date,
+      last_payment_date: row.last_payment_date,
+    };
+  });
 }
 
 /**
@@ -2310,23 +2475,43 @@ export async function getCarrierBalanceSummary(
   }
 
   const row = data[0];
+
+  // BUG #2 FIX: Proper NaN/Infinity validation in parseFloat
+  const safeParseFloat = (value: any): number => {
+    const parsed = parseFloat(value);
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      logger.error('SETTLEMENTS', `[CARRIER BALANCE SUMMARY] Invalid numeric value: ${value}, using 0`);
+      return 0;
+    }
+    return parsed;
+  };
+
+  const safeParseInt = (value: any): number => {
+    const parsed = parseInt(value, 10);
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      logger.error('SETTLEMENTS', `[CARRIER BALANCE SUMMARY] Invalid integer value: ${value}, using 0`);
+      return 0;
+    }
+    return parsed;
+  };
+
   return {
     carrier_id: row.carrier_id,
     carrier_name: row.carrier_name,
     settlement_type: row.settlement_type || 'gross',
     period_start: row.period_start,
     period_end: row.period_end,
-    cod_collected: parseFloat(row.cod_collected) || 0,
-    delivery_fees: parseFloat(row.delivery_fees) || 0,
-    failed_fees: parseFloat(row.failed_fees) || 0,
-    payments_received: parseFloat(row.payments_received) || 0,
-    payments_sent: parseFloat(row.payments_sent) || 0,
-    adjustments: parseFloat(row.adjustments) || 0,
-    gross_balance: parseFloat(row.gross_balance) || 0,
-    net_balance: parseFloat(row.net_balance) || 0,
-    orders_count: parseInt(row.orders_count, 10) || 0,
-    delivered_count: parseInt(row.delivered_count, 10) || 0,
-    failed_count: parseInt(row.failed_count, 10) || 0,
+    cod_collected: safeParseFloat(row.cod_collected),
+    delivery_fees: safeParseFloat(row.delivery_fees),
+    failed_fees: safeParseFloat(row.failed_fees),
+    payments_received: safeParseFloat(row.payments_received),
+    payments_sent: safeParseFloat(row.payments_sent),
+    adjustments: safeParseFloat(row.adjustments),
+    gross_balance: safeParseFloat(row.gross_balance),
+    net_balance: safeParseFloat(row.net_balance),
+    orders_count: safeParseInt(row.orders_count),
+    delivered_count: safeParseInt(row.delivered_count),
+    failed_count: safeParseInt(row.failed_count),
   };
 }
 

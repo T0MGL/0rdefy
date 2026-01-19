@@ -142,7 +142,10 @@ function parseLatinAmount(raw: string): number {
   // Remove currency symbols, Gs, spaces
   const clean = raw.replace(/[^\d.,]/g, '').trim();
 
-  if (!clean) return 0;
+  if (!clean) {
+    logger.warn('[Settlements] Failed to parse amount:', raw);
+    return 0;
+  }
 
   // Detect format based on separator positions
   const lastDot = clean.lastIndexOf('.');
@@ -150,7 +153,9 @@ function parseLatinAmount(raw: string): number {
 
   if (lastDot === -1 && lastComma === -1) {
     // No separators: "25000"
-    return parseFloat(clean) || 0;
+    const result = parseFloat(clean) || 0;
+    logger.log('[Settlements] Parsed amount (no separators):', raw, '->', result);
+    return result;
   }
 
   if (lastDot !== -1 && lastComma !== -1) {

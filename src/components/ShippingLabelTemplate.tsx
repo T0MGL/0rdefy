@@ -35,7 +35,7 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
             color: { dark: '#000000', light: '#FFFFFF' },
         })
             .then(setQrCodeUrl)
-            .catch((err) => console.error('Error generating QR code:', err));
+            .catch((err) => logger.error('Error generating QR code:', err));
     }, [deliveryUrl]);
 
     return (

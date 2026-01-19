@@ -24,7 +24,7 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`🚀 [MIGRATE] Applying migration: ${migration_file}`);
+    logger.info('API', `🚀 [MIGRATE] Applying migration: ${migration_file}`);
 
     // Read migration file
     const migrationPath = path.join(__dirname, '../../db/migrations', migration_file);
@@ -38,7 +38,7 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
 
     const sql = fs.readFileSync(migrationPath, 'utf-8');
 
-    console.log(`📝 [MIGRATE] SQL content:\n${sql}`);
+    logger.info('API', `📝 [MIGRATE] SQL content:\n${sql}`);
 
     // Split by semicolon and execute each statement
     const statements = sql
@@ -46,14 +46,14 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
       .map((s) => s.trim())
       .filter((s) => s.length > 0 && !s.startsWith('--'));
 
-    console.log(`📊 [MIGRATE] Found ${statements.length} SQL statements`);
+    logger.info('API', `📊 [MIGRATE] Found ${statements.length} SQL statements`);
 
     const results = [];
 
     for (let i = 0; i < statements.length; i++) {
       const statement = statements[i];
-      console.log(`\n🔨 [MIGRATE] Executing statement ${i + 1}/${statements.length}:`);
-      console.log(statement.substring(0, 100) + '...');
+      logger.info('API', `\n🔨 [MIGRATE] Executing statement ${i + 1}/${statements.length}:`);
+      logger.info('API', statement.substring(0, 100) + '...');
 
       try {
         // Execute using raw query
@@ -64,14 +64,14 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
         const result = await (supabaseAdmin as any).rpc('exec_sql', { query: statement });
 
         if (result.error) {
-          console.error(`❌ [MIGRATE] Statement ${i + 1} failed:`, result.error);
+          logger.error('API', `❌ [MIGRATE] Statement ${i + 1} failed:`, result.error);
           results.push({
             statement: i + 1,
             success: false,
             error: result.error.message
           });
         } else {
-          console.log(`✅ [MIGRATE] Statement ${i + 1} succeeded`);
+          logger.info('API', `✅ [MIGRATE] Statement ${i + 1} succeeded`);
           results.push({
             statement: i + 1,
             success: true,
@@ -79,7 +79,7 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
           });
         }
       } catch (err: any) {
-        console.error(`❌ [MIGRATE] Statement ${i + 1} error:`, err);
+        logger.error('API', `❌ [MIGRATE] Statement ${i + 1} error:`, err);
         results.push({
           statement: i + 1,
           success: false,
@@ -91,7 +91,7 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
     const successCount = results.filter((r) => r.success).length;
     const failCount = results.filter((r) => !r.success).length;
 
-    console.log(`\n📊 [MIGRATE] Migration complete: ${successCount} succeeded, ${failCount} failed`);
+    logger.info('API', `\n📊 [MIGRATE] Migration complete: ${successCount} succeeded, ${failCount} failed`);
 
     res.json({
       message: `Migration applied: ${successCount} statements succeeded, ${failCount} failed`,
@@ -102,7 +102,7 @@ migrateRouter.post('/apply', async (req: Request, res: Response) => {
       fail_count: failCount
     });
   } catch (error: any) {
-    console.error('❌ [MIGRATE] Error:', error);
+    logger.error('API', '❌ [MIGRATE] Error:', error);
     res.status(500).json({
       error: 'Error al aplicar migración',
       message: error.message

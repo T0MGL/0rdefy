@@ -99,74 +99,148 @@ export async function createSession(
       );
     }
 
-    // 1. Validate that all orders exist and are confirmed
-    const { data: orders, error: ordersError } = await supabaseAdmin
-      .from('orders')
-      .select('id, sleeves_status')
-      .eq('store_id', storeId)
-      .in('id', orderIds);
-
-    if (ordersError) throw ordersError;
-    if (!orders || orders.length === 0) {
-      throw new Error('No se encontraron pedidos válidos');
-    }
-
-    const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
-    if (nonConfirmedOrders.length > 0) {
-      throw new Error('Todos los pedidos deben estar en estado confirmado');
-    }
-
-    // 2. Generate unique session code
-    const { data: codeData, error: codeError } = await supabaseAdmin
-      .rpc('generate_session_code');
-
-    if (codeError) throw codeError;
-    const sessionCode = codeData;
-
-    // 3. Create picking session
-    const { data: session, error: sessionError } = await supabaseAdmin
-      .from('picking_sessions')
-      .insert({
-        code: sessionCode,
-        status: 'picking',
-        user_id: userId,
-        store_id: storeId,
-        picking_started_at: new Date().toISOString()
+    // CRITICAL FIX (Bug #2): Use atomic RPC for session creation
+    // This ensures all-or-nothing execution: session + orders + status update
+    const { data: result, error: rpcError } = await supabaseAdmin
+      .rpc('create_picking_session_atomic', {
+        p_store_id: storeId,
+        p_order_ids: orderIds,
+        p_user_id: userId
       })
-      .select()
       .single();
 
-    if (sessionError) throw sessionError;
+    // Handle RPC errors
+    if (rpcError) {
+      // Check if function doesn't exist (old database version)
+      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+        logger.warn('WAREHOUSE', 'Atomic RPC not available, falling back to legacy non-atomic creation');
+        // Fallback to legacy implementation (below)
+      } else {
+        throw rpcError;
+      }
+    }
 
-    // 4. Link orders to session
-    const sessionOrders = orderIds.map(orderId => ({
-      picking_session_id: session.id,
-      order_id: orderId
-    }));
+    // If RPC succeeded, extract session data
+    let session: any = null;
+    if (result && result.success) {
+      session = {
+        id: result.session_id,
+        code: result.session_code,
+        status: result.session_status,
+        user_id: userId,
+        store_id: storeId
+      };
+    } else if (result && !result.success) {
+      throw new Error(result.error_message || 'Error al crear sesión de picking');
+    }
 
-    const { error: linkError } = await supabaseAdmin
-      .from('picking_session_orders')
-      .insert(sessionOrders);
+    // LEGACY FALLBACK (only if RPC doesn't exist)
+    if (!session) {
+      // 1. Validate that all orders exist and are confirmed
+      const { data: orders, error: ordersError } = await supabaseAdmin
+        .from('orders')
+        .select('id, sleeves_status')
+        .eq('store_id', storeId)
+        .in('id', orderIds);
 
-    if (linkError) throw linkError;
+      if (ordersError) throw ordersError;
+      if (!orders || orders.length === 0) {
+        throw new Error('No se encontraron pedidos válidos');
+      }
 
-    // 5. Update orders status to in_preparation
-    const { error: updateError } = await supabaseAdmin
-      .from('orders')
-      .update({ sleeves_status: 'in_preparation' })
-      .in('id', orderIds);
+      const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
+      if (nonConfirmedOrders.length > 0) {
+        throw new Error('Todos los pedidos deben estar en estado confirmado');
+      }
 
-    if (updateError) throw updateError;
+      // 2. Generate unique session code
+      const { data: codeData, error: codeError } = await supabaseAdmin
+        .rpc('generate_session_code');
+
+      if (codeError) throw codeError;
+      const sessionCode = codeData;
+
+      // 3. Create picking session
+      const { data: sessionData, error: sessionError } = await supabaseAdmin
+        .from('picking_sessions')
+        .insert({
+          code: sessionCode,
+          status: 'picking',
+          user_id: userId,
+          store_id: storeId,
+          picking_started_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (sessionError) throw sessionError;
+      session = sessionData;
+
+      // 4. Link orders to session
+      const sessionOrders = orderIds.map(orderId => ({
+        picking_session_id: session.id,
+        order_id: orderId
+      }));
+
+      const { error: linkError } = await supabaseAdmin
+        .from('picking_session_orders')
+        .insert(sessionOrders);
+
+      if (linkError) {
+        // CRITICAL: Rollback session creation if link fails
+        await supabaseAdmin
+          .from('picking_sessions')
+          .delete()
+          .eq('id', session.id);
+        throw linkError;
+      }
+
+      // 5. Update orders status to in_preparation
+      const { error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update({ sleeves_status: 'in_preparation' })
+        .in('id', orderIds);
+
+      if (updateError) {
+        // CRITICAL: Rollback session and links if update fails
+        await supabaseAdmin
+          .from('picking_session_orders')
+          .delete()
+          .eq('picking_session_id', session.id);
+        await supabaseAdmin
+          .from('picking_sessions')
+          .delete()
+          .eq('id', session.id);
+        throw updateError;
+      }
+    }
 
     // 6. Fetch line items - support both Shopify (order_line_items) and manual (JSONB line_items)
 
     // First, try to get from normalized order_line_items table (Shopify orders)
-    const { data: normalizedLineItems, error: normalizedError } = await supabaseAdmin
-      .from('order_line_items')
-      .select('order_id, product_id, quantity, shopify_product_id, shopify_variant_id, product_name')
-      .in('order_id', orderIds);
+    // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
+    let normalizedLineItems: any[] = [];
+    const PAGE_SIZE = 1000; // Safe limit per page
+    let page = 0;
+    let hasMore = true;
 
-    if (normalizedError) throw normalizedError;
+    while (hasMore) {
+      const { data: pageData, error: normalizedError } = await supabaseAdmin
+        .from('order_line_items')
+        .select('order_id, product_id, quantity, shopify_product_id, shopify_variant_id, product_name')
+        .in('order_id', orderIds)
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (normalizedError) throw normalizedError;
+
+      if (pageData && pageData.length > 0) {
+        normalizedLineItems.push(...pageData);
+        hasMore = pageData.length === PAGE_SIZE;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
 
     // Check if we have normalized line items (Shopify orders)
     const productQuantities = new Map<string, number>();
@@ -585,12 +659,29 @@ export async function finishPicking(
     }> = [];
 
     // First, try to get from normalized order_line_items table (Shopify orders)
-    const { data: normalizedLineItems, error: normalizedError } = await supabaseAdmin
-      .from('order_line_items')
-      .select('order_id, product_id, quantity')
-      .in('order_id', orderIdsInSession);
+    // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
+    let normalizedLineItems: any[] = [];
+    const PAGE_SIZE = 1000;
+    let page = 0;
+    let hasMore = true;
 
-    if (normalizedError) throw normalizedError;
+    while (hasMore) {
+      const { data: pageData, error: normalizedError } = await supabaseAdmin
+        .from('order_line_items')
+        .select('order_id, product_id, quantity')
+        .in('order_id', orderIdsInSession)
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (normalizedError) throw normalizedError;
+
+      if (pageData && pageData.length > 0) {
+        normalizedLineItems.push(...pageData);
+        hasMore = pageData.length === PAGE_SIZE;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
 
     if (normalizedLineItems && normalizedLineItems.length > 0) {
       // Aggregate quantities when same product appears multiple times in an order (e.g., upsells)
@@ -793,23 +884,40 @@ export async function getPackingList(
     // Get ALL order line items (not just packing_progress)
     // This ensures we show ALL products in the order, even if not yet packed
     // First try normalized order_line_items (Shopify orders)
-    const { data: orderLineItems, error: lineItemsError } = await supabaseAdmin
-      .from('order_line_items')
-      .select(`
-        order_id,
-        product_id,
-        product_name,
-        variant_title,
-        quantity,
-        products (
-          id,
-          name,
-          image_url
-        )
-      `)
-      .in('order_id', orderIds);
+    // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
+    let orderLineItems: any[] = [];
+    const PAGE_SIZE = 1000;
+    let page = 0;
+    let hasMore = true;
 
-    if (lineItemsError) throw lineItemsError;
+    while (hasMore) {
+      const { data: pageData, error: lineItemsError } = await supabaseAdmin
+        .from('order_line_items')
+        .select(`
+          order_id,
+          product_id,
+          product_name,
+          variant_title,
+          quantity,
+          products (
+            id,
+            name,
+            image_url
+          )
+        `)
+        .in('order_id', orderIds)
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (lineItemsError) throw lineItemsError;
+
+      if (pageData && pageData.length > 0) {
+        orderLineItems.push(...pageData);
+        hasMore = pageData.length === PAGE_SIZE;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
 
     // Also fetch JSONB line_items for manual orders (fallback)
     const { data: ordersWithJsonbItems, error: jsonbError } = await supabaseAdmin
@@ -1137,33 +1245,69 @@ export async function updatePackingProgress(
     if (updateError) {
       // Final fallback: use optimistic locking with CAS (Compare-And-Swap)
       // This is less ideal but prevents total failure if RPC doesn't exist
-      const { data: reread, error: rereadError } = await supabaseAdmin
-        .from('packing_progress')
-        .select('quantity_packed, quantity_needed')
-        .eq('id', progress.id)
-        .single();
+      // IMPORTANT: Add retry logic to handle concurrent updates (M-2 FIX)
+      const MAX_CAS_RETRIES = 3;
+      let casAttempt = 0;
+      let casSuccess = false;
+      let casResult: any = null;
 
-      if (rereadError) throw rereadError;
+      while (casAttempt < MAX_CAS_RETRIES && !casSuccess) {
+        try {
+          const { data: reread, error: rereadError } = await supabaseAdmin
+            .from('packing_progress')
+            .select('quantity_packed, quantity_needed')
+            .eq('id', progress.id)
+            .single();
 
-      // Double-check we haven't exceeded limits
-      if (reread.quantity_packed >= reread.quantity_needed) {
-        throw new Error('This item is already fully packed for this order');
+          if (rereadError) throw rereadError;
+
+          // Double-check we haven't exceeded limits
+          if (reread.quantity_packed >= reread.quantity_needed) {
+            throw new Error('This item is already fully packed for this order');
+          }
+
+          const { data: casUpdated, error: casError } = await supabaseAdmin
+            .from('packing_progress')
+            .update({ quantity_packed: reread.quantity_packed + 1 })
+            .eq('id', progress.id)
+            .eq('quantity_packed', reread.quantity_packed) // CAS condition
+            .select()
+            .single();
+
+          if (casError) throw casError;
+
+          if (!casUpdated) {
+            // CAS failed - concurrent update detected, retry
+            casAttempt++;
+            if (casAttempt < MAX_CAS_RETRIES) {
+              // Small exponential backoff: 10ms, 20ms, 40ms
+              await new Promise(resolve => setTimeout(resolve, 10 * Math.pow(2, casAttempt)));
+              continue;
+            }
+            throw new Error('Concurrent update detected after max retries. Please try again.');
+          }
+
+          casSuccess = true;
+          casResult = casUpdated;
+        } catch (error) {
+          // If it's a validation error (already packed), throw immediately
+          if (error instanceof Error && error.message.includes('already fully packed')) {
+            throw error;
+          }
+          // Otherwise, if we've exhausted retries, throw
+          if (casAttempt >= MAX_CAS_RETRIES - 1) {
+            throw error;
+          }
+          casAttempt++;
+          await new Promise(resolve => setTimeout(resolve, 10 * Math.pow(2, casAttempt)));
+        }
       }
 
-      const { data: casUpdated, error: casError } = await supabaseAdmin
-        .from('packing_progress')
-        .update({ quantity_packed: reread.quantity_packed + 1 })
-        .eq('id', progress.id)
-        .eq('quantity_packed', reread.quantity_packed) // CAS condition
-        .select()
-        .single();
-
-      if (casError) throw casError;
-      if (!casUpdated) {
-        throw new Error('Concurrent update detected. Please try again.');
+      if (!casSuccess || !casResult) {
+        throw new Error('Failed to update packing progress after retries');
       }
 
-      return casUpdated;
+      return casResult;
     }
 
     // RPC returns array of rows, get first one

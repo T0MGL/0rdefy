@@ -72,7 +72,7 @@ export function getShopDomain(): string | null {
         const decodedHost = atob(host);
         shop = decodedHost.split('/')[0];
       } catch (e) {
-        console.warn('[Shopify] Could not decode host parameter:', e);
+        logger.warn('[Shopify] Could not decode host parameter:', e);
       }
     }
   }

@@ -81,6 +81,21 @@ export default function Warehouse() {
   // Calculate date ranges from global context
   const dateRange = useMemo(() => {
     const range = getDateRange();
+
+    // CRITICAL FIX (Bug #17): Validate dates before calling toISOString()
+    // Invalid dates will throw exception and crash the entire page
+    if (!range.from || !range.to ||
+        isNaN(range.from.getTime()) || isNaN(range.to.getTime())) {
+      logger.warn('Warehouse: Invalid date range detected, using defaults');
+      const today = new Date();
+      const weekAgo = new Date();
+      weekAgo.setDate(today.getDate() - 7);
+      return {
+        startDate: weekAgo.toISOString().split('T')[0],
+        endDate: today.toISOString().split('T')[0],
+      };
+    }
+
     const result = {
       startDate: range.from.toISOString().split('T')[0],
       endDate: range.to.toISOString().split('T')[0],
@@ -98,7 +113,7 @@ export default function Warehouse() {
       setConfirmedOrders(orders);
       setActiveSessions(sessions);
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      logger.error('Error loading dashboard data:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'load_dashboard',
@@ -118,7 +133,7 @@ export default function Warehouse() {
       setPickingList(data.items);
       setSessionOrders(data.orders);
     } catch (error) {
-      console.error('Error loading picking list:', error);
+      logger.error('Error loading picking list:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cargar la lista de picking',
@@ -136,7 +151,7 @@ export default function Warehouse() {
       const data = await warehouseService.getPackingList(currentSession.id);
       setPackingData(data);
     } catch (error) {
-      console.error('Error loading packing list:', error);
+      logger.error('Error loading packing list:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cargar la lista de empaque',
@@ -150,21 +165,27 @@ export default function Warehouse() {
   // Load dashboard data
   useEffect(() => {
     if (view === 'dashboard') {
+      const abortController = new AbortController();
       loadDashboardData();
+      return () => abortController.abort();
     }
   }, [view, loadDashboardData]);
 
   // Load picking list when entering picking mode
   useEffect(() => {
     if (view === 'picking' && currentSession) {
+      const abortController = new AbortController();
       loadPickingList();
+      return () => abortController.abort();
     }
   }, [view, currentSession, loadPickingList]);
 
   // Load packing list when entering packing mode
   useEffect(() => {
     if (view === 'packing' && currentSession) {
+      const abortController = new AbortController();
       loadPackingList();
+      return () => abortController.abort();
     }
   }, [view, currentSession, loadPackingList]);
 
@@ -189,7 +210,7 @@ export default function Warehouse() {
         description: `Sesión ${session.code} creada exitosamente`,
       });
     } catch (error: any) {
-      console.error('Error creating session:', error);
+      logger.error('Error creating session:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'create_session',
@@ -221,7 +242,7 @@ export default function Warehouse() {
         description: `Preparando pedido #${order.order_number}`,
       });
     } catch (error: any) {
-      console.error('Error creating session:', error);
+      logger.error('Error creating session:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'quick_prepare',
@@ -249,7 +270,7 @@ export default function Warehouse() {
     try {
       await warehouseService.updatePickingProgress(currentSession.id, productId, newQuantity);
     } catch (error: any) {
-      console.error('Error updating picking progress:', error);
+      logger.error('Error updating picking progress:', error);
       // Revert optimistic update on error
       setPickingList(previousPickingList);
       showErrorToast(toast, error, {
@@ -287,7 +308,7 @@ export default function Warehouse() {
         description: 'Listo para empacar los pedidos',
       });
     } catch (error: any) {
-      console.error('Error finishing picking:', error);
+      logger.error('Error finishing picking:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'finish_picking',
@@ -350,7 +371,7 @@ export default function Warehouse() {
       // Reload to ensure sync with server (but UI already updated)
       await loadPackingList();
     } catch (error: any) {
-      console.error('Error packing item:', error);
+      logger.error('Error packing item:', error);
 
       // Revert optimistic update on error
       if (previousPackingData) {
@@ -401,7 +422,7 @@ export default function Warehouse() {
       // Reload dashboard data
       loadDashboardData();
     } catch (error: any) {
-      console.error('Error abandoning session:', error);
+      logger.error('Error abandoning session:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'abandon_session',
@@ -438,7 +459,7 @@ export default function Warehouse() {
         description: 'La etiqueta ha sido impresa correctamente',
       });
     } catch (error) {
-      console.error('Error updating order after print:', error);
+      logger.error('Error updating order after print:', error);
       toast({
         title: 'Error',
         description: 'No se pudo actualizar el estado del pedido',
@@ -477,7 +498,7 @@ export default function Warehouse() {
         handleOrderPrinted(order.id);
       }
     } catch (error) {
-      console.error('Print error:', error);
+      logger.error('Print error:', error);
       toast({
         title: 'Error de impresión',
         description: 'No se pudo generar el PDF para imprimir.',
@@ -506,7 +527,7 @@ export default function Warehouse() {
         description: `${selectedOrdersForPrint.size} etiquetas han sido impresas correctamente`,
       });
     } catch (error) {
-      console.error('Error updating orders after batch print:', error);
+      logger.error('Error updating orders after batch print:', error);
       toast({
         title: 'Error',
         description: 'No se pudo actualizar el estado de los pedidos',
@@ -560,7 +581,7 @@ export default function Warehouse() {
         handleBatchPrinted();
       }
     } catch (error) {
-      console.error('Batch print error:', error);
+      logger.error('Batch print error:', error);
       toast({
         title: 'Error de impresión',
         description: 'No se pudo generar el PDF en lote.',
@@ -593,7 +614,7 @@ export default function Warehouse() {
       });
       handleBackToDashboard();
     } catch (error: any) {
-      console.error('Error completing session:', error);
+      logger.error('Error completing session:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
         action: 'complete_session',

@@ -42,7 +42,7 @@ onboardingRouter.get('/progress', verifyToken, extractStoreId, async (req: AuthR
         });
 
         if (error) {
-            console.error('Error fetching onboarding progress:', error);
+            logger.error('API', 'Error fetching onboarding progress:', error);
 
             // Fallback: compute progress manually if function doesn't exist
             return await computeProgressManually(storeId, userId, userRole, res);
@@ -54,7 +54,7 @@ onboardingRouter.get('/progress', verifyToken, extractStoreId, async (req: AuthR
             userRole
         });
     } catch (error) {
-        console.error('Error in onboarding progress endpoint:', error);
+        logger.error('API', 'Error in onboarding progress endpoint:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al obtener progreso de onboarding'
@@ -85,7 +85,7 @@ onboardingRouter.post('/dismiss', verifyToken, extractStoreId, async (req: AuthR
         });
 
         if (error) {
-            console.error('Error dismissing onboarding:', error);
+            logger.error('API', 'Error dismissing onboarding:', error);
 
             // Fallback: insert/update directly
             await supabaseAdmin
@@ -105,7 +105,7 @@ onboardingRouter.post('/dismiss', verifyToken, extractStoreId, async (req: AuthR
             message: 'Onboarding checklist dismissed'
         });
     } catch (error) {
-        console.error('Error dismissing onboarding:', error);
+        logger.error('API', 'Error dismissing onboarding:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al descartar checklist de onboarding'
@@ -145,7 +145,7 @@ onboardingRouter.post('/visit-module', verifyToken, extractStoreId, async (req: 
         });
 
         if (error) {
-            console.error('Error marking module visited:', error);
+            logger.error('API', 'Error marking module visited:', error);
             // Non-critical, return success anyway
         }
 
@@ -154,7 +154,7 @@ onboardingRouter.post('/visit-module', verifyToken, extractStoreId, async (req: 
             message: 'Module marked as visited'
         });
     } catch (error) {
-        console.error('Error marking module visited:', error);
+        logger.error('API', 'Error marking module visited:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al marcar módulo como visitado'
@@ -187,14 +187,14 @@ onboardingRouter.get('/is-first-visit/:moduleId', verifyToken, extractStoreId, a
         });
 
         if (error) {
-            console.error('Error checking first visit:', error);
+            logger.error('API', 'Error checking first visit:', error);
             // Assume it's a first visit if we can't check
             return res.json({ isFirstVisit: true });
         }
 
         return res.json({ isFirstVisit: data });
     } catch (error) {
-        console.error('Error checking first visit:', error);
+        logger.error('API', 'Error checking first visit:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al verificar estado de primera visita'
@@ -234,7 +234,7 @@ onboardingRouter.post('/increment-visit', verifyToken, extractStoreId, async (re
         });
 
         if (error) {
-            console.error('Error incrementing visit count:', error);
+            logger.error('API', 'Error incrementing visit count:', error);
             // Non-critical, return success anyway
             return res.json({ success: true, count: 1 });
         }
@@ -244,7 +244,7 @@ onboardingRouter.post('/increment-visit', verifyToken, extractStoreId, async (re
             count: data
         });
     } catch (error) {
-        console.error('Error incrementing visit count:', error);
+        logger.error('API', 'Error incrementing visit count:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al incrementar contador de visitas'
@@ -284,7 +284,7 @@ onboardingRouter.post('/first-action', verifyToken, extractStoreId, async (req: 
         });
 
         if (error) {
-            console.error('Error marking first action:', error);
+            logger.error('API', 'Error marking first action:', error);
             // Non-critical, return success anyway
         }
 
@@ -293,7 +293,7 @@ onboardingRouter.post('/first-action', verifyToken, extractStoreId, async (req: 
             message: 'First action marked as completed'
         });
     } catch (error) {
-        console.error('Error marking first action:', error);
+        logger.error('API', 'Error marking first action:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al marcar primera acción'
@@ -327,14 +327,14 @@ onboardingRouter.get('/should-show-tip/:moduleId', verifyToken, extractStoreId, 
         });
 
         if (error) {
-            console.error('Error checking should show tip:', error);
+            logger.error('API', 'Error checking should show tip:', error);
             // Default to showing tip if we can't check
             return res.json({ shouldShow: true });
         }
 
         return res.json({ shouldShow: data });
     } catch (error) {
-        console.error('Error checking should show tip:', error);
+        logger.error('API', 'Error checking should show tip:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al verificar si mostrar tip'
@@ -366,7 +366,7 @@ onboardingRouter.post('/reset', verifyToken, extractStoreId, async (req: AuthReq
             .eq('user_id', userId);
 
         if (error) {
-            console.error('Error resetting onboarding:', error);
+            logger.error('API', 'Error resetting onboarding:', error);
         }
 
         return res.json({
@@ -374,7 +374,7 @@ onboardingRouter.post('/reset', verifyToken, extractStoreId, async (req: AuthReq
             message: 'Onboarding progress reset'
         });
     } catch (error) {
-        console.error('Error resetting onboarding:', error);
+        logger.error('API', 'Error resetting onboarding:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al reiniciar progreso de onboarding'
@@ -510,7 +510,7 @@ async function computeProgressManually(storeId: string, userId: string, userRole
             userRole
         });
     } catch (error) {
-        console.error('Error computing progress manually:', error);
+        logger.error('API', 'Error computing progress manually:', error);
         return res.status(500).json({
             success: false,
             error: 'Error al calcular progreso de onboarding'

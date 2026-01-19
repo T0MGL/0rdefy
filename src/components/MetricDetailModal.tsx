@@ -46,7 +46,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
           setProducts(productsData);
           setCarriers(carriersData);
         } catch (error) {
-          console.error('Error loading metric detail data:', error);
+          logger.error('Error loading metric detail data:', error);
         } finally {
           setIsLoading(false);
         }

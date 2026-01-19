@@ -107,7 +107,7 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
       } else {
         setError('Error al enviar código. Intenta nuevamente.');
       }
-      console.error('Error requesting code:', err);
+      logger.error('Error requesting code:', err);
     } finally {
       setLoading(false);
     }
@@ -136,7 +136,7 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
 
     } catch (err: any) {
       setError(err.response?.data?.error || 'Código inválido. Intenta nuevamente.');
-      console.error('Error verifying code:', err);
+      logger.error('Error verifying code:', err);
     } finally {
       setLoading(false);
     }

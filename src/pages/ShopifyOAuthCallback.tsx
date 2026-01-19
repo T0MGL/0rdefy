@@ -19,13 +19,13 @@ export default function ShopifyOAuthCallback() {
   const webhooksOk = searchParams.get('webhooks');
 
   useEffect(() => {
-    console.log('[SHOPIFY-CALLBACK] Popup callback loaded:', { status, shop, error, webhooksFailed, webhooksOk });
+    logger.log('[SHOPIFY-CALLBACK] Popup callback loaded:', { status, shop, error, webhooksFailed, webhooksOk });
 
     // Wait a moment for user to see the success message
     const timer = setTimeout(() => {
       // Notify parent window (opener)
       if (window.opener) {
-        console.log('[SHOPIFY-CALLBACK] Notifying parent window via postMessage');
+        logger.log('[SHOPIFY-CALLBACK] Notifying parent window via postMessage');
 
         window.opener.postMessage(
           {
@@ -41,11 +41,11 @@ export default function ShopifyOAuthCallback() {
 
         // Close popup after notifying
         setTimeout(() => {
-          console.log('[SHOPIFY-CALLBACK] Closing popup');
+          logger.log('[SHOPIFY-CALLBACK] Closing popup');
           window.close();
         }, 1000);
       } else {
-        console.error('[SHOPIFY-CALLBACK] No window.opener found - cannot notify parent');
+        logger.error('[SHOPIFY-CALLBACK] No window.opener found - cannot notify parent');
         // If no opener, just show message
       }
     }, 1500);

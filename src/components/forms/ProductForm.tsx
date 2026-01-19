@@ -135,7 +135,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
       const products = await productsService.getShopifyProducts(search);
       setShopifyProducts(products);
     } catch (error) {
-      console.error('Error loading Shopify products:', error);
+      logger.error('Error loading Shopify products:', error);
     } finally {
       setLoading(false);
     }
@@ -173,7 +173,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
       setShopifyAdditionalCosts(0);
       setShopifyIsService(false);
     } catch (error: any) {
-      console.error('Error creating product:', error);
+      logger.error('Error creating product:', error);
       // Error is thrown back to parent - don't reset form state
       throw error;
     } finally {
@@ -188,7 +188,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
       form.reset();
     } catch (error) {
       // Error handled by parent, form state preserved for retry
-      console.error('Error submitting product form:', error);
+      logger.error('Error submitting product form:', error);
     }
   };
 

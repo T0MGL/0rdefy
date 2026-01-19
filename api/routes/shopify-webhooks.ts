@@ -27,8 +27,8 @@ function webhookTimeout(req: Request, res: Response, next: NextFunction) {
   const timeoutId = setTimeout(() => {
     if (!res.headersSent) {
       timeoutHandled = true;
-      console.error(`⏱️ [WEBHOOK-TIMEOUT] Request timed out after ${WEBHOOK_TIMEOUT}ms`);
-      console.error(`⏱️ [WEBHOOK-TIMEOUT] Topic: ${req.path}, Shop: ${req.headers['x-shopify-shop-domain']}`);
+      logger.error('SERVER', `⏱️ [WEBHOOK-TIMEOUT] Request timed out after ${WEBHOOK_TIMEOUT}ms`);
+      logger.error('SERVER', `⏱️ [WEBHOOK-TIMEOUT] Topic: ${req.path}, Shop: ${req.headers['x-shopify-shop-domain']}`);
 
       // Respond with 200 to prevent Shopify retries
       // Log the timeout for monitoring
@@ -36,13 +36,32 @@ function webhookTimeout(req: Request, res: Response, next: NextFunction) {
     }
   }, WEBHOOK_TIMEOUT);
 
-  // Clear timeout when response is sent
-  const originalSend = res.send.bind(res);
-  res.send = function(data: any) {
+  // CRITICAL (M-3 FIX): Clear timeout when response is sent via any method
+  // Intercept all response methods to ensure cleanup
+  const clearTimeoutSafely = () => {
     if (!timeoutHandled) {
       clearTimeout(timeoutId);
+      timeoutHandled = true;
     }
+  };
+
+  const originalSend = res.send.bind(res);
+  const originalJson = res.json.bind(res);
+  const originalEnd = res.end.bind(res);
+
+  res.send = function(data: any) {
+    clearTimeoutSafely();
     return originalSend(data);
+  };
+
+  res.json = function(data: any) {
+    clearTimeoutSafely();
+    return originalJson(data);
+  };
+
+  res.end = function(...args: any[]) {
+    clearTimeoutSafely();
+    return originalEnd(...args);
   };
 
   next();
@@ -61,12 +80,12 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
   const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
   if (!hmac) {
-    console.error('❌ [WEBHOOK] Missing HMAC header');
+    logger.error('SERVER', '❌ [WEBHOOK] Missing HMAC header');
     return res.status(401).send('Missing HMAC');
   }
 
   if (!shopDomain) {
-    console.error('❌ [WEBHOOK] Missing shop domain header');
+    logger.error('SERVER', '❌ [WEBHOOK] Missing shop domain header');
     return res.status(401).send('Missing shop domain');
   }
 
@@ -78,7 +97,7 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     .single();
 
   if (intError || !integration) {
-    console.error(`❌ [WEBHOOK] Integration not found for ${shopDomain}`);
+    logger.error('SERVER', `❌ [WEBHOOK] Integration not found for ${shopDomain}`);
     return res.status(404).send('Integration not found');
   }
 
@@ -86,7 +105,7 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
   const secret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
 
   if (!secret) {
-    console.error('❌ [WEBHOOK] API secret not configured');
+    logger.error('SERVER', '❌ [WEBHOOK] API secret not configured');
     return res.status(500).send('Server configuration error');
   }
 
@@ -107,19 +126,19 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
 
   // Shopify always sends HMAC in base64 format (both OAuth and Custom Apps)
   if (hmac === hashBase64) {
-    console.log(`✅ [WEBHOOK] HMAC validated (base64) for ${shopDomain}`);
+    logger.info('SERVER', `✅ [WEBHOOK] HMAC validated (base64) for ${shopDomain}`);
   }
   // Fallback: try hex format (legacy support, rarely used)
   else if (hmac === hashHex) {
-    console.log(`✅ [WEBHOOK] HMAC validated (hex - legacy) for ${shopDomain}`);
+    logger.info('SERVER', `✅ [WEBHOOK] HMAC validated (hex - legacy) for ${shopDomain}`);
   }
   // Neither format matched - invalid HMAC
   else {
-    console.error(`❌ [WEBHOOK] Invalid HMAC signature for ${shopDomain}`);
-    console.error(`🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'}`);
-    console.error(`   Expected base64: ${hashBase64.substring(0, 20)}...`);
-    console.error(`   Expected hex: ${hashHex.substring(0, 40)}...`);
-    console.error(`   Received HMAC: ${hmac.substring(0, 40)}...`);
+    logger.error('SERVER', `❌ [WEBHOOK] Invalid HMAC signature for ${shopDomain}`);
+    logger.error('SERVER', `🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'}`);
+    logger.error('SERVER', `   Expected base64: ${hashBase64.substring(0, 20)}...`);
+    logger.error('SERVER', `   Expected hex: ${hashHex.substring(0, 40)}...`);
+    logger.error('SERVER', `   Received HMAC: ${hmac.substring(0, 40)}...`);
     return res.status(401).send('Invalid HMAC');
   }
 
@@ -134,8 +153,8 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
     if (webhookDate < fiveMinutesAgo) {
-      console.warn(`⚠️ [WEBHOOK] Rejected: older than 5 minutes (timestamp: ${webhookTimestamp})`);
-      console.warn(`⚠️ [WEBHOOK] This could be a replay attack or network delay`);
+      logger.warn('SERVER', `⚠️ [WEBHOOK] Rejected: older than 5 minutes (timestamp: ${webhookTimestamp})`);
+      logger.warn('SERVER', `⚠️ [WEBHOOK] This could be a replay attack or network delay`);
       return res.status(200).send('Webhook too old - rejected for security');
     }
   }
@@ -269,7 +288,7 @@ router.post('/products-create', async (req: Request, res: Response) => {
     const product = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`✨ [PRODUCT-CREATE] New product: ${product.title} (${product.id})`);
+    logger.info('SERVER', `✨ [PRODUCT-CREATE] New product: ${product.title} (${product.id})`);
 
     // Find integration
     const { data: integration } = await supabaseAdmin
@@ -298,7 +317,7 @@ router.post('/products-create', async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    console.log(`✅ [PRODUCT-CREATE] Product created: ${product.title}`);
+    logger.info('SERVER', `✅ [PRODUCT-CREATE] Product created: ${product.title}`);
 
     // Log webhook
     await supabaseAdmin
@@ -315,7 +334,7 @@ router.post('/products-create', async (req: Request, res: Response) => {
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [PRODUCT-CREATE] Error:', error);
+    logger.error('SERVER', '❌ [PRODUCT-CREATE] Error:', error);
     // Return 200 to prevent Shopify infinite retries on persistent errors
     res.status(200).send('Error logged, webhook acknowledged');
   }
@@ -331,7 +350,7 @@ router.post('/products-update', async (req: Request, res: Response) => {
     const product = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`🔄 [PRODUCT-UPDATE] Product updated: ${product.title} (${product.id})`);
+    logger.info('SERVER', `🔄 [PRODUCT-UPDATE] Product updated: ${product.title} (${product.id})`);
 
     // Find integration
     const { data: integration } = await supabaseAdmin
@@ -366,7 +385,7 @@ router.post('/products-update', async (req: Request, res: Response) => {
         .eq('id', existingProduct.id);
 
       if (error) throw error;
-      console.log(`✅ [PRODUCT-UPDATE] Product updated: ${product.title}`);
+      logger.info('SERVER', `✅ [PRODUCT-UPDATE] Product updated: ${product.title}`);
 
     } else {
       // CREATE new product (in case it wasn't synced before)
@@ -384,7 +403,7 @@ router.post('/products-update', async (req: Request, res: Response) => {
         });
 
       if (error) throw error;
-      console.log(`✅ [PRODUCT-UPDATE] Product created: ${product.title}`);
+      logger.info('SERVER', `✅ [PRODUCT-UPDATE] Product created: ${product.title}`);
     }
 
     // Log webhook
@@ -402,7 +421,7 @@ router.post('/products-update', async (req: Request, res: Response) => {
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [PRODUCT-UPDATE] Error:', error);
+    logger.error('SERVER', '❌ [PRODUCT-UPDATE] Error:', error);
     // Return 200 to prevent Shopify infinite retries on persistent errors
     res.status(200).send('Error logged, webhook acknowledged');
   }
@@ -419,7 +438,7 @@ router.post('/products-delete', async (req: Request, res: Response) => {
     const product = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`🗑️ [PRODUCT-DELETE] Product deleted in Shopify: ${product.id}`);
+    logger.info('SERVER', `🗑️ [PRODUCT-DELETE] Product deleted in Shopify: ${product.id}`);
 
     // Find integration
     const { data: integration } = await supabaseAdmin
@@ -442,7 +461,7 @@ router.post('/products-delete', async (req: Request, res: Response) => {
 
     if (rpcError) {
       // Fallback to soft delete if RPC not available
-      console.warn(`[PRODUCT-DELETE] RPC not available, falling back to soft delete: ${rpcError.message}`);
+      logger.warn('SERVER', `[PRODUCT-DELETE] RPC not available, falling back to soft delete: ${rpcError.message}`);
 
       const { error: updateError } = await supabaseAdmin
         .from('products')
@@ -457,13 +476,13 @@ router.post('/products-delete', async (req: Request, res: Response) => {
 
       if (updateError) throw updateError;
 
-      console.log(`✅ [PRODUCT-DELETE] Product soft deleted (fallback)`);
+      logger.info('SERVER', `✅ [PRODUCT-DELETE] Product soft deleted (fallback)`);
     } else if (result && result.length > 0) {
       const deleteResult = result[0];
       if (deleteResult.success) {
-        console.log(`✅ [PRODUCT-DELETE] ${deleteResult.action_taken} (ID: ${deleteResult.deleted_product_id})`);
+        logger.info('SERVER', `✅ [PRODUCT-DELETE] ${deleteResult.action_taken} (ID: ${deleteResult.deleted_product_id})`);
       } else {
-        console.log(`⚠️ [PRODUCT-DELETE] ${deleteResult.action_taken}: ${deleteResult.blocked_reason}`);
+        logger.info('SERVER', `⚠️ [PRODUCT-DELETE] ${deleteResult.action_taken}: ${deleteResult.blocked_reason}`);
       }
     }
 
@@ -482,7 +501,7 @@ router.post('/products-delete', async (req: Request, res: Response) => {
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [PRODUCT-DELETE] Error:', error);
+    logger.error('SERVER', '❌ [PRODUCT-DELETE] Error:', error);
     // Return 200 to prevent Shopify infinite retries on persistent errors
     res.status(200).send('Error logged, webhook acknowledged');
   }
@@ -498,7 +517,7 @@ router.post('/customers-create', async (req: Request, res: Response) => {
     const customer = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`👤 [CUSTOMER-CREATE] New customer: ${customer.email}`);
+    logger.info('SERVER', `👤 [CUSTOMER-CREATE] New customer: ${customer.email}`);
 
     // Find integration
     const { data: integration } = await supabaseAdmin
@@ -531,7 +550,7 @@ router.post('/customers-create', async (req: Request, res: Response) => {
       throw error;
     }
 
-    console.log(`✅ [CUSTOMER-CREATE] Customer created: ${customerName}`);
+    logger.info('SERVER', `✅ [CUSTOMER-CREATE] Customer created: ${customerName}`);
 
     // Log webhook
     await supabaseAdmin
@@ -548,7 +567,7 @@ router.post('/customers-create', async (req: Request, res: Response) => {
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [CUSTOMER-CREATE] Error:', error);
+    logger.error('SERVER', '❌ [CUSTOMER-CREATE] Error:', error);
     // Return 200 to prevent Shopify infinite retries on persistent errors
     res.status(200).send('Error logged, webhook acknowledged');
   }
@@ -564,7 +583,7 @@ router.post('/customers-update', async (req: Request, res: Response) => {
     const customer = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`👤 [CUSTOMER-UPDATE] Customer updated: ${customer.email}`);
+    logger.info('SERVER', `👤 [CUSTOMER-UPDATE] Customer updated: ${customer.email}`);
 
     // Find integration
     const { data: integration } = await supabaseAdmin
@@ -596,7 +615,7 @@ router.post('/customers-update', async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    console.log(`✅ [CUSTOMER-UPDATE] Customer synced: ${customerName}`);
+    logger.info('SERVER', `✅ [CUSTOMER-UPDATE] Customer synced: ${customerName}`);
 
     // Log webhook
     await supabaseAdmin
@@ -613,7 +632,7 @@ router.post('/customers-update', async (req: Request, res: Response) => {
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [CUSTOMER-UPDATE] Error:', error);
+    logger.error('SERVER', '❌ [CUSTOMER-UPDATE] Error:', error);
     // Return 200 to prevent Shopify infinite retries on persistent errors
     res.status(200).send('Error logged, webhook acknowledged');
   }
@@ -629,7 +648,7 @@ router.post('/app-uninstalled', async (req: Request, res: Response) => {
   try {
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;
 
-    console.log(`❌ [APP-UNINSTALLED] App removed from ${shopDomain}`);
+    logger.info('SERVER', `❌ [APP-UNINSTALLED] App removed from ${shopDomain}`);
 
     // Find integration
     const { data: integration } = await supabaseAdmin
@@ -661,12 +680,12 @@ router.post('/app-uninstalled', async (req: Request, res: Response) => {
       .update({ is_active: false })
       .eq('integration_id', integration.id);
 
-    console.log(`✅ [APP-UNINSTALLED] Integration deactivated for ${shopDomain}`);
+    logger.info('SERVER', `✅ [APP-UNINSTALLED] Integration deactivated for ${shopDomain}`);
 
     res.status(200).send('OK');
 
   } catch (error: any) {
-    console.error('❌ [APP-UNINSTALLED] Error:', error);
+    logger.error('SERVER', '❌ [APP-UNINSTALLED] Error:', error);
     // Return 200 to prevent Shopify infinite retries on persistent errors
     res.status(200).send('Error logged, webhook acknowledged');
   }

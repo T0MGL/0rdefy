@@ -66,7 +66,7 @@ export function ExportButton({
         description: `Se han exportado ${data.length} registros a ${format.toUpperCase()}`,
       });
     } catch (error) {
-      console.error('Export error:', error);
+      logger.error('Export error:', error);
       toast({
         title: '❌ Error al exportar',
         description: 'No se pudo completar la exportación. Por favor intenta de nuevo.',

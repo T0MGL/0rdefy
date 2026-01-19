@@ -57,7 +57,7 @@ const validateHmac = (query: any, secret: string): boolean => {
   const { hmac, ...params } = query;
 
   if (!hmac) {
-    console.error('❌ [MANUAL-OAUTH] No HMAC provided');
+    logger.error('API', '❌ [MANUAL-OAUTH] No HMAC provided');
     return false;
   }
 
@@ -91,7 +91,7 @@ async function registerWebhooks(
 ): Promise<{ success: number; failed: number; errors: string[] }> {
   const results = { success: 0, failed: 0, errors: [] as string[] };
 
-  console.log(`🔧 [MANUAL-OAUTH] Registering webhooks for ${shop}...`);
+  logger.info('API', `🔧 [MANUAL-OAUTH] Registering webhooks for ${shop}...`);
 
   for (const topic of WEBHOOK_TOPICS) {
     try {
@@ -111,7 +111,7 @@ async function registerWebhooks(
       );
 
       if (existing && existing.address === webhookUrl) {
-        console.log(`   ✅ [${topic}] Already exists`);
+        logger.info('API', `   ✅ [${topic}] Already exists`);
         results.success++;
         continue;
       }
@@ -157,11 +157,11 @@ async function registerWebhooks(
           is_active: true
         }, { onConflict: 'integration_id,topic' });
 
-      console.log(`   ✅ [${topic}] Registered`);
+      logger.info('API', `   ✅ [${topic}] Registered`);
       results.success++;
 
     } catch (error: any) {
-      console.error(`   ❌ [${topic}] Failed:`, error.message);
+      logger.error('API', `   ❌ [${topic}] Failed:`, error.message);
       results.failed++;
       results.errors.push(`${topic}: ${error.message}`);
     }
@@ -185,7 +185,7 @@ shopifyManualOAuthRouter.post('/start',
       const userId = req.userId;
       const storeId = req.storeId;
 
-      console.log('🚀 [MANUAL-OAUTH] Start request:', { shop_domain, client_id: client_id?.substring(0, 8) + '...' });
+      logger.info('API', '🚀 [MANUAL-OAUTH] Start request:', { shop_domain, client_id: client_id?.substring(0, 8) + '...' });
 
       // Validate required fields
       if (!shop_domain || !client_id || !client_secret) {
@@ -231,7 +231,7 @@ shopifyManualOAuthRouter.post('/start',
         });
 
       if (stateError) {
-        console.error('❌ [MANUAL-OAUTH] Error saving state:', stateError);
+        logger.error('API', '❌ [MANUAL-OAUTH] Error saving state:', stateError);
         return res.status(500).json({
           success: false,
           error: 'Error al inicializar flujo OAuth'
@@ -246,7 +246,7 @@ shopifyManualOAuthRouter.post('/start',
       authUrl.searchParams.append('redirect_uri', redirectUri);
       authUrl.searchParams.append('state', state);
 
-      console.log('✅ [MANUAL-OAUTH] OAuth URL generated');
+      logger.info('API', '✅ [MANUAL-OAUTH] OAuth URL generated');
 
       // Return URL for frontend to redirect
       res.json({
@@ -255,7 +255,7 @@ shopifyManualOAuthRouter.post('/start',
       });
 
     } catch (error: any) {
-      console.error('💥 [MANUAL-OAUTH] Start error:', error);
+      logger.error('API', '💥 [MANUAL-OAUTH] Start error:', error);
       res.status(500).json({
         success: false,
         error: error.message
@@ -274,7 +274,7 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
   try {
     const { code, hmac, shop, state, timestamp } = req.query;
 
-    console.log('📥 [MANUAL-OAUTH] Callback received:', {
+    logger.info('API', '📥 [MANUAL-OAUTH] Callback received:', {
       shop,
       state: (state as string)?.substring(0, 16) + '...',
       hasCode: !!code
@@ -282,7 +282,7 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
 
     // Validate required parameters
     if (!code || !shop || !state) {
-      console.error('❌ [MANUAL-OAUTH] Missing required parameters');
+      logger.error('API', '❌ [MANUAL-OAUTH] Missing required parameters');
       return res.redirect(`${APP_URL}/integrations?status=error&error=missing_params&type=custom`);
     }
 
@@ -297,20 +297,20 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
       .single();
 
     if (stateError || !stateData) {
-      console.error('❌ [MANUAL-OAUTH] Invalid state:', stateError);
+      logger.error('API', '❌ [MANUAL-OAUTH] Invalid state:', stateError);
       return res.redirect(`${APP_URL}/integrations?status=error&error=invalid_state&type=custom`);
     }
 
     // Check expiration
     if (new Date(stateData.expires_at) < new Date()) {
-      console.error('❌ [MANUAL-OAUTH] State expired');
+      logger.error('API', '❌ [MANUAL-OAUTH] State expired');
       await supabaseAdmin.from('shopify_oauth_states').delete().eq('state', state);
       return res.redirect(`${APP_URL}/integrations?status=error&error=expired_state&type=custom`);
     }
 
     // Validate HMAC using the custom app's client secret
     if (hmac && !validateHmac(req.query, stateData.custom_client_secret)) {
-      console.error('❌ [MANUAL-OAUTH] Invalid HMAC');
+      logger.error('API', '❌ [MANUAL-OAUTH] Invalid HMAC');
       return res.redirect(`${APP_URL}/integrations?status=error&error=invalid_signature&type=custom`);
     }
 
@@ -321,7 +321,7 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
       .eq('state', state);
 
     // Exchange code for access token
-    console.log('🔄 [MANUAL-OAUTH] Exchanging code for access token...');
+    logger.info('API', '🔄 [MANUAL-OAUTH] Exchanging code for access token...');
 
     const tokenResponse = await axios.post(
       `https://${shop}/admin/oauth/access_token`,
@@ -338,12 +338,12 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
     const { access_token, scope } = tokenResponse.data;
 
     if (!access_token) {
-      console.error('❌ [MANUAL-OAUTH] No access token received');
+      logger.error('API', '❌ [MANUAL-OAUTH] No access token received');
       return res.redirect(`${APP_URL}/integrations?status=error&error=no_token&type=custom`);
     }
 
-    console.log('✅ [MANUAL-OAUTH] Access token received (permanent offline token)');
-    console.log('📋 [MANUAL-OAUTH] Granted scopes:', scope);
+    logger.info('API', '✅ [MANUAL-OAUTH] Access token received (permanent offline token)');
+    logger.info('API', '📋 [MANUAL-OAUTH] Granted scopes:', scope);
 
     // Fetch shop info
     let shopName = shop as string;
@@ -357,9 +357,9 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
       );
       shopData = shopInfoResponse.data?.shop;
       shopName = shopData?.name || shop;
-      console.log('✅ [MANUAL-OAUTH] Shop name:', shopName);
+      logger.info('API', '✅ [MANUAL-OAUTH] Shop name:', shopName);
     } catch (error: any) {
-      console.warn('⚠️ [MANUAL-OAUTH] Could not fetch shop info:', error.message);
+      logger.warn('API', '⚠️ [MANUAL-OAUTH] Could not fetch shop info:', error.message);
     }
 
     // Check if integration exists
@@ -401,11 +401,11 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
         .eq('id', existingIntegration.id);
 
       if (updateError) {
-        console.error('❌ [MANUAL-OAUTH] Update error:', updateError);
+        logger.error('API', '❌ [MANUAL-OAUTH] Update error:', updateError);
         throw updateError;
       }
       integrationId = existingIntegration.id;
-      console.log('✅ [MANUAL-OAUTH] Integration updated');
+      logger.info('API', '✅ [MANUAL-OAUTH] Integration updated');
     } else {
       // Create new
       const { data: newIntegration, error: insertError } = await supabaseAdmin
@@ -415,11 +415,11 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
         .single();
 
       if (insertError || !newIntegration) {
-        console.error('❌ [MANUAL-OAUTH] Insert error:', insertError);
+        logger.error('API', '❌ [MANUAL-OAUTH] Insert error:', insertError);
         throw insertError;
       }
       integrationId = newIntegration.id;
-      console.log('✅ [MANUAL-OAUTH] Integration created');
+      logger.info('API', '✅ [MANUAL-OAUTH] Integration created');
     }
 
     // Update store name
@@ -431,7 +431,7 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
     }
 
     // Register webhooks
-    console.log('🔧 [MANUAL-OAUTH] Registering webhooks...');
+    logger.info('API', '🔧 [MANUAL-OAUTH] Registering webhooks...');
     const webhookResults = await registerWebhooks(
       shop as string,
       access_token,
@@ -461,14 +461,14 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
       redirectUrl += `&webhooks_failed=${webhookResults.failed}`;
     }
 
-    console.log('✅ [MANUAL-OAUTH] Complete! Redirecting to:', redirectUrl);
+    logger.info('API', '✅ [MANUAL-OAUTH] Complete! Redirecting to:', redirectUrl);
     res.redirect(redirectUrl);
 
   } catch (error: any) {
-    console.error('💥 [MANUAL-OAUTH] Callback error:', error);
+    logger.error('API', '💥 [MANUAL-OAUTH] Callback error:', error);
 
     if (axios.isAxiosError(error)) {
-      console.error('📡 [MANUAL-OAUTH] Axios error:', {
+      logger.error('API', '📡 [MANUAL-OAUTH] Axios error:', {
         status: error.response?.status,
         data: error.response?.data
       });

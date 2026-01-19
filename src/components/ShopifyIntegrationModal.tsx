@@ -65,7 +65,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
         setIntegration(data.integration);
       }
     } catch (error) {
-      console.error('Error loading integration:', error);
+      logger.error('Error loading integration:', error);
       toast({
         title: 'Error al cargar',
         description: 'No se pudo cargar la configuración de Shopify',

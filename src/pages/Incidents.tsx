@@ -126,7 +126,7 @@ export default function Incidents() {
       });
       setIncidents(response.data.data || []);
     } catch (error: any) {
-      console.error('Error loading incidents:', error);
+      logger.error('Error loading incidents:', error);
       toast({
         variant: 'destructive',
         title: 'Error al cargar incidencias',
@@ -163,7 +163,7 @@ export default function Incidents() {
       setScheduleNotes('');
       loadIncidents();
     } catch (error: any) {
-      console.error('Error scheduling retry:', error);
+      logger.error('Error scheduling retry:', error);
       toast({
         variant: 'destructive',
         title: 'Error al programar reintento',
@@ -209,7 +209,7 @@ export default function Incidents() {
       setPaymentMethod('efectivo');
       loadIncidents();
     } catch (error: any) {
-      console.error('Error resolving incident:', error);
+      logger.error('Error resolving incident:', error);
       toast({
         variant: 'destructive',
         title: 'Error al resolver incidencia',

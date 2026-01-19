@@ -110,7 +110,7 @@ export default function OnboardingPlan() {
         const data = await billingService.getPlans();
         setPlans(data);
       } catch (error) {
-        console.error('Error loading plans:', error);
+        logger.error('Error loading plans:', error);
         // Fallback plans if API fails - prices in dollars (API returns dollars, not cents)
         setPlans([
           { plan: 'free', priceMonthly: 0, priceAnnual: 0, has_trial: false, trial_days: 0 } as Plan,
@@ -158,7 +158,7 @@ export default function OnboardingPlan() {
         throw new Error('No checkout URL returned');
       }
     } catch (error: any) {
-      console.error('Checkout error:', error);
+      logger.error('Checkout error:', error);
       toast({
         title: "Error al procesar",
         description: error.message || "No se pudo iniciar el proceso de pago. Intenta de nuevo.",

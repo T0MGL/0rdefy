@@ -539,7 +539,10 @@ export class ShopifyWebhookService {
 
         contact_email: order.email,
         order_status_url: '', // Not available in GraphQL, leave empty
-        gateway: order.transactions[0]?.gateway || 'unknown'
+        // CRITICAL FIX (Bug #4): Safe array access - validate transactions exists and has elements
+        gateway: (order.transactions && order.transactions.length > 0)
+          ? order.transactions[0]?.gateway || 'unknown'
+          : 'unknown'
       };
 
       logger.info('SHOPIFY_WEBHOOK', `Fetched complete order ${orderId} from GraphQL API with protected PII data`);

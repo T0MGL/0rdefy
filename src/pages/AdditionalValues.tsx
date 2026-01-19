@@ -275,7 +275,7 @@ export default function AdditionalValues() {
       setSummary(summaryData);
       setRecurringValues(recurringData);
     } catch (error) {
-      console.error("Failed to load data", error);
+      logger.error("Failed to load data", error);
     } finally {
       setIsLoading(false);
     }

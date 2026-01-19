@@ -38,7 +38,7 @@ export function getTodayInTimezone(timezone: string = 'America/Asuncion'): strin
     return formatter.format(now);
   } catch (error) {
     // Fallback to UTC if timezone is invalid
-    console.error(`Invalid timezone: ${timezone}. Falling back to UTC.`, error);
+    logger.error('BACKEND', `Invalid timezone: ${timezone}. Falling back to UTC.`, error);
     return new Date().toISOString().split('T')[0];
   }
 }
@@ -67,7 +67,7 @@ export function formatDateInTimezone(date: Date | string, timezone: string = 'Am
 
     return formatter.format(dateObj);
   } catch (error) {
-    console.error(`Error formatting date in timezone ${timezone}:`, error);
+    logger.error('BACKEND', `Error formatting date in timezone ${timezone}:`, error);
     return new Date().toISOString().split('T')[0];
   }
 }

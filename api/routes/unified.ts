@@ -30,17 +30,17 @@ const getUserStoreIds = async (userId: string) => {
         .eq('is_active', true);
 
     if (error) {
-        console.error('[getUserStoreIds] Error fetching stores:', error);
+        logger.error('API', '[getUserStoreIds] Error fetching stores:', error);
         return [];
     }
 
     if (!userStores || userStores.length === 0) {
-        console.log(`[getUserStoreIds] No stores found for user ${userId}`);
+        logger.info('API', `[getUserStoreIds] No stores found for user ${userId}`);
         return [];
     }
 
     const storeIds = userStores.map(s => s.store_id);
-    console.log(`[getUserStoreIds] User ${userId} has access to ${storeIds.length} stores:`, storeIds);
+    logger.info('API', `[getUserStoreIds] User ${userId} has access to ${storeIds.length} stores:`, storeIds);
     return storeIds;
 };
 
@@ -91,7 +91,7 @@ unifiedRouter.get('/warehouse/ready', async (req: AuthRequest, res: Response) =>
         res.json({ data: transformed });
 
     } catch (error) {
-        console.error('[GET /api/unified/warehouse/ready] Error:', error);
+        logger.error('API', '[GET /api/unified/warehouse/ready] Error:', error);
         res.status(500).json({
             error: 'Error al obtener datos unificados de bodega',
             details: error instanceof Error ? error.message : String(error),
@@ -139,7 +139,7 @@ unifiedRouter.get('/warehouse/sessions', async (req: AuthRequest, res: Response)
         res.json({ data: transformed });
 
     } catch (error) {
-        console.error('[GET /api/unified/warehouse/sessions] Error:', error);
+        logger.error('API', '[GET /api/unified/warehouse/sessions] Error:', error);
         res.status(500).json({
             error: 'Error al obtener sesiones unificadas',
             details: error instanceof Error ? error.message : String(error),
@@ -158,10 +158,10 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
     try {
         const { limit = '50', offset = '0', status, startDate, endDate } = req.query;
         const storeIds = await getUserStoreIds(req.user.id);
-        console.log(`[GET /api/unified/orders] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
+        logger.info('API', `[GET /api/unified/orders] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
 
         if (storeIds.length === 0) {
-            console.log('[GET /api/unified/orders] No stores found for user');
+            logger.info('API', '[GET /api/unified/orders] No stores found for user');
             return res.json({ data: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } });
         }
 
@@ -211,10 +211,10 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
 
         const { data, error, count } = await query;
         if (error) {
-            console.error('[GET /api/unified/orders] Query Error:', error);
+            logger.error('API', '[GET /api/unified/orders] Query Error:', error);
             throw error;
         }
-        console.log(`[GET /api/unified/orders] Fetched ${data?.length} orders (Total: ${count})`);
+        logger.info('API', `[GET /api/unified/orders] Fetched ${data?.length} orders (Total: ${count})`);
 
         // Fetch carrier names for all unique courier_ids
         const courierIds = [...new Set(data?.map((o: any) => o.courier_id).filter(Boolean))];
@@ -285,7 +285,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
         });
 
     } catch (error) {
-        console.error('[GET /api/unified/orders] Error:', error);
+        logger.error('API', '[GET /api/unified/orders] Error:', error);
         res.status(500).json({
             error: 'Error al obtener pedidos unificados',
             details: error instanceof Error ? error.message : String(error),
@@ -340,7 +340,7 @@ unifiedRouter.get('/shipping/ready', async (req: AuthRequest, res: Response) => 
         res.json({ data: transformed });
 
     } catch (error) {
-        console.error('[GET /api/unified/shipping/ready] Error:', error);
+        logger.error('API', '[GET /api/unified/shipping/ready] Error:', error);
         res.status(500).json({
             error: 'Error al obtener datos de despacho unificados',
             details: error instanceof Error ? error.message : String(error),
@@ -370,10 +370,10 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
         }
 
         const storeIds = await getUserStoreIds(req.user.id);
-        console.log(`[GET /api/unified/analytics/overview] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
+        logger.info('API', `[GET /api/unified/analytics/overview] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
 
         if (storeIds.length === 0) {
-            console.log('[GET /api/unified/analytics/overview] No stores found for user');
+            logger.info('API', '[GET /api/unified/analytics/overview] No stores found for user');
             return res.json({ data: null, stores: [], storeCount: 0 });
         }
 
@@ -678,8 +678,8 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
             averageOrderValue: calculateChange(averageOrderValue, prevAvgOrderValue),
         };
 
-        console.log(`[GET /api/unified/analytics/overview] Returning data for ${storeNames.length} stores:`, storeNames.map(s => s.name));
-        console.log(`[GET /api/unified/analytics/overview] Total Orders: ${totalOrders}, Revenue: ${currentMetrics.revenue}, Stores: ${storeIds.length}`);
+        logger.info('API', `[GET /api/unified/analytics/overview] Returning data for ${storeNames.length} stores:`, storeNames.map(s => s.name));
+        logger.info('API', `[GET /api/unified/analytics/overview] Total Orders: ${totalOrders}, Revenue: ${currentMetrics.revenue}, Stores: ${storeIds.length}`);
 
         res.json({
             data: {
@@ -725,7 +725,7 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
         });
 
     } catch (error) {
-        console.error('[GET /api/unified/analytics/overview] Error:', error);
+        logger.error('API', '[GET /api/unified/analytics/overview] Error:', error);
         res.status(500).json({
             error: 'Error al obtener analíticas unificadas',
             details: error instanceof Error ? error.message : String(error),
@@ -855,7 +855,7 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
         res.json({ data: chartData });
 
     } catch (error) {
-        console.error('[GET /api/unified/analytics/chart] Error:', error);
+        logger.error('API', '[GET /api/unified/analytics/chart] Error:', error);
         res.status(500).json({
             error: 'Error al obtener datos de gráficos unificados',
             details: error instanceof Error ? error.message : String(error),

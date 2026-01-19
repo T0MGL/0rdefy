@@ -82,7 +82,7 @@ export function ShopifySyncStatus() {
         loadSyncStatus(data.integration.id);
       }
     } catch (error) {
-      console.error('Error loading integration:', error);
+      logger.error('Error loading integration:', error);
     }
   };
 
@@ -110,7 +110,7 @@ export function ShopifySyncStatus() {
         });
       }
     } catch (error) {
-      console.error('Error loading sync status:', error);
+      logger.error('Error loading sync status:', error);
     }
   };
 

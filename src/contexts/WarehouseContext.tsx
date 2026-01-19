@@ -160,7 +160,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       const orders = await warehouseService.getConfirmedOrders();
       updateState({ confirmedOrders: orders, loading: false });
     } catch (error) {
-      console.error('Error loading confirmed orders:', error);
+      logger.error('Error loading confirmed orders:', error);
       toast({
         title: 'Error',
         description: 'No se pudieron cargar los pedidos confirmados',
@@ -174,7 +174,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     try {
       return await warehouseService.getActiveSessions();
     } catch (error) {
-      console.error('Error loading active sessions:', error);
+      logger.error('Error loading active sessions:', error);
       return [];
     }
   }, []);
@@ -184,7 +184,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       const data = await warehouseService.getPickingList(sessionId);
       return data;
     } catch (error) {
-      console.error('Error loading picking data:', error);
+      logger.error('Error loading picking data:', error);
       throw error;
     }
   }, []);
@@ -195,7 +195,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       updateState({ packingData: data });
       return data;
     } catch (error) {
-      console.error('Error loading packing data:', error);
+      logger.error('Error loading packing data:', error);
       throw error;
     }
   }, [updateState]);
@@ -276,7 +276,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         description: `Preparando ${state.selectedOrderIds.size} pedido(s)`,
       });
     } catch (error: any) {
-      console.error('Error creating session:', error);
+      logger.error('Error creating session:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo crear la sesión',
@@ -298,7 +298,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         updateState({ currentStep: 'packing', actionLoading: false });
       }
     } catch (error) {
-      console.error('Error resuming session:', error);
+      logger.error('Error resuming session:', error);
       toast({
         title: 'Error',
         description: 'No se pudo cargar la sesión',
@@ -316,7 +316,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     try {
       await warehouseService.updatePickingProgress(state.session.id, productId, quantity);
     } catch (error: any) {
-      console.error('Error updating picking progress:', error);
+      logger.error('Error updating picking progress:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo actualizar el progreso',
@@ -357,7 +357,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         description: 'Ahora puedes empacar los pedidos',
       });
     } catch (error: any) {
-      console.error('Error finishing picking:', error);
+      logger.error('Error finishing picking:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo completar la recolección',
@@ -377,7 +377,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       // Reload packing data to get updated state
       await loadPackingData(state.session.id);
     } catch (error: any) {
-      console.error('Error packing item:', error);
+      logger.error('Error packing item:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo empacar el producto',
@@ -434,7 +434,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         description: `Etiqueta del pedido #${order.order_number} marcada como impresa`,
       });
     } catch (error) {
-      console.error('Error marking as printed:', error);
+      logger.error('Error marking as printed:', error);
       toast({
         title: 'Error',
         description: 'No se pudo marcar la etiqueta como impresa',
@@ -481,7 +481,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         description: 'Todos los pedidos están listos para enviar',
       });
     } catch (error: any) {
-      console.error('Error completing session:', error);
+      logger.error('Error completing session:', error);
       toast({
         title: 'Error',
         description: error.message || 'No se pudo completar la sesión',

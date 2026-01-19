@@ -38,7 +38,7 @@ router.get('/ready-to-ship', async (req: PermissionRequest, res: Response) => {
 
     res.json(orders);
   } catch (error) {
-    console.error('Error fetching ready to ship orders:', error);
+    logger.error('API', 'Error fetching ready to ship orders:', error);
     res.status(500).json({
       error: 'Error al obtener pedidos listos para envío',
       details: error.message
@@ -74,7 +74,7 @@ router.post('/dispatch', async (req: PermissionRequest, res: Response) => {
 
     res.status(201).json(shipment);
   } catch (error) {
-    console.error('Error dispatching order:', error);
+    logger.error('API', 'Error dispatching order:', error);
     res.status(500).json({
       error: 'Error al despachar pedido',
       details: error.message
@@ -121,7 +121,7 @@ router.post('/dispatch-batch', async (req: PermissionRequest, res: Response) => 
       results
     });
   } catch (error) {
-    console.error('Error dispatching batch:', error);
+    logger.error('API', 'Error dispatching batch:', error);
     res.status(500).json({
       error: 'Error al despachar lote',
       details: error.message
@@ -146,7 +146,7 @@ router.get('/order/:orderId', async (req: PermissionRequest, res: Response) => {
 
     res.json(shipments);
   } catch (error) {
-    console.error('Error fetching order shipments:', error);
+    logger.error('API', 'Error fetching order shipments:', error);
     res.status(500).json({
       error: 'Error al obtener envíos del pedido',
       details: error.message
@@ -173,7 +173,7 @@ router.get('/history', async (req: PermissionRequest, res: Response) => {
 
     res.json(result);
   } catch (error) {
-    console.error('Error fetching shipment history:', error);
+    logger.error('API', 'Error fetching shipment history:', error);
     res.status(500).json({
       error: 'Error al obtener historial de envíos',
       details: error.message
@@ -226,7 +226,7 @@ router.post('/export-excel', async (req: PermissionRequest, res: Response) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(excelBuffer);
   } catch (error) {
-    console.error('Error exporting orders to Excel:', error);
+    logger.error('API', 'Error exporting orders to Excel:', error);
     res.status(500).json({
       error: 'Error al exportar pedidos',
       details: error.message

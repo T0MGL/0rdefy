@@ -36,7 +36,7 @@ router.get('/sessions', verifyToken, async (req, res) => {
       data: enrichedSessions
     });
   } catch (error) {
-    console.error('Error fetching user sessions:', error);
+    logger.error('API', 'Error fetching user sessions:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener sesiones'
@@ -73,7 +73,7 @@ router.delete('/sessions/:sessionId', verifyToken, async (req, res) => {
       message: 'Session terminated successfully'
     });
   } catch (error) {
-    console.error('Error terminating session:', error);
+    logger.error('API', 'Error terminating session:', error);
     res.status(500).json({
       success: false,
       error: 'Error al terminar sesión'
@@ -109,7 +109,7 @@ router.delete('/sessions', verifyToken, async (req, res) => {
       message: 'All other sessions terminated successfully'
     });
   } catch (error) {
-    console.error('Error terminating all sessions:', error);
+    logger.error('API', 'Error terminating all sessions:', error);
     res.status(500).json({
       success: false,
       error: 'Error al terminar sesiones'
@@ -143,7 +143,7 @@ router.get('/activity', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching user activity:', error);
+    logger.error('API', 'Error fetching user activity:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener registro de actividad'
@@ -182,7 +182,7 @@ router.get('/activity/recent', verifyToken, async (req, res) => {
       data: criticalActivities
     });
   } catch (error) {
-    console.error('Error fetching recent activity:', error);
+    logger.error('API', 'Error fetching recent activity:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener actividad reciente'

@@ -15,7 +15,7 @@ export function safeJsonParse<T>(json: string | null, defaultValue: T): T {
   try {
     return JSON.parse(json) as T;
   } catch {
-    console.error('[safeJsonParse] Failed to parse JSON, using default value');
+    logger.error('[safeJsonParse] Failed to parse JSON, using default value');
     return defaultValue;
   }
 }

@@ -81,7 +81,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
         throw new Error(data.error || 'Unknown error');
       }
     } catch (err: any) {
-      console.error('Error fetching webhook health:', err);
+      logger.error('Error fetching webhook health:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -109,7 +109,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
         await fetchHealth();
       }
     } catch (err: any) {
-      console.error('Error processing retry queue:', err);
+      logger.error('Error processing retry queue:', err);
     } finally {
       setProcessingRetries(false);
     }

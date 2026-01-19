@@ -126,7 +126,7 @@ export default function DashboardLogistics() {
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
         return;
       }
-      console.error('Error loading logistics dashboard data:', error);
+      logger.error('Error loading logistics dashboard data:', error);
     } finally {
       if (!signal?.aborted) {
         setIsLoading(false);

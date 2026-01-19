@@ -75,12 +75,12 @@ export function ShopifyOAuthConnect({ open, onOpenChange }: ShopifyOAuthConnectP
       if (storeId) installUrl.searchParams.append('store_id', storeId);
       if (userId) installUrl.searchParams.append('user_id', userId);
 
-      console.log('🔗 [SHOPIFY-OAUTH] Redirecting to:', installUrl.toString());
+      logger.log('🔗 [SHOPIFY-OAUTH] Redirecting to:', installUrl.toString());
 
       // Redirect to Shopify OAuth flow
       window.location.href = installUrl.toString();
     } catch (err: any) {
-      console.error('❌ [SHOPIFY-OAUTH] Error:', err);
+      logger.error('❌ [SHOPIFY-OAUTH] Error:', err);
       setIsConnecting(false);
       toast({
         title: 'Error al conectar',

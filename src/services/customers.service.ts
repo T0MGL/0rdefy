@@ -37,9 +37,18 @@ const getAuthHeaders = (): HeadersInit => {
 };
 
 export const customersService = {
-  getAll: async (): Promise<Customer[]> => {
+  getAll: async (options?: { limit?: number; offset?: number }): Promise<Customer[]> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/customers`, {
+      const params = new URLSearchParams();
+      if (options?.limit) {
+        params.append('limit', options.limit.toString());
+      }
+      if (options?.offset) {
+        params.append('offset', options.offset.toString());
+      }
+      const url = `${API_BASE_URL}/customers${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const response = await fetch(url, {
         headers: getAuthHeaders(),
       });
       if (!response.ok) {
@@ -49,7 +58,7 @@ export const customersService = {
       // API returns {data: [], pagination: {...}}, extract the data array
       return result.data || [];
     } catch (error: unknown) {
-      console.error('Error loading customers:', error);
+      logger.error('Error loading customers:', error);
       return [];
     }
   },
@@ -66,7 +75,7 @@ export const customersService = {
       const data: Customer = await response.json();
       return data;
     } catch (error: unknown) {
-      console.error('Error loading customer:', error);
+      logger.error('Error loading customer:', error);
       return undefined;
     }
   },
@@ -85,7 +94,7 @@ export const customersService = {
       const result: ApiSingleResponse = await response.json();
       return result.data;
     } catch (error: unknown) {
-      console.error('Error creating customer:', error);
+      logger.error('Error creating customer:', error);
       throw error;
     }
   },
@@ -104,7 +113,7 @@ export const customersService = {
       const result: ApiSingleResponse = await response.json();
       return result.data;
     } catch (error: unknown) {
-      console.error('Error updating customer:', error);
+      logger.error('Error updating customer:', error);
       return undefined;
     }
   },
@@ -125,7 +134,7 @@ export const customersService = {
       }
       return true;
     } catch (error: unknown) {
-      console.error('Error deleting customer:', error);
+      logger.error('Error deleting customer:', error);
       throw error;
     }
   },
@@ -141,7 +150,7 @@ export const customersService = {
       const result: ApiListResponse = await response.json();
       return result.data || [];
     } catch (error: unknown) {
-      console.error('Error searching customers:', error);
+      logger.error('Error searching customers:', error);
       return [];
     }
   },
