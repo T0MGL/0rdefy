@@ -14,7 +14,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
 import { Module } from '../permissions';
-import { ShopifyClientService } from '../services/shopify-client.service';
+import { getShopifyClient } from '../services/shopify-client-cache';
 
 export const shopifySyncRouter = Router();
 
@@ -103,7 +103,7 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
-    const shopifyClient = new ShopifyClientService(integration);
+    const shopifyClient = getShopifyClient(integration);
 
     // Create sync log
     logId = await createSyncLog(req.storeId!, 'products', 'import');
@@ -222,7 +222,7 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
-    const shopifyClient = new ShopifyClientService(integration);
+    const shopifyClient = getShopifyClient(integration);
 
     // Create sync log
     logId = await createSyncLog(req.storeId!, 'customers', 'import');
@@ -348,7 +348,7 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
 
     // Get Shopify integration
     const integration = await getShopifyIntegration(req.storeId!);
-    const shopifyClient = new ShopifyClientService(integration);
+    const shopifyClient = getShopifyClient(integration);
 
     // Create sync log
     logId = await createSyncLog(req.storeId!, 'inventory', 'export');

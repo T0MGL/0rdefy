@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '@/utils/logger';
 import {
@@ -24,9 +24,9 @@ import { getOrderDisplayId } from '@/utils/orderDisplay';
 import type { Order, Product, Ad, Customer } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 
-const RECENT_SEARCHES_KEY = 'neonflow_recent_searches';
+const RECENT_SEARCHES_KEY_PREFIX = 'neonflow_recent_searches';
 const MAX_RECENT_SEARCHES = 5;
-const FREQUENT_ITEMS_KEY = 'neonflow_frequent_items';
+const FREQUENT_ITEMS_KEY_PREFIX = 'neonflow_frequent_items';
 const MAX_FREQUENT_ITEMS = 10;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
@@ -52,10 +52,8 @@ interface CachedData {
   carriers: Carrier[];
   customers: Customer[];
   timestamp: number;
+  storeId: string; // Track which store this cache belongs to
 }
-
-// Module-level cache to prevent duplicate API calls
-let dataCache: CachedData | null = null;
 
 export function GlobalSearch() {
   const { currentStore } = useAuth();
@@ -72,11 +70,41 @@ export function GlobalSearch() {
   const [hasLoaded, setHasLoaded] = useState(false);
   const navigate = useNavigate();
 
-  // Load recent searches and frequent items from localStorage
+  // Store-scoped cache using useRef to persist across renders but clear on store change
+  const dataCacheRef = useRef<CachedData | null>(null);
+  const lastStoreIdRef = useRef<string | null>(null);
+
+  // Store-specific localStorage keys
+  const recentSearchesKey = currentStore?.id
+    ? `${RECENT_SEARCHES_KEY_PREFIX}_${currentStore.id}`
+    : RECENT_SEARCHES_KEY_PREFIX;
+  const frequentItemsKey = currentStore?.id
+    ? `${FREQUENT_ITEMS_KEY_PREFIX}_${currentStore.id}`
+    : FREQUENT_ITEMS_KEY_PREFIX;
+
+  // Clear cache and state when store changes
   useEffect(() => {
-    if (open) {
-      const storedRecent = localStorage.getItem(RECENT_SEARCHES_KEY);
-      const storedFrequent = localStorage.getItem(FREQUENT_ITEMS_KEY);
+    if (currentStore?.id && lastStoreIdRef.current !== currentStore.id) {
+      // Store changed - clear all cached data
+      dataCacheRef.current = null;
+      setOrders([]);
+      setProducts([]);
+      setAds([]);
+      setCarriers([]);
+      setCustomers([]);
+      setHasLoaded(false);
+      setRecentSearches([]);
+      setFrequentItems([]);
+      lastStoreIdRef.current = currentStore.id;
+      logger.info('GlobalSearch: Cache cleared due to store change', { storeId: currentStore.id });
+    }
+  }, [currentStore?.id]);
+
+  // Load recent searches and frequent items from localStorage (store-specific)
+  useEffect(() => {
+    if (open && currentStore?.id) {
+      const storedRecent = localStorage.getItem(recentSearchesKey);
+      const storedFrequent = localStorage.getItem(frequentItemsKey);
 
       if (storedRecent) {
         try {
@@ -84,6 +112,8 @@ export function GlobalSearch() {
         } catch (error) {
           logger.error('Error loading recent searches:', error);
         }
+      } else {
+        setRecentSearches([]);
       }
 
       if (storedFrequent) {
@@ -99,9 +129,11 @@ export function GlobalSearch() {
         } catch (error) {
           logger.error('Error loading frequent items:', error);
         }
+      } else {
+        setFrequentItems([]);
       }
     }
-  }, [open]);
+  }, [open, currentStore?.id, recentSearchesKey, frequentItemsKey]);
 
   // Load data when dialog opens - with caching
   useEffect(() => {
@@ -111,13 +143,17 @@ export function GlobalSearch() {
   }, [open, hasLoaded]);
 
   const loadSearchData = async () => {
-    // Check cache first
-    if (dataCache && Date.now() - dataCache.timestamp < CACHE_DURATION) {
-      setOrders(dataCache.orders);
-      setProducts(dataCache.products);
-      setAds(dataCache.ads);
-      setCarriers(dataCache.carriers);
-      setCustomers(dataCache.customers);
+    const storeId = currentStore?.id;
+    if (!storeId) return;
+
+    // Check cache first - must match current store and not be expired
+    const cache = dataCacheRef.current;
+    if (cache && cache.storeId === storeId && Date.now() - cache.timestamp < CACHE_DURATION) {
+      setOrders(cache.orders);
+      setProducts(cache.products);
+      setAds(cache.ads);
+      setCarriers(cache.carriers);
+      setCustomers(cache.customers);
       setHasLoaded(true);
       return;
     }
@@ -140,14 +176,15 @@ export function GlobalSearch() {
 
       const ordersData = ordersResponse.data || [];
 
-      // Update cache
-      dataCache = {
+      // Update cache with store ID
+      dataCacheRef.current = {
         orders: ordersData,
         products: productsData,
         ads: adsData,
         carriers: carriersData,
         customers: customersData,
         timestamp: Date.now(),
+        storeId: storeId,
       };
 
       setOrders(ordersData);
@@ -166,8 +203,10 @@ export function GlobalSearch() {
     }
   };
 
-  // Save recent search
+  // Save recent search (store-specific)
   const saveRecentSearch = useCallback((search: Omit<RecentSearch, 'timestamp'>) => {
+    if (!currentStore?.id) return;
+
     const newSearch: RecentSearch = {
       ...search,
       timestamp: Date.now(),
@@ -178,13 +217,15 @@ export function GlobalSearch() {
         newSearch,
         ...prev.filter(s => s.id !== search.id || s.type !== search.type)
       ].slice(0, MAX_RECENT_SEARCHES);
-      localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
+      localStorage.setItem(recentSearchesKey, JSON.stringify(updated));
       return updated;
     });
-  }, []);
+  }, [currentStore?.id, recentSearchesKey]);
 
-  // Track frequent items
+  // Track frequent items (store-specific)
   const trackFrequentItem = useCallback((item: Omit<FrequentItem, 'accessCount' | 'lastAccessed'>) => {
+    if (!currentStore?.id) return;
+
     setFrequentItems(prev => {
       const existing = prev.find(f => f.id === item.id && f.type === item.type);
 
@@ -211,10 +252,10 @@ export function GlobalSearch() {
         })
         .slice(0, MAX_FREQUENT_ITEMS);
 
-      localStorage.setItem(FREQUENT_ITEMS_KEY, JSON.stringify(updated));
+      localStorage.setItem(frequentItemsKey, JSON.stringify(updated));
       return updated;
     });
-  }, []);
+  }, [currentStore?.id, frequentItemsKey]);
 
   // Escape special regex characters for safe highlighting
   const escapeRegex = (str: string) => {

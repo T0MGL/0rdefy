@@ -7,6 +7,7 @@
 
 import { logger } from '../utils/logger';
 import { ShopifyClientService } from './shopify-client.service';
+import { getShopifyClient } from './shopify-client-cache';
 import { ShopifyIntegration } from '../types/shopify';
 
 interface WebhookConfig {
@@ -22,7 +23,7 @@ export class ShopifyWebhookSetupService {
 
   constructor(integration: ShopifyIntegration) {
     this.integration = integration;
-    this.shopifyClient = new ShopifyClientService(integration);
+    this.shopifyClient = getShopifyClient(integration);
 
     // Get API_URL from environment (ngrok URL or production URL)
     this.apiUrl = process.env.API_URL || 'http://localhost:3001';

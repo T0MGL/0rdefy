@@ -1118,11 +1118,52 @@ export class ShopifyWebhookService {
         }
       }
 
-      // Build Maps for O(1) lookup (priority: variant > product > SKU)
+      // Also fetch from product_variants table for multi-variant products
+      // This enables proper stock tracking per variant
+      let variants: Array<{
+        id: string;
+        product_id: string;
+        shopify_variant_id: string | null;
+        sku: string | null;
+        image_url: string | null
+      }> = [];
+
+      // Build OR conditions for variants table
+      const variantOrConditions: string[] = [];
+      if (variantIds.length > 0) {
+        variantOrConditions.push(`shopify_variant_id.in.(${variantIds.join(',')})`);
+      }
+      if (skus.length > 0) {
+        const quotedSkus = skus.map(sku => `"${sku.replace(/"/g, '\\"')}"`).join(',');
+        variantOrConditions.push(`sku.in.(${quotedSkus})`);
+      }
+
+      if (variantOrConditions.length > 0) {
+        const { data: variantData, error: variantError } = await this.supabaseAdmin
+          .from('product_variants')
+          .select('id, product_id, shopify_variant_id, sku, image_url')
+          .eq('store_id', storeId)
+          .eq('is_active', true)
+          .or(variantOrConditions.join(','));
+
+        if (variantError) {
+          logger.warn('SHOPIFY_WEBHOOK', 'Error fetching product_variants (table may not exist yet)', variantError.message);
+        } else {
+          variants = variantData || [];
+        }
+      }
+
+      // Build Maps for O(1) lookup
+      // Products: priority: variant_id > product_id > SKU
       const byVariant = new Map<string, { id: string; image_url: string | null }>();
       const byProduct = new Map<string, { id: string; image_url: string | null }>();
       const bySku = new Map<string, { id: string; image_url: string | null }>();
 
+      // Variants: separate maps to track variant_id separately from product_id
+      const variantByShopifyId = new Map<string, { variant_id: string; product_id: string; image_url: string | null }>();
+      const variantBySku = new Map<string, { variant_id: string; product_id: string; image_url: string | null }>();
+
+      // Build product maps
       for (const p of products) {
         if (p.shopify_variant_id) {
           byVariant.set(p.shopify_variant_id, { id: p.id, image_url: p.image_url });
@@ -1135,6 +1176,24 @@ export class ShopifyWebhookService {
         }
       }
 
+      // Build variant maps (these have higher priority for variant matching)
+      for (const v of variants) {
+        if (v.shopify_variant_id) {
+          variantByShopifyId.set(v.shopify_variant_id, {
+            variant_id: v.id,
+            product_id: v.product_id,
+            image_url: v.image_url
+          });
+        }
+        if (v.sku) {
+          variantBySku.set(v.sku.toUpperCase(), {
+            variant_id: v.id,
+            product_id: v.product_id,
+            image_url: v.image_url
+          });
+        }
+      }
+
       // Build all line items for batch insert
       const lineItemsToInsert = lineItems.map(item => {
         const shopifyProductId = item.product_id?.toString() || null;
@@ -1142,19 +1201,45 @@ export class ShopifyWebhookService {
         const shopifyLineItemId = item.id?.toString() || null;
         const sku = item.sku || '';
 
-        // Find matching product using Maps (O(1) lookup with fallback chain)
+        // Find matching product/variant using Maps (O(1) lookup with fallback chain)
         let productId: string | null = null;
+        let variantId: string | null = null;
         let imageUrl: string | null = null;
 
-        // Priority: variant_id > product_id > SKU
-        const matchByVariant = shopifyVariantId ? byVariant.get(shopifyVariantId) : null;
-        const matchByProduct = shopifyProductId ? byProduct.get(shopifyProductId) : null;
-        const matchBySku = sku ? bySku.get(sku.toUpperCase()) : null;
+        // Priority order for matching:
+        // 1. product_variants by shopify_variant_id (highest priority - exact variant match)
+        // 2. product_variants by SKU (variant-level SKU match)
+        // 3. products by shopify_variant_id (legacy single-variant products)
+        // 4. products by shopify_product_id
+        // 5. products by SKU (lowest priority)
 
-        const match = matchByVariant || matchByProduct || matchBySku;
-        if (match) {
-          productId = match.id;
-          imageUrl = match.image_url;
+        // Check product_variants first (supports multi-variant products)
+        const variantMatchByShopifyId = shopifyVariantId ? variantByShopifyId.get(shopifyVariantId) : null;
+        const variantMatchBySku = sku ? variantBySku.get(sku.toUpperCase()) : null;
+
+        if (variantMatchByShopifyId) {
+          // Best match: exact Shopify variant ID in product_variants
+          variantId = variantMatchByShopifyId.variant_id;
+          productId = variantMatchByShopifyId.product_id;
+          imageUrl = variantMatchByShopifyId.image_url;
+          logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by shopify_variant_id: ${shopifyVariantId}`);
+        } else if (variantMatchBySku) {
+          // Second best: SKU match in product_variants
+          variantId = variantMatchBySku.variant_id;
+          productId = variantMatchBySku.product_id;
+          imageUrl = variantMatchBySku.image_url;
+          logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by SKU: ${sku}`);
+        } else {
+          // Fallback to products table (legacy behavior for simple products)
+          const matchByVariant = shopifyVariantId ? byVariant.get(shopifyVariantId) : null;
+          const matchByProduct = shopifyProductId ? byProduct.get(shopifyProductId) : null;
+          const matchBySku = sku ? bySku.get(sku.toUpperCase()) : null;
+
+          const match = matchByVariant || matchByProduct || matchBySku;
+          if (match) {
+            productId = match.id;
+            imageUrl = match.image_url;
+          }
         }
 
         // Log if product not found
@@ -1178,6 +1263,7 @@ export class ShopifyWebhookService {
         return {
           order_id: orderId,
           product_id: productId,
+          variant_id: variantId, // NEW: Link to product_variants for stock tracking
           shopify_product_id: shopifyProductId,
           shopify_variant_id: shopifyVariantId,
           shopify_line_item_id: shopifyLineItemId,

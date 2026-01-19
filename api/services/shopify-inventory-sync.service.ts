@@ -8,7 +8,7 @@
 
 import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { ShopifyClientService } from './shopify-client.service';
+import { getShopifyClient } from './shopify-client-cache';
 
 export class ShopifyInventorySyncService {
   private supabaseAdmin: SupabaseClient;
@@ -67,7 +67,7 @@ export class ShopifyInventorySyncService {
       }
 
       // 4. Update inventory in Shopify using GraphQL client
-      const shopifyClient = new ShopifyClientService(integration);
+      const shopifyClient = getShopifyClient(integration);
       await shopifyClient.updateInventory(
         product.shopify_variant_id || product.shopify_product_id!,
         params.newStock

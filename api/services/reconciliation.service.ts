@@ -15,7 +15,7 @@
 
 import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { ShopifyClientService } from './shopify-client.service';
+import { getShopifyClient } from './shopify-client-cache';
 import { ShopifyWebhookService } from './shopify-webhook.service';
 
 export class ReconciliationService {
@@ -109,7 +109,7 @@ export class ReconciliationService {
    */
   private async reconcileOrders(integration: any): Promise<{ synced: number }> {
     try {
-      const shopifyClient = new ShopifyClientService(integration);
+      const shopifyClient = getShopifyClient(integration);
       const webhookService = new ShopifyWebhookService(this.supabase);
 
       // Obtener la última orden sincronizada
@@ -177,7 +177,7 @@ export class ReconciliationService {
    */
   private async reconcileProducts(integration: any): Promise<{ synced: number }> {
     try {
-      const shopifyClient = new ShopifyClientService(integration);
+      const shopifyClient = getShopifyClient(integration);
       const webhookService = new ShopifyWebhookService(this.supabase);
 
       // Obtener productos que no se han actualizado en las últimas 24 horas

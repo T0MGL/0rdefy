@@ -8,6 +8,7 @@ import { requireFeature } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
 import { ShopifyClientService } from '../services/shopify-client.service';
+import { getShopifyClient } from '../services/shopify-client-cache';
 import { ShopifyImportService } from '../services/shopify-import.service';
 import { ShopifyProductSyncService } from '../services/shopify-product-sync.service';
 import { ShopifyWebhookService } from '../services/shopify-webhook.service';
@@ -1293,8 +1294,8 @@ shopifyRouter.get('/products', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Crear cliente de Shopify
-    const shopifyClient = new ShopifyClientService(integration);
+    // Crear cliente de Shopify (cached)
+    const shopifyClient = getShopifyClient(integration);
 
     // Obtener productos de Shopify
     const { products, pagination } = await shopifyClient.getProducts({
@@ -1433,7 +1434,7 @@ shopifyRouter.get('/debug', async (req: AuthRequest, res: Response) => {
       error: null
     };
     try {
-      const shopifyClient = new ShopifyClientService(integration);
+      const shopifyClient = getShopifyClient(integration);
       const testConnection = await shopifyClient.testConnection();
 
       if (testConnection.success) {
@@ -1772,7 +1773,7 @@ shopifyRouter.get('/webhooks/list', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const shopifyClient = new ShopifyClientService(integration);
+    const shopifyClient = getShopifyClient(integration);
     const webhooks = await shopifyClient.listWebhooks();
 
     res.json({

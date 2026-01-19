@@ -5,6 +5,7 @@
 import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ShopifyClientService } from './shopify-client.service';
+import { getShopifyClient } from './shopify-client-cache';
 import {
   ShopifyIntegration,
   ShopifyImportJob,
@@ -22,7 +23,7 @@ export class ShopifyImportService {
   constructor(supabase: SupabaseClient, integration: ShopifyIntegration) {
     this.supabaseAdmin = supabase;
     this.integration = integration;
-    this.shopifyClient = new ShopifyClientService(integration);
+    this.shopifyClient = getShopifyClient(integration);
   }
 
   // Start background import job for selected data types

@@ -410,8 +410,8 @@ productsRouter.post('/from-shopify', requirePermission(Module.PRODUCTS, Permissi
         }
 
         // Import from Shopify
-        const { ShopifyClientService } = await import('../services/shopify-client.service');
-        const shopifyClient = new ShopifyClientService(integration);
+        const { getShopifyClient } = await import('../services/shopify-client-cache');
+        const shopifyClient = getShopifyClient(integration);
 
         // Fetch product from Shopify
         const shopifyProduct = await shopifyClient.getProduct(shopify_product_id);
@@ -1177,6 +1177,522 @@ productsRouter.get('/:id/can-delete', async (req: AuthRequest, res: Response) =>
         logger.error('SERVER', `[GET /api/products/${req.params.id}/can-delete] Error:`, error);
         res.status(500).json({
             error: 'Error al verificar estado de eliminación',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// PRODUCT VARIANTS ENDPOINTS
+// ================================================================
+
+// ================================================================
+// GET /api/products/:id/variants - Get all variants for a product
+// ================================================================
+productsRouter.get('/:id/variants', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Verify product belongs to store
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('id, name, has_variants')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Get variants
+        const { data: variants, error } = await supabaseAdmin
+            .from('product_variants')
+            .select('*')
+            .eq('product_id', id)
+            .eq('is_active', true)
+            .order('position', { ascending: true });
+
+        if (error) throw error;
+
+        res.json({
+            product_id: id,
+            product_name: product.name,
+            has_variants: product.has_variants || false,
+            variants: variants || []
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[GET /api/products/${req.params.id}/variants] Error:`, error);
+        res.status(500).json({
+            error: 'Error al obtener variantes',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/products/:id/variants - Create a new variant
+// ================================================================
+productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const {
+            sku,
+            variant_title,
+            option1_name,
+            option1_value,
+            option2_name,
+            option2_value,
+            option3_name,
+            option3_value,
+            price,
+            cost,
+            stock = 0,
+            image_url,
+            barcode,
+            weight,
+            weight_unit = 'kg'
+        } = req.body;
+
+        // Verify product belongs to store
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('id, name, store_id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Validate required fields
+        if (!variant_title || price === undefined) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'variant_title and price are required'
+            });
+        }
+
+        // Validate using RPC if available
+        try {
+            const { data: validationResult } = await supabaseAdmin
+                .rpc('validate_variant_data', {
+                    p_product_id: id,
+                    p_sku: sku || null,
+                    p_variant_title: variant_title,
+                    p_price: parseFloat(price),
+                    p_stock: parseInt(stock, 10) || 0,
+                    p_variant_id: null
+                });
+
+            if (validationResult && validationResult.length > 0) {
+                const validation = validationResult[0];
+                if (!validation.is_valid) {
+                    return res.status(400).json({
+                        error: 'Validation failed',
+                        validation_errors: validation.errors
+                    });
+                }
+            }
+        } catch (rpcErr: any) {
+            logger.warn('SERVER', '[POST variants] validate_variant_data not available:', rpcErr.message);
+        }
+
+        // Get next position
+        const { data: maxPos } = await supabaseAdmin
+            .from('product_variants')
+            .select('position')
+            .eq('product_id', id)
+            .order('position', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const nextPosition = (maxPos?.position || 0) + 1;
+
+        // Create variant
+        const { data: variant, error } = await supabaseAdmin
+            .from('product_variants')
+            .insert([{
+                product_id: id,
+                store_id: req.storeId,
+                sku,
+                variant_title,
+                option1_name,
+                option1_value,
+                option2_name,
+                option2_value,
+                option3_name,
+                option3_value,
+                price: parseFloat(price),
+                cost: cost ? parseFloat(cost) : null,
+                stock: parseInt(stock, 10) || 0,
+                image_url,
+                barcode,
+                weight: weight ? parseFloat(weight) : null,
+                weight_unit,
+                position: nextPosition,
+                is_active: true
+            }])
+            .select()
+            .single();
+
+        if (error) {
+            if (error.code === '23505') {
+                return res.status(409).json({
+                    error: 'SKU duplicado',
+                    message: 'Ya existe una variante o producto con este SKU'
+                });
+            }
+            throw error;
+        }
+
+        // Mark product as having variants
+        await supabaseAdmin
+            .from('products')
+            .update({ has_variants: true, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+        res.status(201).json({
+            message: 'Variante creada exitosamente',
+            data: variant
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[POST /api/products/${req.params.id}/variants] Error:`, error);
+        res.status(500).json({
+            error: 'Error al crear variante',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// PUT /api/products/:id/variants/:variantId - Update a variant
+// ================================================================
+productsRouter.put('/:id/variants/:variantId', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id, variantId } = req.params;
+        const {
+            sku,
+            variant_title,
+            option1_name,
+            option1_value,
+            option2_name,
+            option2_value,
+            option3_name,
+            option3_value,
+            price,
+            cost,
+            stock,
+            image_url,
+            barcode,
+            weight,
+            weight_unit,
+            position,
+            is_active
+        } = req.body;
+
+        // Verify variant belongs to product and store
+        const { data: existingVariant, error: variantError } = await supabaseAdmin
+            .from('product_variants')
+            .select('id, product_id')
+            .eq('id', variantId)
+            .eq('product_id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (variantError || !existingVariant) {
+            return res.status(404).json({ error: 'Variante no encontrada' });
+        }
+
+        // Build update data
+        const updateData: any = { updated_at: new Date().toISOString() };
+
+        if (sku !== undefined) updateData.sku = sku;
+        if (variant_title !== undefined) updateData.variant_title = variant_title;
+        if (option1_name !== undefined) updateData.option1_name = option1_name;
+        if (option1_value !== undefined) updateData.option1_value = option1_value;
+        if (option2_name !== undefined) updateData.option2_name = option2_name;
+        if (option2_value !== undefined) updateData.option2_value = option2_value;
+        if (option3_name !== undefined) updateData.option3_name = option3_name;
+        if (option3_value !== undefined) updateData.option3_value = option3_value;
+        if (price !== undefined) updateData.price = parseFloat(price);
+        if (cost !== undefined) updateData.cost = cost ? parseFloat(cost) : null;
+        if (stock !== undefined) updateData.stock = parseInt(stock, 10);
+        if (image_url !== undefined) updateData.image_url = image_url;
+        if (barcode !== undefined) updateData.barcode = barcode;
+        if (weight !== undefined) updateData.weight = weight ? parseFloat(weight) : null;
+        if (weight_unit !== undefined) updateData.weight_unit = weight_unit;
+        if (position !== undefined) updateData.position = position;
+        if (is_active !== undefined) updateData.is_active = is_active;
+
+        // Update variant
+        const { data: variant, error } = await supabaseAdmin
+            .from('product_variants')
+            .update(updateData)
+            .eq('id', variantId)
+            .select()
+            .single();
+
+        if (error) {
+            if (error.code === '23505') {
+                return res.status(409).json({
+                    error: 'SKU duplicado',
+                    message: 'Ya existe una variante o producto con este SKU'
+                });
+            }
+            throw error;
+        }
+
+        res.json({
+            message: 'Variante actualizada exitosamente',
+            data: variant
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[PUT /api/products/${req.params.id}/variants/${req.params.variantId}] Error:`, error);
+        res.status(500).json({
+            error: 'Error al actualizar variante',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// DELETE /api/products/:id/variants/:variantId - Delete a variant
+// ================================================================
+productsRouter.delete('/:id/variants/:variantId', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id, variantId } = req.params;
+        const { hard_delete = 'false' } = req.query;
+
+        // Verify variant belongs to product and store
+        const { data: existingVariant, error: variantError } = await supabaseAdmin
+            .from('product_variants')
+            .select('id, product_id')
+            .eq('id', variantId)
+            .eq('product_id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (variantError || !existingVariant) {
+            return res.status(404).json({ error: 'Variante no encontrada' });
+        }
+
+        if (hard_delete === 'true') {
+            // Hard delete
+            const { error } = await supabaseAdmin
+                .from('product_variants')
+                .delete()
+                .eq('id', variantId);
+
+            if (error) throw error;
+        } else {
+            // Soft delete
+            const { error } = await supabaseAdmin
+                .from('product_variants')
+                .update({ is_active: false, updated_at: new Date().toISOString() })
+                .eq('id', variantId);
+
+            if (error) throw error;
+        }
+
+        // Check if product still has active variants
+        const { data: remainingVariants } = await supabaseAdmin
+            .from('product_variants')
+            .select('id')
+            .eq('product_id', id)
+            .eq('is_active', true)
+            .limit(1);
+
+        if (!remainingVariants || remainingVariants.length === 0) {
+            // No more active variants, mark product as simple
+            await supabaseAdmin
+                .from('products')
+                .update({ has_variants: false, updated_at: new Date().toISOString() })
+                .eq('id', id);
+        }
+
+        res.json({
+            message: hard_delete === 'true' ? 'Variante eliminada permanentemente' : 'Variante desactivada',
+            variant_id: variantId
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[DELETE /api/products/${req.params.id}/variants/${req.params.variantId}] Error:`, error);
+        res.status(500).json({
+            error: 'Error al eliminar variante',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// PATCH /api/products/:id/variants/:variantId/stock - Update variant stock
+// ================================================================
+productsRouter.patch('/:id/variants/:variantId/stock', requirePermission(Module.PRODUCTS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id, variantId } = req.params;
+        const { stock, operation = 'set' } = req.body;
+
+        if (stock === undefined) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'stock is required'
+            });
+        }
+
+        // Verify variant belongs to product and store
+        const { data: existingVariant, error: variantError } = await supabaseAdmin
+            .from('product_variants')
+            .select('id, stock')
+            .eq('id', variantId)
+            .eq('product_id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (variantError || !existingVariant) {
+            return res.status(404).json({ error: 'Variante no encontrada' });
+        }
+
+        let newStock: number;
+        const stockChange = Math.abs(parseInt(stock, 10) || 0);
+
+        if (operation === 'increment') {
+            newStock = existingVariant.stock + stockChange;
+        } else if (operation === 'decrement') {
+            newStock = Math.max(0, existingVariant.stock - stockChange);
+        } else {
+            newStock = Math.max(0, parseInt(stock, 10) || 0);
+        }
+
+        // Try using RPC for atomic update
+        try {
+            const { data: result } = await supabaseAdmin
+                .rpc('adjust_variant_stock', {
+                    p_variant_id: variantId,
+                    p_quantity_change: newStock - existingVariant.stock,
+                    p_movement_type: 'manual_adjustment',
+                    p_order_id: null,
+                    p_notes: `Stock ${operation}: ${stock}`
+                });
+
+            if (result && result.length > 0 && result[0].success) {
+                return res.json({
+                    message: 'Stock actualizado exitosamente',
+                    new_stock: result[0].new_stock
+                });
+            }
+        } catch (rpcErr: any) {
+            logger.warn('SERVER', '[PATCH variant/stock] RPC not available, using direct update');
+        }
+
+        // Fallback: Direct update
+        const { data: variant, error } = await supabaseAdmin
+            .from('product_variants')
+            .update({ stock: newStock, updated_at: new Date().toISOString() })
+            .eq('id', variantId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.json({
+            message: 'Stock actualizado exitosamente',
+            data: variant
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[PATCH /api/products/${req.params.id}/variants/${req.params.variantId}/stock] Error:`, error);
+        res.status(500).json({
+            error: 'Error al actualizar stock de variante',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/products/:id/variants/bulk - Create multiple variants at once
+// ================================================================
+productsRouter.post('/:id/variants/bulk', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { variants } = req.body;
+
+        if (!Array.isArray(variants) || variants.length === 0) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'variants must be a non-empty array'
+            });
+        }
+
+        // Verify product belongs to store
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('id, name, store_id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Get current max position
+        const { data: maxPos } = await supabaseAdmin
+            .from('product_variants')
+            .select('position')
+            .eq('product_id', id)
+            .order('position', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        let nextPosition = (maxPos?.position || 0) + 1;
+
+        // Prepare variants for insert
+        const variantsToInsert = variants.map((v: any) => ({
+            product_id: id,
+            store_id: req.storeId,
+            sku: v.sku || null,
+            variant_title: v.variant_title,
+            option1_name: v.option1_name || null,
+            option1_value: v.option1_value || null,
+            option2_name: v.option2_name || null,
+            option2_value: v.option2_value || null,
+            price: parseFloat(v.price),
+            cost: v.cost ? parseFloat(v.cost) : null,
+            stock: parseInt(v.stock, 10) || 0,
+            position: nextPosition++,
+            is_active: true
+        }));
+
+        // Insert variants
+        const { data: createdVariants, error } = await supabaseAdmin
+            .from('product_variants')
+            .insert(variantsToInsert)
+            .select();
+
+        if (error) {
+            if (error.code === '23505') {
+                return res.status(409).json({
+                    error: 'SKU duplicado',
+                    message: 'Una o más variantes tienen SKU duplicado'
+                });
+            }
+            throw error;
+        }
+
+        // Mark product as having variants
+        await supabaseAdmin
+            .from('products')
+            .update({ has_variants: true, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+        res.status(201).json({
+            message: `${createdVariants?.length || 0} variantes creadas exitosamente`,
+            data: createdVariants
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[POST /api/products/${req.params.id}/variants/bulk] Error:`, error);
+        res.status(500).json({
+            error: 'Error al crear variantes',
             message: error.message
         });
     }

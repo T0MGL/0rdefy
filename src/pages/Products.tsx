@@ -8,6 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { ProfitabilityCalculator } from '@/components/ProfitabilityCalculator';
 import { ProductForm } from '@/components/forms/ProductForm';
@@ -16,10 +17,11 @@ import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ExportButton } from '@/components/ExportButton';
+import { ProductVariantsManager } from '@/components/ProductVariantsManager';
 import { productsService } from '@/services/products.service';
 import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
-import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download } from 'lucide-react';
+import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download, Layers, MoreVertical } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -49,6 +51,8 @@ export default function Products() {
   const [productToPublish, setProductToPublish] = useState<Product | null>(null);
   const [stockAdjustLoading, setStockAdjustLoading] = useState(false);
   const [stockFilter, setStockFilter] = useState<'all' | 'low-stock' | 'out-of-stock'>('all');
+  const [variantsDialogOpen, setVariantsDialogOpen] = useState(false);
+  const [variantsProduct, setVariantsProduct] = useState<Product | null>(null);
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
 
@@ -182,6 +186,17 @@ export default function Products() {
     setSelectedProduct(product);
     setStockAdjustment(0);
     setStockDialogOpen(true);
+  };
+
+  const handleManageVariants = (product: Product) => {
+    setVariantsProduct(product);
+    setVariantsDialogOpen(true);
+  };
+
+  const handleVariantsUpdated = async () => {
+    // Refresh products to get updated has_variants flag
+    const data = await productsService.getAll();
+    setProducts(data);
   };
 
   const confirmStockAdjustment = async () => {
@@ -548,6 +563,12 @@ export default function Products() {
                     >
                       Stock: {product.stock}
                     </Badge>
+                    {(product as any).has_variants && (
+                      <Badge variant="outline" className="bg-purple-500/20 text-purple-700 dark:text-purple-400 border-purple-500/30 gap-1">
+                        <Layers size={12} />
+                        Variantes
+                      </Badge>
+                    )}
                     {product.shopify_product_id && (
                       <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30 gap-1">
                         <ShoppingBag size={12} />
@@ -579,33 +600,6 @@ export default function Products() {
                 </div>
 
                 <div className="flex flex-col gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full gap-2"
-                    onClick={() => handleAdjustStock(product)}
-                  >
-                    <PackagePlus size={16} />
-                    Ajustar Stock
-                  </Button>
-                  {hasShopifyIntegration && !product.shopify_product_id && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full gap-2 bg-green-50 dark:bg-green-950/20 hover:bg-green-100 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
-                      onClick={() => handlePublishToShopifyClick(product)}
-                      disabled={isPublishing === product.id}
-                    >
-                      {isPublishing === product.id ? (
-                        <>Publicando...</>
-                      ) : (
-                        <>
-                          <Upload size={16} />
-                          Publicar a Shopify
-                        </>
-                      )}
-                    </Button>
-                  )}
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -616,14 +610,52 @@ export default function Products() {
                       <Edit size={16} />
                       Editar
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2 text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(product)}
-                    >
-                      <Trash2 size={16} />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="px-2">
+                          <MoreVertical size={16} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => handleManageVariants(product)}
+                          className="gap-2 cursor-pointer"
+                        >
+                          <Layers size={16} />
+                          Variantes / SKUs
+                          {(product as any).has_variants && (
+                            <Badge variant="secondary" className="ml-auto text-xs">
+                              Activo
+                            </Badge>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleAdjustStock(product)}
+                          className="gap-2 cursor-pointer"
+                        >
+                          <PackagePlus size={16} />
+                          Ajustar Stock
+                        </DropdownMenuItem>
+                        {hasShopifyIntegration && !product.shopify_product_id && (
+                          <DropdownMenuItem
+                            onClick={() => handlePublishToShopifyClick(product)}
+                            disabled={isPublishing === product.id}
+                            className="gap-2 cursor-pointer text-green-700 dark:text-green-400"
+                          >
+                            <Upload size={16} />
+                            {isPublishing === product.id ? 'Publicando...' : 'Publicar a Shopify'}
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => handleDelete(product)}
+                          className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                        >
+                          <Trash2 size={16} />
+                          Eliminar
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </div>
@@ -932,6 +964,17 @@ export default function Products() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Product Variants Manager */}
+      {variantsProduct && (
+        <ProductVariantsManager
+          productId={variantsProduct.id}
+          productName={variantsProduct.name}
+          open={variantsDialogOpen}
+          onOpenChange={setVariantsDialogOpen}
+          onVariantsUpdated={handleVariantsUpdated}
+        />
+      )}
     </div>
   );
 }

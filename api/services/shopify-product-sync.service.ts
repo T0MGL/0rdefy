@@ -5,6 +5,7 @@
 import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ShopifyClientService } from './shopify-client.service';
+import { getShopifyClient } from './shopify-client-cache';
 import { ShopifyIntegration } from '../types/shopify';
 
 export class ShopifyProductSyncService {
@@ -15,7 +16,7 @@ export class ShopifyProductSyncService {
   constructor(supabase: SupabaseClient, integration: ShopifyIntegration) {
     this.supabaseAdmin = supabase;
     this.integration = integration;
-    this.shopifyClient = new ShopifyClientService(integration);
+    this.shopifyClient = getShopifyClient(integration);
   }
 
   // Actualizar producto en Shopify cuando se modifica en el dashboard

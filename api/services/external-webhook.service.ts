@@ -599,6 +599,89 @@ export class ExternalWebhookService {
         };
       }
 
+      // 8.5 Crear order_line_items para tracking de inventario
+      // Intentar mapear SKU a productos/variantes
+      const orderLineItems = [];
+      for (const item of payload.items) {
+        let productId: string | null = null;
+        let variantId: string | null = null;
+
+        // Buscar producto o variante por SKU
+        if (item.sku) {
+          try {
+            const { data: match } = await supabaseAdmin
+              .rpc('find_product_or_variant_by_sku', {
+                p_store_id: storeId,
+                p_sku: item.sku
+              });
+
+            if (match && match.length > 0) {
+              const result = match[0];
+              productId = result.product_id;
+              variantId = result.variant_id;
+              logger.info('BACKEND', `✅ [ExternalWebhook] SKU "${item.sku}" mapped to ${result.entity_type}: ${result.variant_id || result.product_id}`);
+            } else {
+              logger.info('BACKEND', `⚠️ [ExternalWebhook] SKU "${item.sku}" not found in inventory - order will be created without stock tracking`);
+            }
+          } catch (rpcErr: any) {
+            logger.warn('BACKEND', `[ExternalWebhook] RPC find_product_or_variant_by_sku not available, trying fallback`);
+
+            // Fallback: Try variant first, then product
+            const { data: variantMatch } = await supabaseAdmin
+              .from('product_variants')
+              .select('id, product_id')
+              .eq('store_id', storeId)
+              .ilike('sku', item.sku)
+              .eq('is_active', true)
+              .maybeSingle();
+
+            if (variantMatch) {
+              productId = variantMatch.product_id;
+              variantId = variantMatch.id;
+            } else {
+              const { data: productMatch } = await supabaseAdmin
+                .from('products')
+                .select('id')
+                .eq('store_id', storeId)
+                .ilike('sku', item.sku)
+                .eq('is_active', true)
+                .maybeSingle();
+
+              if (productMatch) {
+                productId = productMatch.id;
+              }
+            }
+          }
+        }
+
+        orderLineItems.push({
+          order_id: order.id,
+          product_id: productId,
+          variant_id: variantId,
+          product_name: item.name,
+          variant_title: item.variant_title || null,
+          sku: item.sku || null,
+          quantity: item.quantity,
+          unit_price: item.price,
+          total_price: item.price * item.quantity,
+          stock_deducted: false
+        });
+      }
+
+      // Insert order_line_items
+      if (orderLineItems.length > 0) {
+        const { error: lineItemsError } = await supabaseAdmin
+          .from('order_line_items')
+          .insert(orderLineItems);
+
+        if (lineItemsError) {
+          logger.warn('BACKEND', `[ExternalWebhook] Error creating order_line_items:`, lineItemsError.message);
+          // Don't fail the order - line items are for inventory tracking
+        } else {
+          logger.info('BACKEND', `✅ [ExternalWebhook] Created ${orderLineItems.length} order_line_items for order ${order.order_number}`);
+        }
+      }
+
       // 9. Registrar idempotency
       await this.recordIdempotency(config.id, idempotencyKey, order.id);
 

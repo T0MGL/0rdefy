@@ -301,10 +301,113 @@ export const DATABASE_RETRY_OPTIONS: RetryOptions = {
 interface CircuitBreakerState {
     failures: number;
     lastFailure: number | null;
+    lastAccess: number;
     state: 'closed' | 'open' | 'half-open';
 }
 
-const circuitBreakers: Map<string, CircuitBreakerState> = new Map();
+/**
+ * Bounded LRU-style cache for circuit breakers
+ * Prevents unbounded memory growth with automatic TTL-based eviction
+ */
+class BoundedCircuitBreakerCache {
+    private cache: Map<string, CircuitBreakerState> = new Map();
+    private readonly maxSize: number;
+    private readonly ttlMs: number;
+    private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+    constructor(maxSize: number = 500, ttlMs: number = 30 * 60 * 1000) {
+        this.maxSize = maxSize;
+        this.ttlMs = ttlMs;
+        // Run cleanup every 5 minutes
+        this.cleanupInterval = setInterval(() => this.cleanup(), 5 * 60 * 1000);
+        // Don't let cleanup interval prevent process exit
+        if (this.cleanupInterval.unref) {
+            this.cleanupInterval.unref();
+        }
+    }
+
+    get(name: string): CircuitBreakerState | undefined {
+        const state = this.cache.get(name);
+        if (state) {
+            state.lastAccess = Date.now();
+        }
+        return state;
+    }
+
+    has(name: string): boolean {
+        return this.cache.has(name);
+    }
+
+    set(name: string, state: CircuitBreakerState): void {
+        // If at capacity, evict oldest entry
+        if (this.cache.size >= this.maxSize && !this.cache.has(name)) {
+            this.evictOldest();
+        }
+        state.lastAccess = Date.now();
+        this.cache.set(name, state);
+    }
+
+    delete(name: string): boolean {
+        return this.cache.delete(name);
+    }
+
+    /**
+     * Remove entries that haven't been accessed within TTL
+     */
+    private cleanup(): void {
+        const now = Date.now();
+        let evicted = 0;
+        for (const [name, state] of this.cache.entries()) {
+            if (now - state.lastAccess > this.ttlMs) {
+                this.cache.delete(name);
+                evicted++;
+            }
+        }
+        if (evicted > 0) {
+            log.debug(`Circuit breaker cache cleanup: evicted ${evicted} stale entries`);
+        }
+    }
+
+    /**
+     * Evict the least recently accessed entry
+     */
+    private evictOldest(): void {
+        let oldestKey: string | null = null;
+        let oldestAccess = Infinity;
+
+        for (const [name, state] of this.cache.entries()) {
+            if (state.lastAccess < oldestAccess) {
+                oldestAccess = state.lastAccess;
+                oldestKey = name;
+            }
+        }
+
+        if (oldestKey) {
+            this.cache.delete(oldestKey);
+            log.debug(`Circuit breaker cache: evicted LRU entry '${oldestKey}'`);
+        }
+    }
+
+    /**
+     * Get current cache size (for monitoring)
+     */
+    size(): number {
+        return this.cache.size;
+    }
+
+    /**
+     * Stop cleanup interval (for graceful shutdown)
+     */
+    destroy(): void {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+        }
+    }
+}
+
+// Bounded cache: max 500 entries, 30-minute TTL
+const circuitBreakers = new BoundedCircuitBreakerCache(500, 30 * 60 * 1000);
 
 export interface CircuitBreakerOptions {
     /** Number of failures before opening circuit (default: 5) */
@@ -337,6 +440,7 @@ export async function withCircuitBreaker<T>(
         circuitBreakers.set(name, {
             failures: 0,
             lastFailure: null,
+            lastAccess: Date.now(),
             state: 'closed',
         });
     }
@@ -394,6 +498,16 @@ export function getCircuitBreakerStatus(name: string): CircuitBreakerState | und
 export function resetCircuitBreaker(name: string): void {
     circuitBreakers.delete(name);
     log.info(`Circuit breaker ${name} reset`);
+}
+
+/**
+ * Get circuit breaker cache statistics (for monitoring)
+ */
+export function getCircuitBreakerCacheStats(): { size: number; maxSize: number } {
+    return {
+        size: circuitBreakers.size(),
+        maxSize: 500,
+    };
 }
 
 export default withRetry;
