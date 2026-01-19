@@ -5,6 +5,7 @@
 // la integración desde el dashboard de Ordefy
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { ShopifyClientService } from './shopify-client.service';
 import { ShopifyIntegration } from '../types/shopify';
 

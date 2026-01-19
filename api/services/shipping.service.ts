@@ -4,6 +4,7 @@
  * Handles the transition from ready_to_ship → shipped status
  */
 
+import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 import { generateDispatchExcel, DispatchOrder } from '../utils/excel-export';
 import { isCodPayment } from '../utils/payment';

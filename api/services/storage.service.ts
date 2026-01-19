@@ -11,6 +11,7 @@
  * - External URL links (for cost optimization)
  */
 
+import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 import { randomUUID } from 'crypto';
 import * as path from 'path';

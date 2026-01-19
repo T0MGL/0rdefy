@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';

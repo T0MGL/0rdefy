@@ -4,6 +4,7 @@
 // Generates QR codes for order delivery tracking
 // ================================================================
 
+import { logger } from './logger';
 import QRCode from 'qrcode';
 
 /**

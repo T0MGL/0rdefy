@@ -10,6 +10,7 @@
  * - Referrals and discounts
  */
 
+import { logger } from '../utils/logger';
 import Stripe from 'stripe';
 import { supabaseAdmin } from '../db/connection';
 

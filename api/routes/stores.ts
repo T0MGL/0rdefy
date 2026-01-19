@@ -6,6 +6,7 @@
 // Uses Supabase JS client for database operations
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin, getStore, getStoreConfig } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';

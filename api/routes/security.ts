@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import express from 'express';
 import { verifyToken } from '../middleware/auth';
 import {

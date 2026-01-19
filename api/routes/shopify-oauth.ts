@@ -5,6 +5,7 @@
 // Flow: GET /auth → Shopify login → GET /callback → Store token
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import axios from 'axios';

@@ -6,6 +6,7 @@
 // Security: Requires authenticated user with store access
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';

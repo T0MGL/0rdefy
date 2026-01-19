@@ -4,6 +4,7 @@
 // Utilities for calculating courier delivery rates and performance metrics
 // ================================================================
 
+import { logger } from './logger';
 import { supabaseAdmin } from '../db/connection';
 
 /**

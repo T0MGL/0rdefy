@@ -2,6 +2,7 @@
 // Handles background import operations with pagination and progress tracking
 // Supports products, customers, and orders synchronization
 
+import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ShopifyClientService } from './shopify-client.service';
 import {

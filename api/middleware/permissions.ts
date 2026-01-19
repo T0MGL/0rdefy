@@ -5,6 +5,7 @@
  * Se usa en conjunto con el sistema de permisos definido en api/permissions.ts
  */
 
+import { logger } from '../utils/logger';
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
 import { Role, Module, Permission, hasPermission, canAccessModule, isValidRole } from '../permissions';

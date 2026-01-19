@@ -4,6 +4,7 @@
 // - Orders/Customers: REST API (still supported in 2025-10)
 // Implements rate limiting, error handling, and pagination
 
+import { logger } from '../utils/logger';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import crypto from 'crypto';
 import {

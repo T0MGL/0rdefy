@@ -11,6 +11,7 @@
  * - Secure token generation (32 bytes = 64 hex chars)
  */
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';

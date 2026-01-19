@@ -5,6 +5,7 @@
 // Incluye: autenticación por API Key, creación de clientes, y órdenes
 // ================================================================
 
+import { logger } from '../utils/logger';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
 

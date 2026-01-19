@@ -4,6 +4,7 @@
 // Track additional expenses and income beyond product sales
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';

@@ -5,6 +5,7 @@
  * Supports both file upload and base64 data.
  */
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { verifyToken, extractStoreId } from '../middleware/auth';

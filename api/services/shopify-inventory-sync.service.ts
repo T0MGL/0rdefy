@@ -6,6 +6,7 @@
 // - Shopify → Dashboard: Handled by webhooks (already implemented)
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ShopifyClientService } from './shopify-client.service';
 

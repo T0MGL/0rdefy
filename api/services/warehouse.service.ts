@@ -4,6 +4,7 @@
  * Optimized for manual input without barcode scanners
  */
 
+import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 
 export interface PickingSession {

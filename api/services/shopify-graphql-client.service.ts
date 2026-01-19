@@ -2,6 +2,7 @@
 // Handles all product operations via GraphQL Admin API
 // Replaces deprecated REST API for products and variants
 
+import { logger } from '../utils/logger';
 import axios, { AxiosInstance } from 'axios';
 import { ShopifyIntegration } from '../types/shopify';
 

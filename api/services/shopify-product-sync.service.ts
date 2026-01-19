@@ -2,6 +2,7 @@
 // Maneja la sincronizacion de productos desde el dashboard hacia Shopify
 // Solo actualiza y elimina productos en Shopify cuando se modifican localmente
 
+import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ShopifyClientService } from './shopify-client.service';
 import { ShopifyIntegration } from '../types/shopify';

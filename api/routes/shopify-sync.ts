@@ -8,6 +8,7 @@
 // Roles with access: owner, admin
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';

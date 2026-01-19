@@ -16,6 +16,7 @@
  * Date: 2026-01-14
  */
 
+import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 
 // ============================================================

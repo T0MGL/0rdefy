@@ -5,6 +5,7 @@
 // después de 1 día de haber sido subidas
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 
 /**

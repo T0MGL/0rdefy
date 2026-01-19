@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { validateShopifyWebhook, ShopifyWebhookRequest } from '../middleware/shopify-webhook';

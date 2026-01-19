@@ -21,6 +21,7 @@
  * getTodayInTimezone('America/Asuncion') // Returns: "2026-01-18" ✅
  * new Date().toISOString().split('T')[0]  // Returns: "2026-01-19" ❌
  */
+import { logger } from './logger';
 export function getTodayInTimezone(timezone: string = 'America/Asuncion'): string {
   try {
     // Get current date/time in the specified timezone

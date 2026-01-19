@@ -6,6 +6,7 @@
  * Roles with access: owner, admin, logistics
  */
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';

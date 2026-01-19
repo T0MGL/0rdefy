@@ -12,6 +12,7 @@
  *    WHATSAPP_VERIFICATION_ENABLED=false  (set to true when ready)
  */
 
+import { logger } from '../utils/logger';
 interface WhatsAppMessageResponse {
   messaging_product: string;
   contacts: Array<{ input: string; wa_id: string }>;

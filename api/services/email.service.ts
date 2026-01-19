@@ -11,6 +11,7 @@
  * @date 2026-01-15
  */
 
+import { logger } from '../utils/logger';
 import { Resend } from 'resend';
 
 // Lazy-initialized Resend client (only created when API key exists)

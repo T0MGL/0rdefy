@@ -13,6 +13,7 @@
  * Referencia: https://shopify.dev/docs/apps/build/webhooks/subscribe/https
  */
 
+import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ShopifyClientService } from './shopify-client.service';
 import { ShopifyWebhookService } from './shopify-webhook.service';

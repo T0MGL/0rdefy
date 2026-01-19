@@ -6,6 +6,7 @@
 // Learn more: https://shopify.dev/docs/apps/webhooks/configuration/mandatory-webhooks
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { validateShopifyWebhook, ShopifyWebhookRequest } from '../middleware/shopify-webhook';
 import { supabaseAdmin } from '../db/connection';

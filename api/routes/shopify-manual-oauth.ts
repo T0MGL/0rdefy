@@ -14,6 +14,7 @@
 // 4. Token saved to shopify_integrations table
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import axios from 'axios';

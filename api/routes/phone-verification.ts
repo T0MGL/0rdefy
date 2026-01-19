@@ -3,6 +3,7 @@
  * Endpoints for WhatsApp-based phone number verification
  */
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import whatsappService from '../services/whatsapp.service';

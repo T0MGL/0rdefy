@@ -8,6 +8,7 @@
 // Roles with access: owner, admin, inventario, confirmador (view), contador (view)
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';

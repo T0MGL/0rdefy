@@ -7,6 +7,7 @@
 // Roles with access: owner, admin, logistics, confirmador
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import multer from 'multer';
 import { supabaseAdmin } from '../db/connection';

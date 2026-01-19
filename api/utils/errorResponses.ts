@@ -3,6 +3,7 @@
  * Provides structured, user-friendly error responses
  */
 
+import { logger } from './logger';
 import { Response } from 'express';
 
 export interface ErrorDetails {

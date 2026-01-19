@@ -3,6 +3,7 @@
  * Endpoints for managing warehouse picking and packing workflow
  */
 
+import { logger } from '../utils/logger';
 import { Router } from 'express';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission } from '../middleware/permissions';

@@ -9,6 +9,7 @@
 // Public endpoints: Courier-facing endpoints for delivery completion
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';

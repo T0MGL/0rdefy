@@ -6,6 +6,7 @@
  * @date 2025-12-02
  */
 
+import { logger } from '../utils/logger';
 import express from 'express';
 import { verifyToken, extractStoreId } from '../middleware/auth.js';
 import { extractUserRole, requireModule, requirePermission } from '../middleware/permissions.js';

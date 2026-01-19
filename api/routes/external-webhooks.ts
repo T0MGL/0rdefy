@@ -5,6 +5,7 @@
  * desde landing pages y sistemas externos.
  */
 
+import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId } from '../middleware/auth';

@@ -6,6 +6,7 @@
  * @date 2025-12-02
  */
 
+import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection.js';
 
 export interface ReturnSession {

@@ -7,6 +7,7 @@
  * - Monitoring: Detailed metrics and logging
  */
 
+import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { ShopifyWebhookService } from './shopify-webhook.service';

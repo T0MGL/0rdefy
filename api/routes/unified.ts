@@ -5,6 +5,7 @@
 // OPTIMIZED for performance: Selects only essential columns
 // ================================================================
 
+import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, AuthRequest } from '../middleware/auth';
