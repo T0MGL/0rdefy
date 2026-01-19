@@ -1,4 +1,5 @@
 import { Customer } from '@/types';
+import { logger } from '@/utils/logger';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.trim();

@@ -12,6 +12,7 @@ import { ordersService } from '@/services/orders.service';
 import { formatCurrency } from '@/utils/currency';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { logger } from '@/utils/logger';
 import {
   ArrowLeft,
   Package,

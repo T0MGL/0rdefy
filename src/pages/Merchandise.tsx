@@ -19,6 +19,7 @@ import { productsService } from '@/services/products.service';
 import { suppliersService } from '@/services/suppliers.service';
 import { getCurrencySymbol } from '@/utils/currency';
 import type { InboundShipment, InboundShipmentItem, CreateShipmentDTO, CreateShipmentItemDTO, ReceiveShipmentItemDTO, Product } from '@/types';
+import { logger } from '@/utils/logger';
 
 export default function Merchandise() {
   const { toast } = useToast();

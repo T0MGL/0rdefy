@@ -17,6 +17,7 @@ import { onboardingService } from '@/services/onboarding.service';
 import { carriersService, Carrier } from '@/services/carriers.service';
 import { Plus, Package, TrendingUp, Clock, Star, Search } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
+import { logger } from '@/utils/logger';
 
 // Form Component
 function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSubmit: (data: any) => void; onCancel: () => void }) {

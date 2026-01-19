@@ -4,6 +4,8 @@
  * during navigation to prevent App Bridge initialization errors
  */
 
+import { logger } from '@/utils/logger';
+
 /**
  * Preserves Shopify query parameters when navigating to a new route
  * @param path - The path to navigate to (e.g., '/', '/orders')

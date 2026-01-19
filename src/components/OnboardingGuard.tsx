@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
+import { logger } from '@/utils/logger';
 
 export function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();

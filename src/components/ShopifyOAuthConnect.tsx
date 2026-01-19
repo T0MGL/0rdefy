@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { Store, AlertCircle, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { safeJsonParse } from '@/lib/utils';
+import { logger } from '@/utils/logger';
 
 interface ShopifyOAuthConnectProps {
   open: boolean;

@@ -10,6 +10,7 @@ import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { logger } from '@/utils/logger';
 import {
   Select,
   SelectContent,

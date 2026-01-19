@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useOnboardingTour } from '@/contexts/OnboardingTourContext';
+import { logger } from '@/utils/logger';
 
 interface SpotlightRect {
   x: number;

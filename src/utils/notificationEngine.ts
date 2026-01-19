@@ -2,6 +2,7 @@ import { Notification, NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES
 import type { Order, Product, Ad } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 import { isOlderThan, getHoursDifference, formatTimeAgo, getNow } from './timeUtils';
+import { logger } from '@/utils/logger';
 
 interface NotificationEngineData {
   orders: Order[];

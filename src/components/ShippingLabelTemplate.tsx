@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { useAuth } from '@/contexts/AuthContext';
+import { logger } from '@/utils/logger';
 
 export interface ShippingLabelProps {
     order: {

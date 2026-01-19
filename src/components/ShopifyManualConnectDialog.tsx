@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Store, AlertCircle, ExternalLink, CheckCircle2, ArrowLeft, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { logger } from '@/utils/logger';
 
 interface ShopifyManualConnectDialogProps {
   open: boolean;

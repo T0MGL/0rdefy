@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { AdditionalValue } from '@/types';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { logger } from '@/utils/logger';
 
 const categoryIcons: Record<string, JSX.Element> = {
   gasto_publicitario: <DollarSign className="text-accent" size={24} />,

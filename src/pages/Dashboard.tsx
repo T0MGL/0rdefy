@@ -18,6 +18,7 @@ import { DashboardOverview, ChartData } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { logger } from '@/utils/logger';
 import {
   DollarSign,
   TrendingDown,

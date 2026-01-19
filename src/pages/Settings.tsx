@@ -15,6 +15,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users, Loader2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { logger } from '@/utils/logger';
 import {
   getSessions,
   terminateSession,

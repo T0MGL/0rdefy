@@ -7,6 +7,7 @@ import { Store, RefreshCw, Package, Users, ShoppingCart, CheckCircle2, Bug, Lock
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useSubscription, FEATURE_MIN_PLAN } from '@/contexts/SubscriptionContext';
 import { config } from '@/config';
+import { logger } from '@/utils/logger';
 
 interface ShopifyIntegration {
   id: string;

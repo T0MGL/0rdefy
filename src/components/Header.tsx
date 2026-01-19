@@ -16,6 +16,7 @@ import { notificationsService } from '@/services/notifications.service';
 import type { Order, DashboardOverview } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 import type { Notification } from '@/types/notification';
+import { logger } from '@/utils/logger';
 import {
   DropdownMenu,
   DropdownMenuContent,

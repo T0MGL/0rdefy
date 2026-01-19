@@ -1,6 +1,7 @@
 import { Badge } from './ui/badge';
 import { X } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { logger } from '@/utils/logger';
 
 export interface SavedFilter {
   id: string;

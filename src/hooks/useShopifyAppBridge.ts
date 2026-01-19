@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { logger } from '@/utils/logger';
 
 // Extend Window interface to include Shopify App Bridge 3.0
 declare global {

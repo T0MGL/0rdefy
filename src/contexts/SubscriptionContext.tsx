@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
 import { useAuth, Role } from './AuthContext';
 import { billingService, Plan, Subscription, Usage } from '@/services/billing.service';
+import { logger } from '@/utils/logger';
 
 // ================================================================
 // Feature Definitions - Maps modules to plan features

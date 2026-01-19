@@ -20,6 +20,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { useRealtimeSubscription } from './useRealtimeSubscription';
 import { useToast } from './use-toast';
+import { logger } from '@/utils/logger';
 
 export interface UseRealtimeTableOptions<T> {
   /**

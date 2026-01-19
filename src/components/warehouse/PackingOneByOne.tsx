@@ -5,6 +5,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
+import { logger } from '@/utils/logger';
 import {
   Package,
   Check,

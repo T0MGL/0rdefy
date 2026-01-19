@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Webhook, Copy, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { externalWebhookService } from '@/services/external-webhook.service';
+import { logger } from '@/utils/logger';
 
 interface ExternalWebhookSetupDialogProps {
   open: boolean;

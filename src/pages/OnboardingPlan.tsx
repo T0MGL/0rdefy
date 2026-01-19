@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { billingService, Plan } from '@/services/billing.service';
+import { logger } from '@/utils/logger';
 import {
   Check,
   Zap,

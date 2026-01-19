@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useDemoTour } from '../DemoTourProvider';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/utils/logger';
 import {
   Store,
   ArrowRight,

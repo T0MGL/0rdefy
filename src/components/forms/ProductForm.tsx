@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { InfoTooltip } from '@/components/InfoTooltip';
+import { logger } from '@/utils/logger';
 import {
   Form,
   FormControl,

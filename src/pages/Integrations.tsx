@@ -17,6 +17,7 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
+import { logger } from '@/utils/logger';
 
 interface Integration {
   id: string;

@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { ordersService } from '@/services/orders.service';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import type { Order } from '@/types';
+import { logger } from '@/utils/logger';
 
 const statusColors = {
   pending: 'bg-yellow-500',

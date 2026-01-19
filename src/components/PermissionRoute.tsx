@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth, Module } from '@/contexts/AuthContext';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
+import { logger } from '@/utils/logger';
 
 interface PermissionRouteProps {
   children: React.ReactNode;

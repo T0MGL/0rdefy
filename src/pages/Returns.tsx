@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { MetricCard } from '@/components/MetricCard';
 import { formatCurrency } from '@/utils/currency';
 import { analyticsService, ReturnsMetrics } from '@/services/analytics.service';
+import { logger } from '@/utils/logger';
 import {
   Select,
   SelectContent,

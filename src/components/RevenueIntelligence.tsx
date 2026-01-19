@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ExportButton } from '@/components/ExportButton';
 import { TrendingUp, TrendingDown, DollarSign, Trophy, ShoppingBag } from 'lucide-react';
+import { logger } from '@/utils/logger';
 import {
   PieChart,
   Pie,

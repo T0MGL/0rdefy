@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { carriersService } from '@/services/carriers.service';
 import { MapPin, Clock, DollarSign, TrendingUp, Trophy } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { logger } from '@/utils/logger';
 
 export function CarrierRecommender() {
   const [destination, setDestination] = useState('');

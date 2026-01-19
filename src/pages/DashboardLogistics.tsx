@@ -12,6 +12,7 @@ import { formatCurrency } from '@/utils/currency';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
+import { logger } from '@/utils/logger';
 import {
   Truck,
   CheckCircle2,

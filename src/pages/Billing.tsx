@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { setTourPending } from '@/components/demo-tour';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { logger } from '@/utils/logger';
 import {
   CreditCard,
   Check,

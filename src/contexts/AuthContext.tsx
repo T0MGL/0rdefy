@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode, useMemo, use
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { safeJsonParse } from '@/lib/utils';
+import { logger } from '@/utils/logger';
 
 // ================================================================
 // Permission System Types and Constants

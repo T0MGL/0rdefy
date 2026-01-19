@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useShopifyAppBridge } from '@/hooks/useShopifyAppBridge';
+import { logger } from '@/utils/logger';
 
 interface ShopifyInitializerProps {
   children: React.ReactNode;

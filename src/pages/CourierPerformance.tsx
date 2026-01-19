@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { Trophy, AlertTriangle, TrendingUp, Package } from 'lucide-react';
+import { logger } from '@/utils/logger';
 
 interface CourierStats {
   courier_id: string;

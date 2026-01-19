@@ -13,6 +13,7 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 
 // New warehouse components
+import { logger } from '@/utils/logger';
 import {
   SessionProgress,
   OrderSelector,

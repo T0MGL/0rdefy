@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { shopifyService } from '@/services/shopify.service';
+import { logger } from '@/utils/logger';
 
 interface ShopifyConnectDialogProps {
   open: boolean;

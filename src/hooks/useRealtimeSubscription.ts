@@ -21,6 +21,7 @@ import { useEffect, useRef } from 'react';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { useToast } from './use-toast';
+import { logger } from '@/utils/logger';
 
 export type RealtimeEvent = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
 

@@ -31,6 +31,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ordersExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
+import { logger } from '@/utils/logger';
 import {
   Select,
   SelectContent,

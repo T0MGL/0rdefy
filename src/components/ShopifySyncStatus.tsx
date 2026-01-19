@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { RefreshCw, CheckCircle2, AlertCircle, Clock, Package, Users, ShoppingCart } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { logger } from '@/utils/logger';
 
 interface ShopifyIntegration {
   id: string;

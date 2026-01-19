@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, CheckCircle2, XCircle, Activity, Clock, TrendingUp } from 'lucide-react';
+import { logger } from '@/utils/logger';
 
 interface WebhookHealth {
   status: 'healthy' | 'degraded' | 'unhealthy';

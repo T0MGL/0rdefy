@@ -9,6 +9,7 @@ import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { logger } from '@/utils/logger';
 
 export default function ShopifyOAuthCallback() {
   const [searchParams] = useSearchParams();

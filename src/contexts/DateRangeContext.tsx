@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
+import { logger } from '@/utils/logger';
 
 export type DateRangeValue = 'today' | '7d' | '30d' | 'custom';
 

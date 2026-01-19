@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, createElement } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/utils/logger';
 
 interface UndoableAction<T = any> {
   id: string;

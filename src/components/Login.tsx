@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock, Zap } from 'lucide-react';
 import { z } from 'zod';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
+import { logger } from '@/utils/logger';
 
 const loginSchema = z.object({
   email: z.string().email('Ingresa un email válido'),

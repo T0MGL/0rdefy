@@ -23,6 +23,7 @@ import { exportDispatchExcel } from '@/services/shipping.service';
 import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
 import { formatCurrency } from '@/utils/currency';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
+import { logger } from '@/utils/logger';
 
 export default function Shipping() {
   const { currentStore } = useAuth();

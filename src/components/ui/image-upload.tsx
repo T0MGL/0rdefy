@@ -5,6 +5,7 @@ import { Button } from './button';
 import { Input } from './input';
 import { Label } from './label';
 import { cn } from '@/lib/utils';
+import { logger } from '@/utils/logger';
 import {
   uploadAvatar,
   uploadProductImage,

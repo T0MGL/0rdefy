@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService } from '@/services/analytics.service';
 import { formatCurrency } from '@/utils/currency';
+import { logger } from '@/utils/logger';
 import {
   LineChart,
   Line,

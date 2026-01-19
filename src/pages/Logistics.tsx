@@ -6,6 +6,7 @@ import { analyticsService, ShippingCostsMetrics, LogisticsMetrics } from '@/serv
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { InfoTooltip } from '@/components/InfoTooltip';
+import { logger } from '@/utils/logger';
 import {
   DollarSign,
   Package,

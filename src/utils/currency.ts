@@ -4,6 +4,8 @@
 // Centralizes currency formatting based on store configuration
 // ================================================================
 
+import { logger } from '@/utils/logger';
+
 /**
  * Currency configuration mapping
  * Maps currency codes to their locale and formatting options

@@ -16,6 +16,7 @@ import { useDemoTour } from './DemoTourProvider';
 import { useEffect, useRef } from 'react';
 import { useAuth, Role } from '@/contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
+import { logger } from '@/utils/logger';
 
 // Storage key for tracking if we need to start tour (set after onboarding/invitation)
 const TOUR_PENDING_KEY = 'ordefy_demo_tour_pending';

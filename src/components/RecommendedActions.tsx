@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { generateRecommendations } from '@/utils/recommendationEngine';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/utils/logger';
 import {
   Dialog,
   DialogContent,

@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { Supplier } from '@/types';
 import { suppliersExportColumns } from '@/utils/exportConfigs';
+import { logger } from '@/utils/logger';
 
 // Supplier Form Component
 function SupplierForm({ supplier, onSubmit, onCancel }: { supplier?: Supplier; onSubmit: (data: any) => void; onCancel: () => void }) {

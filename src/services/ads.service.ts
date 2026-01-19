@@ -1,4 +1,5 @@
 import { Ad } from '@/types';
+import { logger } from '@/utils/logger';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 

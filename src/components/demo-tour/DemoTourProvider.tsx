@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth, Role } from '@/contexts/AuthContext';
 import type { Carrier } from '@/services/carriers.service';
 import type { Product, Order, Customer } from '@/types';
+import { logger } from '@/utils/logger';
 
 // Demo data types
 export interface DemoData {

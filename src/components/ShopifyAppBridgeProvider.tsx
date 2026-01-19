@@ -5,6 +5,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import createApp from '@shopify/app-bridge';
 import { getSessionToken } from '@shopify/app-bridge/utilities';
 import type { ClientApplication } from '@shopify/app-bridge';
+import { logger } from '@/utils/logger';
 
 const API_KEY = 'e4ac05aaca557fdb387681f0f209335d';
 
