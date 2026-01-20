@@ -3,9 +3,43 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
 import crypto from 'crypto';
 import { ShopifyOrder } from '../types/shopify';
 import { logger } from '../utils/logger';
+
+// Shared HTTP/HTTPS agents with connection pooling (prevents socket exhaustion under load)
+// - keepAlive: Reuses TCP connections instead of creating new ones per request
+// - maxSockets: Limits concurrent connections per host
+// - maxFreeSockets: Keeps idle connections alive for reuse
+// - timeout: Closes idle connections after 60s to prevent stale connections
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 60000
+});
+
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 60000
+});
+
+// Axios instance configured for Shopify API calls (always HTTPS)
+const shopifyAxios = axios.create({
+  httpsAgent,
+  timeout: 10000
+});
+
+// Axios instance for internal webhook calls (n8n, etc.) - supports both HTTP and HTTPS
+const webhookAxios = axios.create({
+  httpAgent,
+  httpsAgent,
+  timeout: 30000
+});
 
 export class ShopifyWebhookService {
   private supabaseAdmin: SupabaseClient;
@@ -143,7 +177,7 @@ export class ShopifyWebhookService {
           const timeoutId = setTimeout(() => controller.abort(), 10000);
 
           try {
-            const res = await axios.post(
+            const res = await shopifyAxios.post(
               `https://${shopDomain}/admin/api/2025-10/graphql.json`,
               {
                 query,
@@ -156,8 +190,7 @@ export class ShopifyWebhookService {
                   'X-Shopify-Access-Token': accessToken,
                   'Content-Type': 'application/json'
                 },
-                signal: controller.signal,
-                timeout: 10000
+                signal: controller.signal
               }
             );
             clearTimeout(timeoutId);
@@ -396,7 +429,7 @@ export class ShopifyWebhookService {
           const timeoutId = setTimeout(() => controller.abort(), 10000);
 
           try {
-            const res = await axios.post(
+            const res = await shopifyAxios.post(
               `https://${shopDomain}/admin/api/2025-10/graphql.json`,
               {
                 query,
@@ -409,8 +442,7 @@ export class ShopifyWebhookService {
                   'X-Shopify-Access-Token': accessToken,
                   'Content-Type': 'application/json'
                 },
-                signal: controller.signal,
-                timeout: 10000
+                signal: controller.signal
               }
             );
             clearTimeout(timeoutId);
@@ -1613,15 +1645,14 @@ export class ShopifyWebhookService {
         .update(JSON.stringify(n8nPayload))
         .digest('hex');
 
-      // Enviar a n8n con autenticación
-      const response = await axios.post(this.n8nWebhookUrl, n8nPayload, {
+      // Enviar a n8n con autenticación (uses connection pooling via webhookAxios)
+      const response = await webhookAxios.post(this.n8nWebhookUrl, n8nPayload, {
         headers: {
           'Content-Type': 'application/json',
           'X-API-Key': process.env.N8N_API_KEY || '',
           'X-Signature': signature,
           'X-Timestamp': new Date().toISOString()
-        },
-        timeout: 30000
+        }
       });
 
       logger.info('SHOPIFY_WEBHOOK', `Pedido ${orderId} enviado a n8n exitosamente`, { status: response.status });

@@ -631,7 +631,7 @@ storesRouter.delete('/:id', verifyToken, extractStoreId, extractUserRole, requir
         // 1. Check if the user owns this store
         const { data: userStore, error: userStoreError } = await supabaseAdmin
             .from('user_stores')
-            .select('*')
+            .select('user_id, store_id, role')
             .eq('user_id', req.userId)
             .eq('store_id', id)
             .single();

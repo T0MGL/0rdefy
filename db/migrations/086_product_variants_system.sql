@@ -301,106 +301,22 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 DO $$ BEGIN RAISE NOTICE '✅ Created adjust_variant_stock function'; END $$;
 
 -- ============================================================================
--- STEP 7: Update stock trigger to handle variants
+-- STEP 7: NOTE ON STOCK TRIGGER
+-- ============================================================================
+-- IMPORTANT: We do NOT modify the existing stock trigger here.
+-- The production trigger (update_product_stock_on_order_status from migration 057)
+-- works with orders.sleeves_status and orders.line_items JSONB.
+--
+-- For variant stock handling, the warehouse service should use the
+-- adjust_variant_stock() function defined in this migration, which properly
+-- handles both products and variants.
+--
+-- The existing trigger continues to work for simple products (no variants).
+-- For orders with variants, the API/service layer should call the appropriate
+-- stock functions when needed.
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION update_stock_on_order_status()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_line_item RECORD;
-    v_movement_type TEXT;
-    v_quantity_change INTEGER;
-    v_stock_before INTEGER;
-    v_stock_after INTEGER;
-BEGIN
-    -- Only process status changes that affect stock
-    IF OLD.status = NEW.status THEN
-        RETURN NEW;
-    END IF;
-
-    -- DECREMENT: When order moves to ready_to_ship (stock leaves warehouse)
-    IF NEW.status = 'ready_to_ship' AND OLD.status IN ('pending', 'confirmed', 'in_preparation') THEN
-        v_movement_type := 'order_ready_to_ship';
-
-        FOR v_line_item IN
-            SELECT oli.*,
-                   COALESCE(oli.variant_id, oli.product_id) AS target_id,
-                   CASE WHEN oli.variant_id IS NOT NULL THEN 'variant' ELSE 'product' END AS target_type
-            FROM order_line_items oli
-            WHERE oli.order_id = NEW.id
-              AND oli.stock_deducted = FALSE
-              AND (oli.product_id IS NOT NULL OR oli.variant_id IS NOT NULL)
-        LOOP
-            IF v_line_item.target_type = 'variant' THEN
-                -- Deduct from variant
-                SELECT stock INTO v_stock_before FROM product_variants WHERE id = v_line_item.variant_id FOR UPDATE;
-                v_stock_after := GREATEST(0, v_stock_before - v_line_item.quantity);
-                UPDATE product_variants SET stock = v_stock_after, updated_at = NOW() WHERE id = v_line_item.variant_id;
-
-                INSERT INTO inventory_movements (product_id, variant_id, order_id, quantity_change, stock_before, stock_after, movement_type, order_status_from, order_status_to)
-                VALUES (v_line_item.product_id, v_line_item.variant_id, NEW.id, -v_line_item.quantity, v_stock_before, v_stock_after, v_movement_type, OLD.status, NEW.status);
-            ELSE
-                -- Deduct from product (original behavior)
-                SELECT stock INTO v_stock_before FROM products WHERE id = v_line_item.product_id FOR UPDATE;
-                v_stock_after := GREATEST(0, v_stock_before - v_line_item.quantity);
-                UPDATE products SET stock = v_stock_after, updated_at = NOW() WHERE id = v_line_item.product_id;
-
-                INSERT INTO inventory_movements (product_id, order_id, quantity_change, stock_before, stock_after, movement_type, order_status_from, order_status_to)
-                VALUES (v_line_item.product_id, NEW.id, -v_line_item.quantity, v_stock_before, v_stock_after, v_movement_type, OLD.status, NEW.status);
-            END IF;
-
-            -- Mark as deducted
-            UPDATE order_line_items SET stock_deducted = TRUE, stock_deducted_at = NOW() WHERE id = v_line_item.id;
-        END LOOP;
-    END IF;
-
-    -- RESTORE: When order is cancelled/rejected after stock was deducted
-    IF NEW.status IN ('cancelled', 'rejected', 'returned') AND OLD.status IN ('ready_to_ship', 'shipped', 'delivered', 'in_transit') THEN
-        v_movement_type := 'order_' || NEW.status;
-
-        FOR v_line_item IN
-            SELECT oli.*,
-                   CASE WHEN oli.variant_id IS NOT NULL THEN 'variant' ELSE 'product' END AS target_type
-            FROM order_line_items oli
-            WHERE oli.order_id = NEW.id
-              AND oli.stock_deducted = TRUE
-              AND (oli.product_id IS NOT NULL OR oli.variant_id IS NOT NULL)
-        LOOP
-            IF v_line_item.target_type = 'variant' THEN
-                -- Restore to variant
-                SELECT stock INTO v_stock_before FROM product_variants WHERE id = v_line_item.variant_id FOR UPDATE;
-                v_stock_after := v_stock_before + v_line_item.quantity;
-                UPDATE product_variants SET stock = v_stock_after, updated_at = NOW() WHERE id = v_line_item.variant_id;
-
-                INSERT INTO inventory_movements (product_id, variant_id, order_id, quantity_change, stock_before, stock_after, movement_type, order_status_from, order_status_to)
-                VALUES (v_line_item.product_id, v_line_item.variant_id, NEW.id, v_line_item.quantity, v_stock_before, v_stock_after, v_movement_type, OLD.status, NEW.status);
-            ELSE
-                -- Restore to product (original behavior)
-                SELECT stock INTO v_stock_before FROM products WHERE id = v_line_item.product_id FOR UPDATE;
-                v_stock_after := v_stock_before + v_line_item.quantity;
-                UPDATE products SET stock = v_stock_after, updated_at = NOW() WHERE id = v_line_item.product_id;
-
-                INSERT INTO inventory_movements (product_id, order_id, quantity_change, stock_before, stock_after, movement_type, order_status_from, order_status_to)
-                VALUES (v_line_item.product_id, NEW.id, v_line_item.quantity, v_stock_before, v_stock_after, v_movement_type, OLD.status, NEW.status);
-            END IF;
-
-            -- Mark as not deducted
-            UPDATE order_line_items SET stock_deducted = FALSE, stock_deducted_at = NULL WHERE id = v_line_item.id;
-        END LOOP;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Recreate trigger
-DROP TRIGGER IF EXISTS trigger_update_stock_on_order_status ON orders;
-CREATE TRIGGER trigger_update_stock_on_order_status
-    AFTER UPDATE ON orders
-    FOR EACH ROW
-    EXECUTE FUNCTION update_stock_on_order_status();
-
-DO $$ BEGIN RAISE NOTICE '✅ Updated stock trigger to support variants'; END $$;
+DO $$ BEGIN RAISE NOTICE '  Note: Stock trigger NOT modified - use adjust_variant_stock() for variants'; END $$;
 
 -- ============================================================================
 -- STEP 8: Auto-update timestamp trigger for variants
@@ -634,8 +550,9 @@ BEGIN
     RAISE NOTICE '  - adjust_variant_stock(variant_id, qty, type, order_id, notes)';
     RAISE NOTICE '  - validate_variant_data(...)';
     RAISE NOTICE '';
-    RAISE NOTICE 'TRIGGERS UPDATED:';
-    RAISE NOTICE '  - update_stock_on_order_status (now handles variants)';
+    RAISE NOTICE 'STOCK HANDLING:';
+    RAISE NOTICE '  - Use adjust_variant_stock() for variant stock changes';
+    RAISE NOTICE '  - Existing product trigger (057) unchanged';
     RAISE NOTICE '';
     RAISE NOTICE 'VIEWS CREATED:';
     RAISE NOTICE '  - v_products_with_variants';

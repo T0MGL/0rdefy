@@ -249,10 +249,10 @@ shopifyRouter.post('/configure', async (req: AuthRequest, res: Response) => {
       integrationId = data.id;
     }
 
-    // Obtener integracion completa
+    // Obtener integracion completa - only fields needed for webhook setup
     const { data: integration, error: fetchError } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, store_id, shop_domain, access_token, status')
       .eq('id', integrationId)
       .single();
 
@@ -314,7 +314,7 @@ shopifyRouter.post('/manual-sync', requireFeature('shopify_bidirectional'), asyn
     // Obtener integracion
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, store_id, shop_domain, access_token, status')
       .eq('store_id', storeId)
       .eq('status', 'active')
       .single();
@@ -370,7 +370,7 @@ shopifyRouter.post('/sync-orders', requireFeature('shopify_bidirectional'), asyn
     // Obtener integracion activa
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, store_id, shop_domain, access_token, status')
       .eq('store_id', storeId)
       .eq('status', 'active')
       .single();
@@ -416,7 +416,7 @@ shopifyRouter.get('/import-status/:integration_id', async (req: AuthRequest, res
     // Verificar que la integracion pertenece al store
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, store_id, shop_domain, access_token, status')
       .eq('id', integration_id)
       .eq('store_id', storeId)
       .single();
@@ -472,10 +472,10 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
-    // Obtener integracion por dominio
+    // Obtener integracion por dominio - include webhook_secret for HMAC verification
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, store_id, shop_domain, access_token, status, webhook_secret, api_secret_key')
       .eq('shop_domain', shopDomain)
       .eq('status', 'active')
       .single();

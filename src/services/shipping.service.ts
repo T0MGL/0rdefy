@@ -158,13 +158,16 @@ export function generateDispatchCSV(orders: ReadyToShipOrder[], carrierName: str
 
   const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } finally {
+    window.URL.revokeObjectURL(url);
+  }
 }
 
 /**
@@ -201,11 +204,14 @@ export async function exportDispatchExcel(orders: ReadyToShipOrder[], carrierNam
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   });
   const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } finally {
+    window.URL.revokeObjectURL(url);
+  }
 }

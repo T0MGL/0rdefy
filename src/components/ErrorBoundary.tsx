@@ -1,7 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { RefreshCw, Home, ShieldCheck, Package, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { logger } from '@/utils/logger';
 
 interface Props {
@@ -13,6 +12,9 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  isRetrying: boolean;
+  retryCount: number;
+  isOnline: boolean;
 }
 
 /**
@@ -29,17 +31,42 @@ interface State {
  * ```
  */
 export class ErrorBoundary extends Component<Props, State> {
+  private retryTimeout: NodeJS.Timeout | null = null;
+
   constructor(props: Props) {
     super(props);
     this.state = {
       hasError: false,
       error: null,
       errorInfo: null,
+      isRetrying: false,
+      retryCount: 0,
+      isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
     };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    // Update state so the next render will show the fallback UI
+  componentDidMount() {
+    window.addEventListener('online', this.handleOnline);
+    window.addEventListener('offline', this.handleOffline);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('online', this.handleOnline);
+    window.removeEventListener('offline', this.handleOffline);
+    if (this.retryTimeout) {
+      clearTimeout(this.retryTimeout);
+    }
+  }
+
+  handleOnline = () => {
+    this.setState({ isOnline: true });
+  };
+
+  handleOffline = () => {
+    this.setState({ isOnline: false });
+  };
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return {
       hasError: true,
       error,
@@ -48,13 +75,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error to console in development
     if (process.env.NODE_ENV === 'development') {
       logger.error('ErrorBoundary caught an error:', error, errorInfo);
     }
-
-    // In production, you would send this to an error reporting service
-    // Example: Sentry.captureException(error, { extra: errorInfo });
 
     this.setState({
       error,
@@ -62,76 +85,149 @@ export class ErrorBoundary extends Component<Props, State> {
     });
   }
 
-  handleReset = () => {
-    this.setState({
-      hasError: false,
-      error: null,
-      errorInfo: null,
-    });
+  handleRetry = () => {
+    this.setState({ isRetrying: true });
 
-    // Optionally reload the page
-    // window.location.reload();
+    this.retryTimeout = setTimeout(() => {
+      window.location.reload();
+    }, 1500);
+  };
+
+  handleGoHome = () => {
+    window.location.href = '/';
   };
 
   render() {
     if (this.state.hasError) {
-      // Custom fallback UI
       if (this.props.fallback) {
         return this.props.fallback;
       }
 
-      // Default fallback UI
-      return (
-        <div className="min-h-screen bg-background flex items-center justify-center p-4">
-          <Card className="max-w-2xl w-full p-8 space-y-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-red-100 dark:bg-red-950 rounded-full">
-                <AlertTriangle className="h-8 w-8 text-red-600 dark:text-red-400" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-foreground">
-                  Algo salió mal
-                </h2>
-                <p className="text-muted-foreground mt-1">
-                  La aplicación encontró un error inesperado
-                </p>
-              </div>
-            </div>
+      const { isRetrying, isOnline } = this.state;
 
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-4 space-y-2">
-                <p className="font-mono text-sm text-red-900 dark:text-red-200 font-semibold">
-                  {this.state.error.toString()}
-                </p>
-                {this.state.errorInfo && (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-sm text-red-800 dark:text-red-300 hover:underline">
-                      Ver detalles técnicos
-                    </summary>
-                    <pre className="mt-2 text-xs overflow-auto max-h-64 text-red-900 dark:text-red-200 whitespace-pre-wrap">
-                      {this.state.errorInfo.componentStack}
-                    </pre>
-                  </details>
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
+          <div className="max-w-lg w-full text-center space-y-8">
+            {/* Animated Logo/Icon */}
+            <div className="relative mx-auto w-24 h-24">
+              <div className="absolute inset-0 bg-primary/20 rounded-full animate-ping" />
+              <div className="relative flex items-center justify-center w-24 h-24 bg-card rounded-full border border-border shadow-lg">
+                {isRetrying ? (
+                  <RefreshCw className="w-10 h-10 text-primary animate-spin" />
+                ) : (
+                  <div className="relative">
+                    <Package className="w-10 h-10 text-muted-foreground" />
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
+                      <ShieldCheck className="w-3 h-3 text-primary-foreground" />
+                    </div>
+                  </div>
                 )}
               </div>
-            )}
+            </div>
 
-            <div className="flex gap-3">
-              <Button onClick={this.handleReset} variant="default">
-                Intentar de nuevo
+            {/* Main Message */}
+            <div className="space-y-3">
+              <h1 className="text-2xl font-semibold text-foreground">
+                {isRetrying ? 'Reconectando...' : 'Estamos mejorando tu experiencia'}
+              </h1>
+              <p className="text-muted-foreground text-base leading-relaxed max-w-md mx-auto">
+                {isRetrying
+                  ? 'Verificando conexión con el servidor...'
+                  : 'Nuestro equipo está trabajando para brindarte el mejor servicio. Esto solo tomará un momento.'
+                }
+              </p>
+            </div>
+
+            {/* Connection Status */}
+            <div className="flex items-center justify-center gap-2 text-sm">
+              {isOnline ? (
+                <>
+                  <Wifi className="w-4 h-4 text-primary" />
+                  <span className="text-muted-foreground">Conexión a internet activa</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-4 h-4 text-amber-500" />
+                  <span className="text-amber-500">Sin conexión a internet</span>
+                </>
+              )}
+            </div>
+
+            {/* Reassurance Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+              <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Package className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-foreground text-sm font-medium">Tus pedidos están seguros</p>
+                    <p className="text-muted-foreground text-xs mt-0.5">Ningún dato se ha perdido</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <ShieldCheck className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-foreground text-sm font-medium">Los pedidos siguen llegando</p>
+                    <p className="text-muted-foreground text-xs mt-0.5">El sistema sigue recibiendo</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button
+                onClick={this.handleRetry}
+                disabled={isRetrying}
+                size="lg"
+                className="px-6"
+              >
+                {isRetrying ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Reconectando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Reintentar conexión
+                  </>
+                )}
               </Button>
               <Button
-                onClick={() => window.location.href = '/'}
+                onClick={this.handleGoHome}
                 variant="outline"
+                size="lg"
+                className="px-6"
               >
-                Volver al inicio
+                <Home className="w-4 h-4 mr-2" />
+                Ir al inicio
               </Button>
             </div>
 
-            <p className="text-sm text-muted-foreground">
-              Si el problema persiste, por favor contacta a soporte técnico.
+            {/* Dev Error Details */}
+            {process.env.NODE_ENV === 'development' && this.state.error && (
+              <details className="text-left bg-destructive/10 border border-destructive/20 rounded-xl p-4 mt-6">
+                <summary className="cursor-pointer text-sm text-destructive hover:text-destructive/80 font-medium">
+                  Detalles técnicos (solo desarrollo)
+                </summary>
+                <pre className="mt-3 text-xs text-destructive/80 overflow-auto max-h-48 whitespace-pre-wrap font-mono">
+                  {this.state.error.toString()}
+                  {this.state.errorInfo?.componentStack}
+                </pre>
+              </details>
+            )}
+
+            {/* Footer */}
+            <p className="text-muted-foreground/60 text-xs">
+              ¿El problema persiste? Contacta a <span className="text-muted-foreground">soporte@ordefy.io</span>
             </p>
-          </Card>
+          </div>
         </div>
       );
     }

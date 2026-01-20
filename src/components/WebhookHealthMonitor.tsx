@@ -7,7 +7,7 @@
  * - Lists pending retries
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,7 +55,11 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [processingRetries, setProcessingRetries] = useState(false);
 
-  const fetchHealth = async () => {
+  // Refs to track AbortControllers for cancellable operations
+  const retryAbortControllerRef = useRef<AbortController | null>(null);
+  const manualRefreshAbortControllerRef = useRef<AbortController | null>(null);
+
+  const fetchHealth = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
       setError(null);
@@ -64,17 +68,25 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
       const storeId = localStorage.getItem('current_store_id');
 
       const response = await fetch('/api/shopify/webhook-health?hours=24', {
+        signal,
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
         },
       });
 
+      // Check if request was aborted before processing response
+      if (signal?.aborted) return;
+
       if (!response.ok) {
         throw new Error('Failed to fetch webhook health');
       }
 
       const data = await response.json();
+
+      // Double-check abort status after async operations
+      if (signal?.aborted) return;
+
       if (data.success) {
         setHealth(data);
         setLastUpdated(new Date());
@@ -82,14 +94,28 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
         throw new Error(data.error || 'Unknown error');
       }
     } catch (err: any) {
+      // Ignore AbortError - this is expected on unmount
+      if (err.name === 'AbortError') return;
+
       logger.error('Error fetching webhook health:', err);
       setError(err.message);
     } finally {
-      setLoading(false);
+      // Only update loading state if not aborted
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
-  const processRetryQueue = async () => {
+  const processRetryQueue = useCallback(async () => {
+    // Cancel any previous retry operation
+    if (retryAbortControllerRef.current) {
+      retryAbortControllerRef.current.abort();
+    }
+
+    const abortController = new AbortController();
+    retryAbortControllerRef.current = abortController;
+
     try {
       setProcessingRetries(true);
 
@@ -98,32 +124,84 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
 
       const response = await fetch('/api/shopify/webhook-retry/process', {
         method: 'POST',
+        signal: abortController.signal,
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
         },
       });
 
+      if (abortController.signal.aborted) return;
+
       const data = await response.json();
+
+      if (abortController.signal.aborted) return;
+
       if (data.success) {
         // Refresh health metrics after processing
-        await fetchHealth();
+        await fetchHealth(abortController.signal);
       }
     } catch (err: any) {
+      // Ignore AbortError - this is expected on unmount
+      if (err.name === 'AbortError') return;
+
       logger.error('Error processing retry queue:', err);
     } finally {
-      setProcessingRetries(false);
+      if (!abortController.signal.aborted) {
+        setProcessingRetries(false);
+      }
     }
-  };
+  }, [fetchHealth]);
 
   useEffect(() => {
-    fetchHealth();
+    const abortController = new AbortController();
 
+    // Initial fetch
+    fetchHealth(abortController.signal);
+
+    // Set up auto-refresh interval if enabled
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (autoRefresh) {
-      const interval = setInterval(fetchHealth, refreshInterval * 1000);
-      return () => clearInterval(interval);
+      interval = setInterval(() => {
+        // Only fetch if not aborted (component still mounted)
+        if (!abortController.signal.aborted) {
+          fetchHealth(abortController.signal);
+        }
+      }, refreshInterval * 1000);
     }
-  }, [autoRefresh, refreshInterval]);
+
+    // Cleanup function
+    return () => {
+      abortController.abort();
+      if (interval) clearInterval(interval);
+      // Also abort any pending retry operation
+      if (retryAbortControllerRef.current) {
+        retryAbortControllerRef.current.abort();
+      }
+    };
+  }, [autoRefresh, refreshInterval, fetchHealth]);
+
+  // Manual refresh handler for button clicks
+  const handleManualRefresh = useCallback(() => {
+    // Cancel any previous manual refresh
+    if (manualRefreshAbortControllerRef.current) {
+      manualRefreshAbortControllerRef.current.abort();
+    }
+
+    const abortController = new AbortController();
+    manualRefreshAbortControllerRef.current = abortController;
+
+    fetchHealth(abortController.signal);
+  }, [fetchHealth]);
+
+  // Cleanup manual refresh on unmount
+  useEffect(() => {
+    return () => {
+      if (manualRefreshAbortControllerRef.current) {
+        manualRefreshAbortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -181,7 +259,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
-          <Button onClick={fetchHealth} className="mt-4" size="sm">
+          <Button onClick={handleManualRefresh} className="mt-4" size="sm">
             Retry
           </Button>
         </CardContent>
@@ -213,7 +291,7 @@ export const WebhookHealthMonitor: React.FC<WebhookHealthMonitorProps> = ({
             </div>
             <div className="flex items-center gap-2">
               {getStatusBadge(status)}
-              <Button onClick={fetchHealth} size="sm" variant="outline">
+              <Button onClick={handleManualRefresh} size="sm" variant="outline">
                 Refresh
               </Button>
             </div>

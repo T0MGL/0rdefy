@@ -505,7 +505,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     // Validate state parameter (CSRF protection)
     const { data: stateData, error: stateError } = await supabaseAdmin
       .from('shopify_oauth_states')
-      .select('*')
+      .select('id, state, shop_domain, store_id, user_id, expires_at, used')
       .eq('state', state)
       .eq('shop_domain', shop)
       .eq('used', false)
@@ -854,10 +854,10 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
 
     logger.info('API', '🔌 [SHOPIFY-OAUTH] Disconnecting shop:', shop);
 
-    // Get integration with credentials
+    // Get integration with credentials needed for webhook removal
     const { data: integration, error: fetchError } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, store_id, shop_domain, access_token, status')
       .eq('shop_domain', shop)
       .single();
 

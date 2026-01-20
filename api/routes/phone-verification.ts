@@ -143,10 +143,10 @@ router.post('/verify', verifyToken, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Se requiere el código de verificación' });
     }
 
-    // Find verification code
+    // Find verification code - only fields needed for verification
     const { data: verificationCode, error: findError } = await supabaseAdmin
       .from('phone_verification_codes')
-      .select('*')
+      .select('id, user_id, phone, code, expires_at, attempts, verified')
       .eq('user_id', userId)
       .eq('code', code)
       .eq('verified', false)

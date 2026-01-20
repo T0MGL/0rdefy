@@ -1,6 +1,6 @@
 // Componente para mostrar el estado de sincronizacion de Shopify en tiempo real
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -47,24 +47,56 @@ export function ShopifySyncStatus() {
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Cargar configuracion de integracion al montar
+  // Refs for cleanup
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Cleanup on unmount
   useEffect(() => {
-    loadIntegration();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, []);
 
-  // Poll para estado de sincronizacion cada 3 segundos si esta sincronizando
-  useEffect(() => {
-    if (integration && syncStatus?.overall_status === 'syncing') {
-      const interval = setInterval(() => {
-        loadSyncStatus(integration.id);
-      }, 3000);
+  const loadSyncStatus = useCallback(async (integrationId: string, signal?: AbortSignal) => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const storeId = localStorage.getItem('current_store_id');
 
-      return () => clearInterval(interval);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/import-status/${integrationId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Store-ID': storeId || '',
+        },
+        signal,
+      });
+
+      if (!isMountedRef.current) return;
+
+      const data = await response.json();
+
+      if (data.success && isMountedRef.current) {
+        setSyncStatus({
+          integration_id: data.integration_id,
+          jobs: data.jobs || [],
+          overall_status: data.overall_status,
+          total_progress: data.total_progress,
+          last_sync_at: data.last_sync_at,
+        });
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') return;
+      logger.error('Error loading sync status:', error);
     }
-  }, [integration, syncStatus?.overall_status]);
+  }, []);
 
-  const loadIntegration = async () => {
+  const loadIntegration = useCallback(async () => {
     try {
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
@@ -76,44 +108,44 @@ export function ShopifySyncStatus() {
         },
       });
 
+      if (!isMountedRef.current) return;
+
       const data = await response.json();
 
-      if (data.success && data.integration) {
+      if (data.success && data.integration && isMountedRef.current) {
         setIntegration(data.integration);
         loadSyncStatus(data.integration.id);
       }
     } catch (error) {
       logger.error('Error loading integration:', error);
     }
-  };
+  }, [loadSyncStatus]);
 
-  const loadSyncStatus = async (integrationId: string) => {
-    try {
-      const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+  // Cargar configuracion de integracion al montar
+  useEffect(() => {
+    loadIntegration();
+  }, [loadIntegration]);
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/shopify/import-status/${integrationId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Store-ID': storeId || '',
-        },
-      });
+  // Poll para estado de sincronizacion cada 3 segundos si esta sincronizando
+  useEffect(() => {
+    if (integration && syncStatus?.overall_status === 'syncing') {
+      // Cancel previous abort controller if exists
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
 
-      const data = await response.json();
+      const interval = setInterval(() => {
+        if (isMountedRef.current) {
+          loadSyncStatus(integration.id, signal);
+        }
+      }, 3000);
 
-      if (data.success) {
-        setSyncStatus({
-          integration_id: data.integration_id,
-          jobs: data.jobs || [],
-          overall_status: data.overall_status,
-          total_progress: data.total_progress,
-          last_sync_at: data.last_sync_at,
-        });
-      }
-    } catch (error) {
-      logger.error('Error loading sync status:', error);
+      return () => {
+        clearInterval(interval);
+        abortControllerRef.current?.abort();
+      };
     }
-  };
+  }, [integration, syncStatus?.overall_status, loadSyncStatus]);
 
   const handleManualSync = async (syncType: 'products' | 'customers' | 'orders' | 'all') => {
     if (!integration) return;
@@ -134,6 +166,8 @@ export function ShopifySyncStatus() {
         body: JSON.stringify({ sync_type: syncType }),
       });
 
+      if (!isMountedRef.current) return;
+
       const data = await response.json();
 
       if (data.success) {
@@ -142,21 +176,29 @@ export function ShopifySyncStatus() {
           description: 'La sincronización manual ha comenzado. Verás el progreso en tiempo real.',
         });
 
-        // Recargar estado después de un momento
-        setTimeout(() => {
-          loadSyncStatus(integration.id);
+        // Recargar estado después de un momento (with cleanup)
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        timeoutRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            loadSyncStatus(integration.id);
+          }
         }, 1000);
       } else {
         throw new Error(data.error);
       }
     } catch (error: any) {
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error al sincronizar',
         description: error.message || 'No se pudo iniciar la sincronización',
         variant: 'destructive',
       });
     } finally {
-      setIsSyncing(false);
+      if (isMountedRef.current) {
+        setIsSyncing(false);
+      }
     }
   };
 

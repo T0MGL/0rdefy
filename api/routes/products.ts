@@ -149,7 +149,7 @@ productsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
 
         const { data, error } = await supabaseAdmin
             .from('products')
-            .select('*')
+            .select('id, name, sku, description, category, image_url, stock, price, cost, packaging_cost, additional_costs, shopify_product_id, shopify_variant_id')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
@@ -295,7 +295,7 @@ productsRouter.post('/', requirePermission(Module.PRODUCTS, Permission.CREATE), 
         // Check if we have an active Shopify integration
         const { data: integration } = await supabaseAdmin
             .from('shopify_integrations')
-            .select('*')
+            .select('id, shop_domain, access_token, status')
             .eq('store_id', req.storeId)
             .eq('status', 'active')
             .maybeSingle();
@@ -398,7 +398,7 @@ productsRouter.post('/from-shopify', requirePermission(Module.PRODUCTS, Permissi
         // Get Shopify integration
         const { data: integration, error: integrationError } = await supabaseAdmin
             .from('shopify_integrations')
-            .select('*')
+            .select('id, shop_domain, access_token, status')
             .eq('store_id', req.storeId)
             .eq('status', 'active')
             .single();
@@ -553,7 +553,7 @@ productsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.PRO
         if (data.shopify_product_id) {
             const { data: integration } = await supabaseAdmin
                 .from('shopify_integrations')
-                .select('*')
+                .select('id, shop_domain, access_token, status')
                 .eq('store_id', req.storeId)
                 .eq('status', 'active')
                 .maybeSingle();
@@ -663,7 +663,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
             if (data.shopify_product_id) {
                 const { data: integration } = await supabaseAdmin
                     .from('shopify_integrations')
-                    .select('*')
+                    .select('id, shop_domain, access_token, status')
                     .eq('store_id', req.storeId)
                     .eq('status', 'active')
                     .maybeSingle();
@@ -713,7 +713,7 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
         if (data.shopify_product_id) {
             const { data: integration } = await supabaseAdmin
                 .from('shopify_integrations')
-                .select('*')
+                .select('id, shop_domain, access_token, status')
                 .eq('store_id', req.storeId)
                 .eq('status', 'active')
                 .maybeSingle();
@@ -798,7 +798,7 @@ productsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.
                     // Check for active Shopify integration
                     const { data: integration } = await supabaseAdmin
                         .from('shopify_integrations')
-                        .select('*')
+                        .select('id, shop_domain, access_token, status')
                         .eq('store_id', req.storeId)
                         .eq('status', 'active')
                         .maybeSingle();
@@ -916,7 +916,7 @@ productsRouter.post('/:id/publish-to-shopify', requirePermission(Module.PRODUCTS
         // Verificar que existe integración activa de Shopify
         const { data: integration, error: integrationError } = await supabaseAdmin
             .from('shopify_integrations')
-            .select('*')
+            .select('id, shop_domain, access_token, status')
             .eq('store_id', req.storeId)
             .eq('status', 'active')
             .maybeSingle();
@@ -938,10 +938,10 @@ productsRouter.post('/:id/publish-to-shopify', requirePermission(Module.PRODUCTS
             });
         }
 
-        // Obtener producto actualizado
+        // Obtener producto actualizado con campos necesarios
         const { data: updatedProduct } = await supabaseAdmin
             .from('products')
-            .select('*')
+            .select('id, name, sku, description, category, image_url, stock, price, cost, packaging_cost, additional_costs, shopify_product_id, shopify_variant_id, is_active, sync_status')
             .eq('id', id)
             .single();
 
@@ -1045,7 +1045,7 @@ productsRouter.get('/sync/status', async (req: AuthRequest, res: Response) => {
         // Try using the monitoring view
         const { data: syncIssues, error } = await supabaseAdmin
             .from('v_products_needing_sync_attention')
-            .select('*')
+            .select('id, name, sku, sync_status, hours_since_issue, last_synced_at, updated_at, shopify_product_id')
             .eq('store_id', req.storeId)
             .order('hours_since_issue', { ascending: false })
             .limit(50);
@@ -1208,7 +1208,7 @@ productsRouter.get('/:id/variants', validateUUIDParam('id'), async (req: AuthReq
         // Get variants
         const { data: variants, error } = await supabaseAdmin
             .from('product_variants')
-            .select('*')
+            .select('id, product_id, sku, variant_title, option1_name, option1_value, option2_name, option2_value, option3_name, option3_value, price, cost, stock, image_url, position, shopify_variant_id, is_active, uses_shared_stock, units_per_pack')
             .eq('product_id', id)
             .eq('is_active', true)
             .order('position', { ascending: true });
@@ -1251,7 +1251,9 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
             image_url,
             barcode,
             weight,
-            weight_unit = 'kg'
+            weight_unit = 'kg',
+            uses_shared_stock = true,
+            units_per_pack = 1
         } = req.body;
 
         // Verify product belongs to store
@@ -1271,6 +1273,15 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
             return res.status(400).json({
                 error: 'Validation failed',
                 message: 'variant_title and price are required'
+            });
+        }
+
+        // Validate units_per_pack
+        const parsedUnitsPerPack = parseInt(units_per_pack, 10) || 1;
+        if (parsedUnitsPerPack < 1) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'units_per_pack must be at least 1'
             });
         }
 
@@ -1326,13 +1337,15 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
                 option3_value,
                 price: parseFloat(price),
                 cost: cost ? parseFloat(cost) : null,
-                stock: parseInt(stock, 10) || 0,
+                stock: uses_shared_stock ? 0 : (parseInt(stock, 10) || 0),
                 image_url,
                 barcode,
                 weight: weight ? parseFloat(weight) : null,
                 weight_unit,
                 position: nextPosition,
-                is_active: true
+                is_active: true,
+                uses_shared_stock: uses_shared_stock,
+                units_per_pack: parsedUnitsPerPack
             }])
             .select()
             .single();
@@ -1389,7 +1402,9 @@ productsRouter.put('/:id/variants/:variantId', validateUUIDParam('id'), requireP
             weight,
             weight_unit,
             position,
-            is_active
+            is_active,
+            uses_shared_stock,
+            units_per_pack
         } = req.body;
 
         // Verify variant belongs to product and store
@@ -1425,6 +1440,8 @@ productsRouter.put('/:id/variants/:variantId', validateUUIDParam('id'), requireP
         if (weight_unit !== undefined) updateData.weight_unit = weight_unit;
         if (position !== undefined) updateData.position = position;
         if (is_active !== undefined) updateData.is_active = is_active;
+        if (uses_shared_stock !== undefined) updateData.uses_shared_stock = uses_shared_stock;
+        if (units_per_pack !== undefined) updateData.units_per_pack = Math.max(1, parseInt(units_per_pack, 10) || 1);
 
         // Update variant
         const { data: variant, error } = await supabaseAdmin

@@ -51,7 +51,7 @@ const getHeaders = () => {
 };
 
 export const analyticsService = {
-  getOverview: async (params?: { startDate?: string; endDate?: string }): Promise<DashboardOverview> => {
+  getOverview: async (params?: { startDate?: string; endDate?: string }, signal?: AbortSignal): Promise<DashboardOverview> => {
     try {
       const queryParams = new URLSearchParams();
       if (params?.startDate) queryParams.append('startDate', params.startDate);
@@ -60,6 +60,7 @@ export const analyticsService = {
       const url = `${API_BASE_URL}/analytics/overview${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const response = await fetch(url, {
         headers: getHeaders(),
+        signal,
       });
       if (!response.ok) {
         throw new Error(`Error HTTP: ${response.status}`);
@@ -68,6 +69,10 @@ export const analyticsService = {
       // Merge with defaults to ensure all fields are present
       return { ...defaultOverview, ...result.data };
     } catch (error) {
+      // Re-throw abort errors so callers can handle them
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error;
+      }
       console.error('Error loading overview:', error);
       return defaultOverview;
     }
@@ -287,10 +292,11 @@ export const analyticsService = {
    * Returns only minimal fields needed - avoids loading full order details
    * Much faster than loading full orders/products/ads/carriers separately
    */
-  getNotificationData: async (): Promise<NotificationData | null> => {
+  getNotificationData: async (signal?: AbortSignal): Promise<NotificationData | null> => {
     try {
       const response = await fetch(`${API_BASE_URL}/analytics/notification-data`, {
         headers: getHeaders(),
+        signal,
       });
       if (!response.ok) {
         throw new Error(`Error HTTP: ${response.status}`);
@@ -298,6 +304,10 @@ export const analyticsService = {
       const result = await response.json();
       return result.data || null;
     } catch (error) {
+      // Re-throw abort errors so callers can handle them
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error;
+      }
       console.error('Error loading notification data:', error);
       return null;
     }

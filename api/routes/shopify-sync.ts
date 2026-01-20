@@ -30,7 +30,7 @@ shopifySyncRouter.use(requireModule(Module.INTEGRATIONS));
 const getShopifyIntegration = async (storeId: string) => {
   const { data, error } = await supabaseAdmin
     .from('shopify_integrations')
-    .select('*')
+    .select('id, shop_domain, access_token, status')
     .eq('store_id', storeId)
     .eq('status', 'active')
     .single();
@@ -353,10 +353,10 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
     // Create sync log
     logId = await createSyncLog(req.storeId!, 'inventory', 'export');
 
-    // Get all products with Shopify IDs
+    // Get all products with Shopify IDs - only fields needed for inventory sync
     const { data: products, error: productsError } = await supabaseAdmin
       .from('products')
-      .select('*')
+      .select('id, name, stock, shopify_variant_id')
       .eq('store_id', req.storeId)
       .not('shopify_variant_id', 'is', null);
 
@@ -440,14 +440,14 @@ shopifySyncRouter.get('/sync/status', async (req: AuthRequest, res: Response) =>
     // Get sync config
     const { data: config } = await supabaseAdmin
       .from('shopify_sync_config')
-      .select('*')
+      .select('auto_sync_inventory, sync_frequency, last_sync_products, last_sync_customers, products_synced_count, customers_synced_count')
       .eq('store_id', req.storeId)
       .single();
 
     // Get recent sync logs
     const { data: recentLogs } = await supabaseAdmin
       .from('shopify_sync_logs')
-      .select('*')
+      .select('id, sync_type, direction, status, items_processed, items_success, items_failed, started_at, completed_at, created_at')
       .eq('store_id', req.storeId)
       .order('created_at', { ascending: false })
       .limit(5);

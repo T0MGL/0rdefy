@@ -161,6 +161,61 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 **Image Upload:** Currently NOT supported - only accepts external URLs. Products without images use placeholder.
 
+### Product Variants & Bundles System (NEW: Jan 2026)
+**Files:** `src/components/ProductVariantsManager.tsx`, `api/routes/products.ts`, `db/migrations/086_product_variants_system.sql`, `db/migrations/087_shared_stock_bundles.sql`
+
+**Use Cases:**
+- **Bundles:** Same product in packs of 1, 2, 3+ units (e.g., NOCTE Glasses Personal/Pareja/Oficina)
+- **Sizes:** S, M, L, XL
+- **Colors:** Red, Blue, Green
+- **Combinations:** Size + Color
+
+**Architecture:**
+- `products` table: Parent product with total physical stock
+- `product_variants` table: Individual variants with SKU, price, units_per_pack
+- **Shared Stock Mode:** All variants draw from parent's stock pool
+- **Independent Stock Mode:** Each variant has its own stock (backwards compatible)
+
+**How Shared Stock Works:**
+```
+Product: NOCTE Glasses, stock = 150 physical units
+Variant "Personal": units_per_pack = 1, available = 150 packs
+Variant "Pareja": units_per_pack = 2, available = 75 packs
+Variant "Oficina": units_per_pack = 3, available = 50 packs
+
+When selling 1x "Pareja" pack: deducts 2 units from parent (150 → 148)
+```
+
+**API Endpoints:**
+- `GET /api/products/:id/variants` - List variants with calculated availability
+- `POST /api/products/:id/variants` - Create variant (with uses_shared_stock, units_per_pack)
+- `PUT /api/products/:id/variants/:variantId` - Update variant
+- `DELETE /api/products/:id/variants/:variantId` - Delete variant
+
+**Database Functions (Migration 087):**
+- `deduct_shared_stock_for_variant(variant_id, qty, order_id)` - Deduct stock on order ship
+- `restore_shared_stock_for_variant(variant_id, qty, order_id)` - Restore on cancel/return
+- `get_variant_available_stock(variant_id)` - Calculate available packs
+- `adjust_variant_stock(variant_id, qty_change, type)` - Manual stock adjustment
+- `enable_shared_stock_for_product(product_id)` - Batch enable shared stock
+
+**Tables:**
+- `product_variants`: id, product_id, store_id, sku, variant_title, price, cost, stock, uses_shared_stock, units_per_pack, is_active, position
+- `order_line_items.variant_id` - Links orders to specific variants
+- `inventory_movements.variant_id` - Tracks stock changes per variant
+
+**Views:**
+- `v_variants_with_availability` - Variants with calculated available stock
+- `v_products_with_variants` - Products with variant summary (min/max price, total stock)
+
+**UI Component:** ProductVariantsManager dialog with:
+- Visual stock summary card showing physical units and packs per variant
+- Form with tooltips explaining each field
+- Live preview of stock calculations
+- Table with availability badges
+
+**Backward Compatible:** Existing products without variants continue working unchanged.
+
 ### Warehouse (Picking & Packing)
 **Files:** `src/pages/Warehouse.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`, `079_atomic_packing_increment.sql`
 **Documentation:** `WAREHOUSE_PACKING_RACE_FIX.md`
@@ -861,3 +916,5 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 077: **NEW:** Configurable failed attempt fee percentage (carriers.failed_attempt_fee_percent, replaces hardcoded 50%)
 - 078: **NEW:** Invitation race condition fix (atomic acceptance with row-level locking, prevents duplicate users and plan bypass)
 - 079: **NEW:** Atomic packing increment fallback (increment_packing_quantity RPC - prevents race conditions in concurrent packing)
+- 086: **NEW:** Product variants system (variants table, SKU per variant, variant stock tracking, RLS policies)
+- 087: **NEW:** Shared stock bundles (uses_shared_stock, units_per_pack, shared stock deduction/restoration functions)

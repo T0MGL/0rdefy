@@ -445,7 +445,7 @@ couriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
         // Fetch zones
         const { data: zones, error: zonesError } = await supabaseAdmin
             .from('carrier_zones')
-            .select('*')
+            .select('id, carrier_id, zone_name, zone_code, rate, is_active, created_at')
             .eq('carrier_id', id)
             .eq('store_id', req.storeId)
             .order('zone_name', { ascending: true });
@@ -658,10 +658,10 @@ couriersRouter.get('/:id/zones/calculate', async (req: AuthRequest, res: Respons
 
         logger.info('API', `💰 [COURIERS] Calculating shipping cost for courier ${id}, zone: ${zone_name}`);
 
-        // Get zone rate
+        // Get zone rate - only fields needed for calculation
         const { data: zone, error } = await supabaseAdmin
             .from('carrier_zones')
-            .select('*')
+            .select('id, zone_name, zone_code, rate')
             .eq('carrier_id', id)
             .eq('zone_name', zone_name)
             .eq('is_active', true)

@@ -45,7 +45,31 @@ class NotificationsService {
     this.loadPreferences();
     this.loadDismissed();
     this.initBroadcastChannel();
+    this.setupCleanupListeners();
   }
+
+  /**
+   * Setup cleanup listeners for page unload
+   */
+  private setupCleanupListeners(): void {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', this.handleBeforeUnload);
+    }
+  }
+
+  /**
+   * Handle page unload - cleanup resources before tab closes
+   * Note: No need to removeEventListener here since the page is unloading
+   */
+  private handleBeforeUnload = (): void => {
+    // Close BroadcastChannel to notify other tabs
+    if (this.channel) {
+      this.channel.close();
+      this.channel = null;
+    }
+    // Clear listeners to release references
+    this.listeners.clear();
+  };
 
   /**
    * Initialize BroadcastChannel for cross-tab synchronization
@@ -492,9 +516,13 @@ class NotificationsService {
   }
 
   /**
-   * Cleanup method
+   * Cleanup method - closes BroadcastChannel and removes event listeners
+   * Use this for programmatic cleanup (e.g., in tests or when replacing the service)
    */
   destroy(): void {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', this.handleBeforeUnload);
+    }
     if (this.channel) {
       this.channel.close();
       this.channel = null;

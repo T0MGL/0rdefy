@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, Role } from '@/contexts/AuthContext';
 import type { Carrier } from '@/services/carriers.service';
@@ -427,6 +427,9 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
   const navigate = useNavigate();
   const { permissions } = useAuth();
 
+  // Track transition timeouts for cleanup
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [state, setState] = useState<DemoTourState>({
     isActive: false,
     currentStepIndex: 0,
@@ -443,6 +446,15 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
   const currentStep = state.isActive ? steps[state.currentStepIndex] : null;
   const totalSteps = steps.length;
   const progress = totalSteps > 0 ? ((state.currentStepIndex + 1) / totalSteps) * 100 : 0;
+
+  // Cleanup transition timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Load persisted state on mount
   useEffect(() => {
@@ -536,8 +548,11 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
       };
     });
 
-    // Reset transitioning after animation
-    setTimeout(() => {
+    // Reset transitioning after animation (with cleanup)
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+    transitionTimeoutRef.current = setTimeout(() => {
       setState(prev => ({ ...prev, isTransitioning: false }));
     }, 300);
   }, [permissions.currentRole]);
@@ -553,7 +568,11 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
       };
     });
 
-    setTimeout(() => {
+    // Reset transitioning after animation (with cleanup)
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+    transitionTimeoutRef.current = setTimeout(() => {
       setState(prev => ({ ...prev, isTransitioning: false }));
     }, 300);
   }, []);
@@ -568,7 +587,11 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
       isTransitioning: true,
     }));
 
-    setTimeout(() => {
+    // Reset transitioning after animation (with cleanup)
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+    transitionTimeoutRef.current = setTimeout(() => {
       setState(prev => ({ ...prev, isTransitioning: false }));
     }, 300);
   }, [permissions.currentRole, state.path]);

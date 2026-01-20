@@ -88,13 +88,16 @@ class ExportService {
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${filename}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${filename}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } finally {
+      window.URL.revokeObjectURL(url);
+    }
   }
 
   /**
@@ -243,13 +246,16 @@ class ExportService {
   private downloadFile(content: string, filename: string, mimeType: string): void {
     const blob = new Blob([content], { type: mimeType });
     const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } finally {
+      window.URL.revokeObjectURL(url);
+    }
   }
 }
 

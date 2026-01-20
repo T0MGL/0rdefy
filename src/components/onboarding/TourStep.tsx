@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useOnboardingTour, TourStep as TourStepType } from '@/contexts/OnboardingTourContext';
 import { Button } from '@/components/ui/button';
@@ -32,121 +32,172 @@ export function TourStepTooltip() {
 
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition>({});
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const intersectionObserverRef = useRef<IntersectionObserver | null>(null);
 
   const currentStep = currentTour?.steps[currentStepIndex];
   const isFirstStep = currentStepIndex === 0;
   const isLastStep = currentTour ? currentStepIndex === currentTour.steps.length - 1 : false;
   const totalSteps = currentTour?.steps.length || 0;
 
-  // Find target element and calculate position
+  // Memoized position calculation to avoid recreating on every render
+  const calculatePosition = useCallback((element: Element, placement: string) => {
+    const rect = element.getBoundingClientRect();
+    const tooltipWidth = 400;
+    const tooltipHeight = 250;
+    const padding = 16;
+    const arrowOffset = 24;
+
+    let position: TooltipPosition = {};
+
+    switch (placement) {
+      case 'top':
+        position = {
+          bottom: window.innerHeight - rect.top + arrowOffset,
+          left: Math.max(
+            padding,
+            Math.min(
+              rect.left + rect.width / 2 - tooltipWidth / 2,
+              window.innerWidth - tooltipWidth - padding
+            )
+          ),
+        };
+        break;
+
+      case 'bottom':
+        position = {
+          top: rect.bottom + arrowOffset,
+          left: Math.max(
+            padding,
+            Math.min(
+              rect.left + rect.width / 2 - tooltipWidth / 2,
+              window.innerWidth - tooltipWidth - padding
+            )
+          ),
+        };
+        break;
+
+      case 'left':
+        position = {
+          top: Math.max(
+            padding,
+            Math.min(
+              rect.top + rect.height / 2 - tooltipHeight / 2,
+              window.innerHeight - tooltipHeight - padding
+            )
+          ),
+          right: window.innerWidth - rect.left + arrowOffset,
+        };
+        break;
+
+      case 'right':
+        position = {
+          top: Math.max(
+            padding,
+            Math.min(
+              rect.top + rect.height / 2 - tooltipHeight / 2,
+              window.innerHeight - tooltipHeight - padding
+            )
+          ),
+          left: rect.right + arrowOffset,
+        };
+        break;
+
+      default:
+        position = {
+          top: rect.bottom + arrowOffset,
+          left: Math.max(
+            padding,
+            Math.min(
+              rect.left + rect.width / 2 - tooltipWidth / 2,
+              window.innerWidth - tooltipWidth - padding
+            )
+          ),
+        };
+    }
+
+    return { rect, position };
+  }, []);
+
+  // Find target element and calculate position using observers instead of polling
   useEffect(() => {
     if (!isActive || !currentStep) {
       setTargetRect(null);
       return;
     }
 
-    const updatePosition = () => {
-      // Center placement - position in middle of screen
-      if (currentStep.placement === 'center' || currentStep.target === 'center') {
-        setTargetRect(null);
-        setTooltipPosition({
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-        });
-        return;
-      }
+    // Center placement - position in middle of screen
+    if (currentStep.placement === 'center' || currentStep.target === 'center') {
+      setTargetRect(null);
+      setTooltipPosition({
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+      });
+      return;
+    }
 
-      const element = document.querySelector(currentStep.target);
-      if (!element) return;
+    const element = document.querySelector(currentStep.target);
+    if (!element) return;
 
-      const rect = element.getBoundingClientRect();
+    const placement = currentStep.placement || 'bottom';
+
+    // Initial position calculation
+    const { rect, position } = calculatePosition(element, placement);
+    setTargetRect(rect);
+    setTooltipPosition(position);
+
+    // ResizeObserver for element size changes
+    resizeObserverRef.current = new ResizeObserver(() => {
+      const { rect, position } = calculatePosition(element, placement);
       setTargetRect(rect);
-
-      const tooltipWidth = 400;
-      const tooltipHeight = 250; // Estimated
-      const padding = 16;
-      const arrowOffset = 24;
-
-      let position: TooltipPosition = {};
-
-      // Calculate best placement
-      const placement = currentStep.placement || 'bottom';
-
-      switch (placement) {
-        case 'top':
-          position = {
-            bottom: window.innerHeight - rect.top + arrowOffset,
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                window.innerWidth - tooltipWidth - padding
-              )
-            ),
-          };
-          break;
-
-        case 'bottom':
-          position = {
-            top: rect.bottom + arrowOffset,
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                window.innerWidth - tooltipWidth - padding
-              )
-            ),
-          };
-          break;
-
-        case 'left':
-          position = {
-            top: Math.max(
-              padding,
-              Math.min(
-                rect.top + rect.height / 2 - tooltipHeight / 2,
-                window.innerHeight - tooltipHeight - padding
-              )
-            ),
-            right: window.innerWidth - rect.left + arrowOffset,
-          };
-          break;
-
-        case 'right':
-          position = {
-            top: Math.max(
-              padding,
-              Math.min(
-                rect.top + rect.height / 2 - tooltipHeight / 2,
-                window.innerHeight - tooltipHeight - padding
-              )
-            ),
-            left: rect.right + arrowOffset,
-          };
-          break;
-
-        default:
-          position = {
-            top: rect.bottom + arrowOffset,
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                window.innerWidth - tooltipWidth - padding
-              )
-            ),
-          };
-      }
-
       setTooltipPosition(position);
+    });
+    resizeObserverRef.current.observe(element);
+
+    // IntersectionObserver for visibility/position changes (handles scroll)
+    intersectionObserverRef.current = new IntersectionObserver(
+      () => {
+        const { rect, position } = calculatePosition(element, placement);
+        setTargetRect(rect);
+        setTooltipPosition(position);
+      },
+      { threshold: [0, 0.1, 0.5, 0.9, 1] }
+    );
+    intersectionObserverRef.current.observe(element);
+
+    // Window resize handler (throttled via RAF)
+    let rafId: number;
+    const handleResize = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const { rect, position } = calculatePosition(element, placement);
+        setTargetRect(rect);
+        setTooltipPosition(position);
+      });
     };
 
-    updatePosition();
-    const interval = setInterval(updatePosition, 100);
+    // Scroll handler (throttled via RAF)
+    const handleScroll = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const { rect, position } = calculatePosition(element, placement);
+        setTargetRect(rect);
+        setTooltipPosition(position);
+      });
+    };
 
-    return () => clearInterval(interval);
-  }, [isActive, currentStep, currentStepIndex]);
+    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+
+    return () => {
+      resizeObserverRef.current?.disconnect();
+      intersectionObserverRef.current?.disconnect();
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleScroll, { capture: true } as EventListenerOptions);
+      cancelAnimationFrame(rafId);
+    };
+  }, [isActive, currentStep, currentStepIndex, calculatePosition]);
 
   // Keyboard navigation
   useEffect(() => {

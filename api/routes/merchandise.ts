@@ -440,7 +440,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
     // Get updated shipment with items
     const { data: updatedShipment } = await supabaseAdmin
       .from('inbound_shipments_summary')
-      .select('*')
+      .select('id, reference, supplier_id, status, total_qty, received_qty, rejected_qty, notes, expected_date, created_at, updated_at')
       .eq('id', id)
       .single();
 
@@ -452,7 +452,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
     // Check if we have an active Shopify integration
     const { data: integration } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('*')
+      .select('id, shop_domain, access_token, status')
       .eq('store_id', req.storeId)
       .eq('status', 'active')
       .maybeSingle();

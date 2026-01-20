@@ -41,10 +41,10 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
       ? new Date(start_date as string)
       : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // Get all orders in range
+    // Get all orders in range - only fields needed for calculations
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from('orders')
-      .select('*')
+      .select('id, sleeves_status, payment_status, total_price, delivery_attempts, created_at, updated_at')
       .eq('store_id', req.storeId)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString());
@@ -149,14 +149,14 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
   try {
     const { days = '7' } = req.query;
 
-    logger.info('API', '📅 [COD-METRICS] Fetching daily breakdown for', days, 'days');
+    logger.info('API', `📅 [COD-METRICS] Fetching daily breakdown for ${days} days`);
 
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - parseInt(days as string, 10) * 24 * 60 * 60 * 1000);
 
     const { data: orders, error } = await supabaseAdmin
       .from('orders')
-      .select('created_at, status, payment_status, total_price')
+      .select('created_at, sleeves_status, payment_status, total_price')
       .eq('store_id', req.storeId)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString());

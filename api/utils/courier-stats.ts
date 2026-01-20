@@ -16,7 +16,7 @@ export async function calculateCourierDeliveryRate(courierId: string) {
   try {
     const { data, error } = await supabaseAdmin
       .from('courier_performance')
-      .select('*')
+      .select('id, name, total_deliveries, successful_deliveries, failed_deliveries, delivery_rate, assigned_orders, delivered_orders, pending_orders, avg_delivery_time_hours')
       .eq('id', courierId)
       .single();
 
@@ -52,7 +52,7 @@ export async function getCourierPerformanceByStore(storeId: string) {
   try {
     const { data, error } = await supabaseAdmin
       .from('courier_performance')
-      .select('*')
+      .select('id, name, phone, store_id, total_deliveries, successful_deliveries, failed_deliveries, failed_orders, delivery_rate, assigned_orders, delivered_orders, pending_orders, avg_delivery_time_hours')
       .eq('store_id', storeId)
       .order('delivery_rate', { ascending: false });
 
@@ -91,7 +91,7 @@ export async function getTopCouriers(storeId: string, limit: number = 5) {
   try {
     const { data, error } = await supabaseAdmin
       .from('courier_performance')
-      .select('*')
+      .select('id, name, phone, delivery_rate, total_deliveries, successful_deliveries, avg_delivery_time_hours')
       .eq('store_id', storeId)
       .gte('total_deliveries', 5) // Only include couriers with at least 5 deliveries
       .order('delivery_rate', { ascending: false })
@@ -127,7 +127,7 @@ export async function getUnderperformingCouriers(storeId: string, threshold: num
   try {
     const { data, error } = await supabaseAdmin
       .from('courier_performance')
-      .select('*')
+      .select('id, name, phone, delivery_rate, total_deliveries, failed_deliveries, pending_orders')
       .eq('store_id', storeId)
       .gte('total_deliveries', 5) // Only include couriers with at least 5 deliveries
       .lt('delivery_rate', threshold)

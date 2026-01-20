@@ -1766,7 +1766,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
         // Get return sessions for more detailed metrics
         const { data: returnSessions, error: sessionsError } = await supabaseAdmin
             .from('return_sessions')
-            .select('*')
+            .select('id, status, created_at')
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString());

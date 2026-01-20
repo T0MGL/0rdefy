@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth } from '@/contexts/AuthContext';
@@ -80,14 +80,31 @@ export function Header() {
     return unsubscribe;
   }, []);
 
-  // Load data for notifications and alerts - memoized to prevent stale closures
-  const loadData = useCallback(async () => {
+  // Track if a request is in flight to prevent concurrent requests
+  const isLoadingRef = useRef(false);
+  // Track current AbortController for cleanup
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Load data for notifications and alerts - with abort support
+  const loadData = useCallback(async (signal?: AbortSignal) => {
+    // Prevent concurrent requests
+    if (isLoadingRef.current) {
+      return;
+    }
+
+    isLoadingRef.current = true;
+
     try {
       // Use new lightweight notification data endpoint + overview for alerts
       const [notificationData, overviewData] = await Promise.all([
-        analyticsService.getNotificationData(),
-        analyticsService.getOverview(),
+        analyticsService.getNotificationData(signal),
+        analyticsService.getOverview(undefined, signal),
       ]);
+
+      // Check if aborted before updating state
+      if (signal?.aborted) {
+        return;
+      }
 
       setOverview(overviewData);
 
@@ -113,17 +130,39 @@ export function Header() {
         setUnreadCount(0);
       }
     } catch (error) {
+      // Ignore abort errors - they're expected on cleanup
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
       logger.error('Error loading header data:', error);
+    } finally {
+      isLoadingRef.current = false;
     }
   }, [hasSmartAlerts]);
 
-  // Load data on mount and every 5 minutes
+  // Load data on mount and every 5 minutes with proper cleanup
   useEffect(() => {
-    loadData();
+    // Create abort controller for this effect lifecycle
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    // Initial load
+    loadData(abortController.signal);
 
     // Refresh data every 5 minutes (optimized from 30 seconds)
-    const interval = setInterval(loadData, 300000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      // Only start new request if not aborted
+      if (!abortController.signal.aborted) {
+        loadData(abortController.signal);
+      }
+    }, 300000);
+
+    return () => {
+      // Abort any in-flight requests
+      abortController.abort();
+      abortControllerRef.current = null;
+      clearInterval(interval);
+    };
   }, [loadData]); // Now properly tracks loadData changes
 
   // Only generate alerts if user has smart_alerts feature

@@ -330,10 +330,10 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
 
         logger.info('API', '📅 [INCIDENTS] Scheduling retry for incident:', id);
 
-        // Get incident
+        // Get incident - only fields needed for retry scheduling
         const { data: incident, error: fetchError } = await supabaseAdmin
             .from('delivery_incidents')
-            .select('*')
+            .select('id, status, current_retry_count, max_retry_attempts')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
