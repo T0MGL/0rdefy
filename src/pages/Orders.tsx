@@ -948,13 +948,24 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
       }
 
-      // Update status to in_transit
-      const transitOrder = await ordersService.updateStatus(orderId, 'in_transit');
-      if (transitOrder) {
-        setOrders(prev => prev.map(o => o.id === orderId ? transitOrder : o));
+      // IMPORTANT: Only auto-transition to in_transit for plans WITHOUT warehouse/dispatch
+      // Plans with warehouse feature use dispatch sessions to control the in_transit transition
+      if (!hasWarehouseFeature) {
+        // Free plan: simplified flow, print = mark as in transit
+        const transitOrder = await ordersService.updateStatus(orderId, 'in_transit');
+        if (transitOrder) {
+          setOrders(prev => prev.map(o => o.id === orderId ? transitOrder : o));
+          toast({
+            title: 'Pedido en tránsito',
+            description: 'El pedido ha sido marcado como en tránsito',
+          });
+        }
+      } else {
+        // Paid plans with warehouse: printing just marks as printed
+        // Status transitions are handled by dispatch sessions
         toast({
-          title: 'Pedido en tránsito',
-          description: 'El pedido ha sido marcado como en tránsito',
+          title: 'Etiqueta impresa',
+          description: 'Usa el sistema de Despacho para enviar los pedidos',
         });
       }
     } catch (error) {
@@ -965,7 +976,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         entity: 'pedido',
       });
     }
-  }, [toast]);
+  }, [toast, hasWarehouseFeature]);
 
   const handlePrintLabel = useCallback(async (order: Order) => {
     // Use PDF system directly (same as confirmation dialog)
@@ -1111,7 +1122,9 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
       } else {
         toast({
           title: '✅ Impresión completada',
-          description: `${result.data.succeeded} pedidos marcados como listos para despacho`,
+          description: hasWarehouseFeature
+            ? `${result.data.succeeded} etiquetas impresas. Usa el sistema de Despacho para enviar los pedidos.`
+            : `${result.data.succeeded} pedidos marcados como listos para despacho`,
         });
       }
 
@@ -1129,7 +1142,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
     } finally {
       setIsPrinting(false);
     }
-  }, [orders, selectedOrderIds, currentStore, getCarrierName, toast]);
+  }, [orders, selectedOrderIds, currentStore, getCarrierName, toast, hasWarehouseFeature]);
 
   if (isLoading) {
     return (
@@ -1899,11 +1912,14 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
               initialData={{
                 customer: orderToEdit.customer,
                 phone: orderToEdit.phone,
-                address: (orderToEdit as any).address || '',
-                product: orderToEdit.product,
+                address: (orderToEdit as any).address || orderToEdit.customer_address || '',
+                // Get first product_id from order_line_items if available
+                product: orderToEdit.order_line_items?.[0]?.product_id || '',
                 quantity: orderToEdit.quantity,
-                carrier: orderToEdit.carrier,
-                paymentMethod: (orderToEdit as any).paymentMethod || 'pending',
+                // Use carrier_id (UUID) instead of carrier name
+                carrier: orderToEdit.carrier_id || '',
+                // Map payment_method: 'cash'/'efectivo' → 'cod', else → 'paid'
+                paymentMethod: (['cash', 'efectivo', 'cod'].includes(orderToEdit.payment_method?.toLowerCase() || '')) ? 'cod' : 'paid',
               }}
               onSubmit={handleUpdateOrder}
               onCancel={() => {

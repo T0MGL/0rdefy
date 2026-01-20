@@ -1028,6 +1028,28 @@ export async function getPackingList(
         }
       });
 
+      // CRITICAL FIX: Include orphaned packing_progress records that don't have corresponding line items
+      // This prevents the UI from showing "complete" when there are actually unpacked items
+      packingProgress?.forEach((p: any) => {
+        if (p.order_id !== order.id) return;
+
+        // Check if this packing_progress was already included via orderItems
+        const existing = aggregatedItemsMap.get(p.product_id);
+        if (!existing) {
+          // This is an orphaned packing_progress record - include it so UI shows correct state
+          const orphanProduct = jsonbProductsMap.get(p.product_id);
+          aggregatedItemsMap.set(p.product_id, {
+            product_id: p.product_id,
+            product_name: orphanProduct?.name || p.products?.name || 'Producto (huérfano)',
+            product_image: orphanProduct?.image_url || '',
+            quantity_needed: p.quantity_needed,
+            quantity_packed: p.quantity_packed
+          });
+        }
+        // Note: If the product already exists in aggregatedItemsMap (from orderItems),
+        // it was already processed with its packing_progress data, so no need to update
+      });
+
       const items = Array.from(aggregatedItemsMap.values());
 
       const is_complete = items.length > 0 && items.every(item => item.quantity_packed >= item.quantity_needed);
@@ -1739,33 +1761,46 @@ export async function completeSession(
       throw new Error('Session does not belong to this store');
     }
 
-    // Get all packing progress for this session with product details
+    // Get all packing progress for this session (direct query, no JOINs to avoid orphan issues)
     const { data: packingProgress, error: progressError } = await supabaseAdmin
       .from('packing_progress')
-      .select(`
-        *,
-        products:product_id (name, sku),
-        orders:order_id (shopify_order_number)
-      `)
+      .select('*')
       .eq('picking_session_id', sessionId);
 
     if (progressError) throw progressError;
 
-    // Verify all items are fully packed
+    // Verify all items are fully packed (raw check without JOINs)
     const notPacked = packingProgress?.filter(
       p => p.quantity_packed < p.quantity_needed
     );
 
     if (notPacked && notPacked.length > 0) {
+      // Fetch product and order details for better error messages (use LEFT JOIN logic via separate queries)
+      const productIds = Array.from(new Set(notPacked.map(p => p.product_id)));
+      const orderIds = Array.from(new Set(notPacked.map(p => p.order_id)));
+
+      const [productsResult, ordersResult] = await Promise.all([
+        supabaseAdmin.from('products').select('id, name, sku').in('id', productIds),
+        supabaseAdmin.from('orders').select('id, shopify_order_number').in('id', orderIds)
+      ]);
+
+      const productMap = new Map((productsResult.data || []).map(p => [p.id, p]));
+      const orderMap = new Map((ordersResult.data || []).map(o => [o.id, o]));
+
       // Build detailed error message
       const itemsList = notPacked.slice(0, 5).map((p: any) => {
-        const productName = p.products?.name || 'Producto desconocido';
-        const sku = p.products?.sku || 'N/A';
-        const orderNumber = p.orders?.shopify_order_number || p.order_id?.slice(0, 8) || 'UNKNOWN';
+        const product = productMap.get(p.product_id);
+        const order = orderMap.get(p.order_id);
+        const productName = product?.name || 'Producto desconocido (puede haber sido eliminado)';
+        const sku = product?.sku || 'N/A';
+        const orderNumber = order?.shopify_order_number || p.order_id?.slice(0, 8) || 'UNKNOWN';
         return `• ${productName} (SKU: ${sku}) - Pedido: ${orderNumber} - Empacado: ${p.quantity_packed}/${p.quantity_needed}`;
       }).join('\n');
 
       const moreItems = notPacked.length > 5 ? `\n... y ${notPacked.length - 5} items más` : '';
+
+      // Log for debugging
+      logger.warn('WAREHOUSE', `Session ${sessionId} has ${notPacked.length} unpacked items:`, notPacked);
 
       throw new Error(
         `⚠️ No se puede completar la sesión\n\n` +

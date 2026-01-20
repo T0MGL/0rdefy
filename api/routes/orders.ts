@@ -1145,13 +1145,28 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     const productId = item.product_id || null;
                     let imageUrl = null;
 
+                    console.log('📦 [ORDER CREATE] Processing line item:', {
+                        product_id: productId,
+                        product_name: item.product_name,
+                        name: item.name,
+                        title: item.title
+                    });
+
                     if (productId) {
-                        const { data: product } = await supabaseAdmin
+                        const { data: product, error: productError } = await supabaseAdmin
                             .from('products')
-                            .select('id, image_url')
+                            .select('id, name, image_url')
                             .eq('id', productId)
                             .eq('store_id', req.storeId)
                             .maybeSingle();
+
+                        console.log('📦 [ORDER CREATE] Product lookup result:', {
+                            product_id: productId,
+                            found: !!product,
+                            product_name: product?.name,
+                            image_url: product?.image_url,
+                            error: productError?.message
+                        });
 
                         if (product) {
                             imageUrl = product.image_url;
@@ -1161,7 +1176,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     normalizedLineItems.push({
                         order_id: data.id,
                         product_id: productId,
-                        product_name: item.name || item.title || 'Producto',
+                        product_name: item.product_name || item.name || item.title || 'Producto',
                         variant_title: item.variant_title || null,
                         sku: item.sku || null,
                         quantity: safeNumber(item.quantity, 1),
@@ -1171,14 +1186,17 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     });
                 }
 
+                console.log('📦 [ORDER CREATE] Inserting line items:', normalizedLineItems);
+
                 if (normalizedLineItems.length > 0) {
                     const { error: lineItemsError } = await supabaseAdmin
                         .from('order_line_items')
                         .insert(normalizedLineItems);
 
                     if (lineItemsError) {
-                        // Non-blocking: order is created, line items are optional for display
+                        console.error('❌ [ORDER CREATE] Line items insert error:', lineItemsError);
                     } else {
+                        console.log('✅ [ORDER CREATE] Line items inserted successfully');
                     }
                 }
             } catch (lineItemsErr) {
@@ -1221,8 +1239,27 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             shipping_cost,
             currency,
             upsell_added,
+            courier_id,
+            payment_method,
+            payment_status,
             version // Optimistic locking: client sends current version
         } = req.body;
+
+        // ================================================================
+        // CRITICAL: Fetch existing order to detect label-critical changes
+        // ================================================================
+        const { data: existingOrder, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('customer_phone, customer_address, customer_first_name, customer_last_name, courier_id, payment_method, printed')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (fetchError || !existingOrder) {
+            return res.status(404).json({
+                error: 'Order not found'
+            });
+        }
 
         // Build update object with only provided fields
         const updateData: any = {
@@ -1230,14 +1267,32 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             last_modified_by: req.user?.id || null
         };
 
+        // Track if any label-critical field is changing
+        let labelDataChanged = false;
+
         if (customer_email !== undefined) updateData.customer_email = customer_email;
-        if (customer_phone !== undefined) updateData.customer_phone = customer_phone;
-        if (customer_first_name !== undefined) updateData.customer_first_name = customer_first_name;
-        if (customer_last_name !== undefined) updateData.customer_last_name = customer_last_name;
-        if (customer_address !== undefined) updateData.customer_address = customer_address;
+        if (customer_phone !== undefined) {
+            updateData.customer_phone = customer_phone;
+            if (customer_phone !== existingOrder.customer_phone) labelDataChanged = true;
+        }
+        if (customer_first_name !== undefined) {
+            updateData.customer_first_name = customer_first_name;
+            if (customer_first_name !== existingOrder.customer_first_name) labelDataChanged = true;
+        }
+        if (customer_last_name !== undefined) {
+            updateData.customer_last_name = customer_last_name;
+            if (customer_last_name !== existingOrder.customer_last_name) labelDataChanged = true;
+        }
+        if (customer_address !== undefined) {
+            updateData.customer_address = customer_address;
+            if (customer_address !== existingOrder.customer_address) labelDataChanged = true;
+        }
         if (billing_address !== undefined) updateData.billing_address = billing_address;
         if (shipping_address !== undefined) updateData.shipping_address = shipping_address;
-        if (line_items !== undefined) updateData.line_items = line_items;
+        if (line_items !== undefined) {
+            updateData.line_items = line_items;
+            labelDataChanged = true; // Products changed = label needs update
+        }
         if (total_price !== undefined) updateData.total_price = safeNumber(total_price, 0);
         if (subtotal_price !== undefined) updateData.subtotal_price = safeNumber(subtotal_price, 0);
         if (total_tax !== undefined) updateData.total_tax = safeNumber(total_tax, 0);
@@ -1245,6 +1300,31 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         if (shipping_cost !== undefined) updateData.shipping_cost = safeNumber(shipping_cost, 0);
         if (currency !== undefined) updateData.currency = currency;
         if (upsell_added !== undefined) updateData.upsell_added = upsell_added;
+
+        // Handle courier_id (carrier)
+        if (courier_id !== undefined) {
+            updateData.courier_id = courier_id;
+            if (courier_id !== existingOrder.courier_id) labelDataChanged = true;
+        }
+
+        // Handle payment_method and payment_status (critical for COD vs Prepaid labels)
+        if (payment_method !== undefined) {
+            updateData.payment_method = payment_method;
+            if (payment_method !== existingOrder.payment_method) labelDataChanged = true;
+        }
+        if (payment_status !== undefined) {
+            updateData.payment_status = payment_status;
+        }
+
+        // ================================================================
+        // CRITICAL: Invalidate printed label if label-critical data changed
+        // This forces re-printing with updated info
+        // ================================================================
+        if (labelDataChanged && existingOrder.printed) {
+            updateData.printed = false;
+            updateData.printed_at = null;
+            updateData.printed_by = null;
+        }
 
         // Build query with optimistic locking if version provided
         let query = supabaseAdmin
@@ -1312,12 +1392,16 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             id: data.id,
             customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
             address: data.customer_address || '',
+            customer_address: data.customer_address || '',
             product: firstItem?.product_name || firstItem?.title || 'Producto',
             quantity: totalQuantity || 1,
             total: data.total_price || 0,
+            total_price: data.total_price || 0,
             status: mapStatus(data.sleeves_status),
             payment_status: data.payment_status,
+            payment_method: data.payment_method,
             carrier: data.carriers?.name || 'Sin transportadora',
+            carrier_id: data.courier_id,
             date: data.created_at,
             phone: data.customer_phone || '',
             confirmedByWhatsApp: data.sleeves_status === 'confirmed' || data.sleeves_status === 'shipped' || data.sleeves_status === 'delivered',
@@ -1327,7 +1411,13 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             delivery_link_token: data.delivery_link_token,
             latitude: data.latitude,
             longitude: data.longitude,
-            version: data.version // Include version for optimistic locking
+            version: data.version, // Include version for optimistic locking
+            // Print tracking fields
+            printed: data.printed,
+            printed_at: data.printed_at,
+            printed_by: data.printed_by,
+            // Line items for edit dialog
+            order_line_items: lineItems
         };
 
         res.json(transformedData);

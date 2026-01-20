@@ -177,10 +177,16 @@ export const ordersService = {
         }
       }
 
+      // Send courier_id as UUID (not shipping_address.company)
       if (data.carrier) {
-        backendData.shipping_address = {
-          company: data.carrier
-        };
+        backendData.courier_id = data.carrier;
+      }
+
+      // Send payment_method: 'cod' → 'cash', 'paid' → 'online'
+      if ((data as any).paymentMethod) {
+        backendData.payment_method = (data as any).paymentMethod === 'cod' ? 'cash' : 'online';
+        // Update payment_status to match: COD = pending, paid = collected
+        backendData.payment_status = (data as any).paymentMethod === 'cod' ? 'pending' : 'collected';
       }
 
       const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
