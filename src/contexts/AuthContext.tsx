@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
+import axios, { CancelTokenSource } from 'axios';
 import { safeJsonParse } from '@/lib/utils';
 import { logger } from '@/utils/logger';
 
@@ -217,9 +217,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Track mounted state and active requests for cleanup
+  const isMountedRef = useRef(true);
+  const activeRequestsRef = useRef<Set<CancelTokenSource>>(new Set());
+
+  // Helper to create cancellable request
+  const createCancellableRequest = useCallback(() => {
+    const source = axios.CancelToken.source();
+    activeRequestsRef.current.add(source);
+    return source;
+  }, []);
+
+  // Helper to cleanup request
+  const cleanupRequest = useCallback((source: CancelTokenSource) => {
+    activeRequestsRef.current.delete(source);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Cancel all pending requests
+      activeRequestsRef.current.forEach(source => {
+        source.cancel('Component unmounted');
+      });
+      activeRequestsRef.current.clear();
+    };
+  }, []);
+
   // CRITICAL: Define signOut BEFORE any useEffect that uses it
   const signOut = useCallback(async () => {
     logger.log('👋 [AUTH] Signing out');
+
+    const cancelSource = createCancellableRequest();
 
     // Call backend to terminate session
     try {
@@ -228,14 +259,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await axios.post(`${API_URL}/logout`, {}, {
           headers: {
             'Authorization': `Bearer ${token}`
-          }
+          },
+          cancelToken: cancelSource.token
         });
         logger.log('✅ [AUTH] Session terminated on server');
       }
     } catch (err) {
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Logout request cancelled');
+        return;
+      }
       logger.error('⚠️ [AUTH] Failed to terminate session on server:', err);
       // Continue with client-side logout even if server call fails
+    } finally {
+      cleanupRequest(cancelSource);
     }
+
+    // Only update state if still mounted
+    if (!isMountedRef.current) return;
 
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user');
@@ -247,7 +288,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCurrentStore(null);
 
     logger.log('✅ [AUTH] Signed out successfully');
-  }, []); // No dependencies - uses setters which are stable
+  }, [createCancellableRequest, cleanupRequest]);
 
   useEffect(() => {
     logger.log('🔄 [AUTH] Initializing auth state...');
@@ -303,14 +344,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // NO periodic check - token validation happens ONLY in API interceptor
   // This saves resources and is sufficient for 7-day tokens
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     logger.log('🔐 [AUTH] Signing in:', email);
+
+    const cancelSource = createCancellableRequest();
 
     try {
       const response = await axios.post(`${API_URL}/login`, {
         email,
         password,
+      }, {
+        cancelToken: cancelSource.token
       });
+
+      cleanupRequest(cancelSource);
+
+      // Check if still mounted before updating state
+      if (!isMountedRef.current) return { error: undefined };
 
       logger.log('✅ [AUTH] Login response:', response.data);
 
@@ -346,6 +396,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: response.data.error || 'Error al iniciar sesión' };
       }
     } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Login request cancelled');
+        return { error: undefined };
+      }
+
       logger.error('💥 [AUTH] Login error:', err);
 
       if (err.response) {
@@ -365,10 +422,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error inesperado' };
       }
     }
-  };
+  }, [createCancellableRequest, cleanupRequest]);
 
-  const signUp = async (email: string, password: string, name: string, referralCode?: string) => {
+  const signUp = useCallback(async (email: string, password: string, name: string, referralCode?: string) => {
     logger.log('📝 [AUTH] Signing up:', email, referralCode ? `with referral: ${referralCode}` : '');
+
+    const cancelSource = createCancellableRequest();
 
     try {
       const response = await axios.post(`${API_URL}/register`, {
@@ -376,7 +435,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         name,
         referralCode,
+      }, {
+        cancelToken: cancelSource.token
       });
+
+      cleanupRequest(cancelSource);
+
+      // Check if still mounted before updating state
+      if (!isMountedRef.current) return { error: undefined };
 
       logger.log('✅ [AUTH] Registration response:', response.data);
 
@@ -404,6 +470,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: response.data.error || 'Error al crear la cuenta' };
       }
     } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Registration request cancelled');
+        return { error: undefined };
+      }
+
       logger.error('💥 [AUTH] Registration error:', err);
 
       if (err.response) {
@@ -414,7 +487,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error inesperado' };
       }
     }
-  };
+  }, [createCancellableRequest, cleanupRequest]);
 
   // Inject query client for manual invalidation
   const queryClient = useQueryClient();
@@ -447,15 +520,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateProfile = async (data: { userName?: string; userPhone?: string; storeName?: string }) => {
+  const updateProfile = useCallback(async (data: { userName?: string; userPhone?: string; storeName?: string }) => {
     logger.log('📝 [AUTH] Updating profile:', data);
+
+    const cancelSource = createCancellableRequest();
 
     try {
       const response = await axios.put(`${API_URL}/profile`, data, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-        }
+        },
+        cancelToken: cancelSource.token
       });
+
+      cleanupRequest(cancelSource);
+
+      // Check if still mounted before updating state
+      if (!isMountedRef.current) return { error: undefined };
 
       logger.log('✅ [AUTH] Profile update response:', response.data);
 
@@ -485,6 +566,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: response.data.error || 'Error al actualizar perfil' };
       }
     } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Profile update request cancelled');
+        return { error: undefined };
+      }
+
       logger.error('💥 [AUTH] Profile update error:', err);
 
       if (err.response) {
@@ -495,18 +583,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error inesperado' };
       }
     }
-  };
+  }, [createCancellableRequest, cleanupRequest, currentStore]);
 
-  const changePassword = async (currentPassword: string, newPassword: string) => {
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     logger.log('🔐 [AUTH] Changing password');
+
+    const cancelSource = createCancellableRequest();
 
     try {
       const token = localStorage.getItem('auth_token');
       const response = await axios.post(
         `${API_URL}/change-password`,
         { currentPassword, newPassword },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cancelToken: cancelSource.token
+        }
       );
+
+      cleanupRequest(cancelSource);
 
       if (response.data.success) {
         logger.log('✅ [AUTH] Password changed successfully');
@@ -516,6 +611,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: response.data.error || 'Error al cambiar contraseña' };
       }
     } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Password change request cancelled');
+        return { error: undefined };
+      }
+
       logger.error('💥 [AUTH] Password change error:', err);
 
       if (err.response?.status === 401) {
@@ -528,18 +630,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error inesperado' };
       }
     }
-  };
+  }, [createCancellableRequest, cleanupRequest]);
 
-  const deleteAccount = async (password: string) => {
+  const deleteAccount = useCallback(async (password: string) => {
     logger.log('🗑️ [AUTH] Deleting account');
+
+    const cancelSource = createCancellableRequest();
 
     try {
       const token = localStorage.getItem('auth_token');
       const response = await axios.post(
         `${API_URL}/delete-account`,
         { password },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cancelToken: cancelSource.token
+        }
       );
+
+      cleanupRequest(cancelSource);
 
       if (response.data.success) {
         logger.log('✅ [AUTH] Account deleted successfully');
@@ -551,6 +660,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: response.data.error || 'Error al eliminar cuenta' };
       }
     } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Account deletion request cancelled');
+        return { error: undefined };
+      }
+
       logger.error('💥 [AUTH] Account deletion error:', err);
 
       if (err.response?.status === 401) {
@@ -563,10 +679,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error inesperado' };
       }
     }
-  };
+  }, [createCancellableRequest, cleanupRequest, signOut]);
 
-  const createStore = async (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => {
+  const createStore = useCallback(async (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => {
     logger.log('🏪 [AUTH] Creating new store:', data.name);
+
+    const cancelSource = createCancellableRequest();
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -581,8 +699,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           tax_rate: data.taxRate || 10.00,
           admin_fee: data.adminFee || 0.00,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cancelToken: cancelSource.token
+        }
       );
+
+      cleanupRequest(cancelSource);
+
+      // Check if still mounted before updating state
+      if (!isMountedRef.current) return { success: true, storeId: response.data.data?.id };
 
       if (response.data.data) {
         const newStore = response.data.data;
@@ -619,6 +745,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: response.data.error || 'Error al crear tienda' };
       }
     } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Store creation request cancelled');
+        return { error: undefined };
+      }
+
       logger.error('💥 [AUTH] Store creation error:', err);
 
       if (err.response) {
@@ -629,18 +762,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error inesperado' };
       }
     }
-  };
+  }, [createCancellableRequest, cleanupRequest, user]);
 
-  const deleteStore = async (storeId: string) => {
+  const deleteStore = useCallback(async (storeId: string) => {
     logger.log('🗑️ [AUTH] Deleting store:', storeId);
+
+    const cancelSource = createCancellableRequest();
 
     try {
       const token = localStorage.getItem('auth_token');
       const apiUrl = `${BASE_API_URL}/stores/${storeId}`;
 
       const response = await axios.delete(apiUrl, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        cancelToken: cancelSource.token
       });
+
+      cleanupRequest(cancelSource);
+
+      // Check if still mounted before updating state
+      if (!isMountedRef.current) return { success: true };
 
       if (response.data) {
         logger.log('✅ [AUTH] Store deleted successfully');
@@ -678,6 +819,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error al eliminar tienda' };
       }
     } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        logger.log('🚫 [AUTH] Store deletion request cancelled');
+        return { error: undefined };
+      }
+
       logger.error('💥 [AUTH] Store deletion error:', err);
 
       if (err.response?.status === 400) {
@@ -692,7 +840,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Error inesperado' };
       }
     }
-  };
+  }, [createCancellableRequest, cleanupRequest, user, currentStore]);
 
   // ================================================================
   // Permission System Helpers

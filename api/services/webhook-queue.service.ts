@@ -39,12 +39,20 @@ interface WebhookQueueItem {
 export class WebhookQueueService {
   private supabase: SupabaseClient;
   private processing: boolean = false;
+  private startingLock: boolean = false; // Guard against concurrent startProcessing() calls
   private concurrentLimit: number = 10; // Procesar 10 webhooks simultáneamente
   private pollingInterval: number = 1000; // Revisar cada 1 segundo
   private intervalId?: NodeJS.Timeout;
 
+  // Reutilizar instancias para evitar presión de memoria y GC pauses
+  // Estos servicios son stateless, seguros para reutilizar
+  private webhookService: ShopifyWebhookService;
+  private webhookManager: ShopifyWebhookManager;
+
   constructor(supabase: SupabaseClient) {
     this.supabase = supabase;
+    this.webhookService = new ShopifyWebhookService(supabase);
+    this.webhookManager = new ShopifyWebhookManager(supabase);
   }
 
   /**
@@ -86,23 +94,52 @@ export class WebhookQueueService {
   /**
    * Iniciar procesamiento de la cola
    * Procesa webhooks pendientes en background
+   *
+   * Uses double-check pattern to prevent race conditions when called concurrently.
+   * The startingLock prevents multiple callers from entering the critical section
+   * simultaneously, avoiding duplicate intervals.
    */
   startProcessing(): void {
+    // Fast path: already processing
     if (this.processing) {
       logger.warn('BACKEND', '⚠️ [WEBHOOK-QUEUE] Processing already started');
       return;
     }
 
-    logger.info('BACKEND', '🚀 [WEBHOOK-QUEUE] Starting webhook queue processor');
-    this.processing = true;
+    // Acquire lock to prevent concurrent initialization
+    if (this.startingLock) {
+      logger.warn('BACKEND', '⚠️ [WEBHOOK-QUEUE] startProcessing() already in progress');
+      return;
+    }
+    this.startingLock = true;
 
-    // Procesar inmediatamente
-    this.processQueue();
+    try {
+      // Double-check after acquiring lock
+      if (this.processing) {
+        logger.warn('BACKEND', '⚠️ [WEBHOOK-QUEUE] Processing already started (double-check)');
+        return;
+      }
 
-    // Configurar polling para procesar continuamente
-    this.intervalId = setInterval(() => {
+      // Clear any existing interval before creating a new one
+      if (this.intervalId) {
+        logger.warn('BACKEND', '⚠️ [WEBHOOK-QUEUE] Clearing orphaned interval');
+        clearInterval(this.intervalId);
+        this.intervalId = undefined;
+      }
+
+      logger.info('BACKEND', '🚀 [WEBHOOK-QUEUE] Starting webhook queue processor');
+      this.processing = true;
+
+      // Procesar inmediatamente
       this.processQueue();
-    }, this.pollingInterval);
+
+      // Configurar polling para procesar continuamente
+      this.intervalId = setInterval(() => {
+        this.processQueue();
+      }, this.pollingInterval);
+    } finally {
+      this.startingLock = false;
+    }
   }
 
   /**
@@ -171,13 +208,11 @@ export class WebhookQueueService {
 
       // Procesar según el topic
       // IMPORTANTE: Usar supabaseAdmin para evitar errores de RLS
-      const webhookService = new ShopifyWebhookService(this.supabase);
-      const webhookManager = new ShopifyWebhookManager(this.supabase);
       let result: any;
 
       switch (webhook.topic) {
         case 'orders/create':
-          result = await webhookService.processOrderCreatedWebhook(
+          result = await this.webhookService.processOrderCreatedWebhook(
             webhook.payload,
             webhook.store_id,
             webhook.integration_id
@@ -185,7 +220,7 @@ export class WebhookQueueService {
           break;
 
         case 'orders/updated':
-          result = await webhookService.processOrderUpdatedWebhook(
+          result = await this.webhookService.processOrderUpdatedWebhook(
             webhook.payload,
             webhook.store_id,
             webhook.integration_id
@@ -193,7 +228,7 @@ export class WebhookQueueService {
           break;
 
         case 'products/update':
-          result = await webhookService.processProductUpdatedWebhook(
+          result = await this.webhookService.processProductUpdatedWebhook(
             webhook.payload,
             webhook.store_id,
             webhook.integration_id
@@ -201,7 +236,7 @@ export class WebhookQueueService {
           break;
 
         case 'products/delete':
-          result = await webhookService.processProductDeletedWebhook(
+          result = await this.webhookService.processProductDeletedWebhook(
             webhook.payload.id,
             webhook.store_id,
             webhook.integration_id
@@ -226,7 +261,7 @@ export class WebhookQueueService {
           .eq('id', webhook.id);
 
         // Registrar métrica
-        await webhookManager.recordMetric(
+        await this.webhookManager.recordMetric(
           webhook.integration_id,
           webhook.store_id,
           'processed',
@@ -252,7 +287,6 @@ export class WebhookQueueService {
   private async handleWebhookError(webhook: WebhookQueueItem, error: string): Promise<void> {
     const newRetryCount = webhook.retry_count + 1;
     const maxed = newRetryCount >= webhook.max_retries;
-    const webhookManager = new ShopifyWebhookManager(this.supabase);
 
     if (maxed) {
       // Máximo de reintentos alcanzado - marcar como fallido
@@ -267,7 +301,7 @@ export class WebhookQueueService {
         .eq('id', webhook.id);
 
       // Registrar métrica de fallo
-      await webhookManager.recordMetric(
+      await this.webhookManager.recordMetric(
         webhook.integration_id,
         webhook.store_id,
         'failed',

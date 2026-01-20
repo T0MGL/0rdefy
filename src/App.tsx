@@ -20,6 +20,7 @@ import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ShopifyAppBridgeProvider } from "@/components/ShopifyAppBridgeProvider";
 import { PlanLimitHandler } from "@/components/PlanLimitHandler";
+import { notificationsService } from "@/services/notifications.service";
 // Lazy load DemoTour - only loaded when tour is triggered
 const DemoTour = lazy(() => import("@/components/demo-tour").then(m => ({ default: m.DemoTour })));
 
@@ -142,6 +143,13 @@ const PermissionLayout = ({ children, module, sidebarCollapsed, onToggleSidebar 
 const App = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const toggleSidebar = () => setSidebarCollapsed(prev => !prev);
+
+  // Cleanup singleton services on app unmount
+  useEffect(() => {
+    return () => {
+      notificationsService.destroy();
+    };
+  }, []);
 
   return (
     <ErrorBoundary>

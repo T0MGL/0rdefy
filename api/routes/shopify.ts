@@ -66,11 +66,9 @@ const webhookQueue = new WebhookQueueService(supabaseAdmin);
 webhookQueue.startProcessing();
 logger.info('SHOPIFY', 'Webhook queue processor started');
 
-// Graceful shutdown handler
-process.on('SIGTERM', () => {
-  logger.info('SHOPIFY', 'Shutting down webhook queue processor...');
-  webhookQueue.stopProcessing();
-});
+// Export webhook queue for graceful shutdown registration
+// NOTE: Cleanup is handled centrally by api/utils/shutdown.ts
+export { webhookQueue };
 
 // Aplicar autenticacion a todas las rutas excepto webhooks CALLBACK
 // CRITICAL: Skip auth only for webhook callback endpoints, not management endpoints

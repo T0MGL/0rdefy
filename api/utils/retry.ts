@@ -510,4 +510,12 @@ export function getCircuitBreakerCacheStats(): { size: number; maxSize: number }
     };
 }
 
+/**
+ * Stop circuit breaker cleanup interval (for graceful shutdown)
+ */
+export function destroyCircuitBreakerCache(): void {
+    circuitBreakers.destroy();
+    log.info('Circuit breaker cache destroyed');
+}
+
 export default withRetry;

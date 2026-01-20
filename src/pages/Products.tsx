@@ -666,7 +666,7 @@ export default function Products() {
 
       {/* Product Form Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className={formMode === 'shopify' ? 'max-w-2xl max-h-[90vh] overflow-y-auto' : 'max-w-md max-h-[90vh] overflow-y-auto'}>
+        <DialogContent className={formMode === 'shopify' ? 'max-w-2xl' : 'max-w-md'}>
           <DialogHeader>
             <DialogTitle>
               {selectedProduct ? 'Editar Producto' : formMode === 'shopify' ? 'Importar desde Shopify' : 'Nuevo Producto'}

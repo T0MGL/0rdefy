@@ -49,6 +49,10 @@ import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
 import { requestLoggerMiddleware, logger } from './utils/logger';
+import { registerCleanup, setupShutdownHandlers } from './utils/shutdown';
+import { stopCleanupInterval as stopShopifyClientCleanup, clearShopifyClientCache } from './services/shopify-client-cache';
+import { destroyCircuitBreakerCache } from './utils/retry';
+import { webhookQueue } from './routes/shopify';
 
 // Load environment variables
 dotenv.config();
@@ -596,7 +600,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 // SERVER STARTUP
 // ================================================================
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     logger.info('================================================================');
     logger.info('🚀 ORDEFY API SERVER STARTED');
     logger.info('================================================================');
@@ -618,17 +622,39 @@ app.listen(PORT, () => {
     logger.info('   GET  /api/campaigns             - List campaigns/ads');
     logger.info('   GET  /api/carriers              - List carriers');
     logger.info('================================================================');
-});
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, shutting down gracefully...');
-    process.exit(0);
-});
+    // ================================================================
+    // GRACEFUL SHUTDOWN REGISTRATION
+    // ================================================================
+    // Register all cleanup handlers with priority (lower = runs first)
+    // Priority guide:
+    //   1-5:   Critical services (webhook processors, active connections)
+    //   6-10:  Caches and intervals
+    //   11-15: Background tasks
 
-process.on('SIGINT', () => {
-    logger.info('SIGINT received, shutting down gracefully...');
-    process.exit(0);
+    // Priority 1: Stop webhook queue processor (stop accepting new work)
+    registerCleanup('webhook-queue', () => {
+        webhookQueue.stopProcessing();
+    }, 1);
+
+    // Priority 5: Clear Shopify client cache and stop cleanup interval
+    registerCleanup('shopify-client-cache', () => {
+        stopShopifyClientCleanup();
+        clearShopifyClientCache();
+    }, 5);
+
+    // Priority 10: Destroy circuit breaker cache and stop cleanup interval
+    registerCleanup('circuit-breaker-cache', () => {
+        destroyCircuitBreakerCache();
+    }, 10);
+
+    // Setup signal handlers with the HTTP server
+    // This will close the server first, then run cleanup handlers
+    setupShutdownHandlers(server, 30000);
+
+    logger.info('================================================================');
+    logger.info('✅ Graceful shutdown handlers registered');
+    logger.info('================================================================');
 });
 
 export default app;
