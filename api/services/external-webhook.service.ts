@@ -519,9 +519,16 @@ export class ExternalWebhookService {
       }));
 
       // Construir shipping_address JSONB
+      // Sanitize Google Maps URL: must be non-empty string. Treat whitespace as null.
+      let sanitizedMapsUrl: string | null | undefined = payload.shipping_address.google_maps_url;
+      if (sanitizedMapsUrl && sanitizedMapsUrl.trim() === '') {
+        sanitizedMapsUrl = null;
+      }
+
       // Si solo hay google_maps_url, usar "Ver ubicación en Google Maps" como address
-      const hasGoogleMapsOnly = payload.shipping_address.google_maps_url &&
-        (!payload.shipping_address.address || payload.shipping_address.address.trim() === '');
+      const hasManualAddress = payload.shipping_address.address && payload.shipping_address.address.trim() !== '';
+      // Only default to "Ver ubicación..." if we have a valid Maps URL AND NO manual address
+      const hasGoogleMapsOnly = !!sanitizedMapsUrl && !hasManualAddress;
 
       const shippingAddressJson = {
         address1: hasGoogleMapsOnly
@@ -531,7 +538,7 @@ export class ExternalWebhookService {
         country: payload.shipping_address.country || 'Paraguay',
         reference: payload.shipping_address.reference || null,
         notes: payload.shipping_address.notes || null,
-        google_maps_url: payload.shipping_address.google_maps_url || null
+        google_maps_url: sanitizedMapsUrl || null
       };
 
       const orderData = {
@@ -543,6 +550,8 @@ export class ExternalWebhookService {
 
         // Customer info (denormalized)
         customer_name: payload.customer.name,
+        customer_first_name: payload.customer.name.trim().split(' ')[0] || 'Cliente',
+        customer_last_name: payload.customer.name.trim().split(' ').slice(1).join(' ') || '',
         customer_email: payload.customer.email || null,
         customer_phone: payload.customer.phone || null,
 
@@ -553,7 +562,7 @@ export class ExternalWebhookService {
           : (payload.shipping_address.address || ''),
         address_reference: payload.shipping_address.reference || null,
         delivery_notes: payload.shipping_address.notes || null,
-        google_maps_link: payload.shipping_address.google_maps_url || null,
+        google_maps_link: sanitizedMapsUrl || null,
 
         // Products
         line_items: lineItems,
