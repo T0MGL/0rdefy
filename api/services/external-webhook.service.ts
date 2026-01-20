@@ -559,8 +559,8 @@ export class ExternalWebhookService {
         line_items: lineItems,
 
         // Totals
-        subtotal: payload.totals.subtotal || payload.totals.total,
-        shipping_cost: payload.totals.shipping || 0,
+        subtotal_price: payload.totals.subtotal || payload.totals.total,
+        total_shipping: payload.totals.shipping || 0,
         total_discounts: payload.totals.discount || 0,
         total_tax: payload.totals.tax || 0,
         total_price: payload.totals.total,
