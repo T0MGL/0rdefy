@@ -90,9 +90,10 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
   }
 
   // Get integration from database to retrieve correct API secret
+  // CRITICAL: Must include ALL fields needed for proper secret selection
   const { data: integration, error: intError } = await supabaseAdmin
     .from('shopify_integrations')
-    .select('api_secret_key')
+    .select('api_secret_key, webhook_signature, is_custom_app, scope')
     .eq('shop_domain', shopDomain)
     .single();
 
@@ -101,8 +102,28 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     return res.status(404).send('Integration not found');
   }
 
-  // Use api_secret_key from database (Custom App) OR fallback to .env (OAuth App)
-  const secret = integration.api_secret_key || process.env.SHOPIFY_API_SECRET;
+  // Use same logic as getWebhookSecret() in shopify.ts for consistency
+  // Priority 1: Custom Apps (Dev Dashboard 2026) - use webhook_signature
+  // Priority 2: Legacy Custom Apps (no scope but have webhook_signature)
+  // Priority 3: OAuth Apps - use SHOPIFY_API_SECRET from .env
+  let secret: string | null = null;
+  let secretSource: string = '';
+
+  if (integration.is_custom_app === true) {
+    secret = integration.webhook_signature?.trim() || integration.api_secret_key?.trim() || null;
+    secretSource = 'database (Custom App - Dev Dashboard 2026)';
+  } else {
+    const hasScope = integration.scope && integration.scope.trim() !== '';
+    if (!hasScope && integration.webhook_signature) {
+      secret = integration.webhook_signature?.trim() || null;
+      secretSource = 'database (Legacy Custom App)';
+    } else {
+      secret = process.env.SHOPIFY_API_SECRET?.trim() || null;
+      secretSource = 'env (OAuth Public App)';
+    }
+  }
+
+  logger.info('SERVER', `🔐 [WEBHOOK] Using secret from: ${secretSource}`);
 
   if (!secret) {
     logger.error('SERVER', '❌ [WEBHOOK] API secret not configured');
@@ -135,7 +156,8 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
   // Neither format matched - invalid HMAC
   else {
     logger.error('SERVER', `❌ [WEBHOOK] Invalid HMAC signature for ${shopDomain}`);
-    logger.error('SERVER', `🔐 Using secret from: ${integration.api_secret_key ? 'database (Custom App)' : '.env (OAuth App)'}`);
+    logger.error('SERVER', `🔐 Using secret from: ${secretSource}`);
+    logger.error('SERVER', `   is_custom_app: ${integration.is_custom_app}, has_scope: ${!!integration.scope}, has_webhook_signature: ${!!integration.webhook_signature}`);
     logger.error('SERVER', `   Expected base64: ${hashBase64.substring(0, 20)}...`);
     logger.error('SERVER', `   Expected hex: ${hashHex.substring(0, 40)}...`);
     logger.error('SERVER', `   Received HMAC: ${hmac.substring(0, 40)}...`);
@@ -231,6 +253,9 @@ router.post('/orders-create', async (req: Request, res: Response) => {
 // including financial_status updates (e.g., when payment is captured)
 // ================================================================
 router.post('/orders-updated', async (req: Request, res: Response) => {
+  // DEBUG: Confirm this handler is receiving the request (legacy router)
+  logger.info('SHOPIFY_WEBHOOK_LEGACY', '[ROUTE-DEBUG] LEGACY orders-updated handler in shopify-webhooks.ts received request');
+
   try {
     const order = req.body;
     const shopDomain = req.headers['x-shopify-shop-domain'] as string;

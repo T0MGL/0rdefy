@@ -50,6 +50,7 @@ interface ProductVariantsManagerProps {
   productId: string;
   productName: string;
   productStock?: number;
+  productImageUrl?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onVariantsUpdated?: () => void;
@@ -67,6 +68,7 @@ export function ProductVariantsManager({
   productId,
   productName,
   productStock = 0,
+  productImageUrl,
   open,
   onOpenChange,
   onVariantsUpdated
@@ -187,7 +189,8 @@ export function ProductVariantsManager({
         option1_name: formData.option1_name || null,
         option1_value: formData.option1_value || null,
         uses_shared_stock: formData.uses_shared_stock,
-        units_per_pack: parseInt(formData.units_per_pack, 10) || 1
+        units_per_pack: parseInt(formData.units_per_pack, 10) || 1,
+        image_url: productImageUrl // Inherit from parent product
       };
 
       let response;

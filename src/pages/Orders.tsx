@@ -39,7 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -874,9 +874,12 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
       // Aplicar filtro de transportadora
       if (carrierFilter !== 'all') {
-        if (carrierFilter === 'none') {
-          // Filtrar pedidos sin transportadora
-          if (order.carrier_id) return false;
+        if (carrierFilter === 'pickup') {
+          // Filtrar pedidos de retiro en local
+          if (!order.is_pickup) return false;
+        } else if (carrierFilter === 'none') {
+          // Filtrar pedidos sin transportadora (y que no sean retiro)
+          if (order.carrier_id || order.is_pickup) return false;
         } else {
           // Filtrar por transportadora específica
           if (order.carrier_id !== carrierFilter) return false;
@@ -1276,6 +1279,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas las transportadoras</SelectItem>
+              <SelectItem value="pickup">Retiro en local</SelectItem>
               <SelectItem value="none">Sin transportadora</SelectItem>
               {carriersWithOrders.map(carrier => (
                 <SelectItem key={carrier.id} value={carrier.id}>
@@ -1515,7 +1519,16 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="py-4 px-6 text-sm">{getCarrierName(order.carrier)}</td>
+                      <td className="py-4 px-6 text-sm">
+                        {order.is_pickup ? (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            <Store size={12} />
+                            Retiro en local
+                          </span>
+                        ) : (
+                          getCarrierName(order.carrier)
+                        )}
+                      </td>
                       <td className="py-4 px-6 text-center">
                         {/* Siguiente Paso - Acciones contextuales según el estado */}
                         {order.status === 'pending' && (

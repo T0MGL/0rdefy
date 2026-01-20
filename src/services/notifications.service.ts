@@ -125,8 +125,14 @@ class NotificationsService {
 
   /**
    * Subscribe to notification updates (for components)
+   * Includes defensive limit to prevent memory leaks from unremoved listeners
    */
   subscribe(listener: NotificationListener): () => void {
+    const MAX_LISTENERS = 100;
+    if (this.listeners.size >= MAX_LISTENERS) {
+      console.warn(`NotificationsService: Max listeners (${MAX_LISTENERS}) reached, clearing stale listeners`);
+      this.listeners.clear();
+    }
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);

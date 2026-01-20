@@ -472,10 +472,11 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
-    // Obtener integracion por dominio - include webhook_secret for HMAC verification
+    // Obtener integracion por dominio - include ALL fields needed for HMAC verification
+    // CRITICAL: Must include is_custom_app, webhook_signature, scope for getWebhookSecret()
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('id, store_id, shop_domain, access_token, status, webhook_secret, api_secret_key')
+      .select('*')
       .eq('shop_domain', shopDomain)
       .eq('status', 'active')
       .single();
@@ -506,6 +507,9 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
 
     logger.info('SHOPIFY', `Using secret from: ${secretSource}`, { shopDomain });
 
+    // DEBUG: Log integration type details for HMAC troubleshooting
+    logger.info('SHOPIFY', `[HMAC-DEBUG] orders/create - Integration type: is_custom_app=${integration.is_custom_app}, has_scope=${!!integration.scope}, has_webhook_signature=${!!integration.webhook_signature}, has_api_secret_key=${!!integration.api_secret_key}`);
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
@@ -514,6 +518,7 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       logger.error('SHOPIFY', 'Invalid HMAC signature');
+      logger.error('SHOPIFY', `[HMAC-DEBUG] Failed for shop: ${shopDomain}, secret_source: ${secretSource}, secret_length: ${webhookSecret?.length || 0}`);
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,
@@ -670,6 +675,9 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
   let integrationId: string | null = null;
   let storeId: string | null = null;
 
+  // DEBUG: Confirm this handler is receiving the request (not legacy router)
+  logger.info('SHOPIFY', '[ROUTE-DEBUG] ordersUpdatedHandler in shopify.ts received request');
+
   try {
     const shopDomain = req.get('X-Shopify-Shop-Domain');
     const hmacHeader = req.get('X-Shopify-Hmac-Sha256');
@@ -719,6 +727,9 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
 
     logger.info('SHOPIFY', `Using secret from: ${secretSource} for orders/updated`);
 
+    // DEBUG: Log integration type details for HMAC troubleshooting
+    logger.info('SHOPIFY', `[HMAC-DEBUG] orders/updated - Integration type: is_custom_app=${integration.is_custom_app}, has_scope=${!!integration.scope}, has_webhook_signature=${!!integration.webhook_signature}, has_api_secret_key=${!!integration.api_secret_key}`);
+
     const isValid = ShopifyWebhookService.verifyHmacSignature(
       rawBody,
       hmacHeader,
@@ -727,6 +738,7 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
 
     if (!isValid) {
       logger.error('SHOPIFY', 'HMAC verification failed for orders/updated');
+      logger.error('SHOPIFY', `[HMAC-DEBUG] Failed for shop: ${shopDomain}, secret_source: ${secretSource}, secret_length: ${webhookSecret?.length || 0}`);
       await webhookManager.recordMetric(
         integrationId!,
         storeId!,

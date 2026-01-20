@@ -152,6 +152,12 @@ export interface Order {
   // Amount discrepancy (when courier collects different amount)
   amount_collected?: number;
   has_amount_discrepancy?: boolean;
+  // Pickup orders (retiro en local - no shipping)
+  is_pickup?: boolean;
+  // Prepaid COD orders (pagado por transferencia antes del envío)
+  prepaid_method?: 'transfer' | 'efectivo_local' | 'qr' | 'otro';
+  prepaid_at?: string;
+  prepaid_by?: string;
 }
 
 export interface CreateOrderInput {

@@ -394,6 +394,77 @@ When selling 1x "Pareja" pack: deducts 2 units from parent (150 → 148)
 - Rejected items → no stock change + logged as 'return_rejected' with reason
 - Order status updated to 'returned' on session completion
 
+### Carrier Coverage System (City-Based Rates) - NEW: Jan 2026
+**Files:** `src/components/OrderConfirmationDialog.tsx`, `api/routes/carriers.ts`, `db/migrations/090_carrier_coverage_system.sql`, `db/migrations/090_data_paraguay_locations.sql`, `db/migrations/090_data_carrier_coverage_template.sql`
+
+**Purpose:** Enable seamless carrier selection based on delivery city with per-city rates.
+
+**How It Works:**
+1. User types city name → Autocomplete searches `paraguay_locations` (266 cities)
+2. User selects city → System queries `carrier_coverage` for available carriers
+3. Carriers displayed with their rates (SIN COBERTURA for those without coverage)
+4. User selects carrier → Rate auto-fills, order assigned
+
+**Data Model:**
+```
+paraguay_locations (Master - shared for all stores):
+├── city: "Fernando de la Mora"
+├── department: "CENTRAL"
+├── zone_code: "CENTRAL"  (ASUNCION, CENTRAL, INTERIOR_1, INTERIOR_2)
+└── city_normalized: "fernando de la mora" (for fuzzy search)
+
+carrier_coverage (Per-store rates):
+├── store_id: UUID
+├── carrier_id: UUID
+├── city: "Fernando de la Mora"
+├── rate: 30000 (or NULL for SIN COBERTURA)
+└── is_active: true
+```
+
+**Zone Classification:**
+- **ASUNCION:** Capital city only
+- **CENTRAL:** Gran Asunción metro area (19 cities)
+- **INTERIOR_1:** Major cities with good road access (15 cities)
+- **INTERIOR_2:** Remote areas (232 cities)
+
+**API Endpoints:**
+- `GET /api/carriers/locations/search?q=ferna` - City autocomplete
+- `GET /api/carriers/coverage/city?city=Asunción` - Get carriers with coverage for city
+- `GET /api/carriers/:id/coverage` - Get all coverage for a carrier
+- `POST /api/carriers/:id/coverage` - Add/update single city coverage
+- `POST /api/carriers/:id/coverage/bulk` - Bulk import coverage data
+- `DELETE /api/carriers/:id/coverage/:city` - Remove coverage for city
+- `GET /api/carriers/coverage/summary` - Summary stats for all carriers
+
+**Database Functions:**
+- `normalize_location_text()` - Remove accents, lowercase for search
+- `search_paraguay_cities()` - Autocomplete with fuzzy matching
+- `get_carriers_for_city()` - Get carriers with coverage status and rates
+- `get_carrier_rate_for_city()` - Get specific rate
+- `import_carrier_coverage()` - Bulk import from JSON
+
+**Views:**
+- `v_carrier_coverage_summary` - Coverage stats per carrier (cities covered, min/max rates)
+- `v_coverage_gaps` - Cities with orders but no carrier coverage
+
+**Setup for New Stores:**
+1. Carriers created via UI (Logística → Transportadoras)
+2. Run `090_data_paraguay_locations.sql` once (shared master data)
+3. For each carrier, bulk import coverage via API or SQL template
+4. Template in `090_data_carrier_coverage_template.sql`
+
+**UI Changes (OrderConfirmationDialog):**
+- New city autocomplete replaces zone dropdown
+- Carriers shown as cards with rates (not dropdown)
+- "SIN COBERTURA" carriers visible but not selectable
+- Auto-selects cheapest carrier with coverage
+- Toggle to switch between new/legacy system (for backwards compatibility)
+
+**Backward Compatibility:**
+- `useCoverageSystem` state defaults to `true`
+- Legacy zone-based system still works when disabled
+- Orders store both `delivery_zone` and `shipping_city_normalized`
+
 ### Dispatch & Settlements System (Courier Reconciliation)
 **Files:** `src/pages/Settlements.tsx`, `api/routes/settlements.ts`, `api/services/settlements.service.ts`, `db/migrations/045_dispatch_settlements_system.sql`, `059_dispatch_settlements_production_fixes.sql`
 
@@ -408,6 +479,7 @@ When selling 1x "Pareja" pack: deducts 2 units from parent (150 → 148)
 **Features:**
 - Batch dispatch sessions with auto-generated codes (3-digit: 999 sessions/day)
 - **Duplicate order prevention** - Orders cannot be in multiple active sessions
+- **Pickup order exclusion** - Orders with `is_pickup=true` cannot be added to dispatch sessions (NEW: Migration 089)
 - CSV export for courier communication (transition until QR scanning)
 - CSV import with Spanish column name support (ESTADO_ENTREGA, MONTO_COBRADO, etc.)
 - **Latin number format support** - Parses 25.000, 25,000, 25000 correctly
@@ -736,7 +808,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 **Tables:**
 - Base: stores (subscription_plan, max_users), users, user_stores (invited_by, invited_at, is_active), store_config
 - Business: products, customers, carriers, suppliers, campaigns, additional_values
-- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at), order_line_items
+- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at, **is_pickup**), order_line_items
 - History: order_status_history, follow_up_log
 - Delivery: delivery_attempts, daily_settlements, settlement_orders
 - Dispatch: dispatch_sessions, dispatch_session_orders, carrier_zones (zone-based courier rates)
@@ -850,6 +922,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - ✅ **NEW: Dispatch & Settlements** (courier reconciliation, CSV export/import, zone-based rates)
 - ✅ **NEW: Onboarding & Activation System** (setup checklist, first-time tooltips, contextual empty states)
 - ✅ **NEW: Product System Production Fixes** (validation, safe deletion, sync monitoring)
+- ✅ **NEW: Pickup Orders / Retiro en Local** (confirm orders without carrier, zero shipping cost, excluded from dispatch)
 
 **Coming Soon:**
 - 2FA authentication
@@ -918,3 +991,6 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 079: **NEW:** Atomic packing increment fallback (increment_packing_quantity RPC - prevents race conditions in concurrent packing)
 - 086: **NEW:** Product variants system (variants table, SKU per variant, variant stock tracking, RLS policies)
 - 087: **NEW:** Shared stock bundles (uses_shared_stock, units_per_pack, shared stock deduction/restoration functions)
+- 089: **NEW:** Pickup orders / Retiro en local (is_pickup flag, optional courier_id, dispatch session exclusion)
+- 090: **NEW:** Carrier coverage system (city-based carrier selection, paraguay_locations master table, carrier_coverage per-store rates, autocomplete search, seamless UX)
+- 091: **NEW:** Mark COD as prepaid (prepaid_method, prepaid_at, prepaid_by - for transfer payments before shipping)

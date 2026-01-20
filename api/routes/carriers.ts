@@ -477,3 +477,466 @@ carriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
         });
     }
 });
+
+// ================================================================
+// CARRIER COVERAGE ENDPOINTS (City-based rates)
+// ================================================================
+
+// ================================================================
+// GET /api/carriers/locations/search - Search Paraguay cities (autocomplete)
+// ================================================================
+carriersRouter.get('/locations/search', async (req: AuthRequest, res: Response) => {
+    try {
+        const { q, limit = '10' } = req.query;
+
+        if (!q || (q as string).length < 2) {
+            return res.json({ data: [] });
+        }
+
+        const { data, error } = await supabaseAdmin.rpc('search_paraguay_cities', {
+            p_query: q as string,
+            p_limit: parseInt(limit as string, 10)
+        });
+
+        if (error) {
+            logger.error('API', '[GET /api/carriers/locations/search] RPC error:', error);
+            // Fallback to direct query if function doesn't exist
+            const { data: fallbackData, error: fallbackError } = await supabaseAdmin
+                .from('paraguay_locations')
+                .select('city, department, zone_code')
+                .ilike('city_normalized', `%${(q as string).toLowerCase()}%`)
+                .limit(parseInt(limit as string, 10));
+
+            if (fallbackError) throw fallbackError;
+
+            return res.json({
+                data: (fallbackData || []).map(loc => ({
+                    ...loc,
+                    display_text: `${loc.city} (${loc.department})`
+                }))
+            });
+        }
+
+        res.json({ data: data || [] });
+    } catch (error: any) {
+        logger.error('API', '[GET /api/carriers/locations/search] Error:', error);
+        res.status(500).json({
+            error: 'Error al buscar ciudades',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/carriers/coverage/city - Get carriers with coverage for a city
+// ================================================================
+carriersRouter.get('/coverage/city', async (req: AuthRequest, res: Response) => {
+    try {
+        const { city, department } = req.query;
+
+        if (!city) {
+            return res.status(400).json({
+                error: 'City parameter is required'
+            });
+        }
+
+        const { data, error } = await supabaseAdmin.rpc('get_carriers_for_city', {
+            p_store_id: req.storeId,
+            p_city: city as string,
+            p_department: department as string || null
+        });
+
+        if (error) {
+            logger.error('API', '[GET /api/carriers/coverage/city] RPC error:', error);
+            // Fallback: Get all carriers and their coverage manually
+            const { data: carriers, error: carriersError } = await supabaseAdmin
+                .from('carriers')
+                .select(`
+                    id,
+                    name,
+                    phone,
+                    carrier_coverage!inner (
+                        rate,
+                        city
+                    )
+                `)
+                .eq('store_id', req.storeId)
+                .eq('is_active', true)
+                .ilike('carrier_coverage.city', city as string);
+
+            if (carriersError) throw carriersError;
+
+            return res.json({
+                data: (carriers || []).map(c => ({
+                    carrier_id: c.id,
+                    carrier_name: c.name,
+                    carrier_phone: c.phone,
+                    rate: c.carrier_coverage?.[0]?.rate || null,
+                    has_coverage: c.carrier_coverage?.[0]?.rate != null
+                }))
+            });
+        }
+
+        res.json({ data: data || [] });
+    } catch (error: any) {
+        logger.error('API', '[GET /api/carriers/coverage/city] Error:', error);
+        res.status(500).json({
+            error: 'Error al obtener cobertura de carriers',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/carriers/:id/coverage - Get all coverage for a carrier
+// ================================================================
+carriersRouter.get('/:id/coverage', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { zone_code } = req.query;
+
+        let query = supabaseAdmin
+            .from('carrier_coverage')
+            .select(`
+                id,
+                city,
+                department,
+                rate,
+                is_active,
+                created_at,
+                updated_at
+            `)
+            .eq('carrier_id', id)
+            .eq('is_active', true)
+            .order('city', { ascending: true });
+
+        // Optional: filter by zone via join with paraguay_locations
+        if (zone_code) {
+            // We need to join with paraguay_locations to filter by zone
+            const { data: locations } = await supabaseAdmin
+                .from('paraguay_locations')
+                .select('city')
+                .eq('zone_code', zone_code as string);
+
+            if (locations && locations.length > 0) {
+                const cities = locations.map(l => l.city);
+                query = query.in('city', cities);
+            }
+        }
+
+        const { data, error } = await query;
+
+        if (error) throw error;
+
+        // Group by zone for easier display
+        const coverageWithZones = await Promise.all((data || []).map(async (cov) => {
+            const { data: loc } = await supabaseAdmin
+                .from('paraguay_locations')
+                .select('zone_code, department')
+                .ilike('city', cov.city)
+                .single();
+
+            return {
+                ...cov,
+                zone_code: loc?.zone_code || 'UNKNOWN',
+                department: cov.department || loc?.department
+            };
+        }));
+
+        // Calculate summary
+        const summary = {
+            total_cities: coverageWithZones.length,
+            with_coverage: coverageWithZones.filter(c => c.rate != null).length,
+            without_coverage: coverageWithZones.filter(c => c.rate == null).length,
+            min_rate: Math.min(...coverageWithZones.filter(c => c.rate != null).map(c => c.rate)),
+            max_rate: Math.max(...coverageWithZones.filter(c => c.rate != null).map(c => c.rate)),
+            by_zone: coverageWithZones.reduce((acc, c) => {
+                const zone = c.zone_code || 'UNKNOWN';
+                if (!acc[zone]) {
+                    acc[zone] = { count: 0, with_coverage: 0, min_rate: Infinity, max_rate: 0 };
+                }
+                acc[zone].count++;
+                if (c.rate != null) {
+                    acc[zone].with_coverage++;
+                    acc[zone].min_rate = Math.min(acc[zone].min_rate, c.rate);
+                    acc[zone].max_rate = Math.max(acc[zone].max_rate, c.rate);
+                }
+                return acc;
+            }, {} as Record<string, any>)
+        };
+
+        res.json({
+            data: coverageWithZones,
+            summary
+        });
+    } catch (error: any) {
+        logger.error('API', `[GET /api/carriers/${req.params.id}/coverage] Error:`, error);
+        res.status(500).json({
+            error: 'Error al obtener cobertura del carrier',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/carriers/:id/coverage - Add/Update coverage for a carrier
+// ================================================================
+carriersRouter.post('/:id/coverage', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { city, department, rate } = req.body;
+
+        if (!city) {
+            return res.status(400).json({
+                error: 'City is required'
+            });
+        }
+
+        // Verify carrier exists and belongs to store
+        const { data: carrier, error: carrierError } = await supabaseAdmin
+            .from('carriers')
+            .select('id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (carrierError || !carrier) {
+            return res.status(404).json({
+                error: 'Carrier not found'
+            });
+        }
+
+        // Check if coverage already exists for this carrier+city+department
+        const normalizedDepartment = department || '';
+        const { data: existing } = await supabaseAdmin
+            .from('carrier_coverage')
+            .select('id')
+            .eq('carrier_id', id)
+            .ilike('city', city)
+            .eq('department', normalizedDepartment)
+            .single();
+
+        let data, error;
+
+        if (existing) {
+            // Update existing coverage
+            const result = await supabaseAdmin
+                .from('carrier_coverage')
+                .update({
+                    rate: rate === 'SIN COBERTURA' || rate === null ? null : rate,
+                    is_active: true,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', existing.id)
+                .select()
+                .single();
+            data = result.data;
+            error = result.error;
+        } else {
+            // Insert new coverage
+            const result = await supabaseAdmin
+                .from('carrier_coverage')
+                .insert({
+                    store_id: req.storeId,
+                    carrier_id: id,
+                    city,
+                    department: normalizedDepartment,
+                    rate: rate === 'SIN COBERTURA' || rate === null ? null : rate,
+                    is_active: true
+                })
+                .select()
+                .single();
+            data = result.data;
+            error = result.error;
+        }
+
+        if (error) throw error;
+
+        res.json({
+            message: rate == null ? 'Coverage removed (SIN COBERTURA)' : 'Coverage updated',
+            data
+        });
+    } catch (error: any) {
+        logger.error('API', `[POST /api/carriers/${req.params.id}/coverage] Error:`, error);
+        res.status(500).json({
+            error: 'Error al actualizar cobertura',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/carriers/:id/coverage/bulk - Bulk import coverage
+// ================================================================
+carriersRouter.post('/:id/coverage/bulk', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { coverage } = req.body;
+
+        if (!Array.isArray(coverage) || coverage.length === 0) {
+            return res.status(400).json({
+                error: 'Coverage array is required'
+            });
+        }
+
+        // Verify carrier exists and belongs to store
+        const { data: carrier, error: carrierError } = await supabaseAdmin
+            .from('carriers')
+            .select('id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (carrierError || !carrier) {
+            return res.status(404).json({
+                error: 'Carrier not found'
+            });
+        }
+
+        // Try RPC first
+        const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('import_carrier_coverage', {
+            p_store_id: req.storeId,
+            p_carrier_id: id,
+            p_coverage: coverage
+        });
+
+        if (!rpcError) {
+            return res.json({
+                message: 'Coverage imported successfully',
+                count: rpcResult
+            });
+        }
+
+        // Fallback: Manual one-by-one insert/update
+        logger.warn('API', '[POST /api/carriers/:id/coverage/bulk] RPC failed, using fallback:', rpcError);
+
+        let successCount = 0;
+        for (const c of coverage) {
+            const normalizedDept = c.department || '';
+            const rateValue = c.rate === 'SIN COBERTURA' || c.rate === null ? null : c.rate;
+
+            // Check if exists
+            const { data: existing } = await supabaseAdmin
+                .from('carrier_coverage')
+                .select('id')
+                .eq('carrier_id', id)
+                .ilike('city', c.city)
+                .eq('department', normalizedDept)
+                .single();
+
+            if (existing) {
+                await supabaseAdmin
+                    .from('carrier_coverage')
+                    .update({ rate: rateValue, is_active: true, updated_at: new Date().toISOString() })
+                    .eq('id', existing.id);
+            } else {
+                await supabaseAdmin
+                    .from('carrier_coverage')
+                    .insert({
+                        store_id: req.storeId,
+                        carrier_id: id,
+                        city: c.city,
+                        department: normalizedDept,
+                        rate: rateValue,
+                        is_active: true
+                    });
+            }
+            successCount++;
+        }
+
+        res.json({
+            message: 'Coverage imported successfully',
+            count: successCount
+        });
+    } catch (error: any) {
+        logger.error('API', `[POST /api/carriers/${req.params.id}/coverage/bulk] Error:`, error);
+        res.status(500).json({
+            error: 'Error al importar cobertura',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// DELETE /api/carriers/:id/coverage/:city - Remove coverage for a city
+// ================================================================
+carriersRouter.delete('/:id/coverage/:city', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id, city } = req.params;
+
+        const { data, error } = await supabaseAdmin
+            .from('carrier_coverage')
+            .update({ is_active: false, updated_at: new Date().toISOString() })
+            .eq('carrier_id', id)
+            .ilike('city', city)
+            .select('id')
+            .single();
+
+        if (error) throw error;
+
+        res.json({
+            message: 'Coverage removed',
+            id: data?.id
+        });
+    } catch (error: any) {
+        logger.error('API', `[DELETE /api/carriers/${req.params.id}/coverage/${req.params.city}] Error:`, error);
+        res.status(500).json({
+            error: 'Error al eliminar cobertura',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/carriers/coverage/summary - Get coverage summary for all carriers
+// ================================================================
+carriersRouter.get('/coverage/summary', async (req: AuthRequest, res: Response) => {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('v_carrier_coverage_summary')
+            .select('*')
+            .eq('store_id', req.storeId);
+
+        if (error) {
+            // View might not exist yet, use fallback
+            logger.warn('API', '[GET /api/carriers/coverage/summary] View error, using fallback:', error);
+
+            const { data: carriers, error: carriersError } = await supabaseAdmin
+                .from('carriers')
+                .select(`
+                    id,
+                    name,
+                    carrier_coverage (
+                        rate
+                    )
+                `)
+                .eq('store_id', req.storeId)
+                .eq('is_active', true);
+
+            if (carriersError) throw carriersError;
+
+            const summary = (carriers || []).map(c => {
+                const coverage = c.carrier_coverage || [];
+                const withCoverage = coverage.filter((cov: any) => cov.rate != null);
+                return {
+                    carrier_id: c.id,
+                    carrier_name: c.name,
+                    cities_with_coverage: withCoverage.length,
+                    cities_without_coverage: coverage.length - withCoverage.length,
+                    min_rate: withCoverage.length > 0 ? Math.min(...withCoverage.map((cov: any) => cov.rate)) : null,
+                    max_rate: withCoverage.length > 0 ? Math.max(...withCoverage.map((cov: any) => cov.rate)) : null
+                };
+            });
+
+            return res.json({ data: summary });
+        }
+
+        res.json({ data: data || [] });
+    } catch (error: any) {
+        logger.error('API', '[GET /api/carriers/coverage/summary] Error:', error);
+        res.status(500).json({
+            error: 'Error al obtener resumen de cobertura',
+            message: error.message
+        });
+    }
+});

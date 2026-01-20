@@ -492,7 +492,22 @@ export async function createDispatchSession(
   }
 
   // ============================================================
-  // VALIDATION 4: Check order statuses (warn if not ready_to_ship)
+  // VALIDATION 4: Block pickup orders (no shipping needed)
+  // ============================================================
+  const pickupOrders = orders.filter(o => o.is_pickup === true || (!o.courier_id && o.sleeves_status !== 'pending'));
+
+  if (pickupOrders.length > 0) {
+    const details = pickupOrders.map(o =>
+      o.order_number || o.shopify_order_name || o.id.slice(0, 8)
+    ).join(', ');
+    throw new Error(
+      `${pickupOrders.length} orden(es) son de retiro en local y no pueden despacharse: ${details}. ` +
+      `Las órdenes de retiro no requieren transportadora.`
+    );
+  }
+
+  // ============================================================
+  // VALIDATION 5: Check order statuses (warn if not ready_to_ship)
   // ============================================================
   const invalidStatusOrders = orders.filter(o =>
     !['ready_to_ship', 'confirmed'].includes(o.sleeves_status)

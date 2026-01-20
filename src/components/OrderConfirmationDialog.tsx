@@ -1,4 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+
+// Types for city coverage system
+interface CityLocation {
+  city: string;
+  department: string;
+  zone_code: string;
+  display_text: string;
+}
+
+interface CarrierWithCoverage {
+  carrier_id: string;
+  carrier_name: string;
+  carrier_phone: string | null;
+  rate: number | null;
+  zone_code: string;
+  has_coverage: boolean;
+}
 import { logger } from '@/utils/logger';
 import {
   Dialog,
@@ -34,7 +51,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useCarriers } from '@/hooks/useCarriers';
 import { productsService } from '@/services/products.service';
-import { Loader2, CheckCircle2, Printer, Check, ChevronsUpDown, Package, Percent } from 'lucide-react';
+import { Loader2, CheckCircle2, Printer, Check, ChevronsUpDown, Package, Percent, Store, Banknote, MapPin, AlertTriangle, Truck } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { printLabelPDF } from '@/components/printing/printLabelPDF';
@@ -64,6 +82,15 @@ export function OrderConfirmationDialog({
   const showPrintAfterConfirm = !hasFeature('warehouse');
   const [loading, setLoading] = useState(false);
 
+  // Determine if order is COD (eligible for "mark as prepaid" option)
+  // Show option ONLY if order is COD and NOT already paid online
+  const orderIsCOD = order && (
+    ['cash_on_delivery', 'cod', 'manual'].includes((order as any).payment_gateway?.toLowerCase() || '') ||
+    ((order as any).cod_amount && (order as any).cod_amount > 0)
+  );
+  const orderIsAlreadyPaid = order && ['paid', 'authorized'].includes((order as any).financial_status?.toLowerCase() || '');
+  const showPrepaidOption = orderIsCOD && !orderIsAlreadyPaid;
+
   // Use centralized carriers hook with caching (active carriers only)
   const { carriers, isLoading: loadingCarriers, isError: carriersError, refetch: refetchCarriers, getCarrierById } = useCarriers({ activeOnly: true });
 
@@ -89,6 +116,18 @@ export function OrderConfirmationDialog({
   const [openZoneCombobox, setOpenZoneCombobox] = useState(false);
   const [discountEnabled, setDiscountEnabled] = useState(false);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [isPickup, setIsPickup] = useState(false);
+  const [markAsPrepaid, setMarkAsPrepaid] = useState(false);
+
+  // City-based coverage system state
+  const [citySearch, setCitySearch] = useState('');
+  const [cityResults, setCityResults] = useState<CityLocation[]>([]);
+  const [selectedCity, setSelectedCity] = useState<CityLocation | null>(null);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [openCityCombobox, setOpenCityCombobox] = useState(false);
+  const [carriersWithCoverage, setCarriersWithCoverage] = useState<CarrierWithCoverage[]>([]);
+  const [loadingCoverage, setLoadingCoverage] = useState(false);
+  const [useCoverageSystem, setUseCoverageSystem] = useState(true); // Toggle between old/new system
 
   // Fetch products when dialog opens
   useEffect(() => {
@@ -110,7 +149,104 @@ export function OrderConfirmationDialog({
     fetchProducts();
   }, [open]);
 
-  // Fetch carrier zones when carrier is selected
+  // Search cities for autocomplete (debounced)
+  useEffect(() => {
+    const searchCities = async () => {
+      if (!citySearch || citySearch.length < 2 || !useCoverageSystem) {
+        setCityResults([]);
+        return;
+      }
+
+      try {
+        setLoadingCities(true);
+        const token = localStorage.getItem('auth_token');
+        const storeId = localStorage.getItem('current_store_id');
+
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/locations/search?q=${encodeURIComponent(citySearch)}&limit=10`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Store-ID': storeId || '',
+            },
+          }
+        );
+
+        if (response.ok) {
+          const { data } = await response.json();
+          setCityResults(data || []);
+        } else {
+          setCityResults([]);
+        }
+      } catch (error) {
+        logger.error('Error searching cities:', error);
+        setCityResults([]);
+      } finally {
+        setLoadingCities(false);
+      }
+    };
+
+    // Debounce search
+    const timeoutId = setTimeout(searchCities, 300);
+    return () => clearTimeout(timeoutId);
+  }, [citySearch, useCoverageSystem]);
+
+  // Fetch carriers with coverage when city is selected
+  useEffect(() => {
+    const fetchCarriersForCity = async () => {
+      if (!selectedCity || !useCoverageSystem) {
+        setCarriersWithCoverage([]);
+        return;
+      }
+
+      try {
+        setLoadingCoverage(true);
+        const token = localStorage.getItem('auth_token');
+        const storeId = localStorage.getItem('current_store_id');
+
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/coverage/city?city=${encodeURIComponent(selectedCity.city)}&department=${encodeURIComponent(selectedCity.department || '')}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Store-ID': storeId || '',
+            },
+          }
+        );
+
+        if (response.ok) {
+          const { data } = await response.json();
+          // Sort: carriers with coverage first, then by rate (lowest first)
+          const sorted = (data || []).sort((a: CarrierWithCoverage, b: CarrierWithCoverage) => {
+            if (a.has_coverage && !b.has_coverage) return -1;
+            if (!a.has_coverage && b.has_coverage) return 1;
+            if (a.rate === null) return 1;
+            if (b.rate === null) return -1;
+            return a.rate - b.rate;
+          });
+          setCarriersWithCoverage(sorted);
+
+          // Auto-select cheapest carrier with coverage
+          const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+          if (cheapest) {
+            setCourierId(cheapest.carrier_id);
+            setShippingCost(cheapest.rate || 0);
+          }
+        } else {
+          setCarriersWithCoverage([]);
+        }
+      } catch (error) {
+        logger.error('Error fetching carriers for city:', error);
+        setCarriersWithCoverage([]);
+      } finally {
+        setLoadingCoverage(false);
+      }
+    };
+
+    fetchCarriersForCity();
+  }, [selectedCity, useCoverageSystem]);
+
+  // Fetch carrier zones when carrier is selected (legacy system)
   useEffect(() => {
     const fetchCarrierZones = async () => {
       if (!courierId) {
@@ -182,6 +318,14 @@ export function OrderConfirmationDialog({
       setOpenProductCombobox(false);
       setDiscountEnabled(false);
       setDiscountAmount(0);
+      setIsPickup(false);
+      setMarkAsPrepaid(false);
+      // Reset city coverage state
+      setCitySearch('');
+      setCityResults([]);
+      setSelectedCity(null);
+      setCarriersWithCoverage([]);
+      setOpenCityCombobox(false);
 
       // Pre-fill address if order has one
       if (order?.address) {
@@ -203,16 +347,16 @@ export function OrderConfirmationDialog({
     }
   }, [open, order, refetchCarriers]);
 
-  // Show toast when carriers finish loading with no results
+  // Show toast when carriers finish loading with no results (only if not using pickup)
   useEffect(() => {
-    if (open && !loadingCarriers && carriers.length === 0 && !carriersError) {
+    if (open && !loadingCarriers && carriers.length === 0 && !carriersError && !isPickup) {
       toast({
         title: 'Sin repartidores',
-        description: 'No hay repartidores activos disponibles. Crea uno primero.',
-        variant: 'destructive',
+        description: 'No hay repartidores activos. Puedes usar "Retiro en local" o crear un repartidor.',
+        variant: 'default',
       });
     }
-  }, [open, loadingCarriers, carriers.length, carriersError, toast]);
+  }, [open, loadingCarriers, carriers.length, carriersError, isPickup, toast]);
 
   // Auto-save upsell when changed after confirmation
   useEffect(() => {
@@ -251,23 +395,33 @@ export function OrderConfirmationDialog({
   const handleConfirm = async () => {
     if (!order) return;
 
-    // Validation
-    if (!courierId) {
-      toast({
-        title: 'Repartidor requerido',
-        description: 'Debes seleccionar un repartidor',
-        variant: 'destructive',
-      });
-      return;
-    }
+    // Validation: Either pickup OR carrier required
+    if (!isPickup) {
+      if (!courierId) {
+        toast({
+          title: 'Repartidor requerido',
+          description: 'Debes seleccionar un repartidor o marcar "Retiro en local"',
+          variant: 'destructive',
+        });
+        return;
+      }
 
-    if (!selectedZone) {
-      toast({
-        title: 'Zona requerida',
-        description: 'Debes seleccionar una zona de entrega',
-        variant: 'destructive',
-      });
-      return;
+      // For coverage system, require city; for legacy system, require zone
+      if (useCoverageSystem && !selectedCity) {
+        toast({
+          title: 'Ciudad requerida',
+          description: 'Debes seleccionar la ciudad de entrega',
+          variant: 'destructive',
+        });
+        return;
+      } else if (!useCoverageSystem && !selectedZone) {
+        toast({
+          title: 'Zona requerida',
+          description: 'Debes seleccionar una zona de entrega',
+          variant: 'destructive',
+        });
+        return;
+      }
     }
 
     // If upsell is enabled, require product selection
@@ -293,14 +447,18 @@ export function OrderConfirmationDialog({
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
 
-      // Get selected zone details
+      // Get selected zone details (legacy system) or city (new system)
       const zoneData = carrierZones.find((z) => z.id === selectedZone);
 
       const payload: any = {
-        courier_id: courierId,
+        courier_id: isPickup ? null : courierId,
         upsell_added: upsellAdded,
-        delivery_zone: zoneData?.zone_name || '',
-        shipping_cost: shippingCost,
+        // Use city-based zone if coverage system is active
+        delivery_zone: isPickup ? null : (useCoverageSystem && selectedCity ? selectedCity.zone_code : (zoneData?.zone_name || '')),
+        shipping_cost: isPickup ? 0 : shippingCost,
+        // Add city info for tracking
+        shipping_city: isPickup ? null : (useCoverageSystem && selectedCity ? selectedCity.city : null),
+        shipping_city_normalized: isPickup ? null : (useCoverageSystem && selectedCity ? selectedCity.city.toLowerCase() : null),
       };
 
       // Add upsell product info if selected (this adds to the order, doesn't replace)
@@ -326,6 +484,12 @@ export function OrderConfirmationDialog({
         payload.discount_amount = discountAmount;
       }
 
+      // Add mark as prepaid if selected (COD order paid via transfer)
+      if (markAsPrepaid && showPrepaidOption) {
+        payload.mark_as_prepaid = true;
+        payload.prepaid_method = 'transfer';
+      }
+
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}/confirm`, {
         method: 'POST',
         headers: {
@@ -349,7 +513,11 @@ export function OrderConfirmationDialog({
       // Show success toast
       toast({
         title: '¡Pedido confirmado!',
-        description: 'El pedido ha sido asignado al repartidor exitosamente.',
+        description: markAsPrepaid
+          ? 'Pedido marcado como PAGADO. La etiqueta mostrará "PAGADO".'
+          : isPickup
+            ? 'El pedido está listo para retiro en local (sin envío).'
+            : 'El pedido ha sido asignado al repartidor exitosamente.',
         duration: 5000,
       });
 
@@ -429,6 +597,10 @@ export function OrderConfirmationDialog({
     setIsConfirmed(false);
     setConfirmedOrder(null);
     setIsPrinting(false);
+    setIsPickup(false);
+    setDiscountEnabled(false);
+    setDiscountAmount(0);
+    setMarkAsPrepaid(false);
     onOpenChange(false);
   };
 
@@ -743,52 +915,337 @@ export function OrderConfirmationDialog({
                 )}
               </div>
 
-              {/* Courier Selection */}
-              <div className="space-y-2">
-                <Label htmlFor="courier">
-                  Repartidor <span className="text-red-500">*</span>
-                </Label>
-                {loadingCarriers ? (
-                  <div className="flex items-center justify-center p-4">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="ml-2 text-sm text-muted-foreground">Cargando repartidores...</span>
+              {/* Mark as Prepaid Option - Only show for COD orders that aren't already paid */}
+              {showPrepaidOption && (
+                <div className="space-y-3">
+                  <div className={cn(
+                    "flex items-center justify-between space-x-2 p-4 rounded-lg border-2 transition-all",
+                    markAsPrepaid
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                      : "border-muted bg-muted/30 hover:border-muted-foreground/20"
+                  )}>
+                    <Label htmlFor="prepaid" className="flex items-start gap-3 cursor-pointer flex-1">
+                      <Banknote className={cn(
+                        "h-5 w-5 mt-0.5 flex-shrink-0",
+                        markAsPrepaid ? "text-blue-600" : "text-muted-foreground"
+                      )} />
+                      <div className="space-y-1">
+                        <span className={cn(
+                          "font-medium",
+                          markAsPrepaid && "text-blue-700 dark:text-blue-300"
+                        )}>
+                          Pagado por transferencia
+                        </span>
+                        <p className="font-normal text-xs text-muted-foreground">
+                          El cliente ya pagó antes del envío (transferencia, QR, etc.)
+                        </p>
+                      </div>
+                    </Label>
+                    <Switch
+                      id="prepaid"
+                      checked={markAsPrepaid}
+                      onCheckedChange={setMarkAsPrepaid}
+                    />
                   </div>
-                ) : carriersError ? (
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20">
-                    <span className="text-sm text-red-800 dark:text-red-200">
-                      Error al cargar repartidores
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => refetchCarriers()}
-                    >
-                      Reintentar
-                    </Button>
+
+                  {markAsPrepaid && (
+                    <div className="p-3 rounded-lg bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800">
+                      <p className="text-sm text-blue-800 dark:text-blue-200 font-medium flex items-center gap-2">
+                        <Check className="h-4 w-4" />
+                        La etiqueta mostrará "PAGADO" en lugar de "COBRAR"
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                        El pedido se marcará como pagado y no aparecerá en cobros COD.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Pickup Option (Retiro en Local) */}
+              <div className="space-y-3">
+                <div className={cn(
+                  "flex items-center justify-between space-x-2 p-4 rounded-lg border-2 transition-all",
+                  isPickup
+                    ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                    : "border-muted bg-muted/30 hover:border-muted-foreground/20"
+                )}>
+                  <Label htmlFor="pickup" className="flex items-start gap-3 cursor-pointer flex-1">
+                    <Store className={cn(
+                      "h-5 w-5 mt-0.5 flex-shrink-0",
+                      isPickup ? "text-emerald-600" : "text-muted-foreground"
+                    )} />
+                    <div className="space-y-1">
+                      <span className={cn(
+                        "font-medium",
+                        isPickup && "text-emerald-700 dark:text-emerald-300"
+                      )}>
+                        Retiro en local
+                      </span>
+                      <p className="font-normal text-xs text-muted-foreground">
+                        El cliente retira en la tienda. Sin costo de envío.
+                      </p>
+                    </div>
+                  </Label>
+                  <Switch
+                    id="pickup"
+                    checked={isPickup}
+                    onCheckedChange={(checked) => {
+                      setIsPickup(checked);
+                      if (checked) {
+                        setCourierId('');
+                        setSelectedZone('');
+                        setShippingCost(0);
+                        setCarrierZones([]);
+                      }
+                    }}
+                  />
+                </div>
+
+                {isPickup && (
+                  <div className="p-3 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
+                    <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium flex items-center gap-2">
+                      <Check className="h-4 w-4" />
+                      Sin costo de envío - Gs. 0
+                    </p>
+                    <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
+                      El pedido no aparecerá en despachos ni liquidaciones de repartidores.
+                    </p>
                   </div>
-                ) : (
-                  <Select value={courierId} onValueChange={setCourierId}>
-                    <SelectTrigger id="courier">
-                      <SelectValue placeholder="Selecciona un repartidor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {carriers.map((carrier) => (
-                        <SelectItem key={carrier.id} value={carrier.id}>
-                          {carrier.name} {carrier.phone && `- ${carrier.phone}`}
-                        </SelectItem>
-                      ))}
-                      {carriers.length === 0 && (
-                        <div className="p-2 text-sm text-muted-foreground text-center">
-                          No hay repartidores activos
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
                 )}
               </div>
 
-              {/* Zone Selection - Only show if carrier is selected */}
-              {courierId && (
+              {/* City & Carrier Selection - Only show if NOT pickup */}
+              {!isPickup && useCoverageSystem && (
+                <>
+                  {/* City Search (Autocomplete) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="city-search">
+                      <MapPin className="h-4 w-4 inline mr-1" />
+                      Ciudad de entrega <span className="text-red-500">*</span>
+                    </Label>
+                    <Popover open={openCityCombobox} onOpenChange={setOpenCityCombobox}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="city-search"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={openCityCombobox}
+                          className="w-full justify-between"
+                        >
+                          {selectedCity ? (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-primary" />
+                              <span>{selectedCity.display_text}</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {selectedCity.zone_code.replace('_', ' ')}
+                              </Badge>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">Escribe la ciudad...</span>
+                          )}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-full p-0" align="start">
+                        <Command shouldFilter={false}>
+                          <CommandInput
+                            placeholder="Buscar ciudad..."
+                            value={citySearch}
+                            onValueChange={setCitySearch}
+                          />
+                          {loadingCities ? (
+                            <div className="flex items-center justify-center p-4">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="ml-2 text-sm">Buscando...</span>
+                            </div>
+                          ) : cityResults.length === 0 && citySearch.length >= 2 ? (
+                            <CommandEmpty>No se encontraron ciudades.</CommandEmpty>
+                          ) : (
+                            <CommandGroup className="max-h-64 overflow-auto">
+                              {cityResults.map((city) => (
+                                <CommandItem
+                                  key={`${city.city}-${city.department}`}
+                                  value={city.display_text}
+                                  onSelect={() => {
+                                    setSelectedCity(city);
+                                    setCitySearch('');
+                                    setOpenCityCombobox(false);
+                                    // Reset carrier when city changes
+                                    setCourierId('');
+                                    setShippingCost(0);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      selectedCity?.city === city.city ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex items-center justify-between w-full">
+                                    <div className="flex items-center gap-2">
+                                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                                      <span>{city.city}</span>
+                                      <span className="text-xs text-muted-foreground">({city.department})</span>
+                                    </div>
+                                    <Badge variant="outline" className="text-xs">
+                                      {city.zone_code.replace('_', ' ')}
+                                    </Badge>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          )}
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Carrier Selection with Coverage */}
+                  {selectedCity && (
+                    <div className="space-y-2">
+                      <Label htmlFor="courier-coverage">
+                        <Truck className="h-4 w-4 inline mr-1" />
+                        Repartidor <span className="text-red-500">*</span>
+                      </Label>
+                      {loadingCoverage ? (
+                        <div className="flex items-center justify-center p-4">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span className="ml-2 text-sm text-muted-foreground">Cargando cobertura...</span>
+                        </div>
+                      ) : carriersWithCoverage.length === 0 ? (
+                        <div className="p-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                                Sin cobertura configurada
+                              </p>
+                              <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                                No hay repartidores con cobertura para {selectedCity.city}.
+                                Ve a Logística → Transportadoras para configurar tarifas.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {carriersWithCoverage.map((carrier) => (
+                            <div
+                              key={carrier.carrier_id}
+                              onClick={() => {
+                                if (carrier.has_coverage) {
+                                  setCourierId(carrier.carrier_id);
+                                  setShippingCost(carrier.rate || 0);
+                                }
+                              }}
+                              className={cn(
+                                "p-3 rounded-lg border-2 cursor-pointer transition-all",
+                                carrier.carrier_id === courierId
+                                  ? "border-primary bg-primary/5"
+                                  : carrier.has_coverage
+                                    ? "border-muted hover:border-primary/50 hover:bg-muted/50"
+                                    : "border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20 cursor-not-allowed opacity-60"
+                              )}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={cn(
+                                    "w-5 h-5 rounded-full border-2 flex items-center justify-center",
+                                    carrier.carrier_id === courierId
+                                      ? "border-primary bg-primary"
+                                      : "border-muted-foreground/30"
+                                  )}>
+                                    {carrier.carrier_id === courierId && (
+                                      <Check className="h-3 w-3 text-white" />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <p className="font-medium">{carrier.carrier_name}</p>
+                                    {carrier.carrier_phone && (
+                                      <p className="text-xs text-muted-foreground">{carrier.carrier_phone}</p>
+                                    )}
+                                  </div>
+                                </div>
+                                {carrier.has_coverage ? (
+                                  <Badge variant={carrier.carrier_id === courierId ? "default" : "secondary"} className="text-base px-3">
+                                    Gs. {Number(carrier.rate || 0).toLocaleString()}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="destructive" className="text-xs">
+                                    SIN COBERTURA
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Show selected shipping cost */}
+                  {selectedCity && courierId && shippingCost > 0 && (
+                    <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                      <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                        Costo de envío: <span className="text-lg">Gs. {shippingCost.toLocaleString()}</span>
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                        {selectedCity.city} → {carriersWithCoverage.find(c => c.carrier_id === courierId)?.carrier_name}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Legacy Courier Selection (when coverage system is disabled) */}
+              {!isPickup && !useCoverageSystem && (
+                <div className="space-y-2">
+                  <Label htmlFor="courier">
+                    Repartidor <span className="text-red-500">*</span>
+                  </Label>
+                  {loadingCarriers ? (
+                    <div className="flex items-center justify-center p-4">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="ml-2 text-sm text-muted-foreground">Cargando repartidores...</span>
+                    </div>
+                  ) : carriersError ? (
+                    <div className="flex items-center justify-between p-4 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20">
+                      <span className="text-sm text-red-800 dark:text-red-200">
+                        Error al cargar repartidores
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refetchCarriers()}
+                      >
+                        Reintentar
+                      </Button>
+                    </div>
+                  ) : (
+                    <Select value={courierId} onValueChange={setCourierId}>
+                      <SelectTrigger id="courier">
+                        <SelectValue placeholder="Selecciona un repartidor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {carriers.map((carrier) => (
+                          <SelectItem key={carrier.id} value={carrier.id}>
+                            {carrier.name} {carrier.phone && `- ${carrier.phone}`}
+                          </SelectItem>
+                        ))}
+                        {carriers.length === 0 && (
+                          <div className="p-2 text-sm text-muted-foreground text-center">
+                            No hay repartidores activos
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+
+              {/* Zone Selection - Only show in LEGACY mode when carrier is selected and NOT pickup */}
+              {!isPickup && !useCoverageSystem && courierId && (
                 <div className="space-y-2">
                   <Label htmlFor="zone">
                     Zona de Entrega <span className="text-red-500">*</span>
@@ -909,11 +1366,24 @@ export function OrderConfirmationDialog({
                 >
                   Cancelar
                 </Button>
-                <Button onClick={handleConfirm} disabled={loading || !courierId || !selectedZone}>
+                <Button
+                  onClick={handleConfirm}
+                  disabled={loading || (!isPickup && (
+                    !courierId ||
+                    (useCoverageSystem && !selectedCity) ||
+                    (!useCoverageSystem && !selectedZone)
+                  ))}
+                  className={isPickup ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+                >
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Confirmando...
+                    </>
+                  ) : isPickup ? (
+                    <>
+                      <Store className="mr-2 h-4 w-4" />
+                      Confirmar Retiro
                     </>
                   ) : (
                     'Confirmar Pedido'

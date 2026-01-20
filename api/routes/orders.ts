@@ -2280,16 +2280,13 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             google_maps_link,
             delivery_zone,
             shipping_cost,
-            discount_amount
+            discount_amount,
+            mark_as_prepaid = false,  // NEW: Mark COD order as prepaid (transfer before shipping)
+            prepaid_method = 'transfer'  // NEW: Method used for prepayment
         } = req.body;
 
-        // Validate courier_id is provided
-        if (!courier_id) {
-            return res.status(400).json({
-                error: 'Validation failed',
-                message: 'courier_id is required'
-            });
-        }
+        // courier_id can be null for pickup orders (retiro en local)
+        const isPickupOrder = !courier_id;
 
         // ================================================================
         // ATOMIC CONFIRMATION via RPC
@@ -2299,7 +2296,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             p_order_id: id,
             p_store_id: req.storeId,
             p_confirmed_by: req.userId || 'confirmador',
-            p_courier_id: courier_id,
+            p_courier_id: courier_id || null,  // NULL for pickup orders
             p_address: address || null,
             p_latitude: latitude !== undefined ? Number(latitude) : null,
             p_longitude: longitude !== undefined ? Number(longitude) : null,
@@ -2308,7 +2305,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             p_shipping_cost: shipping_cost !== undefined ? Number(shipping_cost) : null,
             p_upsell_product_id: upsell_added && upsell_product_id ? upsell_product_id : null,
             p_upsell_quantity: upsell_added ? (upsell_quantity || 1) : 1,
-            p_discount_amount: discount_amount !== undefined ? Number(discount_amount) : null
+            p_discount_amount: discount_amount !== undefined ? Number(discount_amount) : null,
+            p_mark_as_prepaid: mark_as_prepaid === true,  // NEW: Mark COD as prepaid
+            p_prepaid_method: mark_as_prepaid ? (prepaid_method || 'transfer') : null  // NEW: Prepaid method
         });
 
         if (rpcError) {
@@ -2368,7 +2367,10 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             discount_amount: number;
             new_total_price: number;
             new_cod_amount: number;
-            carrier_name: string;
+            carrier_name: string | null;
+            is_pickup: boolean;
+            was_marked_prepaid: boolean;
+            final_financial_status: string;
         };
 
         if (!result?.success || !result?.order) {
@@ -2434,12 +2436,19 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         }
 
         res.json({
-            message: 'Order confirmed successfully',
+            message: result.was_marked_prepaid
+                ? 'Order confirmed as prepaid (pagado por transferencia)'
+                : result.is_pickup
+                    ? 'Order confirmed as pickup (no shipping)'
+                    : 'Order confirmed successfully',
             data: {
                 ...confirmedOrder,
                 delivery_link: `${process.env.FRONTEND_URL || 'http://localhost:8080'}/delivery/${confirmedOrder.delivery_link_token}`,
                 qr_code_url: qrCodeDataUrl,
-                carrier_name: result.carrier_name
+                carrier_name: result.carrier_name,
+                is_pickup: result.is_pickup,
+                was_marked_prepaid: result.was_marked_prepaid,
+                financial_status: result.final_financial_status
             },
             meta: {
                 upsell_applied: result.upsell_applied,
@@ -2447,7 +2456,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 discount_applied: result.discount_applied,
                 discount_amount: result.discount_amount,
                 final_total: result.new_total_price,
-                final_cod_amount: result.new_cod_amount
+                final_cod_amount: result.new_cod_amount,
+                is_pickup: result.is_pickup,
+                was_marked_prepaid: result.was_marked_prepaid
             }
         });
     } catch (error: any) {

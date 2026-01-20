@@ -1256,10 +1256,10 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
             units_per_pack = 1
         } = req.body;
 
-        // Verify product belongs to store
+        // Verify product belongs to store and get image_url for inheritance
         const { data: product, error: productError } = await supabaseAdmin
             .from('products')
-            .select('id, name, store_id')
+            .select('id, name, store_id, image_url')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
@@ -1321,7 +1321,7 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
 
         const nextPosition = (maxPos?.position || 0) + 1;
 
-        // Create variant
+        // Create variant - auto-inherit image from parent product if not provided
         const { data: variant, error } = await supabaseAdmin
             .from('product_variants')
             .insert([{
@@ -1338,7 +1338,7 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
                 price: parseFloat(price),
                 cost: cost ? parseFloat(cost) : null,
                 stock: uses_shared_stock ? 0 : (parseInt(stock, 10) || 0),
-                image_url,
+                image_url: image_url || product.image_url, // Auto-inherit from parent
                 barcode,
                 weight: weight ? parseFloat(weight) : null,
                 weight_unit,
@@ -1640,10 +1640,10 @@ productsRouter.post('/:id/variants/bulk', validateUUIDParam('id'), requirePermis
             });
         }
 
-        // Verify product belongs to store
+        // Verify product belongs to store and get image_url for inheritance
         const { data: product, error: productError } = await supabaseAdmin
             .from('products')
-            .select('id, name, store_id')
+            .select('id, name, store_id, image_url')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
@@ -1663,7 +1663,7 @@ productsRouter.post('/:id/variants/bulk', validateUUIDParam('id'), requirePermis
 
         let nextPosition = (maxPos?.position || 0) + 1;
 
-        // Prepare variants for insert
+        // Prepare variants for insert - auto-inherit image from parent if not provided
         const variantsToInsert = variants.map((v: any) => ({
             product_id: id,
             store_id: req.storeId,
@@ -1676,6 +1676,7 @@ productsRouter.post('/:id/variants/bulk', validateUUIDParam('id'), requirePermis
             price: parseFloat(v.price),
             cost: v.cost ? parseFloat(v.cost) : null,
             stock: parseInt(v.stock, 10) || 0,
+            image_url: v.image_url || product.image_url, // Auto-inherit from parent
             position: nextPosition++,
             is_active: true
         }));
