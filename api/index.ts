@@ -48,6 +48,7 @@ import { externalWebhooksRouter } from './routes/external-webhooks';
 import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
+import { supabaseAdmin } from './db/connection';
 import { requestLoggerMiddleware, logger } from './utils/logger';
 import { registerCleanup, setupShutdownHandlers } from './utils/shutdown';
 import { stopCleanupInterval as stopShopifyClientCleanup, clearShopifyClientCache } from './services/shopify-client-cache';
