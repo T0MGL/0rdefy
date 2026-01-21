@@ -1710,7 +1710,10 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         // Get current order status to check if reactivating from cancelled
         const { data: currentOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('sleeves_status, delivery_link_token, line_items')
+            .select(`
+                sleeves_status, delivery_link_token, line_items,
+                order_line_items (id, product_id, quantity, product_name)
+            `)
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
@@ -1766,7 +1769,10 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         // This prevents the trigger from failing with insufficient stock
         // ================================================================
         if (toStatus === 'ready_to_ship' && fromStatus !== 'ready_to_ship') {
-            const lineItems = currentOrder.line_items || [];
+            // Use normalized order_line_items first (Shopify orders), fallback to JSONB line_items (manual orders)
+            const normalizedItems = (currentOrder as any).order_line_items || [];
+            const jsonbItems = currentOrder.line_items || [];
+            const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
 
             if (Array.isArray(lineItems) && lineItems.length > 0) {
                 const stockIssues: Array<{
@@ -2704,15 +2710,19 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
         const userId = req.user?.email || req.user?.name || 'unknown';
 
 
-        // Verify order exists and belongs to store - include line_items for stock check
+        // Verify order exists and belongs to store - include both line_items sources for stock check
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, printed, printed_at, sleeves_status, line_items')
+            .select(`
+                id, printed, printed_at, sleeves_status, line_items,
+                order_line_items (id, product_id, quantity, product_name)
+            `)
             .eq('id', id)
             .eq('store_id', storeId)
             .single();
 
         if (fetchError || !existingOrder) {
+            logger.error('API', `[mark-printed] Order not found: ${id}, error:`, fetchError);
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El pedido no existe o no pertenece a esta tienda'
@@ -2723,7 +2733,10 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
         // CRITICAL: Check stock availability before transitioning to ready_to_ship
         // ================================================================
         if (existingOrder.sleeves_status === 'in_preparation') {
-            const lineItems = existingOrder.line_items || [];
+            // Use normalized order_line_items first (Shopify orders), fallback to JSONB line_items (manual orders)
+            const normalizedItems = existingOrder.order_line_items || [];
+            const jsonbItems = existingOrder.line_items || [];
+            const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
 
             if (Array.isArray(lineItems) && lineItems.length > 0) {
                 const stockIssues: Array<{
@@ -2834,10 +2847,13 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
         }
 
 
-        // Get all orders with line_items for stock checking
+        // Get all orders with both line_items sources for stock checking
         const { data: existingOrders, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, printed, sleeves_status, line_items, order_number')
+            .select(`
+                id, printed, sleeves_status, line_items, order_number,
+                order_line_items (id, product_id, quantity, product_name)
+            `)
             .in('id', order_ids)
             .eq('store_id', storeId);
 
@@ -2851,7 +2867,10 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
         for (const order of existingOrders || []) {
             if (order.sleeves_status !== 'in_preparation') continue;
 
-            const lineItems = order.line_items || [];
+            // Use normalized order_line_items first (Shopify orders), fallback to JSONB line_items (manual orders)
+            const normalizedItems = (order as any).order_line_items || [];
+            const jsonbItems = order.line_items || [];
+            const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
             if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
 
             const stockIssues: any[] = [];
@@ -2966,10 +2985,13 @@ ordersRouter.post('/bulk-print-and-dispatch', requirePermission(Module.ORDERS, P
             });
         }
 
-        // Get all orders with line_items for stock checking
+        // Get all orders with both line_items sources for stock checking
         const { data: existingOrders, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, printed, sleeves_status, line_items, order_number')
+            .select(`
+                id, printed, sleeves_status, line_items, order_number,
+                order_line_items (id, product_id, quantity, product_name)
+            `)
             .in('id', order_ids)
             .eq('store_id', storeId);
 
@@ -2990,7 +3012,10 @@ ordersRouter.post('/bulk-print-and-dispatch', requirePermission(Module.ORDERS, P
         for (const order of existingOrders) {
             if (order.sleeves_status !== 'in_preparation') continue;
 
-            const lineItems = order.line_items || [];
+            // Use normalized order_line_items first (Shopify orders), fallback to JSONB line_items (manual orders)
+            const normalizedItems = (order as any).order_line_items || [];
+            const jsonbItems = order.line_items || [];
+            const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
             if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
 
             const stockIssues: any[] = [];
