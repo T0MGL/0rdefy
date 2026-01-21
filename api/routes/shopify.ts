@@ -1,6 +1,7 @@
 // Shopify Integration Routes
 // Rutas para configurar integracion, sincronizacion manual y webhooks
 
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
@@ -2229,3 +2230,159 @@ const shopRedactHandler = async (req: Request, res: Response) => {
 
 shopifyRouter.post('/webhook/shop/redact', shopRedactHandler);
 shopifyRouter.post('/webhooks/shop/redact', shopRedactHandler);
+
+// ================================================================
+// WEBHOOK HMAC DIAGNOSTIC ENDPOINT (DEBUG ONLY)
+// ================================================================
+// GET /api/shopify/diagnose-hmac
+// Diagnóstico de configuración HMAC para todas las integraciones
+// ================================================================
+shopifyRouter.get('/diagnose-hmac', async (req: AuthRequest, res: Response) => {
+  try {
+    // Obtener todas las integraciones activas
+    const { data: integrations, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('id, shop_domain, is_custom_app, scope, webhook_signature, api_secret_key, status, created_at')
+      .eq('status', 'active');
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    const diagnostics = integrations?.map(integration => {
+      const { secret, source } = getWebhookSecret(integration);
+
+      return {
+        shop_domain: integration.shop_domain,
+        status: integration.status,
+        is_custom_app: integration.is_custom_app,
+        has_scope: !!(integration.scope && integration.scope.trim() !== ''),
+        has_webhook_signature: !!integration.webhook_signature,
+        has_api_secret_key: !!integration.api_secret_key,
+        webhook_signature_length: integration.webhook_signature?.length || 0,
+        api_secret_key_length: integration.api_secret_key?.length || 0,
+        // CRITICAL: Show which secret is actually being used
+        secret_source: source,
+        secret_length: secret?.length || 0,
+        // Diagnostic: Expected secret lengths
+        // Shopify Client Secrets are typically 32 bytes = 64 hex chars OR ~44 base64 chars
+        secret_looks_valid: secret ? (secret.length >= 32 && secret.length <= 128) : false,
+        created_at: integration.created_at,
+        // Show first/last 4 chars of secrets for verification (safe to show)
+        webhook_signature_preview: integration.webhook_signature
+          ? `${integration.webhook_signature.substring(0, 4)}...${integration.webhook_signature.substring(integration.webhook_signature.length - 4)}`
+          : null,
+        api_secret_key_preview: integration.api_secret_key
+          ? `${integration.api_secret_key.substring(0, 4)}...${integration.api_secret_key.substring(integration.api_secret_key.length - 4)}`
+          : null,
+      };
+    });
+
+    // Check environment variable
+    const envSecretLength = process.env.SHOPIFY_API_SECRET?.length || 0;
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      env_shopify_api_secret_configured: envSecretLength > 0,
+      env_shopify_api_secret_length: envSecretLength,
+      total_integrations: integrations?.length || 0,
+      integrations: diagnostics,
+      recommendations: diagnostics?.filter(d => !d.secret_looks_valid).map(d => ({
+        shop_domain: d.shop_domain,
+        issue: `Secret length (${d.secret_length}) may be invalid. Expected 32-128 characters.`,
+        action: d.is_custom_app
+          ? 'Update webhook_signature with the correct Client Secret from Shopify Partners > Apps > [Your App] > API credentials'
+          : 'Check SHOPIFY_API_SECRET environment variable'
+      }))
+    });
+
+  } catch (error: any) {
+    logger.error('SHOPIFY', 'Error in HMAC diagnostics', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ================================================================
+// WEBHOOK TEST ENDPOINT (DEBUG ONLY)
+// ================================================================
+// POST /api/shopify/test-hmac
+// Prueba de verificación HMAC con un payload de prueba
+// Body: { shop_domain: string, test_body: string, test_hmac: string }
+// ================================================================
+shopifyRouter.post('/test-hmac', async (req: AuthRequest, res: Response) => {
+  try {
+    const { shop_domain, test_body, test_hmac } = req.body;
+
+    if (!shop_domain) {
+      return res.status(400).json({ success: false, error: 'shop_domain is required' });
+    }
+
+    // Get integration
+    const { data: integration, error } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('*')
+      .eq('shop_domain', shop_domain)
+      .eq('status', 'active')
+      .single();
+
+    if (error || !integration) {
+      return res.status(404).json({ success: false, error: 'Integration not found' });
+    }
+
+    const { secret, source } = getWebhookSecret(integration);
+
+    if (!secret) {
+      return res.status(500).json({ success: false, error: 'No webhook secret configured' });
+    }
+
+    // Generate test HMACs
+    const testPayload = test_body || JSON.stringify({ test: true, timestamp: Date.now() });
+
+    const hashBase64 = crypto
+      .createHmac('sha256', secret)
+      .update(testPayload, 'utf8')
+      .digest('base64');
+
+    const hashHex = crypto
+      .createHmac('sha256', secret)
+      .update(testPayload, 'utf8')
+      .digest('hex');
+
+    // If test_hmac provided, verify it
+    let verification_result = null;
+    if (test_hmac) {
+      verification_result = {
+        provided_hmac: test_hmac,
+        matches_base64: test_hmac === hashBase64,
+        matches_hex: test_hmac === hashHex,
+        is_valid: test_hmac === hashBase64 || test_hmac === hashHex
+      };
+    }
+
+    res.json({
+      success: true,
+      shop_domain,
+      secret_source: source,
+      secret_length: secret.length,
+      secret_preview: `${secret.substring(0, 4)}...${secret.substring(secret.length - 4)}`,
+      test_payload_length: testPayload.length,
+      generated_hmac_base64: hashBase64,
+      generated_hmac_hex: hashHex,
+      verification_result,
+      instructions: test_hmac
+        ? null
+        : 'To test: Copy the test_payload to Shopify webhook, capture the X-Shopify-Hmac-Sha256 header, and call this endpoint with test_hmac parameter'
+    });
+
+  } catch (error: any) {
+    logger.error('SHOPIFY', 'Error in HMAC test', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});

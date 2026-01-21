@@ -345,6 +345,11 @@ app.use((req: any, res: Response, next: NextFunction) => {
     const isWebhookRoute = req.path.startsWith('/api/shopify/webhook/') ||
         req.path.startsWith('/api/shopify/webhooks/');
 
+    // DEBUG: Log all webhook-like paths to verify middleware is capturing them
+    if (req.path.includes('webhook') || req.path.includes('orders')) {
+        logger.info('RAWBODY_MIDDLEWARE', `[DEBUG] Path: ${req.path}, isWebhookRoute: ${isWebhookRoute}, Method: ${req.method}`);
+    }
+
     if (isWebhookRoute) {
         let data = '';
         req.setEncoding('utf8');
@@ -353,6 +358,8 @@ app.use((req: any, res: Response, next: NextFunction) => {
         });
         req.on('end', () => {
             req.rawBody = data;
+            // DEBUG: Log rawBody capture
+            logger.info('RAWBODY_MIDDLEWARE', `[DEBUG] Captured rawBody for ${req.path}, length: ${data.length}`);
             // Parse JSON manually for webhook routes
             try {
                 req.body = JSON.parse(data);
