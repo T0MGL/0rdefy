@@ -2701,6 +2701,205 @@ ordersRouter.patch('/:id/internal-notes', validateUUIDParam('id'), requirePermis
 });
 
 // ================================================================
+// PATCH /api/orders/:id/upsell - Add or update upsell product
+// ================================================================
+// Adds/removes/updates upsell product to an existing order
+// Handles both JSONB line_items and normalized order_line_items table
+ordersRouter.patch('/:id/upsell', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const storeId = req.storeId;
+        const { upsell_product_id, upsell_quantity = 1, remove = false } = req.body;
+
+        // Validate storeId exists
+        if (!storeId) {
+            return res.status(401).json({
+                error: 'Unauthorized',
+                message: 'Store ID is required'
+            });
+        }
+
+        // Fetch existing order
+        const { data: existingOrder, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select(`
+                id,
+                store_id,
+                sleeves_status,
+                line_items,
+                total_price,
+                subtotal_price,
+                order_line_items (id, product_id, quantity, unit_price, total_price, is_upsell)
+            `)
+            .eq('id', id)
+            .eq('store_id', storeId)
+            .single();
+
+        if (fetchError || !existingOrder) {
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'El pedido no existe o no pertenece a esta tienda'
+            });
+        }
+
+        // If removing upsell
+        if (remove) {
+            // Remove from order_line_items table
+            const { error: deleteError } = await supabaseAdmin
+                .from('order_line_items')
+                .delete()
+                .eq('order_id', id)
+                .eq('is_upsell', true);
+
+            if (deleteError) {
+                throw deleteError;
+            }
+
+            // Remove from JSONB line_items
+            const updatedLineItems = (existingOrder.line_items as any[] || []).filter((item: any) => !item.is_upsell);
+
+            // Recalculate total
+            const newTotal = updatedLineItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
+
+            // Update order
+            const { data, error: updateError } = await supabaseAdmin
+                .from('orders')
+                .update({
+                    line_items: updatedLineItems,
+                    total_price: newTotal,
+                    subtotal_price: newTotal,
+                    upsell_added: false,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', id)
+                .eq('store_id', storeId)
+                .select('id, total_price, upsell_added, updated_at')
+                .single();
+
+            if (updateError) {
+                throw updateError;
+            }
+
+            return res.json({
+                message: 'Upsell removido',
+                data
+            });
+        }
+
+        // If adding/updating upsell, validate product exists
+        if (!upsell_product_id) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'upsell_product_id es requerido'
+            });
+        }
+
+        // Fetch product
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('id, name, price, sku, image')
+            .eq('id', upsell_product_id)
+            .eq('store_id', storeId)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({
+                error: 'Product not found',
+                message: 'El producto de upsell no existe en esta tienda'
+            });
+        }
+
+        // Check if upsell already exists
+        const existingUpsell = existingOrder.order_line_items?.find((item: any) => item.is_upsell === true);
+
+        if (existingUpsell) {
+            // Update existing upsell in order_line_items table
+            const { error: updateError } = await supabaseAdmin
+                .from('order_line_items')
+                .update({
+                    product_id: product.id,
+                    product_name: product.name,
+                    quantity: upsell_quantity,
+                    unit_price: product.price,
+                    total_price: product.price * upsell_quantity,
+                    sku: product.sku,
+                    image_url: product.image,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', existingUpsell.id);
+
+            if (updateError) {
+                throw updateError;
+            }
+        } else {
+            // Insert new upsell in order_line_items table
+            const { error: insertError } = await supabaseAdmin
+                .from('order_line_items')
+                .insert({
+                    order_id: id,
+                    product_id: product.id,
+                    product_name: product.name,
+                    quantity: upsell_quantity,
+                    unit_price: product.price,
+                    total_price: product.price * upsell_quantity,
+                    sku: product.sku,
+                    image_url: product.image,
+                    is_upsell: true
+                });
+
+            if (insertError) {
+                throw insertError;
+            }
+        }
+
+        // Update JSONB line_items (for backwards compatibility)
+        let updatedLineItems = [...(existingOrder.line_items as any[] || []).filter((item: any) => !item.is_upsell)];
+        updatedLineItems.push({
+            product_id: product.id,
+            product_name: product.name,
+            quantity: upsell_quantity,
+            price: product.price,
+            sku: product.sku,
+            is_upsell: true
+        });
+
+        // Recalculate total
+        const newTotal = updatedLineItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
+
+        // Update order
+        const { data, error: updateError } = await supabaseAdmin
+            .from('orders')
+            .update({
+                line_items: updatedLineItems,
+                total_price: newTotal,
+                subtotal_price: newTotal,
+                upsell_added: true,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+            .eq('store_id', storeId)
+            .select('id, total_price, upsell_added, updated_at')
+            .single();
+
+        if (updateError) {
+            throw updateError;
+        }
+
+        res.json({
+            message: existingUpsell ? 'Upsell actualizado' : 'Upsell agregado',
+            data,
+            upsell_total: product.price * upsell_quantity
+        });
+    } catch (error: any) {
+        console.error('Error updating upsell:', error);
+        res.status(500).json({
+            error: 'Error al actualizar upsell',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
 // POST /api/orders/:id/mark-printed - Mark order label as printed
 // ================================================================
 ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {

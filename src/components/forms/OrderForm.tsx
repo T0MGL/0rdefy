@@ -33,7 +33,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store } from 'lucide-react';
+import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package } from 'lucide-react';
 import { productsService } from '@/services/products.service';
 import { useState, useEffect } from 'react';
 import { Product } from '@/types';
@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { DeliveryPreferencesAccordion, type DeliveryPreferences } from '@/components/DeliveryPreferencesAccordion';
+import { Label } from '@/components/ui/label';
 
 // Types for city coverage system
 interface CityLocation {
@@ -83,6 +84,8 @@ export interface OrderFormData extends OrderFormValues {
   shippingCost?: number;
   isPickup?: boolean;
   deliveryPreferences?: DeliveryPreferences | null;
+  upsellProductId?: string;
+  upsellQuantity?: number;
 }
 
 interface OrderFormProps {
@@ -115,6 +118,12 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   const [deliveryPreferences, setDeliveryPreferences] = useState<DeliveryPreferences | null>(
     initialData?.deliveryPreferences || null
   );
+
+  // Upsell state
+  const [upsellEnabled, setUpsellEnabled] = useState(false);
+  const [upsellProductId, setUpsellProductId] = useState<string>('');
+  const [upsellQuantity, setUpsellQuantity] = useState(1);
+  const [openUpsellCombobox, setOpenUpsellCombobox] = useState(false);
 
   // Extract country code from phone for editing
   const extractCountryCode = (phone: string): { countryCode: string; phoneNumber: string } => {
@@ -340,6 +349,13 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       if (initialData.shippingCost !== undefined) {
         setShippingCost(initialData.shippingCost);
       }
+
+      // Set upsell if provided
+      if (initialData.upsellProductId) {
+        setUpsellEnabled(true);
+        setUpsellProductId(initialData.upsellProductId);
+        setUpsellQuantity(initialData.upsellQuantity || 1);
+      }
     }
     // Only run on mount or when initialData changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -357,6 +373,12 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       return;
     }
 
+    // Validate: if upsell enabled, product must be selected
+    if (upsellEnabled && !upsellProductId) {
+      form.setError('product', { message: 'Selecciona el producto de upsell o desactiva el upsell' });
+      return;
+    }
+
     try {
       const fullPhone = `${data.countryCode}${data.phone}`;
 
@@ -371,6 +393,8 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         shippingCost: isPickup ? 0 : shippingCost,
         isPickup,
         deliveryPreferences,
+        upsellProductId: upsellEnabled ? upsellProductId : undefined,
+        upsellQuantity: upsellEnabled ? upsellQuantity : undefined,
       };
 
       await onSubmit(extendedData);
@@ -394,6 +418,9 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       setCarriersWithCoverage([]);
       setIsPickup(false);
       setDeliveryPreferences(null);
+      setUpsellEnabled(false);
+      setUpsellProductId('');
+      setUpsellQuantity(1);
     } catch (error) {
       logger.error('Error submitting order form:', error);
     }
@@ -735,6 +762,167 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
             </FormItem>
           )}
         />
+
+        {/* Upsell Section */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between space-x-2">
+            <Label htmlFor="upsell" className="flex flex-col space-y-1">
+              <span>¿Agregar upsell?</span>
+              <span className="font-normal text-xs text-muted-foreground">
+                Marca si el cliente pidió un producto adicional
+              </span>
+            </Label>
+            <Switch
+              id="upsell"
+              checked={upsellEnabled}
+              onCheckedChange={(checked) => {
+                setUpsellEnabled(checked);
+                if (!checked) {
+                  setUpsellProductId('');
+                  setUpsellQuantity(1);
+                }
+              }}
+            />
+          </div>
+
+          {/* Product Selection - Only show when upsell is enabled */}
+          {upsellEnabled && (
+            <div className="space-y-2 pl-4 border-l-2 border-primary/30">
+              <Label htmlFor="upsell-product">
+                Producto adicional <span className="text-red-500">*</span>
+              </Label>
+              {isLoadingProducts ? (
+                <div className="flex items-center justify-center p-4">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="ml-2 text-sm text-muted-foreground">Cargando productos...</span>
+                </div>
+              ) : products.length === 0 ? (
+                <div className="p-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20">
+                  <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                    No hay productos disponibles. Crea productos primero en el módulo de Productos.
+                  </p>
+                </div>
+              ) : (
+                <Popover open={openUpsellCombobox} onOpenChange={setOpenUpsellCombobox}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="upsell-product"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={openUpsellCombobox}
+                      className="w-full justify-between"
+                    >
+                      {upsellProductId ? (
+                        <div className="flex items-center gap-2">
+                          {products.find((p) => p.id === upsellProductId)?.image ? (
+                            <img
+                              src={products.find((p) => p.id === upsellProductId)?.image}
+                              alt=""
+                              className="w-6 h-6 rounded object-cover"
+                            />
+                          ) : (
+                            <Package className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <span className="truncate">
+                            {products.find((p) => p.id === upsellProductId)?.name || 'Selecciona un producto'}
+                          </span>
+                        </div>
+                      ) : (
+                        'Selecciona un producto'
+                      )}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar producto..." />
+                      <CommandEmpty>No se encontraron productos.</CommandEmpty>
+                      <CommandGroup className="max-h-64 overflow-auto">
+                        {products.map((product) => (
+                          <CommandItem
+                            key={product.id}
+                            value={`${product.name} ${product.sku || ''}`}
+                            onSelect={() => {
+                              setUpsellProductId(product.id);
+                              setOpenUpsellCombobox(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                upsellProductId === product.id ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            <div className="flex items-center gap-2 w-full">
+                              {product.image ? (
+                                <img
+                                  src={product.image}
+                                  alt=""
+                                  className="w-8 h-8 rounded object-cover"
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded bg-muted flex items-center justify-center">
+                                  <Package className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{product.name}</p>
+                                {product.sku && (
+                                  <p className="text-xs text-muted-foreground">SKU: {product.sku}</p>
+                                )}
+                              </div>
+                              <span className="text-sm font-semibold text-primary ml-2">
+                                Gs. {Number(product.price || 0).toLocaleString()}
+                              </span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              )}
+              {/* Quantity selector - only show when product is selected */}
+              {upsellProductId && (
+                <div className="space-y-2">
+                  <Label htmlFor="upsell-quantity">Cantidad</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setUpsellQuantity(Math.max(1, upsellQuantity - 1))}
+                      disabled={upsellQuantity <= 1}
+                    >
+                      -
+                    </Button>
+                    <Input
+                      id="upsell-quantity"
+                      type="number"
+                      min={1}
+                      value={upsellQuantity}
+                      onChange={(e) => setUpsellQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-16 text-center"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setUpsellQuantity(upsellQuantity + 1)}
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Este producto se agregará al pedido (no reemplaza los productos existentes)
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Payment Method */}
         <FormField

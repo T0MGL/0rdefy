@@ -668,6 +668,20 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         return;
       }
 
+      // Fetch upsell product if provided
+      let upsellProduct = null;
+      if (data.upsellProductId) {
+        upsellProduct = await productsService.getById(data.upsellProductId);
+        if (!upsellProduct) {
+          toast({
+            title: '❌ Error',
+            description: 'Producto de upsell no encontrado',
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
+
       const updatedOrder = await ordersService.update(orderToEdit.id, {
         customer: data.customer,
         phone: data.phone,
@@ -685,6 +699,11 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         is_pickup: data.isPickup,
         // Delivery preferences (scheduling)
         delivery_preferences: data.deliveryPreferences || null,
+        // Upsell data
+        upsell_product_id: data.upsellProductId,
+        upsell_product_name: upsellProduct?.name,
+        upsell_product_price: upsellProduct?.price,
+        upsell_quantity: data.upsellQuantity,
       } as any);
 
       if (updatedOrder) {
@@ -2051,34 +2070,44 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
           <DialogHeader>
             <DialogTitle>Editar Pedido</DialogTitle>
           </DialogHeader>
-          {orderToEdit && (
-            <OrderForm
-              initialData={{
-                customer: orderToEdit.customer,
-                phone: orderToEdit.phone,
-                address: (orderToEdit as any).address || orderToEdit.customer_address || '',
-                googleMapsLink: orderToEdit.google_maps_link || '',
-                // Get first product_id from order_line_items if available
-                product: orderToEdit.order_line_items?.[0]?.product_id || '',
-                quantity: orderToEdit.quantity,
-                // Use carrier_id (UUID) instead of carrier name
-                carrier: orderToEdit.carrier_id || '',
-                // Map payment_method: 'cash'/'efectivo' → 'cod', else → 'paid'
-                paymentMethod: (['cash', 'efectivo', 'cod'].includes(orderToEdit.payment_method?.toLowerCase() || '')) ? 'cod' : 'paid',
-                // Shipping info
-                shippingCity: orderToEdit.shipping_city,
-                shippingCityNormalized: orderToEdit.shipping_city_normalized,
-                isPickup: orderToEdit.is_pickup || false,
-                // Delivery preferences (scheduling)
-                deliveryPreferences: (orderToEdit as any).delivery_preferences || null,
-              }}
-              onSubmit={handleUpdateOrder}
-              onCancel={() => {
-                setEditDialogOpen(false);
-                setOrderToEdit(null);
-              }}
-            />
-          )}
+          {orderToEdit && (() => {
+            // Find upsell product from order_line_items (is_upsell = true)
+            const upsellItem = orderToEdit.order_line_items?.find((item: any) => item.is_upsell === true);
+            // Get main product (first non-upsell item or first item)
+            const mainItem = orderToEdit.order_line_items?.find((item: any) => !item.is_upsell) || orderToEdit.order_line_items?.[0];
+
+            return (
+              <OrderForm
+                initialData={{
+                  customer: orderToEdit.customer,
+                  phone: orderToEdit.phone,
+                  address: (orderToEdit as any).address || orderToEdit.customer_address || '',
+                  googleMapsLink: orderToEdit.google_maps_link || '',
+                  // Get main product (non-upsell)
+                  product: mainItem?.product_id || '',
+                  quantity: mainItem?.quantity || orderToEdit.quantity,
+                  // Use carrier_id (UUID) instead of carrier name
+                  carrier: orderToEdit.carrier_id || '',
+                  // Map payment_method: 'cash'/'efectivo' → 'cod', else → 'paid'
+                  paymentMethod: (['cash', 'efectivo', 'cod'].includes(orderToEdit.payment_method?.toLowerCase() || '')) ? 'cod' : 'paid',
+                  // Shipping info
+                  shippingCity: orderToEdit.shipping_city,
+                  shippingCityNormalized: orderToEdit.shipping_city_normalized,
+                  isPickup: orderToEdit.is_pickup || false,
+                  // Delivery preferences (scheduling)
+                  deliveryPreferences: (orderToEdit as any).delivery_preferences || null,
+                  // Upsell data (if exists)
+                  upsellProductId: upsellItem?.product_id || undefined,
+                  upsellQuantity: upsellItem?.quantity || undefined,
+                }}
+                onSubmit={handleUpdateOrder}
+                onCancel={() => {
+                  setEditDialogOpen(false);
+                  setOrderToEdit(null);
+                }}
+              />
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

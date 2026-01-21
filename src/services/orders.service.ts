@@ -197,6 +197,18 @@ export const ordersService = {
         backendData.payment_status = (data as any).paymentMethod === 'cod' ? 'pending' : 'collected';
       }
 
+      // Shipping info
+      if ((data as any).shipping_city !== undefined) backendData.shipping_city = (data as any).shipping_city;
+      if ((data as any).shipping_city_normalized !== undefined) backendData.shipping_city_normalized = (data as any).shipping_city_normalized;
+      if ((data as any).is_pickup !== undefined) backendData.is_pickup = (data as any).is_pickup;
+      if ((data as any).google_maps_link !== undefined) backendData.google_maps_link = (data as any).google_maps_link;
+
+      // Delivery preferences
+      if ((data as any).delivery_preferences !== undefined) {
+        backendData.delivery_preferences = (data as any).delivery_preferences;
+      }
+
+      // Update main order data
       const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
         method: 'PUT',
         headers: getHeaders(),
@@ -209,7 +221,51 @@ export const ordersService = {
         throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
-      const updatedOrder = await response.json();
+      let updatedOrder = await response.json();
+
+      // Handle upsell separately using dedicated endpoint
+      const upsellProductId = (data as any).upsell_product_id;
+      const upsellQuantity = (data as any).upsell_quantity;
+
+      if (upsellProductId !== undefined) {
+        if (upsellProductId) {
+          // Add or update upsell
+          const upsellResponse = await fetch(`${API_BASE_URL}/orders/${id}/upsell`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({
+              upsell_product_id: upsellProductId,
+              upsell_quantity: upsellQuantity || 1,
+            }),
+          });
+
+          if (upsellResponse.ok) {
+            const upsellResult = await upsellResponse.json();
+            // Update total price from upsell result
+            if (upsellResult.data) {
+              updatedOrder.total_price = upsellResult.data.total_price;
+              updatedOrder.upsell_added = upsellResult.data.upsell_added;
+            }
+          }
+        } else {
+          // Remove upsell (upsellProductId is explicitly null/empty)
+          const upsellResponse = await fetch(`${API_BASE_URL}/orders/${id}/upsell`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({ remove: true }),
+          });
+
+          if (upsellResponse.ok) {
+            const upsellResult = await upsellResponse.json();
+            // Update total price from upsell result
+            if (upsellResult.data) {
+              updatedOrder.total_price = upsellResult.data.total_price;
+              updatedOrder.upsell_added = upsellResult.data.upsell_added;
+            }
+          }
+        }
+      }
+
       return updatedOrder;
     } catch (error) {
       logger.error('Error updating order:', error);
