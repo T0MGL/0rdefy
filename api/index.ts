@@ -399,6 +399,98 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // ================================================================
+// HMAC DIAGNOSTIC ENDPOINT (PUBLIC BUT SECRET-PROTECTED)
+// ================================================================
+// GET /api/debug/hmac-diagnostic
+// Protected by X-Debug-Secret header (set in env as DEBUG_SECRET)
+// ================================================================
+import crypto from 'crypto';
+
+app.get('/api/debug/hmac-diagnostic', async (req: Request, res: Response) => {
+    try {
+        // Simple secret protection - check header
+        const debugSecret = req.get('X-Debug-Secret');
+        const expectedSecret = process.env.DEBUG_SECRET || 'ordefy-debug-2026';
+
+        if (debugSecret !== expectedSecret) {
+            return res.status(401).json({ error: 'Invalid debug secret' });
+        }
+
+        // Get all active integrations
+        const { data: integrations, error } = await supabaseAdmin
+            .from('shopify_integrations')
+            .select('id, shop_domain, is_custom_app, scope, webhook_signature, api_secret_key, status, created_at')
+            .eq('status', 'active');
+
+        if (error) {
+            return res.status(500).json({ success: false, error: error.message });
+        }
+
+        // Helper function to determine which secret is used
+        const getWebhookSecretInfo = (integration: any) => {
+            if (integration.is_custom_app === true) {
+                const secret = integration.webhook_signature?.trim() || integration.api_secret_key?.trim() || null;
+                return { secret, source: 'database (Custom App - Dev Dashboard 2026)' };
+            }
+            const hasScope = integration.scope && integration.scope.trim() !== '';
+            if (!hasScope && integration.webhook_signature) {
+                const secret = integration.webhook_signature?.trim() || null;
+                return { secret, source: 'database (Legacy Custom App)' };
+            }
+            const secret = process.env.SHOPIFY_API_SECRET?.trim() || null;
+            return { secret, source: 'env (OAuth Public App)' };
+        };
+
+        const diagnostics = integrations?.map(integration => {
+            const { secret, source } = getWebhookSecretInfo(integration);
+
+            return {
+                shop_domain: integration.shop_domain,
+                status: integration.status,
+                is_custom_app: integration.is_custom_app,
+                has_scope: !!(integration.scope && integration.scope.trim() !== ''),
+                has_webhook_signature: !!integration.webhook_signature,
+                has_api_secret_key: !!integration.api_secret_key,
+                webhook_signature_length: integration.webhook_signature?.length || 0,
+                api_secret_key_length: integration.api_secret_key?.length || 0,
+                secret_source: source,
+                secret_length: secret?.length || 0,
+                secret_looks_valid: secret ? (secret.length >= 32 && secret.length <= 128) : false,
+                created_at: integration.created_at,
+                webhook_signature_preview: integration.webhook_signature
+                    ? `${integration.webhook_signature.substring(0, 4)}...${integration.webhook_signature.substring(integration.webhook_signature.length - 4)}`
+                    : null,
+                api_secret_key_preview: integration.api_secret_key
+                    ? `${integration.api_secret_key.substring(0, 4)}...${integration.api_secret_key.substring(integration.api_secret_key.length - 4)}`
+                    : null,
+            };
+        });
+
+        const envSecretLength = process.env.SHOPIFY_API_SECRET?.length || 0;
+
+        res.json({
+            success: true,
+            timestamp: new Date().toISOString(),
+            env_shopify_api_secret_configured: envSecretLength > 0,
+            env_shopify_api_secret_length: envSecretLength,
+            total_integrations: integrations?.length || 0,
+            integrations: diagnostics,
+            recommendations: diagnostics?.filter(d => !d.secret_looks_valid).map(d => ({
+                shop_domain: d.shop_domain,
+                issue: `Secret length (${d.secret_length}) may be invalid. Expected 32-128 characters.`,
+                action: d.is_custom_app
+                    ? 'Update webhook_signature with the correct Client Secret from Shopify Partners > Apps > [Your App] > API credentials'
+                    : 'Check SHOPIFY_API_SECRET environment variable'
+            }))
+        });
+
+    } catch (error: any) {
+        logger.error('DEBUG', 'Error in HMAC diagnostics', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ================================================================
 // API ROUTES WITH RATE LIMITING
 // ================================================================
 
