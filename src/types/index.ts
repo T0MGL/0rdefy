@@ -108,6 +108,15 @@ export interface Order {
   address_reference?: string;
   neighborhood?: string;
   delivery_notes?: string;
+  // NEW: Internal admin notes (not visible to customers)
+  internal_notes?: string;
+  has_internal_notes?: boolean; // Quick indicator for list views
+  // NEW: City extraction from Shopify
+  shipping_city?: string;
+  shipping_city_normalized?: string;
+  // NEW: Shopify shipping method (from checkout)
+  shopify_shipping_method?: string;
+  shopify_shipping_method_code?: string;
   // Cash on Delivery (COD)
   payment_method?: string; // 'cash', 'online', 'card', 'transfer', 'yape', 'plin', 'efectivo', etc.
   cod_amount?: number; // Monto que debe cobrar la transportadora en efectivo

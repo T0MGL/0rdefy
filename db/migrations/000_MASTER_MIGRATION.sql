@@ -393,6 +393,14 @@ CREATE TABLE IF NOT EXISTS orders (
     shipping_cost DECIMAL(12,2) DEFAULT 0.00,
     delivery_zone VARCHAR(100),
     carrier_settlement_id UUID,
+    -- NEW: Internal admin notes (Migration 094)
+    internal_notes TEXT,
+    -- NEW: Shopify shipping method (Migration 094)
+    shopify_shipping_method VARCHAR(255),
+    shopify_shipping_method_code VARCHAR(100),
+    -- NEW: City extraction from Shopify (Migration 090)
+    shipping_city VARCHAR(150),
+    shipping_city_normalized VARCHAR(150),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -425,6 +433,11 @@ CREATE INDEX IF NOT EXISTS idx_orders_courier_notes ON orders(courier_notes) WHE
 CREATE INDEX IF NOT EXISTS idx_orders_order_status_url ON orders(order_status_url) WHERE order_status_url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_shopify_order_name ON orders(shopify_order_name) WHERE shopify_order_name IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_payment_gateway ON orders(payment_gateway) WHERE payment_gateway IS NOT NULL;
+-- NEW: Indexes for Migration 094 fields
+CREATE INDEX IF NOT EXISTS idx_orders_has_internal_notes ON orders(store_id) WHERE internal_notes IS NOT NULL AND internal_notes != '';
+CREATE INDEX IF NOT EXISTS idx_orders_shipping_method ON orders(store_id, shopify_shipping_method) WHERE shopify_shipping_method IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_shipping_city ON orders(store_id, shipping_city) WHERE shipping_city IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_shipping_city_normalized ON orders(shipping_city_normalized) WHERE shipping_city_normalized IS NOT NULL;
 
 DO $$
 BEGIN
@@ -2596,7 +2609,7 @@ WHERE c.carrier_type = 'external'
   AND c.is_active = TRUE
 GROUP BY c.id, c.name, c.store_id;
 
--- Active Incidents View
+-- Active Incidents View (includes retry attempt IDs for rescheduling)
 CREATE OR REPLACE VIEW v_active_incidents AS
 SELECT
     i.id AS incident_id,
@@ -2624,12 +2637,15 @@ SELECT
         (
             SELECT json_agg(
                 json_build_object(
+                    'id', ira.id,
                     'retry_number', ira.retry_number,
                     'status', ira.status,
                     'scheduled_date', ira.scheduled_date,
                     'courier_notes', ira.courier_notes,
                     'failure_reason', ira.failure_reason,
-                    'attempted_at', COALESCE(ira.attempted_at, ira.created_at)
+                    'attempted_at', COALESCE(ira.attempted_at, ira.created_at),
+                    'rescheduled_by', ira.rescheduled_by,
+                    'payment_method', ira.payment_method
                 ) ORDER BY ira.retry_number
             )
             FROM incident_retry_attempts ira

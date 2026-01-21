@@ -62,6 +62,9 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
                 carriers!orders_courier_id_fkey (
                     name,
                     phone
+                ),
+                stores!orders_store_id_fkey (
+                    currency
                 )
             `)
             .eq('delivery_link_token', token)
@@ -75,6 +78,9 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
         }
 
 
+        // Get store currency (default to PYG if not set)
+        const storeCurrency = data.stores?.currency || 'PYG';
+
         // Check if order is already delivered
         if (data.delivery_status === 'confirmed' || data.sleeves_status === 'delivered') {
             return res.json({
@@ -87,7 +93,8 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
                 data: {
                     id: data.id,
                     carrier_name: data.carriers?.name || 'Repartidor',
-                    store_id: data.store_id
+                    store_id: data.store_id,
+                    currency: storeCurrency
                 }
             });
         }
@@ -109,7 +116,8 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
                     customer_name: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim(),
                     customer_phone: data.customer_phone,
                     customer_address: data.customer_address,
-                    store_id: data.store_id
+                    store_id: data.store_id,
+                    currency: storeCurrency
                 }
             });
         }
@@ -121,6 +129,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             customer_phone: data.customer_phone,
             customer_address: data.customer_address,
             address_reference: data.address_reference,
+            neighborhood: data.neighborhood,
             latitude: data.latitude,
             longitude: data.longitude,
             google_maps_link: data.google_maps_link,
@@ -132,7 +141,8 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             sleeves_status: data.sleeves_status,
             has_active_incident: data.has_active_incident || false,
             carrier_name: data.carriers?.name,
-            store_id: data.store_id
+            store_id: data.store_id,
+            currency: storeCurrency
         };
 
         res.json({
@@ -812,7 +822,16 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 // Address details for labels
                 neighborhood: order.neighborhood,
                 address_reference: order.address_reference,
-                customer_address: order.customer_address
+                customer_address: order.customer_address,
+                // NEW: Shopify city extraction
+                shipping_city: order.shipping_city,
+                // NEW: Internal admin notes (truncated indicator for list)
+                internal_notes: order.internal_notes,
+                has_internal_notes: !!order.internal_notes,
+                // NEW: Shopify shipping method
+                shopify_shipping_method: order.shopify_shipping_method,
+                // Delivery notes
+                delivery_notes: order.delivery_notes
             };
         }) || [];
 
@@ -955,10 +974,20 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
             city: data.city,
             address_reference: data.address_reference,
             customer_address: data.customer_address,
+            // NEW: Shopify city extraction
+            shipping_city: data.shipping_city,
+            shipping_city_normalized: data.shipping_city_normalized,
             // Print tracking
             printed: data.printed,
             printed_at: data.printed_at,
-            printed_by: data.printed_by
+            printed_by: data.printed_by,
+            // NEW: Internal admin notes
+            internal_notes: data.internal_notes,
+            // NEW: Shopify shipping method
+            shopify_shipping_method: data.shopify_shipping_method,
+            shopify_shipping_method_code: data.shopify_shipping_method_code,
+            // Delivery notes (from customer/Shopify)
+            delivery_notes: data.delivery_notes
         };
 
         res.json(transformedData);
@@ -996,7 +1025,13 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             payment_status,
             courier_id,
             payment_method,
-            shopify_raw_json
+            shopify_raw_json,
+            // New fields for shipping info from OrderForm
+            google_maps_link,
+            shipping_city,
+            shipping_city_normalized,
+            delivery_zone,
+            is_pickup
         } = req.body;
 
         // Validation
@@ -1123,9 +1158,15 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 financial_status: financial_status || 'pending',
                 payment_status: payment_status || 'pending',
                 payment_method: payment_method || 'cash',
-                courier_id,
+                courier_id: is_pickup ? null : courier_id,
                 sleeves_status: 'pending',
-                shopify_raw_json: shopify_raw_json || {}
+                shopify_raw_json: shopify_raw_json || {},
+                // New fields for shipping info
+                google_maps_link: google_maps_link || null,
+                shipping_city: shipping_city || null,
+                shipping_city_normalized: shipping_city_normalized || null,
+                delivery_zone: delivery_zone || null,
+                is_pickup: is_pickup || false
             }])
             .select()
             .single();
@@ -2372,7 +2413,8 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             shipping_cost,
             discount_amount,
             mark_as_prepaid = false,  // NEW: Mark COD order as prepaid (transfer before shipping)
-            prepaid_method = 'transfer'  // NEW: Method used for prepayment
+            prepaid_method = 'transfer',  // NEW: Method used for prepayment
+            delivery_preferences = null   // NEW: Delivery scheduling preferences (date, time slot, notes)
         } = req.body;
 
         // courier_id can be null for pickup orders (retiro en local)
@@ -2499,6 +2541,18 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             }
         }
 
+        // Save delivery preferences if provided (non-blocking)
+        if (delivery_preferences && typeof delivery_preferences === 'object') {
+            try {
+                await supabaseAdmin
+                    .from('orders')
+                    .update({ delivery_preferences })
+                    .eq('id', id);
+            } catch (prefError) {
+                // Continue without preferences, don't fail the confirmation
+            }
+        }
+
         // Log status change to history (audit, non-blocking)
         try {
             await supabaseAdmin
@@ -2517,6 +2571,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                         }
                         if (result.discount_applied) {
                             parts.push(`with discount: -Gs. ${result.discount_amount.toLocaleString()}`);
+                        }
+                        if (delivery_preferences) {
+                            parts.push('with delivery preferences');
                         }
                         return parts.join(' ');
                     })()
@@ -2538,7 +2595,8 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 carrier_name: result.carrier_name,
                 is_pickup: result.is_pickup,
                 was_marked_prepaid: result.was_marked_prepaid,
-                financial_status: result.final_financial_status
+                financial_status: result.final_financial_status,
+                delivery_preferences: delivery_preferences || null
             },
             meta: {
                 upsell_applied: result.upsell_applied,
@@ -2548,12 +2606,89 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 final_total: result.new_total_price,
                 final_cod_amount: result.new_cod_amount,
                 is_pickup: result.is_pickup,
-                was_marked_prepaid: result.was_marked_prepaid
+                was_marked_prepaid: result.was_marked_prepaid,
+                has_delivery_preferences: !!delivery_preferences
             }
         });
     } catch (error: any) {
         res.status(500).json({
             error: 'Error al confirmar pedido',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// PATCH /api/orders/:id/internal-notes - Update internal admin notes
+// ================================================================
+// Internal notes are for admin observations that should NOT be visible
+// to customers or couriers. Use for tracking special situations,
+// customer feedback, product issues, etc.
+// Max length: 5000 characters (reasonable limit for notes)
+ordersRouter.patch('/:id/internal-notes', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const storeId = req.storeId;
+        const { internal_notes } = req.body;
+
+        // Validate storeId exists
+        if (!storeId) {
+            return res.status(401).json({
+                error: 'Unauthorized',
+                message: 'Store ID is required'
+            });
+        }
+
+        // Validate input type (allow null/undefined/empty to clear notes)
+        if (internal_notes !== null && internal_notes !== undefined && typeof internal_notes !== 'string') {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'internal_notes debe ser un string o null'
+            });
+        }
+
+        // Limit text length to prevent abuse (5000 chars is ~1000 words)
+        const MAX_NOTES_LENGTH = 5000;
+        if (internal_notes && internal_notes.length > MAX_NOTES_LENGTH) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: `internal_notes no puede exceder ${MAX_NOTES_LENGTH} caracteres`
+            });
+        }
+
+        // Sanitize: trim whitespace, convert empty string to null
+        const sanitizedNotes = internal_notes?.trim() || null;
+
+        // Update order internal notes
+        const { data, error } = await supabaseAdmin
+            .from('orders')
+            .update({
+                internal_notes: sanitizedNotes,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+            .eq('store_id', storeId)
+            .select('id, internal_notes, updated_at')
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') {
+                return res.status(404).json({
+                    error: 'Order not found',
+                    message: 'El pedido no existe o no pertenece a esta tienda'
+                });
+            }
+            throw error;
+        }
+
+        res.json({
+            message: 'Notas internas actualizadas',
+            data
+        });
+    } catch (error: any) {
+        console.error('Error updating internal notes:', error);
+        res.status(500).json({
+            error: 'Error al actualizar notas internas',
             message: error.message
         });
     }

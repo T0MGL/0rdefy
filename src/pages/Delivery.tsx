@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,6 +35,45 @@ import {
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+
+// Currency configuration for public delivery page (no localStorage access)
+const CURRENCY_CONFIG: Record<string, { locale: string; symbol: string; decimals: number }> = {
+  'PYG': { locale: 'es-PY', symbol: 'Gs.', decimals: 0 },
+  'USD': { locale: 'en-US', symbol: '$', decimals: 2 },
+  'ARS': { locale: 'es-AR', symbol: '$', decimals: 2 },
+  'BRL': { locale: 'pt-BR', symbol: 'R$', decimals: 2 },
+  'CLP': { locale: 'es-CL', symbol: '$', decimals: 0 },
+  'COP': { locale: 'es-CO', symbol: '$', decimals: 0 },
+  'MXN': { locale: 'es-MX', symbol: '$', decimals: 2 },
+  'UYU': { locale: 'es-UY', symbol: '$', decimals: 2 },
+  'EUR': { locale: 'es-ES', symbol: '€', decimals: 2 },
+};
+
+// Format currency for public delivery page using currency from API response
+function formatDeliveryCurrency(value: number, currencyCode: string = 'PYG'): string {
+  const config = CURRENCY_CONFIG[currencyCode] || CURRENCY_CONFIG['PYG'];
+  try {
+    return new Intl.NumberFormat(config.locale, {
+      style: 'currency',
+      currency: currencyCode,
+      minimumFractionDigits: config.decimals,
+      maximumFractionDigits: config.decimals,
+    }).format(value);
+  } catch {
+    // Fallback to manual formatting
+    const formatted = value.toLocaleString(config.locale, {
+      minimumFractionDigits: config.decimals,
+      maximumFractionDigits: config.decimals,
+    });
+    return `${config.symbol} ${formatted}`;
+  }
+}
+
+// Get currency symbol for input fields
+function getCurrencySymbol(currencyCode: string = 'PYG'): string {
+  const config = CURRENCY_CONFIG[currencyCode] || CURRENCY_CONFIG['PYG'];
+  return config.symbol;
+}
 
 type DeliveryState =
   | { type: 'loading' }
@@ -735,13 +774,13 @@ export default function Delivery() {
                       <p className="text-muted-foreground text-sm">Cantidad: {item.quantity}</p>
                     </div>
                     <p className="text-foreground font-semibold ml-4">
-                      ₲{((item.price || 0) * (item.quantity || 1)).toLocaleString()}
+                      {formatDeliveryCurrency((item.price || 0) * (item.quantity || 1), orderData.currency)}
                     </p>
                   </div>
                 ))}
                 <div className="flex justify-between items-center pt-3 mt-3 border-t border-border">
                   <span className="text-muted-foreground font-semibold">Total</span>
-                  <span className="text-2xl font-bold text-foreground">₲{orderData.total_price?.toLocaleString()}</span>
+                  <span className="text-2xl font-bold text-foreground">{formatDeliveryCurrency(orderData.total_price || 0, orderData.currency)}</span>
                 </div>
               </div>
             ) : (
@@ -760,7 +799,7 @@ export default function Delivery() {
                 </div>
                 <div className="flex-1">
                   <p className="text-amber-600 dark:text-amber-400 font-semibold text-sm uppercase tracking-wide">Cobro en Efectivo</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">₲{orderData.cod_amount?.toLocaleString()}</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">{formatDeliveryCurrency(orderData.cod_amount || 0, orderData.currency)}</p>
                 </div>
               </div>
             </CardContent>
@@ -870,10 +909,10 @@ export default function Delivery() {
                   {differentAmountCollected && (
                     <div className="space-y-2 pl-7 animate-in slide-in-from-top-2 duration-200">
                       <Label htmlFor="amount-collected" className="text-sm font-medium text-muted-foreground">
-                        Monto cobrado (₲)
+                        Monto cobrado ({getCurrencySymbol(orderData.currency)})
                       </Label>
                       <div className="relative">
-                        <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground font-semibold">₲</span>
+                        <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground font-semibold">{getCurrencySymbol(orderData.currency)}</span>
                         <Input
                           id="amount-collected"
                           type="text"
@@ -885,11 +924,11 @@ export default function Delivery() {
                             setAmountCollected(formatted);
                           }}
                           placeholder="150.000"
-                          className="pl-10 h-12 text-lg font-semibold"
+                          className="pl-12 h-12 text-lg font-semibold"
                         />
                       </div>
                       <p className="text-xs text-amber-500 dark:text-amber-400">
-                        Monto esperado: ₲{(orderData.cod_amount || orderData.total_price || 0)?.toLocaleString()}
+                        Monto esperado: {formatDeliveryCurrency(orderData.cod_amount || orderData.total_price || 0, orderData.currency)}
                       </p>
                     </div>
                   )}

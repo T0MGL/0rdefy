@@ -306,6 +306,21 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <Truck size={14} className="text-muted-foreground" />
                 <span className="font-medium">{order.carrier}</span>
               </div>
+              {/* Método de envío de Shopify */}
+              {order.shopify_shipping_method && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Badge variant="outline" className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800 text-xs">
+                    {order.shopify_shipping_method}
+                  </Badge>
+                </div>
+              )}
+              {/* Ciudad de destino */}
+              {order.shipping_city && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <MapPin size={14} />
+                  <span>{order.shipping_city}</span>
+                </div>
+              )}
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar size={14} />
                 <span>{new Date(order.date).toLocaleDateString('es-ES')}</span>
@@ -324,6 +339,16 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
               )}
             </div>
           </div>
+
+          {/* Notas Internas (Admin) */}
+          {order.internal_notes && (
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm text-muted-foreground">NOTAS INTERNAS</h4>
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800/30 border-dashed">
+                <p className="text-sm whitespace-pre-wrap text-amber-900 dark:text-amber-200">{order.internal_notes}</p>
+              </div>
+            </div>
+          )}
 
           {/* Timeline */}
           <div className="space-y-3">

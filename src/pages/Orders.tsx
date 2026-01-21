@@ -39,7 +39,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal } from 'lucide-react';
+import { format, isAfter, startOfDay } from 'date-fns';
+import { es } from 'date-fns/locale';
 import {
   Tooltip,
   TooltipContent,
@@ -48,6 +50,13 @@ import {
 } from '@/components/ui/tooltip';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
 import { printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const statusColors = {
   pending: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800',
@@ -74,6 +83,36 @@ const statusLabels: Record<string, string> = {
   cancelled: 'Cancelado',
   rejected: 'Rechazado',
   incident: 'Incidencia',
+};
+
+// Helper to check if order has active delivery restriction (scheduled for future)
+const getScheduledDeliveryInfo = (order: Order): { isScheduled: boolean; date: Date | null; summary: string | null } => {
+  const prefs = (order as any).delivery_preferences;
+  if (!prefs || !prefs.not_before_date) {
+    return { isScheduled: false, date: null, summary: null };
+  }
+
+  const notBeforeDate = new Date(prefs.not_before_date);
+  const today = startOfDay(new Date());
+
+  if (!isAfter(notBeforeDate, today)) {
+    return { isScheduled: false, date: notBeforeDate, summary: null };
+  }
+
+  // Build summary
+  const parts: string[] = [];
+  parts.push(format(notBeforeDate, "dd/MM", { locale: es }));
+
+  if (prefs.preferred_time_slot && prefs.preferred_time_slot !== 'any') {
+    const slots: Record<string, string> = { morning: 'Mañana', afternoon: 'Tarde', evening: 'Noche' };
+    parts.push(slots[prefs.preferred_time_slot] || prefs.preferred_time_slot);
+  }
+
+  return {
+    isScheduled: true,
+    date: notBeforeDate,
+    summary: parts.join(' • ')
+  };
 };
 
 // Component to display product thumbnails with tooltips
@@ -183,6 +222,7 @@ export default function Orders() {
   const [search, setSearch] = useState('');
   const [chipFilters, setChipFilters] = useState<Record<string, any>>({});
   const [carrierFilter, setCarrierFilter] = useState('all');
+  const [scheduledFilter, setScheduledFilter] = useState<'all' | 'scheduled' | 'ready'>('all'); // Filter for scheduled orders
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
@@ -567,13 +607,22 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         phone: data.phone,
         address: data.address,
         product: product.name,
-        product_id: product.id, // ✅ Pass product_id
+        product_id: product.id,
         quantity: data.quantity,
         total: product.price * data.quantity,
         status: 'pending',
-        carrier: data.carrier,
+        carrier: data.isPickup ? undefined : data.carrier,
         paymentMethod: data.paymentMethod,
         confirmedByWhatsApp: false,
+        // New shipping fields from OrderForm
+        google_maps_link: data.googleMapsLink || null,
+        shipping_city: data.shippingCity || null,
+        shipping_city_normalized: data.shippingCityNormalized || null,
+        delivery_zone: data.deliveryZone || null,
+        shipping_cost: data.shippingCost || 0,
+        is_pickup: data.isPickup || false,
+        // Delivery preferences (scheduling)
+        delivery_preferences: data.deliveryPreferences || null,
       } as any);
 
       logger.log('✅ [ORDERS] Order created:', newOrder);
@@ -625,6 +674,8 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         total: product.price * data.quantity,
         carrier: data.carrier,
         paymentMethod: data.paymentMethod,
+        // Delivery preferences (scheduling)
+        delivery_preferences: data.deliveryPreferences || null,
       } as any);
 
       if (updatedOrder) {
@@ -872,6 +923,13 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
       // Aplicar filtros de chips (estado del pedido)
       if (chipFilters.status && order.status !== chipFilters.status) return false;
 
+      // Aplicar filtro de pedidos programados
+      if (scheduledFilter !== 'all') {
+        const scheduled = getScheduledDeliveryInfo(order);
+        if (scheduledFilter === 'scheduled' && !scheduled.isScheduled) return false;
+        if (scheduledFilter === 'ready' && scheduled.isScheduled) return false;
+      }
+
       // Aplicar filtro de transportadora
       if (carrierFilter !== 'all') {
         if (carrierFilter === 'pickup') {
@@ -913,7 +971,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
 
       return true;
     });
-  }, [orders, chipFilters, carrierFilter, debouncedSearch]);
+  }, [orders, chipFilters, carrierFilter, scheduledFilter, debouncedSearch]);
 
   // Selection handlers
   const handleToggleSelectAll = useCallback(() => {
@@ -1275,6 +1333,51 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
           onFilterApply={(filters) => setChipFilters(filters)}
         />
 
+        {/* Filtro de pedidos programados */}
+        <div className="flex items-center gap-2 flex-wrap border-t pt-3">
+          <span className="text-sm text-muted-foreground mr-2">Programación:</span>
+          <Badge
+            variant="outline"
+            className={`cursor-pointer px-3 py-1.5 text-sm transition-colors ${
+              scheduledFilter === 'all'
+                ? 'bg-primary/20 text-primary border-primary'
+                : 'hover:bg-muted'
+            }`}
+            onClick={() => setScheduledFilter('all')}
+          >
+            Todos
+          </Badge>
+          <Badge
+            variant="outline"
+            className={`cursor-pointer px-3 py-1.5 text-sm transition-colors ${
+              scheduledFilter === 'ready'
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-400 dark:border-green-700'
+                : 'hover:bg-muted'
+            }`}
+            onClick={() => setScheduledFilter('ready')}
+          >
+            <Check size={14} className="mr-1.5" />
+            Listos para entregar
+          </Badge>
+          <Badge
+            variant="outline"
+            className={`cursor-pointer px-3 py-1.5 text-sm transition-colors ${
+              scheduledFilter === 'scheduled'
+                ? 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border-violet-400 dark:border-violet-700'
+                : 'hover:bg-muted'
+            }`}
+            onClick={() => setScheduledFilter('scheduled')}
+          >
+            <CalendarClock size={14} className="mr-1.5" />
+            Programados
+          </Badge>
+          {scheduledFilter !== 'all' && (
+            <span className="text-xs text-muted-foreground ml-2">
+              ({filteredOrders.length} pedidos)
+            </span>
+          )}
+        </div>
+
         {/* Barra de búsqueda y filtros adicionales */}
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-1">
@@ -1531,6 +1634,39 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                             <SelectItem value="incident">Incidencia</SelectItem>
                           </SelectContent>
                         </Select>
+                        {/* Badge for scheduled orders */}
+                        {(() => {
+                          const scheduled = getScheduledDeliveryInfo(order);
+                          if (!scheduled.isScheduled) return null;
+                          return (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className="mt-1.5 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400 border-violet-300 dark:border-violet-700 text-xs cursor-help"
+                                  >
+                                    <CalendarClock size={12} className="mr-1" />
+                                    {scheduled.summary}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="max-w-xs">
+                                  <div className="space-y-1">
+                                    <p className="font-medium">Pedido programado</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      No entregar antes del {scheduled.date && format(scheduled.date, "EEEE d 'de' MMMM", { locale: es })}
+                                    </p>
+                                    {(order as any).delivery_preferences?.delivery_notes && (
+                                      <p className="text-xs italic">
+                                        "{(order as any).delivery_preferences.delivery_notes}"
+                                      </p>
+                                    )}
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        })()}
                       </td>
                       <td className="py-4 px-6 text-sm">
                         {order.is_pickup ? (
@@ -1706,23 +1842,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                       </td>
                       <td className="py-4 px-6">
                         <div className="flex items-center justify-center gap-1">
-                          {/* Botón de impresión siempre primero */}
-                          {order.delivery_link_token && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handlePrintLabel(order)}
-                              disabled={printingOrderId === order.id}
-                              title="Imprimir etiqueta de entrega"
-                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                            >
-                              {printingOrderId === order.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Printer size={16} />
-                              )}
-                            </Button>
-                          )}
+                          {/* Acciones principales visibles */}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1742,95 +1862,110 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                           >
                             <Edit size={16} />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              // Clean phone number: remove spaces and non-numeric chars except +
-                              const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
-                              // Ensure phone has + prefix for international WhatsApp format
-                              const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
-                              window.open(`https://wa.me/${whatsappNumber}`, '_blank');
-                            }}
-                            title="Contactar por WhatsApp"
-                          >
-                            <Phone size={16} />
-                          </Button>
 
-                          {/* Quick Prepare button (only for confirmed orders) */}
-                          {order.status === 'confirmed' && !isDeleted && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleQuickPrepare(order.id)}
-                              title="Preparar pedido (Picking & Packing)"
-                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                            >
-                              <PackageOpen size={16} />
-                            </Button>
-                          )}
+                          {/* Dropdown con más acciones */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" title="Más acciones">
+                                <MoreHorizontal size={16} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              {/* Imprimir etiqueta */}
+                              {order.delivery_link_token && (
+                                <DropdownMenuItem
+                                  onClick={() => handlePrintLabel(order)}
+                                  disabled={printingOrderId === order.id}
+                                  className="text-blue-600 dark:text-blue-400"
+                                >
+                                  {printingOrderId === order.id ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Printer className="mr-2 h-4 w-4" />
+                                  )}
+                                  Imprimir etiqueta
+                                </DropdownMenuItem>
+                              )}
 
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setSelectedOrderForAttempts(order);
-                              setAttemptsDialogOpen(true);
-                            }}
-                            title="Ver intentos de entrega"
-                          >
-                            <Package2 size={16} />
-                          </Button>
-                          {isDeleted ? (
-                            <>
-                              {/* Botones para pedidos eliminados */}
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleRestoreOrder(order.id)}
-                                title="Restaurar pedido"
-                                className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
+                              {/* WhatsApp */}
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+                                  const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+                                  window.open(`https://wa.me/${whatsappNumber}`, '_blank');
+                                }}
                               >
-                                <RefreshCw size={16} />
-                              </Button>
-                              {userRole === 'owner' && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  onClick={() => handlePermanentDeleteClick(order.id)}
-                                  title="Eliminar permanentemente (solo owner)"
+                                <Phone className="mr-2 h-4 w-4" />
+                                Contactar WhatsApp
+                              </DropdownMenuItem>
+
+                              {/* Quick Prepare - solo para confirmed */}
+                              {order.status === 'confirmed' && !isDeleted && (
+                                <DropdownMenuItem
+                                  onClick={() => handleQuickPrepare(order.id)}
+                                  className="text-blue-600 dark:text-blue-400"
                                 >
-                                  <Trash2 size={16} />
-                                </Button>
+                                  <PackageOpen className="mr-2 h-4 w-4" />
+                                  Preparar pedido
+                                </DropdownMenuItem>
                               )}
-                            </>
-                          ) : (
-                            <>
-                              {/* Botones normales para pedidos activos */}
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleToggleTest(order.id, !isTest)}
-                                title={isTest ? "Desmarcar como test" : "Marcar como test"}
-                                className={isTest ? "text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-950/20" : ""}
+
+                              {/* Intentos de entrega */}
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedOrderForAttempts(order);
+                                  setAttemptsDialogOpen(true);
+                                }}
                               >
-                                <Package size={16} />
-                              </Button>
-                              {/* No mostrar botón eliminar para pedidos entregados o despachados */}
-                              {order.status !== 'delivered' && order.status !== 'shipped' && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  onClick={() => handleDeleteOrder(order.id)}
-                                  title="Eliminar pedido"
-                                >
-                                  <Trash2 size={16} />
-                                </Button>
+                                <Package2 className="mr-2 h-4 w-4" />
+                                Intentos de entrega
+                              </DropdownMenuItem>
+
+                              <DropdownMenuSeparator />
+
+                              {isDeleted ? (
+                                <>
+                                  {/* Opciones para pedidos eliminados */}
+                                  <DropdownMenuItem
+                                    onClick={() => handleRestoreOrder(order.id)}
+                                    className="text-green-600 dark:text-green-400"
+                                  >
+                                    <RefreshCw className="mr-2 h-4 w-4" />
+                                    Restaurar pedido
+                                  </DropdownMenuItem>
+                                  {userRole === 'owner' && (
+                                    <DropdownMenuItem
+                                      onClick={() => handlePermanentDeleteClick(order.id)}
+                                      className="text-destructive"
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Eliminar permanente
+                                    </DropdownMenuItem>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {/* Opciones para pedidos activos */}
+                                  <DropdownMenuItem
+                                    onClick={() => handleToggleTest(order.id, !isTest)}
+                                    className={isTest ? "text-orange-600 dark:text-orange-400" : ""}
+                                  >
+                                    <Package className="mr-2 h-4 w-4" />
+                                    {isTest ? "Desmarcar test" : "Marcar como test"}
+                                  </DropdownMenuItem>
+                                  {order.status !== 'delivered' && order.status !== 'shipped' && (
+                                    <DropdownMenuItem
+                                      onClick={() => handleDeleteOrder(order.id)}
+                                      className="text-destructive"
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Eliminar pedido
+                                    </DropdownMenuItem>
+                                  )}
+                                </>
                               )}
-                            </>
-                          )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </td>
                     </tr>
@@ -1920,6 +2055,8 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                 carrier: orderToEdit.carrier_id || '',
                 // Map payment_method: 'cash'/'efectivo' → 'cod', else → 'paid'
                 paymentMethod: (['cash', 'efectivo', 'cod'].includes(orderToEdit.payment_method?.toLowerCase() || '')) ? 'cod' : 'paid',
+                // Delivery preferences (scheduling)
+                deliveryPreferences: (orderToEdit as any).delivery_preferences || null,
               }}
               onSubmit={handleUpdateOrder}
               onCancel={() => {

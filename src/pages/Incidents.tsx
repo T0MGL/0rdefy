@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 import {
   Select,
   SelectContent,
@@ -43,7 +44,9 @@ interface RetryAttempt {
   courier_notes?: string;
   failure_reason?: string;
   attempted_at?: string;
-  created_at: string;
+  created_at?: string;
+  rescheduled_by?: string;
+  payment_method?: string;
 }
 
 interface Incident {
@@ -149,14 +152,14 @@ export default function Incidents() {
     }
 
     try {
-      await apiClient.post(`/incidents/${selectedIncident.incident_id}/schedule-retry`, {
+      const response = await apiClient.post(`/incidents/${selectedIncident.incident_id}/schedule-retry`, {
         scheduled_date: scheduledDate,
         notes: scheduleNotes
       });
 
       toast({
-        title: 'Reintento programado',
-        description: 'Se programó exitosamente un nuevo intento de entrega'
+        title: response.data.action === 'created' ? 'Reintento creado' : 'Reintento reprogramado',
+        description: response.data.message || 'Se actualizó exitosamente el intento de entrega'
       });
 
       setScheduleDialogOpen(false);
@@ -171,6 +174,12 @@ export default function Incidents() {
         description: error.response?.data?.message || error.response?.data?.error || 'No se pudo programar el reintento'
       });
     }
+  };
+
+  // Get next pending retry for display in schedule dialog
+  const getNextPendingRetry = () => {
+    if (!selectedIncident?.retry_attempts) return null;
+    return selectedIncident.retry_attempts.find((r: RetryAttempt) => r.status === 'scheduled');
   };
 
   const handleResolveIncident = async () => {
@@ -329,7 +338,7 @@ export default function Incidents() {
                           {incident.shopify_order_number || `#${incident.order_id.slice(0, 8)}`}
                         </span>
                         <span className="text-sm text-muted-foreground">
-                          ${incident.total_price?.toFixed(2)}
+                          {formatCurrency(incident.total_price || 0)}
                         </span>
                       </div>
                     </td>
@@ -431,7 +440,7 @@ export default function Incidents() {
                     Total
                   </label>
                   <p className="text-lg font-medium dark:text-white">
-                    ${selectedIncident.total_price?.toFixed(2)}
+                    {formatCurrency(selectedIncident.total_price || 0)}
                   </p>
                 </div>
               </div>
@@ -566,13 +575,31 @@ export default function Incidents() {
       <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Programar Reintento de Entrega</DialogTitle>
+            <DialogTitle>Reprogramar Reintento de Entrega</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Info about current retry */}
+            {selectedIncident && (
+              <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  <strong>Pedido:</strong> {selectedIncident.shopify_order_number || `#${selectedIncident.order_id.slice(0, 8)}`}
+                </p>
+                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                  <strong>Cliente:</strong> {selectedIncident.customer_first_name} {selectedIncident.customer_last_name}
+                </p>
+                {getNextPendingRetry() && (
+                  <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                    <strong>Reintento actual:</strong> #{getNextPendingRetry()?.retry_number} -
+                    Programado para {formatDate(getNextPendingRetry()?.scheduled_date || '')}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="text-sm font-medium mb-1 block">
-                Fecha Programada *
+                Nueva Fecha *
               </label>
               <Input
                 type="date"
@@ -584,12 +611,12 @@ export default function Incidents() {
 
             <div>
               <label className="text-sm font-medium mb-1 block">
-                Notas (opcional)
+                Notas para el transportista (opcional)
               </label>
               <Textarea
                 value={scheduleNotes}
                 onChange={(e) => setScheduleNotes(e.target.value)}
-                placeholder="Instrucciones especiales para el transportista..."
+                placeholder="Ej: Llamar antes de ir, entregar en horario de tarde..."
                 rows={3}
               />
             </div>
@@ -607,7 +634,7 @@ export default function Incidents() {
               </Button>
               <Button onClick={handleScheduleRetry} disabled={!scheduledDate}>
                 <Calendar className="h-4 w-4 mr-2" />
-                Programar
+                {getNextPendingRetry() ? 'Reprogramar' : 'Programar'}
               </Button>
             </div>
           </div>

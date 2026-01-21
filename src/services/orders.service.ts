@@ -1,4 +1,5 @@
 import { Order, CreateOrderInput, UpdateOrderInput } from '@/types';
+import { logger } from '@/utils/logger';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 cleanBaseURL = cleanBaseURL.trim();
@@ -58,7 +59,7 @@ export const ordersService = {
         pagination: result.pagination || { total: 0, limit: 50, offset: 0, hasMore: false }
       };
     } catch (error) {
-      console.error('Error loading orders:', error);
+      logger.error('Error loading orders:', error);
       return { data: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } };
     }
   },
@@ -75,20 +76,20 @@ export const ordersService = {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Error loading order:', error);
+      logger.error('Error loading order:', error);
       return undefined;
     }
   },
 
   create: async (order: CreateOrderInput): Promise<Order> => {
     try {
-      console.log('📤 [ORDERS SERVICE] Creating order:', order);
+      logger.log('📤 [ORDERS SERVICE] Creating order:', order);
 
       // Transform frontend format to backend format
       const [firstName, ...lastNameParts] = (order.customer || '').split(' ');
       const lastName = lastNameParts.join(' ');
 
-      const backendOrder = {
+      const backendOrder: any = {
         customer_first_name: firstName || 'Cliente',
         customer_last_name: lastName || '',
         customer_phone: order.phone,
@@ -103,15 +104,22 @@ export const ordersService = {
         total_price: order.total,
         subtotal_price: order.total,
         total_tax: 0,
-        total_shipping: 0,
+        total_shipping: (order as any).shipping_cost || 0,
+        shipping_cost: (order as any).shipping_cost || 0,
         currency: 'PYG',
         financial_status: 'pending',
         payment_status: order.paymentMethod === 'paid' ? 'collected' : 'pending',
         payment_method: order.paymentMethod === 'cod' ? 'cash' : 'online',
-        courier_id: order.carrier, // ✅ Send courier_id instead of shipping_address.company
+        courier_id: (order as any).is_pickup ? null : order.carrier,
+        // New shipping fields
+        google_maps_link: (order as any).google_maps_link || null,
+        shipping_city: (order as any).shipping_city || null,
+        shipping_city_normalized: (order as any).shipping_city_normalized || null,
+        delivery_zone: (order as any).delivery_zone || null,
+        is_pickup: (order as any).is_pickup || false,
       };
 
-      console.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);
+      logger.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);
 
       const response = await fetch(`${API_BASE_URL}/orders`, {
         method: 'POST',
@@ -121,12 +129,12 @@ export const ordersService = {
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('❌ [ORDERS SERVICE] Backend error:', errorData);
+        logger.error('❌ [ORDERS SERVICE] Backend error:', errorData);
         throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log('✅ [ORDERS SERVICE] Order created:', result.data);
+      logger.log('✅ [ORDERS SERVICE] Order created:', result.data);
 
       // Transform backend response to frontend format
       return {
@@ -142,7 +150,7 @@ export const ordersService = {
         confirmedByWhatsApp: false,
       };
     } catch (error) {
-      console.error('❌ [ORDERS SERVICE] Error creating order:', error);
+      logger.error('❌ [ORDERS SERVICE] Error creating order:', error);
       throw error;
     }
   },
@@ -204,7 +212,7 @@ export const ordersService = {
       const updatedOrder = await response.json();
       return updatedOrder;
     } catch (error) {
-      console.error('Error updating order:', error);
+      logger.error('Error updating order:', error);
       return undefined;
     }
   },
@@ -225,7 +233,7 @@ export const ordersService = {
       }
       return true;
     } catch (error) {
-      console.error('Error deleting order:', error);
+      logger.error('Error deleting order:', error);
       throw error; // Re-throw to show error message in UI
     }
   },
@@ -242,7 +250,7 @@ export const ordersService = {
       }
       return true;
     } catch (error) {
-      console.error('Error restoring order:', error);
+      logger.error('Error restoring order:', error);
       throw error;
     }
   },
@@ -260,7 +268,7 @@ export const ordersService = {
       }
       return true;
     } catch (error) {
-      console.error('Error updating test status:', error);
+      logger.error('Error updating test status:', error);
       throw error;
     }
   },
@@ -307,7 +315,7 @@ export const ordersService = {
         longitude: data.longitude,
       };
     } catch (error) {
-      console.error('Error confirming order:', error);
+      logger.error('Error confirming order:', error);
       return undefined;
     }
   },
@@ -352,7 +360,7 @@ export const ordersService = {
         longitude: data.longitude,
       };
     } catch (error) {
-      console.error('Error rejecting order:', error);
+      logger.error('Error rejecting order:', error);
       return undefined;
     }
   },
@@ -380,7 +388,7 @@ export const ordersService = {
         data: errorData
       };
 
-      console.error('Error updating order status:', error, errorData);
+      logger.error('Error updating order status:', error, errorData);
       throw error;
     }
 
@@ -426,7 +434,7 @@ export const ordersService = {
       const result = await response.json();
       return result.data;
     } catch (error) {
-      console.error('Error marking order as printed:', error);
+      logger.error('Error marking order as printed:', error);
       return undefined;
     }
   },
@@ -445,7 +453,7 @@ export const ordersService = {
 
       return true;
     } catch (error) {
-      console.error('Error bulk marking orders as printed:', error);
+      logger.error('Error bulk marking orders as printed:', error);
       return false;
     }
   },
@@ -522,7 +530,7 @@ export const ordersService = {
       await Promise.all(promises);
       return true;
     } catch (error) {
-      console.error('Error reconciling orders:', error);
+      logger.error('Error reconciling orders:', error);
       return false;
     }
   },

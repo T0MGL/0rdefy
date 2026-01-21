@@ -59,6 +59,7 @@ import { printLabelPDF } from '@/components/printing/printLabelPDF';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import { cn } from '@/lib/utils';
 import type { Order, Product } from '@/types';
+import { DeliveryPreferencesAccordion, type DeliveryPreferences } from '@/components/DeliveryPreferencesAccordion';
 
 interface OrderConfirmationDialogProps {
   open: boolean;
@@ -128,6 +129,9 @@ export function OrderConfirmationDialog({
   const [carriersWithCoverage, setCarriersWithCoverage] = useState<CarrierWithCoverage[]>([]);
   const [loadingCoverage, setLoadingCoverage] = useState(false);
   const [useCoverageSystem, setUseCoverageSystem] = useState(true); // Toggle between old/new system
+
+  // Delivery preferences state (date restrictions, time slots, notes)
+  const [deliveryPreferences, setDeliveryPreferences] = useState<DeliveryPreferences | null>(null);
 
   // Fetch products when dialog opens
   useEffect(() => {
@@ -226,11 +230,28 @@ export function OrderConfirmationDialog({
           });
           setCarriersWithCoverage(sorted);
 
-          // Auto-select cheapest carrier with coverage
-          const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
-          if (cheapest) {
-            setCourierId(cheapest.carrier_id);
-            setShippingCost(cheapest.rate || 0);
+          // If carrier is already selected (pre-filled from order), keep it
+          // Otherwise auto-select cheapest carrier with coverage
+          if (!courierId) {
+            const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+            if (cheapest) {
+              setCourierId(cheapest.carrier_id);
+              setShippingCost(cheapest.rate || 0);
+            }
+          } else {
+            // Verify the pre-selected carrier has coverage, update rate if found
+            const preselectedCarrier = sorted.find((c: CarrierWithCoverage) => c.carrier_id === courierId);
+            if (preselectedCarrier && preselectedCarrier.has_coverage) {
+              // Keep the carrier, update rate from coverage data
+              setShippingCost(preselectedCarrier.rate || 0);
+            } else if (preselectedCarrier && !preselectedCarrier.has_coverage) {
+              // Pre-selected carrier doesn't have coverage - auto-select cheapest
+              const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+              if (cheapest) {
+                setCourierId(cheapest.carrier_id);
+                setShippingCost(cheapest.rate || 0);
+              }
+            }
           }
         } else {
           setCarriersWithCoverage([]);
@@ -244,6 +265,7 @@ export function OrderConfirmationDialog({
     };
 
     fetchCarriersForCity();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- courierId is intentionally excluded to prevent re-fetch when carrier is selected
   }, [selectedCity, useCoverageSystem]);
 
   // Fetch carrier zones when carrier is selected (legacy system)
@@ -304,42 +326,86 @@ export function OrderConfirmationDialog({
     }
   }, [selectedZone, carrierZones]);
 
-  // Reset state when dialog opens
+  // Reset state when dialog opens - Pre-fill from order data if available
   useEffect(() => {
-    if (open) {
+    if (open && order) {
       setIsConfirmed(false);
       setConfirmedOrder(null);
-      setCourierId('');
-      setSelectedZone('');
-      setShippingCost(0);
-      setCarrierZones([]);
       setUpsellProductId('');
       setUpsellQuantity(1);
       setOpenProductCombobox(false);
       setDiscountEnabled(false);
       setDiscountAmount(0);
-      setIsPickup(false);
       setMarkAsPrepaid(false);
-      // Reset city coverage state
-      setCitySearch('');
-      setCityResults([]);
-      setSelectedCity(null);
-      setCarriersWithCoverage([]);
       setOpenCityCombobox(false);
+
+      // Reset delivery preferences
+      setDeliveryPreferences((order as any)?.delivery_preferences || null);
 
       // Pre-fill address if order has one
       if (order?.address) {
         setAddress(order.address);
       }
+
+      // Pre-fill Google Maps link if order has one
+      setGoogleMapsLink(order?.google_maps_link || '');
+
       // Pre-fill upsell if order has one
       if (order?.upsell_added !== undefined) {
         setUpsellAdded(order.upsell_added);
       } else {
         setUpsellAdded(false);
       }
-      // Pre-fill Google Maps link if order has one
-      if (order?.google_maps_link) {
-        setGoogleMapsLink(order.google_maps_link);
+
+      // Pre-fill pickup status from order
+      const orderIsPickup = (order as any)?.is_pickup || false;
+      setIsPickup(orderIsPickup);
+
+      // Pre-fill shipping data from order (if set during creation)
+      const orderShippingCity = (order as any)?.shipping_city;
+      const orderDeliveryZone = (order as any)?.delivery_zone;
+      const orderCourierId = (order as any)?.courier_id || (order as any)?.carrier_id;
+      const orderShippingCost = (order as any)?.shipping_cost;
+
+      if (orderIsPickup) {
+        // Pickup order - reset shipping fields
+        setCourierId('');
+        setSelectedZone('');
+        setShippingCost(0);
+        setCarrierZones([]);
+        setCitySearch('');
+        setCityResults([]);
+        setSelectedCity(null);
+        setCarriersWithCoverage([]);
+      } else if (orderShippingCity) {
+        // Order has city info - pre-fill city coverage system
+        setSelectedCity({
+          city: orderShippingCity,
+          department: '', // Will be populated when carriers load
+          zone_code: orderDeliveryZone || '',
+        });
+        setCitySearch('');
+        setCityResults([]);
+        // Carrier and shipping cost will be set after carriers load for city
+        if (orderCourierId) {
+          setCourierId(orderCourierId);
+        }
+        if (orderShippingCost !== undefined && orderShippingCost !== null) {
+          setShippingCost(Number(orderShippingCost) || 0);
+        }
+        // Reset legacy zone system
+        setSelectedZone('');
+        setCarrierZones([]);
+      } else {
+        // No shipping data - reset all
+        setCourierId('');
+        setSelectedZone('');
+        setShippingCost(0);
+        setCarrierZones([]);
+        setCitySearch('');
+        setCityResults([]);
+        setSelectedCity(null);
+        setCarriersWithCoverage([]);
       }
 
       // Refetch carriers when dialog opens to ensure fresh data
@@ -490,6 +556,11 @@ export function OrderConfirmationDialog({
         payload.prepaid_method = 'transfer';
       }
 
+      // Add delivery preferences if configured
+      if (deliveryPreferences) {
+        payload.delivery_preferences = deliveryPreferences;
+      }
+
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}/confirm`, {
         method: 'POST',
         headers: {
@@ -601,6 +672,7 @@ export function OrderConfirmationDialog({
     setDiscountEnabled(false);
     setDiscountAmount(0);
     setMarkAsPrepaid(false);
+    setDeliveryPreferences(null);
     onOpenChange(false);
   };
 
@@ -693,10 +765,42 @@ export function OrderConfirmationDialog({
             <>
               {/* Order Info */}
               {order && (
-                <div className="rounded-lg border p-3 bg-muted/50">
+                <div className="rounded-lg border p-3 bg-muted/50 space-y-2">
                   <p className="text-sm font-medium">Pedido {getOrderDisplayId(order)}</p>
                   <p className="text-sm text-muted-foreground">Cliente: {order.customer}</p>
                   <p className="text-sm text-muted-foreground">Total: Gs. {(order.total ?? 0).toLocaleString()}</p>
+
+                  {/* Shopify extracted data section */}
+                  {(order.shipping_city || order.shopify_shipping_method || order.address_reference || order.delivery_notes) && (
+                    <div className="mt-2 pt-2 border-t border-dashed border-muted-foreground/30 space-y-1">
+                      {order.shipping_city && (
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">Ciudad:</span>{' '}
+                          <span className="font-medium">{order.shipping_city}</span>
+                        </p>
+                      )}
+                      {order.address_reference && (
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">Referencia:</span>{' '}
+                          <span className="font-medium">{order.address_reference}</span>
+                        </p>
+                      )}
+                      {order.shopify_shipping_method && (
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">Envío:</span>{' '}
+                          <Badge variant="outline" className="ml-1 text-xs bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400">
+                            {order.shopify_shipping_method}
+                          </Badge>
+                        </p>
+                      )}
+                      {order.delivery_notes && (
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">Nota del cliente:</span>{' '}
+                          <span className="italic">{order.delivery_notes}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1357,6 +1461,12 @@ export function OrderConfirmationDialog({
                 </p>
               </div>
 
+              {/* Delivery Preferences (Optional) - Date restrictions, time slots, notes */}
+              <DeliveryPreferencesAccordion
+                value={deliveryPreferences}
+                onChange={setDeliveryPreferences}
+                disabled={loading}
+              />
 
               <DialogFooter>
                 <Button

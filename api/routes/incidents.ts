@@ -322,13 +322,22 @@ incidentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     }
 });
 
-// POST /api/incidents/:id/schedule-retry - Schedule new retry attempt
+// POST /api/incidents/:id/schedule-retry - Schedule or reschedule retry attempt
+// If retry_id is provided, updates that specific retry
+// Otherwise, finds the next pending (scheduled) retry and updates it
 incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { scheduled_date, notes } = req.body;
+        const { scheduled_date, notes, retry_id } = req.body;
 
-        logger.info('API', '📅 [INCIDENTS] Scheduling retry for incident:', id);
+        logger.info('API', '📅 [INCIDENTS] Scheduling/rescheduling retry for incident:', id);
+
+        if (!scheduled_date) {
+            return res.status(400).json({
+                error: 'Fecha requerida',
+                message: 'Debes seleccionar una fecha para el reintento'
+            });
+        }
 
         // Get incident - only fields needed for retry scheduling
         const { data: incident, error: fetchError } = await supabaseAdmin
@@ -339,66 +348,137 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
             .single();
 
         if (fetchError || !incident) {
-            return res.status(404).json({ error: 'Incident not found' });
+            return res.status(404).json({ error: 'Incidencia no encontrada' });
         }
 
         if (incident.status !== 'active') {
             return res.status(400).json({
-                error: 'Incident is not active',
-                message: 'Cannot schedule retry for resolved or expired incident'
+                error: 'Incidencia no activa',
+                message: 'No se puede programar reintento para una incidencia resuelta o expirada'
             });
         }
 
-        if (incident.current_retry_count >= incident.max_retry_attempts) {
-            return res.status(400).json({
-                error: 'Max retries reached',
-                message: `Maximum ${incident.max_retry_attempts} retries already attempted`
-            });
+        let retryToUpdate;
+
+        if (retry_id) {
+            // Update specific retry by ID
+            const { data: specificRetry, error: specificError } = await supabaseAdmin
+                .from('incident_retry_attempts')
+                .select('*')
+                .eq('id', retry_id)
+                .eq('incident_id', id)
+                .single();
+
+            if (specificError || !specificRetry) {
+                return res.status(404).json({ error: 'Reintento no encontrado' });
+            }
+
+            if (specificRetry.status !== 'scheduled') {
+                return res.status(400).json({
+                    error: 'No se puede reprogramar',
+                    message: 'Solo se pueden reprogramar reintentos con estado "programado"'
+                });
+            }
+
+            retryToUpdate = specificRetry;
+        } else {
+            // Find the next pending retry (status = 'scheduled') to update
+            const { data: pendingRetries, error: pendingError } = await supabaseAdmin
+                .from('incident_retry_attempts')
+                .select('*')
+                .eq('incident_id', id)
+                .eq('status', 'scheduled')
+                .order('retry_number', { ascending: true })
+                .limit(1);
+
+            if (pendingError) {
+                logger.error('API', '❌ [INCIDENTS] Error fetching retries:', pendingError);
+                return res.status(500).json({ error: 'Error al buscar reintentos' });
+            }
+
+            if (!pendingRetries || pendingRetries.length === 0) {
+                // No pending retries - check if we can create a new one
+                if (incident.current_retry_count >= incident.max_retry_attempts) {
+                    return res.status(400).json({
+                        error: 'Sin reintentos disponibles',
+                        message: `Ya se agotaron los ${incident.max_retry_attempts} reintentos permitidos`
+                    });
+                }
+
+                // Get the highest retry number to create next one
+                const { data: allRetries } = await supabaseAdmin
+                    .from('incident_retry_attempts')
+                    .select('retry_number')
+                    .eq('incident_id', id)
+                    .order('retry_number', { ascending: false })
+                    .limit(1);
+
+                const nextRetryNumber = allRetries && allRetries.length > 0
+                    ? allRetries[0].retry_number + 1
+                    : 1;
+
+                if (nextRetryNumber > incident.max_retry_attempts) {
+                    return res.status(400).json({
+                        error: 'Límite de reintentos alcanzado',
+                        message: `No se pueden programar más de ${incident.max_retry_attempts} reintentos`
+                    });
+                }
+
+                // Create new retry attempt
+                const { data: newRetry, error: createError } = await supabaseAdmin
+                    .from('incident_retry_attempts')
+                    .insert({
+                        incident_id: id,
+                        retry_number: nextRetryNumber,
+                        scheduled_date: scheduled_date,
+                        rescheduled_by: 'admin',
+                        status: 'scheduled',
+                        courier_notes: notes || null
+                    })
+                    .select()
+                    .single();
+
+                if (createError) {
+                    logger.error('API', '❌ [INCIDENTS] Error creating retry:', createError);
+                    return res.status(500).json({ error: 'Error al crear reintento' });
+                }
+
+                logger.info('API', '✅ [INCIDENTS] New retry created:', newRetry.id);
+
+                return res.status(201).json({
+                    message: 'Nuevo reintento programado',
+                    data: newRetry,
+                    action: 'created'
+                });
+            }
+
+            retryToUpdate = pendingRetries[0];
         }
 
-        // Get next retry number
-        const { data: existingRetries } = await supabaseAdmin
+        // Update the existing retry with new date and notes
+        const { data: updatedRetry, error: updateError } = await supabaseAdmin
             .from('incident_retry_attempts')
-            .select('retry_number')
-            .eq('incident_id', id)
-            .order('retry_number', { ascending: false })
-            .limit(1);
-
-        const nextRetryNumber = existingRetries && existingRetries.length > 0
-            ? existingRetries[0].retry_number + 1
-            : 1;
-
-        if (nextRetryNumber > incident.max_retry_attempts) {
-            return res.status(400).json({
-                error: 'Max retries reached',
-                message: `Cannot schedule more than ${incident.max_retry_attempts} retries`
-            });
-        }
-
-        // Create retry attempt
-        const { data: retry, error: createError } = await supabaseAdmin
-            .from('incident_retry_attempts')
-            .insert({
-                incident_id: id,
-                retry_number: nextRetryNumber,
-                scheduled_date: scheduled_date || getTodayInTimezone(),
+            .update({
+                scheduled_date: scheduled_date,
+                courier_notes: notes || retryToUpdate.courier_notes,
                 rescheduled_by: 'admin',
-                status: 'scheduled',
-                courier_notes: notes || null
+                updated_at: new Date().toISOString()
             })
+            .eq('id', retryToUpdate.id)
             .select()
             .single();
 
-        if (createError) {
-            logger.error('API', '❌ [INCIDENTS] Error creating retry:', createError);
-            return res.status(500).json({ error: 'Error al programar reintento' });
+        if (updateError) {
+            logger.error('API', '❌ [INCIDENTS] Error updating retry:', updateError);
+            return res.status(500).json({ error: 'Error al reprogramar reintento' });
         }
 
-        logger.info('API', '✅ [INCIDENTS] Retry scheduled:', retry.id);
+        logger.info('API', '✅ [INCIDENTS] Retry rescheduled:', updatedRetry.id, 'to date:', scheduled_date);
 
-        res.status(201).json({
-            message: 'Retry attempt scheduled',
-            data: retry
+        res.status(200).json({
+            message: `Reintento #${updatedRetry.retry_number} reprogramado para ${scheduled_date}`,
+            data: updatedRetry,
+            action: 'updated'
         });
     } catch (error: any) {
         logger.error('API', '💥 [INCIDENTS] Error:', error);

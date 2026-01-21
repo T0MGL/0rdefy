@@ -563,6 +563,20 @@ export class ShopifyImportService {
       phone_backup: backupPhone,
       delivery_notes: shopifyOrder.note || '',
 
+      // NEW: Address reference (address2 - apartment, reference, etc.)
+      address_reference: shippingAddr?.address2 || '',
+
+      // NEW: City extraction and normalization for carrier coverage matching
+      shipping_city: shippingAddr?.city || '',
+      shipping_city_normalized: shippingAddr?.city
+        ? shippingAddr.city.toLowerCase().trim()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // Remove accents
+        : null,
+
+      // NEW: Shipping method from Shopify checkout
+      shopify_shipping_method: shopifyOrder.shipping_lines?.[0]?.title || null,
+      shopify_shipping_method_code: shopifyOrder.shipping_lines?.[0]?.code || null,
+
       // Line items (keep JSONB for backwards compatibility)
       line_items: shopifyOrder.line_items,
 

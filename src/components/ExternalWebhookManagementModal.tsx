@@ -18,6 +18,8 @@ import {
   XCircle,
   Package,
   AlertTriangle,
+  Code,
+  FileJson,
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -32,48 +34,68 @@ interface ExternalWebhookManagementModalProps {
   onDisconnect?: () => void;
 }
 
-// Payload example for documentation - Con dirección manual
-const PAYLOAD_EXAMPLE = {
-  idempotency_key: "order-unique-id-123",
+// Payload MINIMO - lo mas simple posible
+const PAYLOAD_MINIMO = {
   customer: {
-    name: "Juan Pérez",
-    email: "juan@email.com",
-    phone: "+595981123456"
+    name: "Juan Perez",
+    phone: "0981123456"
   },
   shipping_address: {
-    address: "Av. España 1234",
-    city: "Asunción",
-    country: "Paraguay",
-    reference: "Casa blanca, enfrente al supermercado",
-    notes: "Entregar después de las 6pm"
+    address: "Av. Espana 1234",
+    city: "Asuncion"
   },
   items: [
     {
-      name: "Producto Premium",
-      sku: "SKU-001",
-      quantity: 2,
-      price: 150000,
-      variant_title: "Talla M"
+      name: "Mi Producto",
+      quantity: 1,
+      price: 150000
     }
   ],
   totals: {
-    subtotal: 300000,
-    shipping: 25000,
-    discount: 10000,
-    total: 315000
+    total: 150000
+  },
+  payment_method: "cash_on_delivery"
+};
+
+// Payload COMPLETO - todos los campos
+const PAYLOAD_COMPLETO = {
+  idempotency_key: "landing-12345",
+  customer: {
+    name: "Juan Perez",
+    email: "juan@email.com",
+    phone: "0981123456"
+  },
+  shipping_address: {
+    address: "Av. Espana 1234 c/ Brasil",
+    city: "Asuncion",
+    reference: "Casa blanca, porton negro",
+    notes: "Entregar despues de las 6pm"
+  },
+  items: [
+    {
+      name: "NOCTE Glasses Pack Pareja",
+      sku: "NOCTE-GLASSES-PAREJA",
+      quantity: 1,
+      price: 299000
+    }
+  ],
+  totals: {
+    subtotal: 299000,
+    shipping: 30000,
+    total: 329000
   },
   payment_method: "cash_on_delivery",
   metadata: {
-    source: "landing-page",
-    campaign: "black-friday"
+    source: "landing-nocte",
+    campaign: "promo-enero"
   }
 };
 
-// Payload example with Google Maps URL (alternative to manual address)
-const PAYLOAD_EXAMPLE_MAPS = {
+// Payload con Google Maps
+const PAYLOAD_MAPS = {
   customer: {
-    name: "María González",
-    phone: "+595981987654"
+    name: "Maria Garcia",
+    phone: "0982456789"
   },
   shipping_address: {
     google_maps_url: "https://maps.google.com/?q=-25.2867,-57.6470",
@@ -81,7 +103,7 @@ const PAYLOAD_EXAMPLE_MAPS = {
   },
   items: [
     {
-      name: "Producto Básico",
+      name: "Producto",
       quantity: 1,
       price: 50000
     }
@@ -91,6 +113,84 @@ const PAYLOAD_EXAMPLE_MAPS = {
   },
   payment_method: "cash_on_delivery"
 };
+
+// Funcion para generar ejemplo de cURL
+const generateCurlExample = (url: string, apiKey: string) => `curl -X POST '${url}' \\
+  -H 'Content-Type: application/json' \\
+  -H 'X-API-Key: ${apiKey}' \\
+  -d '${JSON.stringify(PAYLOAD_MINIMO)}'`;
+
+// Funcion para generar ejemplo de JavaScript
+const generateJsExample = (url: string, apiKey: string) => `// Enviar pedido a Ordefy
+async function enviarPedido(datos) {
+  const response = await fetch('${url}', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': '${apiKey}'
+    },
+    body: JSON.stringify({
+      customer: {
+        name: datos.nombre,
+        phone: datos.telefono
+      },
+      shipping_address: {
+        address: datos.direccion,
+        city: datos.ciudad
+      },
+      items: [{
+        name: datos.producto,
+        quantity: 1,
+        price: datos.precio
+      }],
+      totals: { total: datos.precio },
+      payment_method: 'cash_on_delivery'
+    })
+  });
+
+  const result = await response.json();
+  if (result.success) {
+    console.log('Pedido creado:', result.order_number);
+  }
+}`;
+
+// Funcion para generar ejemplo de PHP
+const generatePhpExample = (url: string, apiKey: string) => `<?php
+// Enviar pedido a Ordefy
+$payload = [
+  'customer' => [
+    'name' => $_POST['nombre'],
+    'phone' => $_POST['telefono']
+  ],
+  'shipping_address' => [
+    'address' => $_POST['direccion'],
+    'city' => $_POST['ciudad']
+  ],
+  'items' => [[
+    'name' => $_POST['producto'],
+    'quantity' => 1,
+    'price' => (int)$_POST['precio']
+  ]],
+  'totals' => ['total' => (int)$_POST['precio']],
+  'payment_method' => 'cash_on_delivery'
+];
+
+$ch = curl_init('${url}');
+curl_setopt_array($ch, [
+  CURLOPT_RETURNTRANSFER => true,
+  CURLOPT_POST => true,
+  CURLOPT_POSTFIELDS => json_encode($payload),
+  CURLOPT_HTTPHEADER => [
+    'Content-Type: application/json',
+    'X-API-Key: ${apiKey}'
+  ]
+]);
+
+$result = json_decode(curl_exec($ch), true);
+if ($result['success']) {
+  echo "Pedido: " . $result['order_number'];
+}
+?>`;
 
 export function ExternalWebhookManagementModal({
   open,
@@ -265,10 +365,11 @@ export function ExternalWebhookManagementModal({
         </DialogHeader>
 
         <Tabs defaultValue="config" className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="config">Configuración</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="config">Config</TabsTrigger>
             <TabsTrigger value="payload">Payload</TabsTrigger>
-            <TabsTrigger value="logs">Actividad</TabsTrigger>
+            <TabsTrigger value="codigo">Codigo</TabsTrigger>
+            <TabsTrigger value="logs">Logs</TabsTrigger>
           </TabsList>
 
           {/* Tab: Configuración */}
@@ -394,23 +495,19 @@ export function ExternalWebhookManagementModal({
 
           {/* Tab: Payload */}
           <TabsContent value="payload" className="flex-1 overflow-y-auto space-y-4 mt-4">
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Puedes enviar la dirección de dos formas: <strong>manual</strong> (address + city) o con <strong>link de Google Maps</strong>.
-              </AlertDescription>
-            </Alert>
-
-            {/* Ejemplo con dirección manual */}
+            {/* Payload Minimo */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Opción 1: Con dirección manual</Label>
+                <Label className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4 text-green-500" />
+                  Payload Minimo (copiar y pegar)
+                </Label>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_EXAMPLE, null, 2), 'payload')}
+                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_MINIMO, null, 2), 'payloadMin')}
                 >
-                  {copied === 'payload' ? (
+                  {copied === 'payloadMin' ? (
                     <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
                   ) : (
                     <Copy className="h-4 w-4 mr-1" />
@@ -418,19 +515,47 @@ export function ExternalWebhookManagementModal({
                   Copiar
                 </Button>
               </div>
-              <pre className="p-4 rounded-lg bg-muted/50 border text-xs overflow-x-auto max-h-[250px]">
-                {JSON.stringify(PAYLOAD_EXAMPLE, null, 2)}
+              <pre className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-xs overflow-x-auto max-h-[180px] font-mono">
+                {JSON.stringify(PAYLOAD_MINIMO, null, 2)}
               </pre>
             </div>
 
-            {/* Ejemplo con Google Maps */}
+            {/* Payload Completo */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Opción 2: Con link de Google Maps</Label>
+                <Label className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4" />
+                  Payload Completo (todos los campos)
+                </Label>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_EXAMPLE_MAPS, null, 2), 'payloadMaps')}
+                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_COMPLETO, null, 2), 'payloadFull')}
+                >
+                  {copied === 'payloadFull' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-muted/50 border text-xs overflow-x-auto max-h-[180px] font-mono">
+                {JSON.stringify(PAYLOAD_COMPLETO, null, 2)}
+              </pre>
+            </div>
+
+            {/* Con Google Maps */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4 text-blue-500" />
+                  Con Google Maps (sin direccion manual)
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_MAPS, null, 2), 'payloadMaps')}
                 >
                   {copied === 'payloadMaps' ? (
                     <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
@@ -440,49 +565,135 @@ export function ExternalWebhookManagementModal({
                   Copiar
                 </Button>
               </div>
-              <pre className="p-4 rounded-lg bg-green-500/10 border border-green-500/30 text-xs overflow-x-auto max-h-[200px]">
-                {JSON.stringify(PAYLOAD_EXAMPLE_MAPS, null, 2)}
+              <pre className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-xs overflow-x-auto max-h-[140px] font-mono">
+                {JSON.stringify(PAYLOAD_MAPS, null, 2)}
               </pre>
-              <p className="text-xs text-muted-foreground">
-                Si envías <code className="px-1 py-0.5 rounded bg-muted">google_maps_url</code>, no necesitas enviar <code className="px-1 py-0.5 rounded bg-muted">address</code> ni <code className="px-1 py-0.5 rounded bg-muted">city</code>.
-              </p>
             </div>
 
-            <div className="space-y-2">
-              <Label>Headers Requeridos</Label>
-              <div className="p-4 rounded-lg bg-muted/50 border space-y-2 font-mono text-xs">
-                <div>Content-Type: application/json</div>
-                <div>X-API-Key: {config?.api_key_prefix || 'tu_api_key_aqui'}</div>
+            {/* Campos */}
+            <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
+              <Label className="text-sm font-medium">Campos Requeridos</Label>
+              <div className="grid grid-cols-2 gap-1 text-xs">
+                <code className="text-green-600">customer.name</code>
+                <span className="text-muted-foreground">Nombre</span>
+                <code className="text-green-600">customer.phone</code>
+                <span className="text-muted-foreground">Telefono</span>
+                <code className="text-green-600">shipping_address.address</code>
+                <span className="text-muted-foreground">Direccion</span>
+                <code className="text-green-600">shipping_address.city</code>
+                <span className="text-muted-foreground">Ciudad</span>
+                <code className="text-green-600">items[].name</code>
+                <span className="text-muted-foreground">Producto</span>
+                <code className="text-green-600">items[].quantity</code>
+                <span className="text-muted-foreground">Cantidad</span>
+                <code className="text-green-600">items[].price</code>
+                <span className="text-muted-foreground">Precio</span>
+                <code className="text-green-600">totals.total</code>
+                <span className="text-muted-foreground">Total</span>
+                <code className="text-green-600">payment_method</code>
+                <span className="text-muted-foreground">cash_on_delivery</span>
               </div>
             </div>
+          </TabsContent>
 
+          {/* Tab: Codigo */}
+          <TabsContent value="codigo" className="flex-1 overflow-y-auto space-y-4 mt-4">
+            {/* cURL */}
             <div className="space-y-2">
-              <Label>Campos Requeridos</Label>
-              <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                <li><code>customer.name</code> - Nombre del cliente</li>
-                <li><code>customer.email</code> o <code>customer.phone</code> - Al menos uno</li>
-                <li className="text-green-600 dark:text-green-400">
-                  <code>shipping_address.google_maps_url</code> - Link de Google Maps
-                  <span className="text-muted-foreground"> (o address + city)</span>
-                </li>
-                <li><code>items[]</code> - Al menos un producto con name, quantity, price</li>
-                <li><code>totals.total</code> - Total del pedido</li>
-                <li><code>payment_method</code> - cash_on_delivery | online | pending</li>
-              </ul>
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Code className="h-4 w-4" />
+                  cURL (Terminal)
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(
+                    generateCurlExample(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY'),
+                    'curl'
+                  )}
+                >
+                  {copied === 'curl' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-zinc-900 text-zinc-100 text-xs overflow-x-auto max-h-[120px] font-mono">
+                {generateCurlExample(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY')}
+              </pre>
             </div>
 
-            <Alert className="border-green-500/30 bg-green-500/10">
-              <CheckCircle2 className="h-4 w-4 text-green-500" />
-              <AlertDescription className="text-sm">
-                <strong>Formatos de Google Maps aceptados:</strong>
-                <ul className="mt-1 text-xs space-y-0.5">
-                  <li>• https://maps.google.com/...</li>
-                  <li>• https://www.google.com/maps/...</li>
-                  <li>• https://goo.gl/maps/...</li>
-                  <li>• https://maps.app.goo.gl/...</li>
-                </ul>
-              </AlertDescription>
-            </Alert>
+            {/* JavaScript */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-yellow-500" />
+                  JavaScript (fetch)
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(
+                    generateJsExample(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY'),
+                    'js'
+                  )}
+                >
+                  {copied === 'js' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-zinc-900 text-zinc-100 text-xs overflow-x-auto max-h-[200px] font-mono">
+                {generateJsExample(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY')}
+              </pre>
+            </div>
+
+            {/* PHP */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-purple-500" />
+                  PHP (cURL)
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(
+                    generatePhpExample(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY'),
+                    'php'
+                  )}
+                >
+                  {copied === 'php' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-zinc-900 text-zinc-100 text-xs overflow-x-auto max-h-[200px] font-mono">
+                {generatePhpExample(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY')}
+              </pre>
+            </div>
+
+            {/* Respuesta */}
+            <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
+              <Label className="text-sm font-medium">Respuesta Exitosa (201)</Label>
+              <pre className="text-xs font-mono text-green-600">
+{`{
+  "success": true,
+  "order_id": "uuid...",
+  "order_number": "ORD-001234",
+  "message": "Order created successfully"
+}`}
+              </pre>
+            </div>
           </TabsContent>
 
           {/* Tab: Logs */}

@@ -339,6 +339,13 @@ When selling 1x "Pareja" pack: deducts 2 units from parent (150 → 148)
 - Automatic inventory updates when products mapped correctly
 - Supports multiple products per order with proper stock tracking
 
+**Order Field Extraction (NEW: Migration 094):**
+- `shipping_address.city` → `shipping_city` + `shipping_city_normalized` (for carrier coverage matching)
+- `shipping_address.address2` → `address_reference` (apartment/reference) + `neighborhood` (backwards compat)
+- `shipping_lines[0].title` → `shopify_shipping_method` (e.g., "Envío Express", "Envío Gratis")
+- `shipping_lines[0].code` → `shopify_shipping_method_code`
+- `order.note` → `delivery_notes` (already existed)
+
 **Sync Features:**
 - When updating product locally → auto-syncs to Shopify (price, stock, name, description)
 - **NEW: Creating product** → Auto-publishes to Shopify with stock OR fetches inventory from Shopify
@@ -464,6 +471,65 @@ carrier_coverage (Per-store rates):
 - `useCoverageSystem` state defaults to `true`
 - Legacy zone-based system still works when disabled
 - Orders store both `delivery_zone` and `shipping_city_normalized`
+
+### Delivery Preferences System (Customer Scheduling) - NEW: Jan 2026
+**Files:** `src/components/DeliveryPreferencesAccordion.tsx`, `src/components/OrderConfirmationDialog.tsx`, `src/components/forms/OrderForm.tsx`, `src/pages/Orders.tsx`, `db/migrations/095_delivery_preferences.sql`
+
+**Purpose:** Allow customers/confirmadores to specify delivery scheduling preferences. Addresses the common scenario: "Quiero los lentes pero para la semana que viene" - customer makes order but won't be available until a future date.
+
+**Use Cases:**
+- Customer is traveling and can't receive until a specific date
+- Customer prefers morning/afternoon/evening delivery
+- Special instructions for the courier (leave with doorman, call first)
+
+**Schema (JSONB field `delivery_preferences`):**
+```json
+{
+  "not_before_date": "2026-01-25",      // ISO date, don't deliver before this
+  "preferred_time_slot": "afternoon",    // morning (8-12), afternoon (14-18), evening (18-21), any
+  "delivery_notes": "Dejar con portero"  // Free text instructions
+}
+```
+
+**UI Features:**
+
+1. **DeliveryPreferencesAccordion Component:**
+   - Collapsible accordion (optional, non-intrusive)
+   - Date picker for "No entregar antes del" (min: tomorrow)
+   - Dropdown for preferred time slot (Mañana/Tarde/Noche)
+   - Textarea for delivery notes (max 500 chars)
+   - Shows badge "Configurado" when preferences are set
+   - Summary preview when collapsed
+
+2. **Badge in Orders Table:**
+   - Purple badge "📅 25/01 • Tarde" shown in status column
+   - Tooltip with full details on hover
+   - Visual distinction for scheduled orders
+
+3. **Filter System in Orders:**
+   - Three filter options: "Todos" | "Listos para entregar" | "Programados"
+   - "Listos para entregar" = orders without future date restriction
+   - "Programados" = orders with not_before_date in future
+   - Filter count shown when active
+
+4. **Available in:**
+   - Order confirmation dialog (when confirming pending orders)
+   - Manual order creation form (Nuevo Pedido)
+   - Order edit dialog (Editar Pedido)
+
+**Database Functions:**
+- `has_active_delivery_restriction(order_id)` - Check if order has future not_before_date
+- `get_delivery_preference_summary(jsonb)` - Human-readable summary for UI
+
+**Views:**
+- `v_orders_with_delivery_restrictions` - Orders with active delivery preferences
+
+**Integration:**
+- Saved during order confirmation (POST /api/orders/:id/confirm)
+- Saved during order creation (POST /api/orders)
+- Saved during order update (PATCH /api/orders/:id)
+- Non-blocking: preferences saved after atomic operations
+- Frontend helper `getScheduledDeliveryInfo()` for consistent badge display
 
 ### Dispatch & Settlements System (Courier Reconciliation)
 **Files:** `src/pages/Settlements.tsx`, `api/routes/settlements.ts`, `api/services/settlements.service.ts`, `db/migrations/045_dispatch_settlements_system.sql`, `059_dispatch_settlements_production_fixes.sql`
@@ -808,7 +874,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 **Tables:**
 - Base: stores (subscription_plan, max_users), users, user_stores (invited_by, invited_at, is_active), store_config
 - Business: products, customers, carriers, suppliers, campaigns, additional_values
-- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at, **is_pickup**), order_line_items
+- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at, **is_pickup**, **internal_notes**, **shipping_city**, **shopify_shipping_method**), order_line_items
 - History: order_status_history, follow_up_log
 - Delivery: delivery_attempts, daily_settlements, settlement_orders
 - Dispatch: dispatch_sessions, dispatch_session_orders, carrier_zones (zone-based courier rates)
@@ -994,3 +1060,5 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 089: **NEW:** Pickup orders / Retiro en local (is_pickup flag, optional courier_id, dispatch session exclusion)
 - 090: **NEW:** Carrier coverage system (city-based carrier selection, paraguay_locations master table, carrier_coverage per-store rates, autocomplete search, seamless UX)
 - 091: **NEW:** Mark COD as prepaid (prepaid_method, prepaid_at, prepaid_by - for transfer payments before shipping)
+- 094: **NEW:** Order notes & Shopify field enhancements (internal_notes for admin observations, shopify_shipping_method capture, city extraction from shipping_address, address_reference from address2)
+- 095: **NEW:** Delivery preferences system (delivery_preferences JSONB - not_before_date, preferred_time_slot, delivery_notes for customer scheduling)
