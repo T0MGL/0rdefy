@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { ExportButton } from '@/components/ExportButton';
 import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
+import { usePhoneAutoPasteSimple } from '@/hooks/usePhoneAutoPaste';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
 import { carriersService, Carrier } from '@/services/carriers.service';
@@ -28,6 +29,11 @@ function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSub
     notes: carrier?.notes || '',
     carrier_type: carrier?.carrier_type || 'internal',
     is_active: carrier?.is_active ?? true,
+  });
+
+  // Auto-format phone on paste
+  const handlePhonePaste = usePhoneAutoPasteSimple((fullPhone) => {
+    setFormData({ ...formData, phone: fullPhone });
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -74,6 +80,7 @@ function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSub
             placeholder="+595981234567"
             value={formData.phone}
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            onPaste={handlePhonePaste}
             required
           />
         </div>

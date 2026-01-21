@@ -508,29 +508,33 @@ export default function Orders() {
     // Build product list
     let productList = '';
     if (lineItems.length > 0) {
-      productList = lineItems.map(item =>
-        `- ${item.product_name || item.title}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`
-      ).join('\n');
+      productList = lineItems.map(item => {
+        const productName = item.product_name || item.title;
+        return `${productName}${item.quantity > 1 ? ` – ${item.quantity} unidades` : ''}`;
+      }).join('\n');
     } else if (order.product) {
-      productList = `- ${order.product}${order.quantity > 1 ? ` (x${order.quantity})` : ''}`;
+      productList = `${order.product}${order.quantity > 1 ? ` – ${order.quantity} unidades` : ''}`;
     }
 
-    // Build address
+    // Build address - check if it's a Google Maps link
     const address = order.address || 'No especificada';
+    const isGoogleMapsLink = address.includes('maps.google.com') || address.includes('goo.gl/maps');
+    const locationText = isGoogleMapsLink ? address : `{${address}}`;
 
-    const message = `Hola ${order.customer}!
+    const message = `Hola *${order.customer}* 👋
 
-Gracias por tu pedido en *${storeName}*
+Tu pedido en *${storeName}* ya está reservado por unas horas ⏳
 
-*Tu pedido:*
+🛍 Producto:
 ${productList}
 
-*Dirección de envío:*
-${address}
+📍 Envío: ${locationText}
 
-*Total:* ${formatCurrency(order.total ?? 0)}
+💰 Total a pagar:
+${formatCurrency(order.total ?? 0)}
 
-Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
+Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
+👉 *SI*`;
 
     // Clean phone number and create WhatsApp link
     const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
@@ -668,12 +672,17 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
         customer: data.customer,
         phone: data.phone,
         address: data.address,
+        google_maps_link: data.googleMapsLink,
         product: product.name,
         product_id: product.id, // ✅ Pass product_id
         quantity: data.quantity,
         total: product.price * data.quantity,
         carrier: data.carrier,
         paymentMethod: data.paymentMethod,
+        // Shipping info
+        shipping_city: data.shippingCity,
+        shipping_city_normalized: data.shippingCityNormalized,
+        is_pickup: data.isPickup,
         // Delivery preferences (scheduling)
         delivery_preferences: data.deliveryPreferences || null,
       } as any);
@@ -2048,6 +2057,7 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                 customer: orderToEdit.customer,
                 phone: orderToEdit.phone,
                 address: (orderToEdit as any).address || orderToEdit.customer_address || '',
+                googleMapsLink: orderToEdit.google_maps_link || '',
                 // Get first product_id from order_line_items if available
                 product: orderToEdit.order_line_items?.[0]?.product_id || '',
                 quantity: orderToEdit.quantity,
@@ -2055,6 +2065,10 @@ Por favor confirma respondiendo *SI* para proceder con tu pedido.`;
                 carrier: orderToEdit.carrier_id || '',
                 // Map payment_method: 'cash'/'efectivo' → 'cod', else → 'paid'
                 paymentMethod: (['cash', 'efectivo', 'cod'].includes(orderToEdit.payment_method?.toLowerCase() || '')) ? 'cod' : 'paid',
+                // Shipping info
+                shippingCity: orderToEdit.shipping_city,
+                shippingCityNormalized: orderToEdit.shipping_city_normalized,
+                isPickup: orderToEdit.is_pickup || false,
                 // Delivery preferences (scheduling)
                 deliveryPreferences: (orderToEdit as any).delivery_preferences || null,
               }}

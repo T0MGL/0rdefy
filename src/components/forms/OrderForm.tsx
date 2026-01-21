@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { logger } from '@/utils/logger';
+import { usePhoneAutoPaste } from '@/hooks/usePhoneAutoPaste';
 import {
   Form,
   FormControl,
@@ -115,13 +116,33 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     initialData?.deliveryPreferences || null
   );
 
+  // Extract country code from phone for editing
+  const extractCountryCode = (phone: string): { countryCode: string; phoneNumber: string } => {
+    if (!phone) return { countryCode: '+595', phoneNumber: '' };
+
+    const countryCodes = ['+595', '+54', '+55', '+598', '+56', '+51', '+57', '+52', '+34', '+1'];
+    for (const code of countryCodes) {
+      if (phone.startsWith(code)) {
+        return {
+          countryCode: code,
+          phoneNumber: phone.slice(code.length).trim()
+        };
+      }
+    }
+
+    // If no known code found, default to +595 and use full phone
+    return { countryCode: '+595', phoneNumber: phone.replace(/^\+\d+\s*/, '') };
+  };
+
+  const { countryCode: extractedCountryCode, phoneNumber: extractedPhone } = extractCountryCode(initialData?.phone || '');
+
   // Form must be defined before useEffects that use it
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(orderSchema),
     defaultValues: {
       customer: initialData?.customer || '',
-      countryCode: '+595',
-      phone: initialData?.phone?.replace(/^\+\d+\s*/, '') || '',
+      countryCode: extractedCountryCode,
+      phone: extractedPhone,
       address: initialData?.address || '',
       googleMapsLink: initialData?.googleMapsLink || '',
       product: initialData?.product || '',
@@ -292,6 +313,38 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     }
   }, [isPickup, form]);
 
+  // Initialize fields from initialData when editing an order
+  useEffect(() => {
+    if (initialData) {
+      // Set pickup state
+      if (initialData.isPickup !== undefined) {
+        setIsPickup(initialData.isPickup);
+      }
+
+      // Set city if provided
+      if (initialData.shippingCity && !initialData.isPickup) {
+        setSelectedCity({
+          city: initialData.shippingCity,
+          department: '', // Will be loaded from API
+          zone_code: initialData.deliveryZone || '',
+        });
+        setCitySearch(initialData.shippingCity);
+      }
+
+      // Set carrier if provided
+      if (initialData.carrier && !initialData.isPickup) {
+        setSelectedCarrierId(initialData.carrier);
+      }
+
+      // Set shipping cost if provided
+      if (initialData.shippingCost !== undefined) {
+        setShippingCost(initialData.shippingCost);
+      }
+    }
+    // Only run on mount or when initialData changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialData?.customer]); // Use customer as dependency to detect when order changes
+
   const handleSubmit = async (data: OrderFormValues) => {
     // Validate: either pickup or city+carrier required
     if (!isPickup && !selectedCity) {
@@ -353,6 +406,12 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     form.setValue('carrier', carrier.carrier_id);
   };
 
+  // Auto-detect country code and clean phone number on paste using custom hook
+  const handlePhonePaste = usePhoneAutoPaste((countryCode, phoneNumber) => {
+    form.setValue('countryCode', countryCode);
+    form.setValue('phone', phoneNumber);
+  });
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -409,7 +468,12 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
               <FormItem className="col-span-2">
                 <FormLabel>Teléfono</FormLabel>
                 <FormControl>
-                  <Input placeholder="981234567" type="tel" {...field} />
+                  <Input
+                    placeholder="981234567"
+                    type="tel"
+                    {...field}
+                    onPaste={handlePhonePaste}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>

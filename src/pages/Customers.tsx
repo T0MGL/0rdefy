@@ -10,6 +10,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { Input } from '@/components/ui/input';
 import { customersService } from '@/services/customers.service';
 import { useToast } from '@/hooks/use-toast';
+import { usePhoneAutoPasteSimple } from '@/hooks/usePhoneAutoPaste';
 import { Plus, Edit, Trash2, Users, Mail, Phone, ShoppingBag, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useEffect, useMemo } from 'react';
@@ -36,6 +37,11 @@ function CustomerForm({
     email: customer?.email || '',
     phone: customer?.phone || '',
     accepts_marketing: customer?.accepts_marketing ?? true,
+  });
+
+  // Auto-format phone on paste
+  const handlePhonePaste = usePhoneAutoPasteSimple((fullPhone) => {
+    setFormData({ ...formData, phone: fullPhone });
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -84,6 +90,7 @@ function CustomerForm({
           placeholder="+595981234567"
           value={formData.phone}
           onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+          onPaste={handlePhonePaste}
           required
         />
       </div>
