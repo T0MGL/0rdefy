@@ -441,11 +441,8 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       return;
     }
 
-    // Validate: if product has variants, one must be selected
-    if (selectedProductVariants.length > 0 && !selectedVariantId) {
-      form.setError('product', { message: 'Este producto tiene variantes. Selecciona una variante.' });
-      return;
-    }
+    // Note: Products with variants can be ordered as base product (no variant selected)
+    // The validation was removed to allow ordering the base product without selecting a variant
 
     try {
       const fullPhone = `${data.countryCode}${data.phone}`;
@@ -830,7 +827,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
           <FormItem>
             <FormLabel className="flex items-center gap-2">
               <Layers className="h-4 w-4" />
-              Variante
+              Variante <span className="text-muted-foreground font-normal">(opcional)</span>
               {loadingVariants && <Loader2 className="h-3 w-3 animate-spin" />}
             </FormLabel>
             {loadingVariants ? (
@@ -840,6 +837,53 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
               </div>
             ) : selectedProductVariants.length === 0 ? null : (
               <div className="space-y-2">
+                {/* Base product option (no variant) */}
+                {(() => {
+                  const selectedProduct = products.find(p => p.id === selectedProductId);
+                  const baseStock = selectedProduct?.stock ?? 0;
+                  const basePrice = selectedProduct?.price ?? 0;
+                  const isBaseOutOfStock = baseStock <= 0;
+
+                  return (
+                    <div
+                      onClick={() => !isBaseOutOfStock && setSelectedVariantId(null)}
+                      className={cn(
+                        "flex items-center justify-between p-3 border rounded-md transition-colors",
+                        isBaseOutOfStock
+                          ? "opacity-50 cursor-not-allowed bg-muted/20"
+                          : selectedVariantId === null
+                            ? "border-primary bg-primary/5 cursor-pointer"
+                            : "hover:border-primary/50 hover:bg-muted/50 cursor-pointer"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        {selectedVariantId === null && (
+                          <Check className="h-4 w-4 text-primary" />
+                        )}
+                        <div>
+                          <span className="font-medium">Sin variante</span>
+                          <p className="text-xs text-muted-foreground">Precio base del producto</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="font-semibold">
+                          {formatCurrency(basePrice)}
+                        </Badge>
+                        {isBaseOutOfStock ? (
+                          <Badge variant="destructive" className="text-xs">
+                            Sin stock
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs">
+                            {baseStock} disp.
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Variant options */}
                 {selectedProductVariants.filter(v => v.is_active).map((variant) => {
                   const availableStock = variant.uses_shared_stock
                     ? Math.floor(parentStock / (variant.units_per_pack || 1))
