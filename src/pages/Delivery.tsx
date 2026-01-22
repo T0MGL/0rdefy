@@ -163,7 +163,10 @@ export default function Delivery() {
   const handleConfirmDelivery = async () => {
     if (state.type !== 'pending') return;
 
-    if (!paymentMethod) {
+    const isPrepaid = state.data.cod_amount === 0 || state.data.cod_amount === null;
+
+    // Only require payment method if order requires COD collection
+    if (!isPrepaid && !paymentMethod) {
       toast({
         title: 'Método de pago requerido',
         description: 'Debes seleccionar el método de pago usado por el cliente',
@@ -172,7 +175,7 @@ export default function Delivery() {
       return;
     }
 
-    if (differentAmountCollected && !amountCollected) {
+    if (!isPrepaid && differentAmountCollected && !amountCollected) {
       toast({
         title: 'Monto requerido',
         description: 'Debes ingresar el monto que cobraste',
@@ -184,13 +187,19 @@ export default function Delivery() {
     try {
       setSubmitting(true);
 
-      const payload: any = {
-        payment_method: paymentMethod,
-      };
+      const payload: any = {};
 
-      if (differentAmountCollected && amountCollected) {
-        payload.amount_collected = parseFloat(amountCollected.replace(/\./g, '').replace(',', '.'));
-        payload.has_amount_discrepancy = true;
+      // Only include payment info if order requires COD collection
+      if (!isPrepaid) {
+        payload.payment_method = paymentMethod;
+
+        if (differentAmountCollected && amountCollected) {
+          payload.amount_collected = parseFloat(amountCollected.replace(/\./g, '').replace(',', '.'));
+          payload.has_amount_discrepancy = true;
+        }
+      } else {
+        // For prepaid orders, mark as prepaid confirmation
+        payload.payment_method = 'prepaid';
       }
 
       const response = await fetch(
@@ -875,107 +884,112 @@ export default function Delivery() {
                 <h3 className="text-foreground font-semibold">Confirmar Entrega</h3>
               </div>
 
-              {/* Payment Method Selection - Premium Buttons */}
-              <div className="space-y-3">
-                <Label className="text-muted-foreground text-sm font-medium">Método de pago del cliente</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { value: 'efectivo', label: 'Efectivo', icon: Banknote },
-                    { value: 'tarjeta', label: 'Tarjeta', icon: CreditCard },
-                    { value: 'qr', label: 'QR', icon: Smartphone },
-                    { value: 'transferencia', label: 'Transfer.', icon: ArrowRight },
-                  ].map((method) => {
-                    const Icon = method.icon;
-                    const isSelected = paymentMethod === method.value;
+              {/* Show payment method selection ONLY if order requires COD collection */}
+              {orderData.cod_amount > 0 && (
+                <>
+                  {/* Payment Method Selection - Premium Buttons */}
+                  <div className="space-y-3">
+                    <Label className="text-muted-foreground text-sm font-medium">Método de pago del cliente</Label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { value: 'efectivo', label: 'Efectivo', icon: Banknote },
+                        { value: 'tarjeta', label: 'Tarjeta', icon: CreditCard },
+                        { value: 'qr', label: 'QR', icon: Smartphone },
+                        { value: 'transferencia', label: 'Transfer.', icon: ArrowRight },
+                      ].map((method) => {
+                        const Icon = method.icon;
+                        const isSelected = paymentMethod === method.value;
 
-                    return (
-                      <button
-                        key={method.value}
-                        onClick={() => {
-                          setPaymentMethod(method.value);
-                          if (method.value !== 'efectivo') {
-                            setDifferentAmountCollected(false);
-                            setAmountCollected('');
-                          }
-                        }}
-                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 ${
-                          isSelected
-                            ? 'bg-primary/10 border-primary text-primary'
-                            : 'border-border text-muted-foreground hover:border-muted-foreground/50'
-                        }`}
-                      >
-                        <Icon className="h-6 w-6" />
-                        <span className="text-sm font-medium">{method.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Different Amount Checkbox - Only for Cash */}
-              {paymentMethod === 'efectivo' && (
-                <div className="bg-muted/50 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center space-x-3">
-                    <Checkbox
-                      id="different-amount"
-                      checked={differentAmountCollected}
-                      onCheckedChange={(checked) => {
-                        setDifferentAmountCollected(checked === true);
-                        if (!checked) setAmountCollected('');
-                      }}
-                    />
-                    <Label
-                      htmlFor="different-amount"
-                      className="text-sm font-medium cursor-pointer flex items-center gap-2 text-muted-foreground"
-                    >
-                      <DollarSign className="h-4 w-4 text-amber-500" />
-                      Cobré un monto diferente
-                    </Label>
+                        return (
+                          <button
+                            key={method.value}
+                            onClick={() => {
+                              setPaymentMethod(method.value);
+                              if (method.value !== 'efectivo') {
+                                setDifferentAmountCollected(false);
+                                setAmountCollected('');
+                              }
+                            }}
+                            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 ${
+                              isSelected
+                                ? 'bg-primary/10 border-primary text-primary'
+                                : 'border-border text-muted-foreground hover:border-muted-foreground/50'
+                            }`}
+                          >
+                            <Icon className="h-6 w-6" />
+                            <span className="text-sm font-medium">{method.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {differentAmountCollected && (
-                    <div className="space-y-2 pl-7 animate-in slide-in-from-top-2 duration-200">
-                      <Label htmlFor="amount-collected" className="text-sm font-medium text-muted-foreground">
-                        Monto cobrado ({getCurrencySymbol(orderData.currency)})
-                      </Label>
-                      <div className="relative">
-                        <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground font-semibold">{getCurrencySymbol(orderData.currency)}</span>
-                        <Input
-                          id="amount-collected"
-                          type="text"
-                          inputMode="numeric"
-                          value={amountCollected}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/[^0-9]/g, '');
-                            const formatted = value ? parseInt(value).toLocaleString('es-PY') : '';
-                            setAmountCollected(formatted);
+                  {/* Different Amount Checkbox - Only for Cash */}
+                  {paymentMethod === 'efectivo' && (
+                    <div className="bg-muted/50 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center space-x-3">
+                        <Checkbox
+                          id="different-amount"
+                          checked={differentAmountCollected}
+                          onCheckedChange={(checked) => {
+                            setDifferentAmountCollected(checked === true);
+                            if (!checked) setAmountCollected('');
                           }}
-                          placeholder="150.000"
-                          className="pl-12 h-12 text-lg font-semibold"
                         />
+                        <Label
+                          htmlFor="different-amount"
+                          className="text-sm font-medium cursor-pointer flex items-center gap-2 text-muted-foreground"
+                        >
+                          <DollarSign className="h-4 w-4 text-amber-500" />
+                          Cobré un monto diferente
+                        </Label>
                       </div>
-                      <p className="text-xs text-amber-500 dark:text-amber-400">
-                        Monto esperado: {formatDeliveryCurrency(orderData.cod_amount || orderData.total_price || 0, orderData.currency)}
+
+                      {differentAmountCollected && (
+                        <div className="space-y-2 pl-7 animate-in slide-in-from-top-2 duration-200">
+                          <Label htmlFor="amount-collected" className="text-sm font-medium text-muted-foreground">
+                            Monto cobrado ({getCurrencySymbol(orderData.currency)})
+                          </Label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground font-semibold">{getCurrencySymbol(orderData.currency)}</span>
+                            <Input
+                              id="amount-collected"
+                              type="text"
+                              inputMode="numeric"
+                              value={amountCollected}
+                              onChange={(e) => {
+                                const value = e.target.value.replace(/[^0-9]/g, '');
+                                const formatted = value ? parseInt(value).toLocaleString('es-PY') : '';
+                                setAmountCollected(formatted);
+                              }}
+                              placeholder="150.000"
+                              className="pl-12 h-12 text-lg font-semibold"
+                            />
+                          </div>
+                          <p className="text-xs text-amber-500 dark:text-amber-400">
+                            Monto esperado: {formatDeliveryCurrency(orderData.cod_amount || orderData.total_price || 0, orderData.currency)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Prepaid Info Message - Only when non-cash method selected */}
+                  {paymentMethod && paymentMethod !== 'efectivo' && (
+                    <div className="bg-primary/10 rounded-xl p-4 border border-primary/30">
+                      <p className="text-sm text-primary flex items-center gap-2">
+                        <CreditCard className="h-4 w-4" />
+                        <span className="font-medium">Pago prepago - No debes cobrar nada al cliente</span>
                       </p>
                     </div>
                   )}
-                </div>
-              )}
-
-              {/* Prepaid Info Message */}
-              {paymentMethod && paymentMethod !== 'efectivo' && (
-                <div className="bg-primary/10 rounded-xl p-4 border border-primary/30">
-                  <p className="text-sm text-primary flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
-                    <span className="font-medium">Pago prepago - No debes cobrar nada al cliente</span>
-                  </p>
-                </div>
+                </>
               )}
 
               {/* Confirm Button */}
               <Button
                 onClick={handleConfirmDelivery}
-                disabled={submitting || !paymentMethod}
+                disabled={submitting || (orderData.cod_amount > 0 && !paymentMethod)}
                 className="w-full h-14"
                 size="lg"
               >
