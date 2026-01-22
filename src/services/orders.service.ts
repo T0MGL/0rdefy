@@ -89,6 +89,11 @@ export const ordersService = {
       const [firstName, ...lastNameParts] = (order.customer || '').split(' ');
       const lastName = lastNameParts.join(' ');
 
+      // Migration 097: Extract variant info from order
+      const variantId = (order as any).variant_id || null;
+      const variantTitle = (order as any).variant_title || null;
+      const unitsPerPack = (order as any).units_per_pack || 1;
+
       const backendOrder: any = {
         customer_first_name: firstName || 'Cliente',
         customer_last_name: lastName || '',
@@ -97,9 +102,13 @@ export const ordersService = {
         customer_address: order.address || '',
         line_items: [{
           product_id: order.product_id,
+          variant_id: variantId, // Migration 097
           product_name: order.product,
+          variant_title: variantTitle, // Migration 097
+          sku: (order as any).product_sku || null, // Migration 098: SKU for fallback mapping
           quantity: order.quantity || 1,
           price: order.quantity > 0 ? order.total / order.quantity : order.total,
+          units_per_pack: unitsPerPack, // Migration 097
         }],
         total_price: order.total,
         subtotal_price: order.total,

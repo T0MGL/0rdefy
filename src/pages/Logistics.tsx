@@ -7,6 +7,7 @@ import { useDateRange } from '@/contexts/DateRangeContext';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { logger } from '@/utils/logger';
+import { formatCurrency, getCurrencyConfig } from '@/utils/currency';
 import {
   DollarSign,
   Package,
@@ -159,43 +160,23 @@ export default function Logistics() {
             {
               header: 'Costos Entregados',
               key: 'costos_entregados',
-              format: (val: any) =>
-                new Intl.NumberFormat('es-PY', {
-                  style: 'currency',
-                  currency: 'PYG',
-                  maximumFractionDigits: 0,
-                }).format(Number(val)),
+              format: (val: any) => formatCurrency(Number(val)),
             },
             { header: 'Pedidos En Tránsito', key: 'pedidos_en_transito' },
             {
               header: 'Costos En Tránsito',
               key: 'costos_en_transito',
-              format: (val: any) =>
-                new Intl.NumberFormat('es-PY', {
-                  style: 'currency',
-                  currency: 'PYG',
-                  maximumFractionDigits: 0,
-                }).format(Number(val)),
+              format: (val: any) => formatCurrency(Number(val)),
             },
             {
               header: 'Costos Pagados',
               key: 'costos_pagados',
-              format: (val: any) =>
-                new Intl.NumberFormat('es-PY', {
-                  style: 'currency',
-                  currency: 'PYG',
-                  maximumFractionDigits: 0,
-                }).format(Number(val)),
+              format: (val: any) => formatCurrency(Number(val)),
             },
             {
               header: 'Pendiente de Pago',
               key: 'pendiente_pago',
-              format: (val: any) =>
-                new Intl.NumberFormat('es-PY', {
-                  style: 'currency',
-                  currency: 'PYG',
-                  maximumFractionDigits: 0,
-                }).format(Number(val)),
+              format: (val: any) => formatCurrency(Number(val)),
             },
           ]}
         />
@@ -216,7 +197,7 @@ export default function Logistics() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-card-foreground">
-                Gs. {(shippingCosts?.costs.toPayCarriers || 0).toLocaleString()}
+                {formatCurrency(shippingCosts?.costs.toPayCarriers || 0)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 {shippingCosts?.costs.toPayCarriersOrders || 0} pedidos entregados
@@ -235,7 +216,7 @@ export default function Logistics() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-card-foreground">
-                Gs. {(shippingCosts?.costs.paidToCarriers || 0).toLocaleString()}
+                {formatCurrency(shippingCosts?.costs.paidToCarriers || 0)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 {shippingCosts?.settlements.paid || 0} liquidaciones pagadas
@@ -254,7 +235,7 @@ export default function Logistics() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-card-foreground">
-                Gs. {(shippingCosts?.costs.inTransit || 0).toLocaleString()}
+                {formatCurrency(shippingCosts?.costs.inTransit || 0)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 {shippingCosts?.costs.inTransitOrders || 0} pedidos en tránsito
@@ -273,7 +254,7 @@ export default function Logistics() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-card-foreground">
-                Gs. {(shippingCosts?.averages.costPerDelivery || 0).toLocaleString()}
+                {formatCurrency(shippingCosts?.averages.costPerDelivery || 0)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">Promedio por pedido</p>
             </CardContent>
@@ -294,7 +275,7 @@ export default function Logistics() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-card-foreground">
-              Gs. {(shippingCosts?.costs.totalCommitted || 0).toLocaleString()}
+              {formatCurrency(shippingCosts?.costs.totalCommitted || 0)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Entregados + En Tránsito
@@ -316,7 +297,7 @@ export default function Logistics() {
               {shippingCosts?.settlements.pending || 0} + {shippingCosts?.settlements.partial || 0}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Gs. {(shippingCosts?.settlements.totalPending || 0).toLocaleString()} por liquidar
+              {formatCurrency(shippingCosts?.settlements.totalPending || 0)} por liquidar
             </p>
           </CardContent>
         </Card>
@@ -452,7 +433,7 @@ export default function Logistics() {
                       color: 'hsl(var(--card-foreground))',
                     }}
                     formatter={(value: number, name: string) => [
-                      `Gs. ${value.toLocaleString()}`,
+                      formatCurrency(value),
                       name === 'entregados' ? 'Entregados (A Pagar)' : 'En Tránsito'
                     ]}
                   />
@@ -499,7 +480,7 @@ export default function Logistics() {
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value: number) => `Gs. ${value.toLocaleString()}`}
+                      formatter={(value: number) => formatCurrency(value)}
                       contentStyle={{
                         backgroundColor: 'hsl(var(--card))',
                         border: '1px solid hsl(var(--border))',
@@ -520,7 +501,7 @@ export default function Logistics() {
                         <span className="text-sm text-muted-foreground">{item.name}</span>
                       </div>
                       <span className="text-sm font-semibold text-card-foreground">
-                        Gs. {item.value.toLocaleString()}
+                        {formatCurrency(item.value)}
                       </span>
                     </div>
                   ))}
@@ -601,20 +582,20 @@ export default function Logistics() {
                       </td>
                       <td className="text-right py-4 px-4">
                         <Badge variant="outline" className="bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700">
-                          Gs. {Math.round(carrier.deliveredCosts).toLocaleString()}
+                          {formatCurrency(Math.round(carrier.deliveredCosts))}
                         </Badge>
                       </td>
                       <td className="text-right py-4 px-4">
                         <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-700">
-                          Gs. {Math.round(carrier.inTransitCosts).toLocaleString()}
+                          {formatCurrency(Math.round(carrier.inTransitCosts))}
                         </Badge>
                       </td>
                       <td className="text-right py-4 px-4 text-sm text-muted-foreground">
-                        Gs. {Math.round(carrier.settledCosts).toLocaleString()}
+                        {formatCurrency(Math.round(carrier.settledCosts))}
                       </td>
                       <td className="text-right py-4 px-4">
                         <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700">
-                          Gs. {Math.round(carrier.paidCosts).toLocaleString()}
+                          {formatCurrency(Math.round(carrier.paidCosts))}
                         </Badge>
                       </td>
                     </tr>
@@ -630,20 +611,20 @@ export default function Logistics() {
                     </td>
                     <td className="text-right py-4 px-4">
                       <Badge className="bg-yellow-500 text-white">
-                        Gs. {Math.round(carrierBreakdown.reduce((sum, c) => sum + c.deliveredCosts, 0)).toLocaleString()}
+                        {formatCurrency(Math.round(carrierBreakdown.reduce((sum, c) => sum + c.deliveredCosts, 0)))}
                       </Badge>
                     </td>
                     <td className="text-right py-4 px-4">
                       <Badge className="bg-blue-500 text-white">
-                        Gs. {Math.round(carrierBreakdown.reduce((sum, c) => sum + c.inTransitCosts, 0)).toLocaleString()}
+                        {formatCurrency(Math.round(carrierBreakdown.reduce((sum, c) => sum + c.inTransitCosts, 0)))}
                       </Badge>
                     </td>
                     <td className="text-right py-4 px-4 text-sm font-bold text-card-foreground">
-                      Gs. {Math.round(carrierBreakdown.reduce((sum, c) => sum + c.settledCosts, 0)).toLocaleString()}
+                      {formatCurrency(Math.round(carrierBreakdown.reduce((sum, c) => sum + c.settledCosts, 0)))}
                     </td>
                     <td className="text-right py-4 px-4">
                       <Badge className="bg-green-500 text-white">
-                        Gs. {Math.round(carrierBreakdown.reduce((sum, c) => sum + c.paidCosts, 0)).toLocaleString()}
+                        {formatCurrency(Math.round(carrierBreakdown.reduce((sum, c) => sum + c.paidCosts, 0)))}
                       </Badge>
                     </td>
                   </tr>

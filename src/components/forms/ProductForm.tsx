@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { logger } from '@/utils/logger';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 import {
   Form,
   FormControl,
@@ -305,7 +306,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground mt-0.5">
-                          SKU: {variant.sku || 'N/A'} | Stock: {variant.inventory_quantity} | Gs. {variant.price.toLocaleString()}
+                          SKU: {variant.sku || 'N/A'} | Stock: {variant.inventory_quantity} | {formatCurrency(variant.price)}
                         </div>
                       </div>
                     </div>
@@ -335,7 +336,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
               </div>
               <div>
                 <span className="text-muted-foreground">Precio:</span>
-                <p className="font-medium">Gs. {selectedVariantData.price.toLocaleString()}</p>
+                <p className="font-medium">{formatCurrency(selectedVariantData.price)}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Stock:</span>
@@ -379,7 +380,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
-                    <label className="text-sm font-medium">Costo del Producto (Gs.)</label>
+                    <label className="text-sm font-medium">Costo del Producto ({getCurrencySymbol()})</label>
                     <InfoTooltip content="Costo de adquisición o producción del producto" />
                   </div>
                   <Input
@@ -394,7 +395,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <div className="flex items-center gap-1.5">
-                        <label className="text-sm font-medium">Packaging (Gs.)</label>
+                        <label className="text-sm font-medium">Packaging ({getCurrencySymbol()})</label>
                         <InfoTooltip content="Costo del empaque y materiales de envío" />
                       </div>
                       <Input
@@ -407,7 +408,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
 
                     <div className="space-y-2">
                       <div className="flex items-center gap-1.5">
-                        <label className="text-sm font-medium">Adicionales (Gs.)</label>
+                        <label className="text-sm font-medium">Adicionales ({getCurrencySymbol()})</label>
                         <InfoTooltip content="Otros costos (etiquetas, comisiones, etc.)" />
                       </div>
                       <Input
@@ -552,7 +553,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
             name="price"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Precio de Venta (Gs.) *</FormLabel>
+                <FormLabel>Precio de Venta ({getCurrencySymbol()}) *</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
@@ -573,7 +574,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
             render={({ field }) => (
               <FormItem>
                 <FormLabel>
-                  Costo Producto (Gs.) {!isService && '*'}
+                  Costo Producto ({getCurrencySymbol()}) {!isService && '*'}
                   {isService && <span className="text-xs text-muted-foreground ml-1">(Opcional)</span>}
                 </FormLabel>
                 <FormControl>
@@ -624,7 +625,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
               name="packaging_cost"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Costo Empaque (Gs.) <span className="text-xs text-muted-foreground">(Opcional)</span></FormLabel>
+                  <FormLabel>Costo Empaque ({getCurrencySymbol()}) <span className="text-xs text-muted-foreground">(Opcional)</span></FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -645,7 +646,7 @@ export function ProductForm({ product, onSubmit, onCancel, initialMode = 'manual
             name="additional_costs"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Costos Adicionales (Gs.) <span className="text-xs text-muted-foreground">(Opcional)</span></FormLabel>
+                <FormLabel>Costos Adicionales ({getCurrencySymbol()}) <span className="text-xs text-muted-foreground">(Opcional)</span></FormLabel>
                 <FormControl>
                   <Input
                     type="number"

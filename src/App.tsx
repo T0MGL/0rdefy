@@ -17,6 +17,7 @@ import { DemoTourProvider } from "@/components/demo-tour/DemoTourProvider";
 import { PrivateRoute } from "@/components/PrivateRoute";
 import { PermissionRoute } from "@/components/PermissionRoute";
 import { CardSkeleton } from "@/components/skeletons/CardSkeleton";
+import { PageSkeleton } from "@/components/LoadingSkeleton";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ShopifyAppBridgeProvider } from "@/components/ShopifyAppBridgeProvider";
 import { PlanLimitHandler } from "@/components/PlanLimitHandler";
@@ -105,7 +106,7 @@ const AppLayout = ({ children, sidebarCollapsed, onToggleSidebar }: {
     <div className="flex-1 flex flex-col min-w-0">
       <Header />
       <main id="main-content" className="flex-1 p-4 sm:p-6 overflow-auto" tabIndex={-1}>
-        <Suspense fallback={<div className="hidden" />}>
+        <Suspense fallback={<PageSkeleton />}>
           {children}
         </Suspense>
       </main>

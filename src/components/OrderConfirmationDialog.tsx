@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 // Types for city coverage system
 interface CityLocation {
@@ -60,6 +62,7 @@ import { getOrderDisplayId } from '@/utils/orderDisplay';
 import { cn } from '@/lib/utils';
 import type { Order, Product } from '@/types';
 import { DeliveryPreferencesAccordion, type DeliveryPreferences } from '@/components/DeliveryPreferencesAccordion';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 
 interface OrderConfirmationDialogProps {
   open: boolean;
@@ -132,6 +135,9 @@ export function OrderConfirmationDialog({
 
   // Delivery preferences state (date restrictions, time slots, notes)
   const [deliveryPreferences, setDeliveryPreferences] = useState<DeliveryPreferences | null>(null);
+
+  // Track if order already has complete shipping data (manual order with city+carrier)
+  const [hasPrefilledShippingData, setHasPrefilledShippingData] = useState(false);
 
   // Fetch products when dialog opens
   useEffect(() => {
@@ -230,6 +236,19 @@ export function OrderConfirmationDialog({
           });
           setCarriersWithCoverage(sorted);
 
+          // If order has pre-filled shipping data (manual order), preserve the carrier and cost
+          // Don't override with auto-selection
+          if (hasPrefilledShippingData && courierId) {
+            // Verify the pre-selected carrier exists in the list
+            const preselectedCarrier = sorted.find((c: CarrierWithCoverage) => c.carrier_id === courierId);
+            if (preselectedCarrier) {
+              // Keep the carrier, DON'T update rate - preserve order's original shipping cost
+              // (rate from order may differ from current coverage rate if rates changed)
+              return;
+            }
+            // If pre-selected carrier not found, fall through to auto-select
+          }
+
           // If carrier is already selected (pre-filled from order), keep it
           // Otherwise auto-select cheapest carrier with coverage
           if (!courierId) {
@@ -265,7 +284,7 @@ export function OrderConfirmationDialog({
     };
 
     fetchCarriersForCity();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- courierId is intentionally excluded to prevent re-fetch when carrier is selected
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- courierId and hasPrefilledShippingData intentionally excluded
   }, [selectedCity, useCoverageSystem]);
 
   // Fetch carrier zones when carrier is selected (legacy system)
@@ -367,6 +386,10 @@ export function OrderConfirmationDialog({
       const orderCourierId = (order as any)?.courier_id || (order as any)?.carrier_id;
       const orderShippingCost = (order as any)?.shipping_cost;
 
+      // Check if order has COMPLETE shipping data (city + carrier) - manual orders
+      const hasCompleteShippingData = !orderIsPickup && orderShippingCity && orderCourierId;
+      setHasPrefilledShippingData(hasCompleteShippingData);
+
       if (orderIsPickup) {
         // Pickup order - reset shipping fields
         setCourierId('');
@@ -383,10 +406,11 @@ export function OrderConfirmationDialog({
           city: orderShippingCity,
           department: '', // Will be populated when carriers load
           zone_code: orderDeliveryZone || '',
+          display_text: orderShippingCity,
         });
         setCitySearch('');
         setCityResults([]);
-        // Carrier and shipping cost will be set after carriers load for city
+        // Pre-fill carrier and shipping cost from order data
         if (orderCourierId) {
           setCourierId(orderCourierId);
         }
@@ -398,6 +422,7 @@ export function OrderConfirmationDialog({
         setCarrierZones([]);
       } else {
         // No shipping data - reset all
+        setHasPrefilledShippingData(false);
         setCourierId('');
         setSelectedZone('');
         setShippingCost(0);
@@ -617,9 +642,11 @@ export function OrderConfirmationDialog({
       const labelData = {
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: confirmedOrder.shopify_order_name || confirmedOrder.id.substring(0, 8),
+        orderDate: (confirmedOrder.created_at || order?.date) ? format(new Date(confirmedOrder.created_at || order?.date || ''), "dd/MM/yyyy", { locale: es }) : undefined,
         customerName: `${confirmedOrder.customer_first_name || ''} ${confirmedOrder.customer_last_name || ''}`.trim() || order?.customer || 'Cliente',
         customerPhone: confirmedOrder.customer_phone || order?.phone || '',
         customerAddress: confirmedOrder.customer_address || confirmedOrder.address || order?.address || order?.customer_address,
+        city: confirmedOrder.shipping_city || order?.shipping_city,
         neighborhood: confirmedOrder.neighborhood || order?.neighborhood,
         addressReference: confirmedOrder.address_reference || order?.address_reference,
         carrierName: getCarrierById(courierId)?.name,
@@ -631,7 +658,10 @@ export function OrderConfirmationDialog({
         deliveryToken: confirmedOrder.delivery_link_token || '',
         items: confirmedOrder.line_items && confirmedOrder.line_items.length > 0
           ? confirmedOrder.line_items.map((item: any) => ({
-            name: item.product_name || item.title,
+            // Migration 097: Include variant_title in item name if present
+            name: item.variant_title
+              ? `${item.product_name || item.title} - ${item.variant_title}`
+              : (item.product_name || item.title),
             quantity: item.quantity,
           }))
           : order
@@ -768,7 +798,7 @@ export function OrderConfirmationDialog({
                 <div className="rounded-lg border p-3 bg-muted/50 space-y-2">
                   <p className="text-sm font-medium">Pedido {getOrderDisplayId(order)}</p>
                   <p className="text-sm text-muted-foreground">Cliente: {order.customer}</p>
-                  <p className="text-sm text-muted-foreground">Total: Gs. {(order.total ?? 0).toLocaleString()}</p>
+                  <p className="text-sm text-muted-foreground">Total: {formatCurrency(order.total ?? 0)}</p>
 
                   {/* Shopify extracted data section */}
                   {(order.shipping_city || order.shopify_shipping_method || order.address_reference || order.delivery_notes) && (
@@ -912,7 +942,7 @@ export function OrderConfirmationDialog({
                                       )}
                                     </div>
                                     <span className="text-sm font-semibold text-primary ml-2">
-                                      Gs. {Number(product.price || 0).toLocaleString()}
+                                      {formatCurrency(Number(product.price || 0))}
                                     </span>
                                   </div>
                                 </CommandItem>
@@ -991,7 +1021,7 @@ export function OrderConfirmationDialog({
                 {discountEnabled && (
                   <div className="space-y-2 pl-4 border-l-2 border-orange-500/30">
                     <Label htmlFor="discount-amount">
-                      Monto del descuento (Gs.)
+                      Monto del descuento ({getCurrencySymbol()})
                     </Label>
                     <Input
                       id="discount-amount"
@@ -1005,13 +1035,13 @@ export function OrderConfirmationDialog({
                     {discountAmount > 0 && order && (
                       <div className="p-3 rounded-lg border bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800">
                         <p className="text-sm text-orange-900 dark:text-orange-100">
-                          <span className="font-medium">Total original:</span> Gs. {(order.total ?? 0).toLocaleString()}
+                          <span className="font-medium">Total original:</span> {formatCurrency(order.total ?? 0)}
                         </p>
                         <p className="text-sm text-orange-900 dark:text-orange-100">
-                          <span className="font-medium">Descuento:</span> -Gs. {discountAmount.toLocaleString()}
+                          <span className="font-medium">Descuento:</span> -{formatCurrency(discountAmount)}
                         </p>
                         <p className="text-sm font-bold text-orange-900 dark:text-orange-100 mt-1 pt-1 border-t border-orange-300 dark:border-orange-700">
-                          Nuevo total: Gs. {Math.max(0, (order.total ?? 0) - discountAmount).toLocaleString()}
+                          Nuevo total: {formatCurrency(Math.max(0, (order.total ?? 0) - discountAmount))}
                         </p>
                       </div>
                     )}
@@ -1101,6 +1131,7 @@ export function OrderConfirmationDialog({
                         setSelectedZone('');
                         setShippingCost(0);
                         setCarrierZones([]);
+                        setHasPrefilledShippingData(false);
                       }
                     }}
                   />
@@ -1110,7 +1141,7 @@ export function OrderConfirmationDialog({
                   <div className="p-3 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
                     <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium flex items-center gap-2">
                       <Check className="h-4 w-4" />
-                      Sin costo de envío - Gs. 0
+                      Sin costo de envío - {formatCurrency(0)}
                     </p>
                     <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
                       El pedido no aparecerá en despachos ni liquidaciones de repartidores.
@@ -1122,6 +1153,19 @@ export function OrderConfirmationDialog({
               {/* City & Carrier Selection - Only show if NOT pickup */}
               {!isPickup && useCoverageSystem && (
                 <>
+                  {/* Show pre-filled shipping data indicator */}
+                  {hasPrefilledShippingData && selectedCity && courierId && (
+                    <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                      <p className="text-sm text-green-800 dark:text-green-200 font-medium flex items-center gap-2">
+                        <Check className="h-4 w-4" />
+                        Datos de envío ya configurados
+                      </p>
+                      <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                        Ciudad y repartidor seleccionados al crear el pedido. Puedes modificarlos si es necesario.
+                      </p>
+                    </div>
+                  )}
+
                   {/* City Search (Autocomplete) */}
                   <div className="space-y-2">
                     <Label htmlFor="city-search">
@@ -1175,9 +1219,11 @@ export function OrderConfirmationDialog({
                                     setSelectedCity(city);
                                     setCitySearch('');
                                     setOpenCityCombobox(false);
-                                    // Reset carrier when city changes
+                                    // Reset carrier when city changes (user is changing the pre-filled data)
                                     setCourierId('');
                                     setShippingCost(0);
+                                    // Clear pre-filled flag so auto-selection works for new city
+                                    setHasPrefilledShippingData(false);
                                   }}
                                 >
                                   <Check
@@ -1273,7 +1319,7 @@ export function OrderConfirmationDialog({
                                 </div>
                                 {carrier.has_coverage ? (
                                   <Badge variant={carrier.carrier_id === courierId ? "default" : "secondary"} className="text-base px-3">
-                                    Gs. {Number(carrier.rate || 0).toLocaleString()}
+                                    {formatCurrency(Number(carrier.rate || 0))}
                                   </Badge>
                                 ) : (
                                   <Badge variant="destructive" className="text-xs">
@@ -1292,7 +1338,7 @@ export function OrderConfirmationDialog({
                   {selectedCity && courierId && shippingCost > 0 && (
                     <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
                       <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                        Costo de envío: <span className="text-lg">Gs. {shippingCost.toLocaleString()}</span>
+                        Costo de envío: <span className="text-lg">{formatCurrency(shippingCost)}</span>
                       </p>
                       <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
                         {selectedCity.city} → {carriersWithCoverage.find(c => c.carrier_id === courierId)?.carrier_name}
@@ -1407,7 +1453,7 @@ export function OrderConfirmationDialog({
                                       {zone.zone_name} {zone.zone_code && `(${zone.zone_code})`}
                                     </span>
                                     <span className="text-sm font-semibold text-primary ml-2">
-                                      Gs. {Number(zone.rate || 0).toLocaleString()}
+                                      {formatCurrency(Number(zone.rate || 0))}
                                     </span>
                                   </div>
                                 </CommandItem>
@@ -1419,7 +1465,7 @@ export function OrderConfirmationDialog({
                       {selectedZone && shippingCost > 0 && (
                         <div className="mt-2 p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
                           <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                            Costo de envío: <span className="text-lg">Gs. {shippingCost.toLocaleString()}</span>
+                            Costo de envío: <span className="text-lg">{formatCurrency(shippingCost)}</span>
                           </p>
                           <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
                             Este costo será descontado del beneficio neto

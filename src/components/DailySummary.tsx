@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 import {
   Collapsible,
   CollapsibleContent,
@@ -139,7 +140,7 @@ export function DailySummary() {
     },
     {
       label: getMetricLabel('Ventas del Período'),
-      value: `Gs. ${overview.revenue.toLocaleString()}`,
+      value: formatCurrency(overview.revenue),
       change: overview.changes?.revenue !== null ? overview.changes?.revenue : null,
       icon: DollarSign,
       trend: overview.changes?.revenue !== null ? (overview.changes.revenue >= 0 ? 'up' as const : 'down' as const) : undefined,
@@ -239,7 +240,7 @@ export function DailySummary() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Beneficio Neto</span>
-                  <span className="font-semibold">Gs. {overview.netProfit.toLocaleString()}</span>
+                  <span className="font-semibold">{formatCurrency(overview.netProfit)}</span>
                 </div>
               </div>
             </div>

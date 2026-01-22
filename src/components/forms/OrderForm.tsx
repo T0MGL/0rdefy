@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { logger } from '@/utils/logger';
 import { usePhoneAutoPaste } from '@/hooks/usePhoneAutoPaste';
+import { formatCurrency } from '@/utils/currency';
 import {
   Form,
   FormControl,
@@ -33,10 +34,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package } from 'lucide-react';
+import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers } from 'lucide-react';
 import { productsService } from '@/services/products.service';
 import { useState, useEffect } from 'react';
-import { Product } from '@/types';
+import { Product, ProductVariant } from '@/types';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +87,11 @@ export interface OrderFormData extends OrderFormValues {
   deliveryPreferences?: DeliveryPreferences | null;
   upsellProductId?: string;
   upsellQuantity?: number;
+  // Variant support (Migration 097)
+  variantId?: string;
+  variantPrice?: number;
+  variantTitle?: string;
+  unitsPerPack?: number;
 }
 
 interface OrderFormProps {
@@ -97,6 +103,12 @@ interface OrderFormProps {
 export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+
+  // Variant selection state (Migration 097)
+  const [selectedProductVariants, setSelectedProductVariants] = useState<ProductVariant[]>([]);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [loadingVariants, setLoadingVariants] = useState(false);
+  const [parentStock, setParentStock] = useState<number>(0);
 
   // City coverage system state
   const [citySearch, setCitySearch] = useState('');
@@ -183,6 +195,56 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     loadProducts();
     return () => { isMounted = false; };
   }, []);
+
+  // Load variants when product is selected (Migration 097)
+  const selectedProductId = form.watch('product');
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadVariants = async () => {
+      if (!selectedProductId) {
+        setSelectedProductVariants([]);
+        setSelectedVariantId(null);
+        setParentStock(0);
+        return;
+      }
+
+      setLoadingVariants(true);
+      try {
+        const result = await productsService.getVariants(selectedProductId);
+        if (isMounted) {
+          if (result.has_variants && result.variants.length > 0) {
+            setSelectedProductVariants(result.variants);
+            setParentStock(result.parent_stock);
+            // Auto-select first active variant if only one exists
+            const activeVariants = result.variants.filter(v => v.is_active);
+            if (activeVariants.length === 1) {
+              setSelectedVariantId(activeVariants[0].id);
+            } else {
+              setSelectedVariantId(null);
+            }
+          } else {
+            setSelectedProductVariants([]);
+            setSelectedVariantId(null);
+            setParentStock(0);
+          }
+        }
+      } catch (error) {
+        logger.error('Error loading product variants:', error);
+        if (isMounted) {
+          setSelectedProductVariants([]);
+          setSelectedVariantId(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingVariants(false);
+        }
+      }
+    };
+
+    loadVariants();
+    return () => { isMounted = false; };
+  }, [selectedProductId]);
 
   // Search cities for autocomplete (debounced)
   useEffect(() => {
@@ -379,8 +441,19 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       return;
     }
 
+    // Validate: if product has variants, one must be selected
+    if (selectedProductVariants.length > 0 && !selectedVariantId) {
+      form.setError('product', { message: 'Este producto tiene variantes. Selecciona una variante.' });
+      return;
+    }
+
     try {
       const fullPhone = `${data.countryCode}${data.phone}`;
+
+      // Get variant info if selected (Migration 097)
+      const selectedVariant = selectedVariantId
+        ? selectedProductVariants.find(v => v.id === selectedVariantId)
+        : null;
 
       // Build extended form data with shipping info
       const extendedData: OrderFormData = {
@@ -395,6 +468,11 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         deliveryPreferences,
         upsellProductId: upsellEnabled ? upsellProductId : undefined,
         upsellQuantity: upsellEnabled ? upsellQuantity : undefined,
+        // Variant data (Migration 097)
+        variantId: selectedVariant?.id,
+        variantPrice: selectedVariant?.price,
+        variantTitle: selectedVariant?.variant_title,
+        unitsPerPack: selectedVariant?.units_per_pack,
       };
 
       await onSubmit(extendedData);
@@ -421,6 +499,10 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       setUpsellEnabled(false);
       setUpsellProductId('');
       setUpsellQuantity(1);
+      // Reset variant state
+      setSelectedProductVariants([]);
+      setSelectedVariantId(null);
+      setParentStock(0);
     } catch (error) {
       logger.error('Error submitting order form:', error);
     }
@@ -674,7 +756,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                         </div>
                         {carrier.has_coverage ? (
                           <Badge variant="secondary">
-                            Gs. {(carrier.rate || 0).toLocaleString()}
+                            {formatCurrency(carrier.rate || 0)}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-muted-foreground">
@@ -700,7 +782,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                   Costo de envío:
                 </span>
                 <span className="text-sm font-bold text-green-700 dark:text-green-400">
-                  Gs. {shippingCost.toLocaleString()}
+                  {formatCurrency(shippingCost)}
                 </span>
               </div>
             )}
@@ -732,7 +814,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                   ) : (
                     products.map((product) => (
                       <SelectItem key={product.id} value={product.id}>
-                        {product.name} - Gs. {product.price.toLocaleString()}
+                        {product.name} - {formatCurrency(product.price)}
                       </SelectItem>
                     ))
                   )}
@@ -742,6 +824,84 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
             </FormItem>
           )}
         />
+
+        {/* Variant Selection - Show when product has variants (Migration 097) */}
+        {selectedProductId && (loadingVariants || selectedProductVariants.length > 0) && (
+          <FormItem>
+            <FormLabel className="flex items-center gap-2">
+              <Layers className="h-4 w-4" />
+              Variante
+              {loadingVariants && <Loader2 className="h-3 w-3 animate-spin" />}
+            </FormLabel>
+            {loadingVariants ? (
+              <div className="flex items-center justify-center py-3 border rounded-md">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <span className="text-sm text-muted-foreground">Cargando variantes...</span>
+              </div>
+            ) : selectedProductVariants.length === 0 ? null : (
+              <div className="space-y-2">
+                {selectedProductVariants.filter(v => v.is_active).map((variant) => {
+                  const availableStock = variant.uses_shared_stock
+                    ? Math.floor(parentStock / (variant.units_per_pack || 1))
+                    : variant.stock;
+                  const isOutOfStock = availableStock <= 0;
+
+                  return (
+                    <div
+                      key={variant.id}
+                      onClick={() => !isOutOfStock && setSelectedVariantId(variant.id)}
+                      className={cn(
+                        "flex items-center justify-between p-3 border rounded-md transition-colors",
+                        isOutOfStock
+                          ? "opacity-50 cursor-not-allowed bg-muted/20"
+                          : selectedVariantId === variant.id
+                            ? "border-primary bg-primary/5 cursor-pointer"
+                            : "hover:border-primary/50 hover:bg-muted/50 cursor-pointer"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        {selectedVariantId === variant.id && (
+                          <Check className="h-4 w-4 text-primary" />
+                        )}
+                        <div>
+                          <span className="font-medium">{variant.variant_title}</span>
+                          {variant.uses_shared_stock && variant.units_per_pack > 1 && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              ({variant.units_per_pack} unidades)
+                            </span>
+                          )}
+                          {variant.sku && (
+                            <p className="text-xs text-muted-foreground">SKU: {variant.sku}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="font-semibold">
+                          {formatCurrency(variant.price)}
+                        </Badge>
+                        {isOutOfStock ? (
+                          <Badge variant="destructive" className="text-xs">
+                            Sin stock
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs">
+                            {availableStock} disp.
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Show info about shared stock */}
+                {selectedProductVariants.some(v => v.uses_shared_stock) && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Stock compartido: {parentStock} unidades físicas disponibles
+                  </p>
+                )}
+              </div>
+            )}
+          </FormItem>
+        )}
 
         {/* Quantity */}
         <FormField
@@ -872,7 +1032,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                                 )}
                               </div>
                               <span className="text-sm font-semibold text-primary ml-2">
-                                Gs. {Number(product.price || 0).toLocaleString()}
+                                {formatCurrency(Number(product.price || 0))}
                               </span>
                             </div>
                           </CommandItem>

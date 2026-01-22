@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { Rocket, TrendingUp } from 'lucide-react';
 import { RevenueProjection } from '@/utils/recommendationEngine';
+import { formatCurrency } from '@/utils/currency';
 
 interface RevenueProjectionCardProps {
   projection: RevenueProjection;
@@ -36,7 +37,7 @@ export function RevenueProjectionCard({ projection }: RevenueProjectionCardProps
           <p className="text-sm text-green-700 dark:text-green-300 mb-3">
             Si mantienes este ritmo, habrás ganado{' '}
             <span className="font-bold text-green-900 dark:text-green-100">
-              Gs. {projection.projectedRevenue.toLocaleString()}
+              {formatCurrency(projection.projectedRevenue)}
             </span>{' '}
             en los próximos 30 días
           </p>
@@ -44,7 +45,7 @@ export function RevenueProjectionCard({ projection }: RevenueProjectionCardProps
           <div className="flex items-center gap-4 text-xs text-green-600 dark:text-green-400">
             <div className="flex items-center gap-1">
               <div className="w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full" />
-              <span>Ingreso promedio diario: Gs. {(projection.currentRevenue / projection.daysAnalyzed).toLocaleString()}</span>
+              <span>Ingreso promedio diario: {formatCurrency(projection.currentRevenue / projection.daysAnalyzed)}</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-2 h-2 bg-emerald-500 dark:bg-emerald-400 rounded-full" />

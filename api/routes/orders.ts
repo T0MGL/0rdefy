@@ -286,7 +286,7 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
         let historyNotes = `Delivery confirmed by courier`;
         if (payment_method) historyNotes += ` - Payment: ${payment_method}`;
         if (isCodPayment && updateData.has_amount_discrepancy) {
-            historyNotes += ` - MONTO DIFERENTE COBRADO: ₲${amount_collected?.toLocaleString()} (esperado: ₲${(existingOrder.cod_amount || existingOrder.total_price || 0).toLocaleString()})`;
+            historyNotes += ` - MONTO DIFERENTE COBRADO: ${amount_collected?.toLocaleString()} (esperado: ${(existingOrder.cod_amount || existingOrder.total_price || 0).toLocaleString()})`;
         } else if (!isCodPayment) {
             historyNotes += ` - Pago prepago (no se cobró efectivo)`;
         }
@@ -1184,16 +1184,46 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 for (const item of line_items) {
                     // Try to find the product to get image_url
                     const productId = item.product_id || null;
+                    const variantId = item.variant_id || null; // Migration 097: Variant support
                     let imageUrl = null;
+                    let variantTitle = item.variant_title || null;
+                    let variantSku = item.sku || null;
+                    let unitsPerPack = item.units_per_pack || 1;
+                    let unitPrice = safeNumber(item.price, 0);
 
                     console.log('📦 [ORDER CREATE] Processing line item:', {
                         product_id: productId,
+                        variant_id: variantId,
                         product_name: item.product_name,
                         name: item.name,
                         title: item.title
                     });
 
-                    if (productId) {
+                    // Migration 097: If variant_id provided, fetch variant details
+                    if (variantId) {
+                        const { data: variant, error: variantError } = await supabaseAdmin
+                            .from('product_variants')
+                            .select('id, product_id, variant_title, sku, price, units_per_pack, image_url')
+                            .eq('id', variantId)
+                            .maybeSingle();
+
+                        if (variant && !variantError) {
+                            variantTitle = variant.variant_title;
+                            variantSku = variant.sku || variantSku;
+                            unitPrice = safeNumber(variant.price, unitPrice);
+                            unitsPerPack = variant.units_per_pack || 1;
+                            imageUrl = variant.image_url || imageUrl;
+                            console.log('📦 [ORDER CREATE] Variant found:', {
+                                variant_id: variantId,
+                                variant_title: variantTitle,
+                                price: unitPrice,
+                                units_per_pack: unitsPerPack
+                            });
+                        }
+                    }
+
+                    // Fetch product image if not from variant
+                    if (productId && !imageUrl) {
                         const { data: product, error: productError } = await supabaseAdmin
                             .from('products')
                             .select('id, name, image_url')
@@ -1217,12 +1247,14 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     normalizedLineItems.push({
                         order_id: data.id,
                         product_id: productId,
+                        variant_id: variantId, // Migration 097
                         product_name: item.product_name || item.name || item.title || 'Producto',
-                        variant_title: item.variant_title || null,
-                        sku: item.sku || null,
+                        variant_title: variantTitle,
+                        sku: variantSku,
                         quantity: safeNumber(item.quantity, 1),
-                        unit_price: safeNumber(item.price, 0),
-                        total_price: safeNumber(item.quantity, 1) * safeNumber(item.price, 0),
+                        unit_price: unitPrice,
+                        total_price: safeNumber(item.quantity, 1) * unitPrice,
+                        units_per_pack: unitsPerPack, // Migration 097: Snapshot for audit
                         image_url: imageUrl
                     });
                 }
@@ -1932,9 +1964,15 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             }
         }
 
+        // Apply status mapping before returning (shipped -> in_transit for frontend consistency)
+        const responseData = {
+            ...data,
+            sleeves_status: mapStatus(data.sleeves_status)
+        };
+
         res.json({
             message: 'Order status updated successfully',
-            data
+            data: responseData
         });
     } catch (error: any) {
         res.status(500).json({
@@ -2576,7 +2614,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                             parts.push(`with upsell: ${upsell_product_name || 'product'} x${upsell_quantity} (+${result.upsell_total})`);
                         }
                         if (result.discount_applied) {
-                            parts.push(`with discount: -Gs. ${result.discount_amount.toLocaleString()}`);
+                            parts.push(`with discount: -${result.discount_amount.toLocaleString()}`);
                         }
                         if (delivery_preferences) {
                             parts.push('with delivery preferences');

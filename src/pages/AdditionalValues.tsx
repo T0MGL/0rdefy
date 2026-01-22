@@ -20,14 +20,14 @@ import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 import { logger } from '@/utils/logger';
 
 const categoryIcons: Record<string, JSX.Element> = {
-  gasto_publicitario: <DollarSign className="text-accent" size={24} />,
+  marketing: <DollarSign className="text-accent" size={24} />,
   sales: <TrendingUp className="text-primary" size={24} />,
   employees: <Users className="text-purple-500" size={24} />,
   operational: <Settings className="text-blue-500" size={24} />,
 };
 
 const categoryLabels: Record<string, string> = {
-  gasto_publicitario: 'Gasto Publicitario',
+  marketing: 'Gasto Publicitario',
   sales: 'Ventas',
   employees: 'Empleados',
   operational: 'Operacional',
@@ -36,7 +36,7 @@ const categoryLabels: Record<string, string> = {
 // --- ONE-TIME VALUE FORM ---
 function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: AdditionalValue; onSubmit: (data: any) => void; onCancel: () => void }) {
   const [formData, setFormData] = useState({
-    category: value?.category || 'gasto_publicitario',
+    category: value?.category || 'marketing',
     description: value?.description || '',
     amount: value?.amount || 0,
     type: value?.type || 'expense',
@@ -57,7 +57,7 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
             <SelectValue placeholder="Selecciona categoría" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="gasto_publicitario">Gasto Publicitario</SelectItem>
+            <SelectItem value="marketing">Gasto Publicitario</SelectItem>
             <SelectItem value="sales">Ventas</SelectItem>
             <SelectItem value="employees">Empleados</SelectItem>
             <SelectItem value="operational">Operacional</SelectItem>
@@ -127,7 +127,7 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
 // --- RECURRING VALUE FORM ---
 function RecurringValueForm({ value, onSubmit, onCancel }: { value?: RecurringAdditionalValue; onSubmit: (data: any) => void; onCancel: () => void }) {
   const [formData, setFormData] = useState({
-    category: value?.category || 'gasto_publicitario',
+    category: value?.category || 'marketing',
     description: value?.description || '',
     amount: value?.amount || 0,
     type: value?.type || 'expense',
@@ -154,7 +154,7 @@ function RecurringValueForm({ value, onSubmit, onCancel }: { value?: RecurringAd
             <SelectValue placeholder="Selecciona categoría" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="gasto_publicitario">Gasto Publicitario</SelectItem>
+            <SelectItem value="marketing">Gasto Publicitario</SelectItem>
             <SelectItem value="sales">Ventas</SelectItem>
             <SelectItem value="employees">Empleados</SelectItem>
             <SelectItem value="operational">Operacional</SelectItem>
@@ -239,7 +239,7 @@ function RecurringValueForm({ value, onSubmit, onCancel }: { value?: RecurringAd
 export default function AdditionalValues() {
   const [values, setValues] = useState<AdditionalValue[]>([]);
   const [recurringValues, setRecurringValues] = useState<RecurringAdditionalValue[]>([]);
-  const [summary, setSummary] = useState({ gasto_publicitario: 0, sales: 0, employees: 0, operational: 0 });
+  const [summary, setSummary] = useState({ marketing: 0, sales: 0, employees: 0, operational: 0 });
   const [isLoading, setIsLoading] = useState(true);
 
   // Dialog states
@@ -416,8 +416,8 @@ export default function AdditionalValues() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Gasto Publicitario"
-          value={formatCurrency(Math.abs(summary.gasto_publicitario))}
-          icon={categoryIcons.gasto_publicitario}
+          value={formatCurrency(Math.abs(summary.marketing))}
+          icon={categoryIcons.marketing}
           variant="secondary"
         />
         <MetricCard

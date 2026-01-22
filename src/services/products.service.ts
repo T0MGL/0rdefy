@@ -1,4 +1,4 @@
-import { Product } from '@/types';
+import { Product, ProductVariant } from '@/types';
 import { logger } from '@/utils/logger';
 
 let cleanBaseURL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
@@ -347,6 +347,86 @@ export const productsService = {
       return response.ok;
     } catch (error) {
       return false;
+    }
+  },
+
+  /**
+   * Get variants for a specific product
+   * Returns variants with calculated available_stock for shared stock variants
+   */
+  getVariants: async (productId: string): Promise<{ variants: ProductVariant[]; has_variants: boolean; parent_stock: number }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/products/${productId}/variants`, {
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return { variants: [], has_variants: false, parent_stock: 0 };
+        }
+        throw new Error(`Error HTTP: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const variants = (result.variants || []).map((v: any) => ({
+        id: v.id,
+        product_id: v.product_id,
+        store_id: v.store_id,
+        sku: v.sku || '',
+        variant_title: v.variant_title,
+        option1_name: v.option1_name,
+        option1_value: v.option1_value,
+        option2_name: v.option2_name,
+        option2_value: v.option2_value,
+        option3_name: v.option3_name,
+        option3_value: v.option3_value,
+        price: v.price,
+        cost: v.cost,
+        stock: v.stock,
+        uses_shared_stock: v.uses_shared_stock || false,
+        units_per_pack: v.units_per_pack || 1,
+        // Calculate available stock for shared stock variants
+        available_stock: v.uses_shared_stock
+          ? Math.floor((result.parent_stock || 0) / (v.units_per_pack || 1))
+          : v.stock,
+        is_active: v.is_active !== false,
+        position: v.position || 0,
+        image_url: v.image_url,
+        shopify_variant_id: v.shopify_variant_id,
+        shopify_inventory_item_id: v.shopify_inventory_item_id,
+      }));
+
+      return {
+        variants,
+        has_variants: result.has_variants || variants.length > 0,
+        parent_stock: result.parent_stock || 0,
+      };
+    } catch (error) {
+      logger.error('Error loading product variants:', error);
+      return { variants: [], has_variants: false, parent_stock: 0 };
+    }
+  },
+
+  /**
+   * Get a single product with its variants
+   */
+  getWithVariants: async (productId: string): Promise<(Product & { variants: ProductVariant[] }) | undefined> => {
+    try {
+      const [product, variantsResult] = await Promise.all([
+        productsService.getById(productId),
+        productsService.getVariants(productId),
+      ]);
+
+      if (!product) return undefined;
+
+      return {
+        ...product,
+        has_variants: variantsResult.has_variants,
+        variants: variantsResult.variants,
+      };
+    } catch (error) {
+      logger.error('Error loading product with variants:', error);
+      return undefined;
     }
   },
 };

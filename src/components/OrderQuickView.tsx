@@ -1,5 +1,6 @@
 import { Order } from '@/types';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 import {
   Sheet,
   SheetContent,
@@ -15,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink } from 'lucide-react';
+import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink, Star } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 // Helper function to calculate relative time
@@ -215,7 +216,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
               <div className="flex-1">
                 <p className="font-medium">{order.product}</p>
                 <p className="text-sm text-muted-foreground">Cantidad: {order.quantity}</p>
-                <p className="text-sm font-semibold mt-1">Gs. {(order.total ?? 0).toLocaleString()}</p>
+                <p className="text-sm font-semibold mt-1">{formatCurrency(order.total ?? 0)}</p>
               </div>
             </div>
           </div>
@@ -226,7 +227,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
             <div className="p-3 bg-muted rounded-lg space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">Total del Pedido:</span>
-                <span className="text-lg font-bold">Gs. {(order.total ?? 0).toLocaleString()}</span>
+                <span className="text-lg font-bold">{formatCurrency(order.total ?? 0)}</span>
               </div>
               {order.payment_gateway && (
                 <div className="flex justify-between items-center">
@@ -251,7 +252,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                 <div className="flex justify-between items-center pt-2 border-t border-border">
                   <span className="text-sm text-muted-foreground">Monto a Cobrar (COD):</span>
                   <span className="text-lg font-bold text-green-600 dark:text-green-400">
-                    Gs. {order.cod_amount.toLocaleString()}
+                    {formatCurrency(order.cod_amount)}
                   </span>
                 </div>
               )}
@@ -266,16 +267,16 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Esperado:</span>
-                      <span>Gs. {(order.cod_amount ?? order.total ?? 0).toLocaleString()}</span>
+                      <span>{formatCurrency(order.cod_amount ?? order.total ?? 0)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Cobrado:</span>
-                      <span className="font-semibold text-orange-700 dark:text-orange-400">Gs. {order.amount_collected.toLocaleString()}</span>
+                      <span className="font-semibold text-orange-700 dark:text-orange-400">{formatCurrency(order.amount_collected)}</span>
                     </div>
                     <div className="flex justify-between pt-1 border-t border-orange-200 dark:border-orange-700">
                       <span className="text-muted-foreground">Diferencia:</span>
                       <span className={`font-bold ${order.amount_collected - (order.cod_amount ?? order.total ?? 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {order.amount_collected - (order.cod_amount ?? order.total ?? 0) > 0 ? '+' : ''}Gs. {(order.amount_collected - (order.cod_amount ?? order.total ?? 0)).toLocaleString()}
+                        {order.amount_collected - (order.cod_amount ?? order.total ?? 0) > 0 ? '+' : ''}{formatCurrency(order.amount_collected - (order.cod_amount ?? order.total ?? 0))}
                       </span>
                     </div>
                   </div>
@@ -417,6 +418,42 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
               )}
             </div>
           </div>
+
+          {/* Calificación del Cliente */}
+          {order.delivery_rating && (
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm text-muted-foreground">CALIFICACIÓN DEL CLIENTE</h4>
+              <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        size={18}
+                        className={star <= order.delivery_rating! ? 'fill-amber-500 text-amber-500' : 'text-gray-300'}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                    {order.delivery_rating}/5
+                  </span>
+                </div>
+                {order.delivery_rating_comment && (
+                  <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700/50">
+                    <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">Comentario:</p>
+                    <p className="text-sm text-amber-900 dark:text-amber-200 italic">
+                      "{order.delivery_rating_comment}"
+                    </p>
+                  </div>
+                )}
+                {order.rated_at && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400/70 mt-2">
+                    Calificado {getRelativeTime(order.rated_at)}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Acciones */}
           <div className="space-y-3 pt-4 border-t">

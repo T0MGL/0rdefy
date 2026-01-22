@@ -6,6 +6,7 @@ import { carriersService } from '@/services/carriers.service';
 import { MapPin, Clock, DollarSign, TrendingUp, Trophy } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 
 export function CarrierRecommender() {
   const [destination, setDestination] = useState('');
@@ -83,7 +84,7 @@ export function CarrierRecommender() {
                     <DollarSign size={14} />
                     <span className="text-xs">Costo Promedio</span>
                   </div>
-                  <p className="text-lg font-semibold">Gs. 0</p>
+                  <p className="text-lg font-semibold">{formatCurrency(0)}</p>
                 </div>
 
                 <div className="space-y-1">

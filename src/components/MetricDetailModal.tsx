@@ -20,6 +20,7 @@ import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { carriersService } from '@/services/carriers.service';
 import type { Order, Product, Carrier } from '@/types';
+import { formatCurrency } from '@/utils/currency';
 
 interface MetricDetailModalProps {
   metric: string | null;
@@ -100,7 +101,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
                     <tr key={o.id} className="border-b">
                       <td className="p-2 font-mono">{o.id}</td>
                       <td className="p-2">{o.customer}</td>
-                      <td className="text-right p-2">Gs. {(o.total ?? 0).toLocaleString()}</td>
+                      <td className="text-right p-2">{formatCurrency(o.total ?? 0)}</td>
                     </tr>
                   ))}
                 </tbody>

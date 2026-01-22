@@ -3,6 +3,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { TrendingUp, DollarSign, Percent } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 
 export function ProfitabilityCalculator() {
   const [cost, setCost] = useState<number>(0);
@@ -44,7 +45,7 @@ export function ProfitabilityCalculator() {
             <Label htmlFor="cost">Costo del Producto</Label>
             <div className="relative mt-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                Gs.
+                {getCurrencySymbol()}
               </span>
               <Input
                 id="cost"
@@ -61,7 +62,7 @@ export function ProfitabilityCalculator() {
             <Label htmlFor="price">Precio de Venta</Label>
             <div className="relative mt-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                Gs.
+                {getCurrencySymbol()}
               </span>
               <Input
                 id="price"
@@ -78,7 +79,7 @@ export function ProfitabilityCalculator() {
             <Label htmlFor="marketing">CPA (Costo por Adquisición)</Label>
             <div className="relative mt-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                Gs.
+                {getCurrencySymbol()}
               </span>
               <Input
                 id="marketing"
@@ -95,7 +96,7 @@ export function ProfitabilityCalculator() {
             <Label htmlFor="shipping">Costo de Envío</Label>
             <div className="relative mt-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                Gs.
+                {getCurrencySymbol()}
               </span>
               <Input
                 id="shipping"
@@ -117,7 +118,7 @@ export function ProfitabilityCalculator() {
               Ganancia Neta
             </div>
             <p className={`text-2xl font-bold ${netProfit >= 0 ? 'text-primary' : 'text-red-600'}`}>
-              Gs. {netProfit.toLocaleString()}
+              {formatCurrency(netProfit)}
             </p>
           </div>
 
@@ -140,7 +141,7 @@ export function ProfitabilityCalculator() {
               Precio Sugerido (40% margen)
             </div>
             <p className="text-2xl font-bold text-primary">
-              Gs. {suggestedPrice.toLocaleString()}
+              {formatCurrency(suggestedPrice)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Para obtener un margen de beneficio del 40%

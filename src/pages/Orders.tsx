@@ -39,7 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star } from 'lucide-react';
 import { format, isAfter, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -606,14 +606,29 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
 
       logger.log('📦 [ORDERS] Product found:', product.name);
 
+      // Migration 097: Determine price based on variant or product
+      const unitPrice = data.variantPrice || product.price;
+      const productName = data.variantTitle
+        ? `${product.name} - ${data.variantTitle}`
+        : product.name;
+
+      logger.log('📦 [ORDERS] Variant info:', {
+        variantId: data.variantId,
+        variantTitle: data.variantTitle,
+        variantPrice: data.variantPrice,
+        unitsPerPack: data.unitsPerPack,
+        finalPrice: unitPrice
+      });
+
       const newOrder = await ordersService.create({
         customer: data.customer,
         phone: data.phone,
         address: data.address,
-        product: product.name,
+        product: productName,
         product_id: product.id,
+        product_sku: product.sku || null, // Migration 098: SKU for fallback mapping
         quantity: data.quantity,
-        total: product.price * data.quantity,
+        total: unitPrice * data.quantity,
         status: 'pending',
         carrier: data.isPickup ? undefined : data.carrier,
         paymentMethod: data.paymentMethod,
@@ -627,6 +642,10 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         is_pickup: data.isPickup || false,
         // Delivery preferences (scheduling)
         delivery_preferences: data.deliveryPreferences || null,
+        // Migration 097: Variant support
+        variant_id: data.variantId || null,
+        variant_title: data.variantTitle || null,
+        units_per_pack: data.unitsPerPack || 1,
       } as any);
 
       logger.log('✅ [ORDERS] Order created:', newOrder);
@@ -729,18 +748,11 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
     // Find the order to check its status
     const order = orders.find(o => o.id === orderId);
 
-    // Block deletion of delivered orders with a clear message
-    if (order && order.status === 'delivered') {
-      toast({
-        title: '❌ No se puede eliminar',
-        description: 'Los pedidos entregados no pueden ser eliminados porque ya afectaron el inventario y las métricas de la tienda.',
-        variant: 'destructive',
-      });
-      return;
-    }
+    // Test orders can always be deleted regardless of status
+    const isTest = order?.is_test === true;
 
-    // Block deletion of shipped orders
-    if (order && order.status === 'shipped') {
+    // Non-test orders that are shipped/in_transit should wait
+    if (!isTest && order && (order.status === 'shipped' || order.status === 'in_transit')) {
       toast({
         title: '❌ No se puede eliminar',
         description: 'Los pedidos despachados no pueden ser eliminados. Espere a que se marquen como entregados o devueltos.',
@@ -1073,9 +1085,11 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
       const labelData = {
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
+        orderDate: order.date ? format(new Date(order.date), "dd/MM/yyyy", { locale: es }) : undefined,
         customerName: order.customer,
         customerPhone: order.phone,
         customerAddress: order.address || order.customer_address,
+        city: order.shipping_city,
         neighborhood: order.neighborhood,
         addressReference: order.address_reference,
         carrierName: getCarrierName(order.carrier),
@@ -1138,9 +1152,11 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
       const labelsData = printableOrders.map(order => ({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
+        orderDate: order.date ? format(new Date(order.date), "dd/MM/yyyy", { locale: es }) : undefined,
         customerName: order.customer,
         customerPhone: order.phone,
         customerAddress: order.address || order.customer_address,
+        city: order.shipping_city,
         neighborhood: order.neighborhood,
         addressReference: order.address_reference,
         carrierName: getCarrierName(order.carrier),
@@ -1802,10 +1818,47 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                           </Badge>
                         )}
                         {order.status === 'delivered' && (
-                          <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
-                            <CheckCircle size={14} className="mr-1" />
-                            Entregado
-                          </Badge>
+                          <div className="flex flex-col items-start gap-1">
+                            <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
+                              <CheckCircle size={14} className="mr-1" />
+                              Entregado
+                            </Badge>
+                            {order.delivery_rating && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700 text-[10px] px-1.5 py-0 cursor-help"
+                                    >
+                                      <Star size={10} className="mr-0.5 fill-amber-500 text-amber-500" />
+                                      {order.delivery_rating}/5
+                                      {order.delivery_rating_comment && (
+                                        <MessageSquare size={10} className="ml-1 text-amber-600" />
+                                      )}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom" className="max-w-xs">
+                                    <p className="font-medium">Calificación del Cliente</p>
+                                    <div className="flex items-center gap-1 mt-1">
+                                      {[1, 2, 3, 4, 5].map((star) => (
+                                        <Star
+                                          key={star}
+                                          size={14}
+                                          className={star <= order.delivery_rating! ? 'fill-amber-500 text-amber-500' : 'text-gray-300'}
+                                        />
+                                      ))}
+                                    </div>
+                                    {order.delivery_rating_comment && (
+                                      <p className="text-xs text-muted-foreground mt-2 italic">
+                                        "{order.delivery_rating_comment}"
+                                      </p>
+                                    )}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
                         )}
                         {order.status === 'returned' && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
@@ -1981,15 +2034,13 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                                     <Package className="mr-2 h-4 w-4" />
                                     {isTest ? "Desmarcar test" : "Marcar como test"}
                                   </DropdownMenuItem>
-                                  {order.status !== 'delivered' && order.status !== 'shipped' && (
-                                    <DropdownMenuItem
-                                      onClick={() => handleDeleteOrder(order.id)}
-                                      className="text-destructive"
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Eliminar pedido
-                                    </DropdownMenuItem>
-                                  )}
+                                  <DropdownMenuItem
+                                    onClick={() => handleDeleteOrder(order.id)}
+                                    className="text-destructive"
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Eliminar pedido
+                                  </DropdownMenuItem>
                                 </>
                               )}
                             </DropdownMenuContent>
@@ -2141,9 +2192,25 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         title={userRole === 'owner' ? '⚠️ ¿Eliminar pedido permanentemente?' : '¿Eliminar pedido?'}
-        description={userRole === 'owner'
-          ? 'Esta acción NO se puede deshacer. El pedido será eliminado PERMANENTEMENTE del sistema junto con todos sus datos asociados.'
-          : 'El pedido será marcado como eliminado. Podrás restaurarlo desde los filtros si es necesario.'}
+        description={(() => {
+          const order = orders.find(o => o.id === orderToDelete);
+          const affectedInventory = order && ['ready_to_ship', 'shipped', 'delivered'].includes(order.status);
+          const isTest = order?.is_test === true;
+
+          if (userRole !== 'owner') {
+            return 'El pedido será marcado como eliminado. Podrás restaurarlo desde los filtros si es necesario.';
+          }
+
+          if (isTest) {
+            return 'Esta es una orden de prueba. Será eliminada permanentemente del sistema.';
+          }
+
+          if (affectedInventory) {
+            return `⚠️ Esta orden está en estado "${order?.status}" y ya afectó el inventario. Al eliminarla, el stock de los productos será RESTAURADO automáticamente. Esta acción NO se puede deshacer.`;
+          }
+
+          return 'Esta acción NO se puede deshacer. El pedido será eliminado PERMANENTEMENTE del sistema junto con todos sus datos asociados.';
+        })()}
         onConfirm={confirmDelete}
         variant="destructive"
         confirmText={userRole === 'owner' ? 'Eliminar Permanentemente' : 'Eliminar'}

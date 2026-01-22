@@ -5,6 +5,8 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { ArrowLeft, Package, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -415,9 +417,11 @@ export default function WarehouseNew() {
       const success = await printLabelPDF({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.order_number,
+        orderDate: order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy", { locale: es }) : undefined,
         customerName: order.customer_name,
         customerPhone: order.customer_phone,
         customerAddress: order.customer_address,
+        city: order.shipping_city,
         neighborhood: order.neighborhood,
         addressReference: order.address_reference,
         carrierName: order.carrier_name,
@@ -468,9 +472,11 @@ export default function WarehouseNew() {
       const labelsData = ordersToPrint.map(order => ({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.order_number,
+        orderDate: order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy", { locale: es }) : undefined,
         customerName: order.customer_name,
         customerPhone: order.customer_phone,
         customerAddress: order.customer_address,
+        city: order.shipping_city,
         neighborhood: order.neighborhood,
         addressReference: order.address_reference,
         carrierName: order.carrier_name,
@@ -548,10 +554,13 @@ export default function WarehouseNew() {
       // Reset to selection
       handleReset();
 
-      // Reload confirmed orders to show restored orders
-      const data = await warehouseService.getConfirmedOrders();
-      setConfirmedOrders(data.orders);
-      setActiveSessions(data.active_sessions);
+      // Reload confirmed orders and active sessions to show restored orders
+      const [orders, sessions] = await Promise.all([
+        warehouseService.getConfirmedOrders(),
+        warehouseService.getActiveSessions(),
+      ]);
+      setConfirmedOrders(orders);
+      setActiveSessions(sessions);
 
       toast({
         title: 'Sesión cancelada',

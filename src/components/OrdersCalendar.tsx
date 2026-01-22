@@ -6,6 +6,7 @@ import { ordersService } from '@/services/orders.service';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import type { Order } from '@/types';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 
 const statusColors = {
   pending: 'bg-yellow-500',
@@ -135,7 +136,7 @@ export function OrdersCalendar() {
                 <p className="text-sm font-medium">{order.customer}</p>
                 <p className="text-xs text-muted-foreground truncate">{order.product}</p>
                 <p className="text-sm font-semibold mt-2">
-                  Gs. {(order.total ?? 0).toLocaleString()}
+                  {formatCurrency(order.total ?? 0)}
                 </p>
               </div>
             ))}

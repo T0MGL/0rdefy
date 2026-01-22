@@ -2120,7 +2120,7 @@ async function processManualReconciliationLegacy(
 
   // If there's discrepancy but not confirmed, throw error
   if (hasDiscrepancy && !confirm_discrepancy) {
-    throw new Error(`Hay una discrepancia de ${discrepancyAmount.toLocaleString()} Gs que no ha sido confirmada`);
+    throw new Error(`Hay una discrepancia de ${discrepancyAmount.toLocaleString()} que no ha sido confirmada`);
   }
 
   logger.info('SETTLEMENTS', '[RECONCILIATION] Stats calculated', {
@@ -2212,7 +2212,7 @@ async function processManualReconciliationLegacy(
       collectedAmounts[collectedAmounts.length - 1] += adjustment;
       collectedAmounts[collectedAmounts.length - 1] = Math.round(collectedAmounts[collectedAmounts.length - 1] * 100) / 100;
 
-      logger.warn('SETTLEMENTS', `[RECONCILIATION] Rounding adjustment applied: ${adjustment.toFixed(2)} Gs to last order`, {
+      logger.warn('SETTLEMENTS', `[RECONCILIATION] Rounding adjustment applied: ${adjustment.toFixed(2)} to last order`, {
         original_discrepancy: roundedDiscrepancy,
         distributed_sum: roundedSum,
         adjustment
@@ -2245,13 +2245,13 @@ async function processManualReconciliationLegacy(
     }
   } else if (hasDiscrepancy && codDeliveredOrders.length === 0) {
     // BUG #3 FIX: Log discrepancy that cannot be distributed
-    logger.error('SETTLEMENTS', `[RECONCILIATION] CRITICAL: Discrepancy of ${discrepancyAmount} Gs exists but no COD orders to distribute to`, {
+    logger.error('SETTLEMENTS', `[RECONCILIATION] CRITICAL: Discrepancy of ${discrepancyAmount} exists but no COD orders to distribute to`, {
       discrepancy: discrepancyAmount,
       total_cod_orders: codDeliveredOrders.length,
       total_delivered: stats.total_delivered,
       total_prepaid_delivered: stats.total_prepaid_delivered
     });
-    throw new Error(`Existe una discrepancia de ${discrepancyAmount.toLocaleString()} Gs pero no hay pedidos COD entregados para distribuirla. Verifique los métodos de pago.`);
+    throw new Error(`Existe una discrepancia de ${discrepancyAmount.toLocaleString()} pero no hay pedidos COD entregados para distribuirla. Verifique los métodos de pago.`);
   }
 
   // ============================================================
@@ -2268,7 +2268,7 @@ async function processManualReconciliationLegacy(
   // Build notes with discrepancy info if applicable
   let finalNotes = discrepancy_notes || '';
   if (hasDiscrepancy) {
-    const discrepancyInfo = `Discrepancia: ${discrepancyAmount > 0 ? '+' : ''}${discrepancyAmount.toLocaleString()} Gs`;
+    const discrepancyInfo = `Discrepancia: ${discrepancyAmount > 0 ? '+' : ''}${discrepancyAmount.toLocaleString()}`;
     finalNotes = finalNotes ? `${finalNotes} | ${discrepancyInfo}` : discrepancyInfo;
   }
 

@@ -6,10 +6,12 @@
 
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
+import { getCurrencySymbol } from '@/utils/currency';
 
 interface LabelData {
   storeName: string;
   orderNumber: string;
+  orderDate?: string; // Date of the order (ISO string or formatted)
   customerName: string;
   customerPhone: string;
   customerAddress?: string;
@@ -115,7 +117,7 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
     totalPrice: data.totalPrice,
     amountToCollect,
     isCOD,
-    RESULT: isCOD ? `COBRAR Gs. ${amountToCollect.toLocaleString()}` : 'PAGADO'
+    RESULT: isCOD ? `COBRAR ${getCurrencySymbol()} ${amountToCollect.toLocaleString()}` : 'PAGADO'
   });
 
   // Draw label
@@ -171,7 +173,16 @@ function drawLabel(
   // Store name
   pdf.setFontSize(12);
   pdf.setFont('helvetica', 'bold');
-  pdf.text(stripEmojis(data.storeName).toUpperCase(), MARGIN + 0.08, headerY + 0.32, { maxWidth: 2.2 });
+  pdf.text(stripEmojis(data.storeName).toUpperCase(), MARGIN + 0.08, headerY + 0.22, { maxWidth: 2.2 });
+
+  // Order date - small, below store name
+  if (data.orderDate) {
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(80, 80, 80); // Dark gray
+    pdf.text(data.orderDate, MARGIN + 0.08, headerY + 0.38);
+    pdf.setTextColor(0, 0, 0); // Reset to black
+  }
 
   // Order number - large and prominent
   pdf.setFontSize(22);
@@ -214,7 +225,15 @@ function drawLabel(
   pdf.text(displayNameLines, MARGIN + 0.08, nameY);
 
   // Address section - positioned after name
-  const addressStartY = nameY + (displayNameLines.length * lineHeight) + 0.1;
+  let currentY = nameY + (displayNameLines.length * lineHeight) + 0.1;
+
+  // City - displayed BEFORE address (prominent)
+  if (city) {
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(city, MARGIN + 0.08, currentY);
+    currentY += 0.16;
+  }
 
   // Build address text
   let fullAddress = customerAddress;
@@ -222,26 +241,24 @@ function drawLabel(
     fullAddress += fullAddress ? `, ${neighborhood}` : neighborhood;
   }
 
-  let addressEndY = addressStartY;
+  let addressEndY = currentY;
   if (fullAddress) {
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'normal');
     const addrLines = pdf.splitTextToSize(fullAddress, CONTENT_WIDTH - 0.16);
     const displayAddrLines = addrLines.slice(0, 3); // Allow up to 3 lines for address
-    pdf.text(displayAddrLines, MARGIN + 0.08, addressStartY);
-    addressEndY = addressStartY + (displayAddrLines.length * 0.16);
+    pdf.text(displayAddrLines, MARGIN + 0.08, currentY);
+    addressEndY = currentY + (displayAddrLines.length * 0.16);
   }
 
-  // City / Reference - smaller text, positioned after address
-  if (city || addressRef) {
+  // Reference - smaller text, positioned after address
+  if (addressRef) {
     const detailsY = addressEndY + 0.08;
     pdf.setFontSize(10);
-    let detailText = city || '';
-    if (addressRef) {
-      detailText += detailText ? ` | REF: ${addressRef}` : `REF: ${addressRef}`;
-    }
-    const detailLines = pdf.splitTextToSize(detailText, CONTENT_WIDTH - 0.16);
-    pdf.text(detailLines[0] || '', MARGIN + 0.08, detailsY);
+    pdf.setFont('helvetica', 'normal');
+    const refText = `REF: ${addressRef}`;
+    const refLines = pdf.splitTextToSize(refText, CONTENT_WIDTH - 0.16);
+    pdf.text(refLines[0] || '', MARGIN + 0.08, detailsY);
   }
 
   // Phone - always at fixed position near bottom of address zone (with clearance from separator)
@@ -295,7 +312,7 @@ function drawLabel(
     pdf.text('COBRAR', paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.25, { align: 'center' });
 
     pdf.setFontSize(16);
-    pdf.text(`Gs. ${amountToCollect.toLocaleString('es-PY')}`, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.52, { align: 'center' });
+    pdf.text(`${getCurrencySymbol()} ${amountToCollect.toLocaleString()}`, paymentBoxX + paymentBoxWidth / 2, paymentBoxY + 0.52, { align: 'center' });
 
     pdf.setTextColor(0, 0, 0);
 
@@ -308,7 +325,7 @@ function drawLabel(
       pdf.setFontSize(9);
       pdf.text('DESC. APLICADO', paymentBoxX + paymentBoxWidth / 2, discountBadgeY + 0.12, { align: 'center' });
       pdf.setFontSize(10);
-      pdf.text(`-Gs. ${discountAmount.toLocaleString('es-PY')}`, paymentBoxX + paymentBoxWidth / 2, discountBadgeY + 0.26, { align: 'center' });
+      pdf.text(`-${getCurrencySymbol()} ${discountAmount.toLocaleString()}`, paymentBoxX + paymentBoxWidth / 2, discountBadgeY + 0.26, { align: 'center' });
       pdf.setTextColor(0, 0, 0);
     }
   } else {

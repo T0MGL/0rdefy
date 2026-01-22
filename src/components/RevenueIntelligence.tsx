@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ExportButton } from '@/components/ExportButton';
 import { TrendingUp, TrendingDown, DollarSign, Trophy, ShoppingBag } from 'lucide-react';
 import { logger } from '@/utils/logger';
+import { formatCurrency } from '@/utils/currency';
 import {
   PieChart,
   Pie,
@@ -211,17 +212,17 @@ export function RevenueIntelligence() {
             {
               header: 'Precio',
               key: 'price',
-              format: (val: any) => new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(Number(val))
+              format: (val: any) => formatCurrency(Number(val))
             },
             {
               header: 'Ingresos',
               key: 'revenue',
-              format: (val: any) => new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(Number(val))
+              format: (val: any) => formatCurrency(Number(val))
             },
             {
               header: 'COGS',
               key: 'cogs',
-              format: (val: any) => new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(Number(val))
+              format: (val: any) => formatCurrency(Number(val))
             },
             { header: 'Margen (%)', key: 'marginPercent', format: (val: any) => `${val}%` },
             { header: 'ROI', key: 'roi', format: (val: any) => `${val}%` },
@@ -260,19 +261,19 @@ export function RevenueIntelligence() {
               <div className="flex-1 space-y-3">
                 <div>
                   <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="text-2xl font-bold text-card-foreground">Gs. {totalRevenue.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-card-foreground">{formatCurrency(totalRevenue)}</p>
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">COGS</span>
                     <span className="font-semibold text-red-600 dark:text-red-400">
-                      Gs. {totalCOGS.toLocaleString()} ({totalRevenue > 0 ? ((totalCOGS / totalRevenue) * 100).toFixed(1) : 0}%)
+                      {formatCurrency(totalCOGS)} ({totalRevenue > 0 ? ((totalCOGS / totalRevenue) * 100).toFixed(1) : 0}%)
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Margen Bruto</span>
                     <span className="font-semibold text-green-600 dark:text-green-400">
-                      Gs. {grossMargin.toLocaleString()} ({grossMarginPercent.toFixed(1)}%)
+                      {formatCurrency(grossMargin)} ({grossMarginPercent.toFixed(1)}%)
                     </span>
                   </div>
                 </div>
@@ -319,7 +320,7 @@ export function RevenueIntelligence() {
                       )}
                     </span>
                     <span className="font-semibold text-card-foreground">
-                      Gs. {item.value}
+                      {formatCurrency(item.value)}
                     </span>
                   </div>
                 ))}
@@ -342,7 +343,7 @@ export function RevenueIntelligence() {
                 <div>
                   <p className="text-xs text-muted-foreground">Promedio</p>
                   <p className="text-2xl font-bold text-card-foreground">
-                    Gs. {Math.round(avgRevenuePerCustomer).toLocaleString()}
+                    {formatCurrency(Math.round(avgRevenuePerCustomer))}
                   </p>
                 </div>
               </div>
@@ -350,13 +351,13 @@ export function RevenueIntelligence() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Mediano</span>
                   <span className="font-semibold text-card-foreground">
-                    Gs. {Math.round(medianRevenue).toLocaleString()}
+                    {formatCurrency(Math.round(medianRevenue))}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Rango</span>
                   <span className="font-semibold text-card-foreground">
-                    Gs. {Math.round(minRevenue).toLocaleString()} - {Math.round(maxRevenue).toLocaleString()}
+                    {formatCurrency(Math.round(minRevenue))} - {formatCurrency(Math.round(maxRevenue))}
                   </span>
                 </div>
               </div>
@@ -378,7 +379,7 @@ export function RevenueIntelligence() {
                 <div>
                   <p className="text-xs text-muted-foreground">Total</p>
                   <p className="text-2xl font-bold text-card-foreground">
-                    Gs. {Math.round(totalCosts).toLocaleString()}
+                    {formatCurrency(Math.round(totalCosts))}
                   </p>
                 </div>
               </div>
@@ -386,20 +387,20 @@ export function RevenueIntelligence() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Productos</span>
                   <span className="font-semibold text-card-foreground">
-                    Gs. {Math.round(totalProductCosts).toLocaleString()}
+                    {formatCurrency(Math.round(totalProductCosts))}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Envío</span>
                   <span className="font-semibold text-orange-600 dark:text-orange-400">
-                    Gs. {Math.round(totalDeliveryCosts).toLocaleString()}
+                    {formatCurrency(Math.round(totalDeliveryCosts))}
                   </span>
                 </div>
                 {totalConfirmationCosts > 0 && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Confirmación</span>
                     <span className="font-semibold text-purple-600 dark:text-purple-400">
-                      Gs. {Math.round(totalConfirmationCosts).toLocaleString()}
+                      {formatCurrency(Math.round(totalConfirmationCosts))}
                     </span>
                   </div>
                 )}
@@ -407,7 +408,7 @@ export function RevenueIntelligence() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Publicidad</span>
                     <span className="font-semibold text-blue-600 dark:text-blue-400">
-                      Gs. {Math.round(gasto_publicitario).toLocaleString()}
+                      {formatCurrency(Math.round(gasto_publicitario))}
                     </span>
                   </div>
                 )}
@@ -511,13 +512,13 @@ export function RevenueIntelligence() {
                         {product.stock}
                       </td>
                       <td className="text-right py-4 px-4 text-sm text-card-foreground">
-                        Gs. {product.price.toLocaleString()}
+                        {formatCurrency(product.price)}
                       </td>
                       <td className="text-right py-4 px-4 text-sm text-card-foreground">
                         {product.units}
                       </td>
                       <td className="text-right py-4 px-4 text-sm text-card-foreground">
-                        Gs. {product.revenue.toLocaleString()}
+                        {formatCurrency(product.revenue)}
                       </td>
                       <td className="text-right py-4 px-4">
                         <span
@@ -579,7 +580,7 @@ export function RevenueIntelligence() {
                       <div>
                         <p className="text-muted-foreground">Precio</p>
                         <p className="font-medium text-card-foreground">
-                          Gs. {product.price.toLocaleString()}
+                          {formatCurrency(product.price)}
                         </p>
                       </div>
                       <div>
@@ -589,7 +590,7 @@ export function RevenueIntelligence() {
                       <div>
                         <p className="text-muted-foreground">Ingresos</p>
                         <p className="font-medium text-card-foreground">
-                          Gs. {product.revenue.toLocaleString()}
+                          {formatCurrency(product.revenue)}
                         </p>
                       </div>
                       <div>

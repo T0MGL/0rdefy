@@ -1062,3 +1062,4 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 091: **NEW:** Mark COD as prepaid (prepaid_method, prepaid_at, prepaid_by - for transfer payments before shipping)
 - 094: **NEW:** Order notes & Shopify field enhancements (internal_notes for admin observations, shopify_shipping_method capture, city extraction from shipping_address, address_reference from address2)
 - 095: **NEW:** Delivery preferences system (delivery_preferences JSONB - not_before_date, preferred_time_slot, delivery_notes for customer scheduling)
+- 098: **NEW:** Stock trigger fix for all ship statuses (trigger now fires on shipped/in_transit, SKU fallback lookup when product_id is NULL, auto-updates order_line_items.product_id)

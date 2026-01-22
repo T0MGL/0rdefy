@@ -8,6 +8,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ReadyToShipOrder } from '@/services/shipping.service';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
+import { formatCurrency } from '@/utils/currency';
 
 interface DeliveryManifestData {
   orders: ReadyToShipOrder[];
@@ -104,7 +105,7 @@ export class DeliveryManifestGenerator {
     const tableData = data.orders.map((order, index) => {
       const orderId = getOrderDisplayId(order);
       const codAmount = order.cod_amount > 0
-        ? `Gs. ${order.cod_amount.toLocaleString()}`
+        ? formatCurrency(order.cod_amount)
         : 'Pagado';
 
       return [
@@ -170,7 +171,7 @@ export class DeliveryManifestGenerator {
     doc.setFontSize(10);
     doc.text(`Total de items: ${totalItems}`, leftCol + 5, yPos);
     yPos += 6;
-    doc.text(`Total monto COD a cobrar: Gs. ${totalCOD.toLocaleString()}`, leftCol + 5, yPos);
+    doc.text(`Total monto COD a cobrar: ${formatCurrency(totalCOD)}`, leftCol + 5, yPos);
     yPos += 12;
 
     // ==================== NOTES ====================

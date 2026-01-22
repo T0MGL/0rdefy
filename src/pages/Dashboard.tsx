@@ -537,8 +537,7 @@ export default function Dashboard() {
                 color: 'hsl(var(--card-foreground))',
               }}
               formatter={(value: number, name: string) => {
-                const formattedValue = new Intl.NumberFormat('es-PY').format(value);
-                return [`Gs. ${formattedValue}`, name];
+                return [formatCurrency(value), name];
               }}
             />
             <Legend wrapperStyle={{ color: 'hsl(var(--card-foreground))' }} />

@@ -213,13 +213,17 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             const taxCollectedValue = taxRate > 0 ? (rev - (rev / (1 + taxRate / 100))) : 0;
 
             // 3. PRODUCT COSTS (Optimized: batch query instead of N+1)
-            // Collect all unique product IDs first
+            // VARIANT SUPPORT: Collect both product_ids and variant_ids
             const productIds = new Set<string>();
+            const variantIds = new Set<string>();
             for (const order of ordersList) {
                 if (order.line_items && Array.isArray(order.line_items)) {
                     for (const item of order.line_items) {
                         if (item.product_id) {
                             productIds.add(item.product_id.toString());
+                        }
+                        if (item.variant_id) {
+                            variantIds.add(item.variant_id.toString());
                         }
                     }
                 }
@@ -250,6 +254,26 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 }
             }
 
+            // VARIANT SUPPORT: Fetch variant costs
+            // Variant costs override product costs when variant has its own cost defined
+            const variantCostMap = new Map<string, number>();
+            if (variantIds.size > 0) {
+                const { data: variantsData } = await supabaseAdmin
+                    .from('product_variants')
+                    .select('id, product_id, cost')
+                    .in('id', Array.from(variantIds));
+
+                if (variantsData) {
+                    variantsData.forEach(variant => {
+                        if (variant.id && variant.cost !== null && variant.cost !== undefined) {
+                            // Variant has its own cost - use it
+                            variantCostMap.set(variant.id, Number(variant.cost) || 0);
+                        }
+                        // If variant has no cost, we'll fall back to product cost
+                    });
+                }
+            }
+
             // Calculate product costs using the cached product data
             // Total product costs (all orders)
             let productCosts = 0;
@@ -260,9 +284,17 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 if (order.line_items && Array.isArray(order.line_items)) {
                     let orderCost = 0;
                     for (const item of order.line_items) {
-                        // Use product_id (local UUID) to look up cost
-                        const productCost = productCostMap.get(item.product_id?.toString()) || 0;
-                        const itemCost = productCost * Number(item.quantity || 1);
+                        // VARIANT SUPPORT: Check variant cost first, then fall back to product cost
+                        let itemUnitCost = 0;
+                        if (item.variant_id && variantCostMap.has(item.variant_id.toString())) {
+                            // Use variant-specific cost
+                            itemUnitCost = variantCostMap.get(item.variant_id.toString()) || 0;
+                        } else {
+                            // Use product cost (includes packaging + additional)
+                            itemUnitCost = productCostMap.get(item.product_id?.toString()) || 0;
+                        }
+
+                        const itemCost = itemUnitCost * Number(item.quantity || 1);
                         orderCost += itemCost;
                         productCosts += itemCost;
                     }
@@ -611,13 +643,17 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             dailyCampaignCosts[date] += Number(campaign.investment) || 0;
         }
 
-        // Collect all unique product IDs for batch query (performance optimization)
+        // VARIANT SUPPORT: Collect both product_ids and variant_ids for batch query
         const productIds = new Set<string>();
+        const variantIds = new Set<string>();
         for (const order of orders) {
             if (order.line_items && Array.isArray(order.line_items)) {
                 for (const item of order.line_items) {
                     if (item.product_id) {
                         productIds.add(item.product_id.toString());
+                    }
+                    if (item.variant_id) {
+                        variantIds.add(item.variant_id.toString());
                     }
                 }
             }
@@ -642,6 +678,23 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
                         const additional = Number(product.additional_costs) || 0;
                         const totalUnitCost = baseCost + packaging + additional;
                         productCostMap.set(product.id, totalUnitCost);
+                    }
+                });
+            }
+        }
+
+        // VARIANT SUPPORT: Fetch variant costs
+        const variantCostMap = new Map<string, number>();
+        if (variantIds.size > 0) {
+            const { data: variantsData } = await supabaseAdmin
+                .from('product_variants')
+                .select('id, cost')
+                .in('id', Array.from(variantIds));
+
+            if (variantsData) {
+                variantsData.forEach(variant => {
+                    if (variant.id && variant.cost !== null && variant.cost !== undefined) {
+                        variantCostMap.set(variant.id, Number(variant.cost) || 0);
                     }
                 });
             }
@@ -708,11 +761,16 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
                 dailyData[date].realRevenue += Number(order.total_price) || 0;
                 dailyData[date].shippingCosts += Number(order.shipping_cost) || 0;
 
-                // Calculate product costs using cached product data
+                // VARIANT SUPPORT: Calculate product costs, checking variant cost first
                 if (order.line_items && Array.isArray(order.line_items)) {
                     for (const item of order.line_items) {
-                        const productCost = productCostMap.get(item.product_id?.toString()) || 0;
-                        dailyData[date].productCosts += productCost * (Number(item.quantity) || 1);
+                        let itemUnitCost = 0;
+                        if (item.variant_id && variantCostMap.has(item.variant_id.toString())) {
+                            itemUnitCost = variantCostMap.get(item.variant_id.toString()) || 0;
+                        } else {
+                            itemUnitCost = productCostMap.get(item.product_id?.toString()) || 0;
+                        }
+                        dailyData[date].productCosts += itemUnitCost * (Number(item.quantity) || 1);
                     }
                 }
             }
@@ -1291,13 +1349,17 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
         const totalGastoPublicitario = (campaignsData || []).reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
         const gastoPublicitarioPerOrder = orders.length > 0 ? totalGastoPublicitario / orders.length : 0;
 
-        // Collect all unique product IDs for batch query
+        // VARIANT SUPPORT: Collect both product_ids and variant_ids for batch query
         const productIds = new Set<string>();
+        const variantIds = new Set<string>();
         for (const order of orders) {
             if (order.line_items && Array.isArray(order.line_items)) {
                 for (const item of order.line_items) {
                     if (item.product_id) {
                         productIds.add(item.product_id.toString());
+                    }
+                    if (item.variant_id) {
+                        variantIds.add(item.variant_id.toString());
                     }
                 }
             }
@@ -1322,6 +1384,23 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
                         const additional = Number(product.additional_costs) || 0;
                         const totalUnitCost = baseCost + packaging + additional;
                         productCostMap.set(product.id, totalUnitCost);
+                    }
+                });
+            }
+        }
+
+        // VARIANT SUPPORT: Fetch variant costs
+        const variantCostMap = new Map<string, number>();
+        if (variantIds.size > 0) {
+            const { data: variantsData } = await supabaseAdmin
+                .from('product_variants')
+                .select('id, cost')
+                .in('id', Array.from(variantIds));
+
+            if (variantsData) {
+                variantsData.forEach(variant => {
+                    if (variant.id && variant.cost !== null && variant.cost !== undefined) {
+                        variantCostMap.set(variant.id, Number(variant.cost) || 0);
                     }
                 });
             }
@@ -1378,12 +1457,17 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
             const status = order.sleeves_status || 'pending';
             const { min, max, probability } = getDaysUntilCollection(status);
 
-            // Calculate order costs
+            // VARIANT SUPPORT: Calculate order costs, checking variant cost first
             let productCosts = 0;
             if (order.line_items && Array.isArray(order.line_items)) {
                 for (const item of order.line_items) {
-                    const productCost = productCostMap.get(item.product_id?.toString()) || 0;
-                    productCosts += productCost * (Number(item.quantity) || 1);
+                    let itemUnitCost = 0;
+                    if (item.variant_id && variantCostMap.has(item.variant_id.toString())) {
+                        itemUnitCost = variantCostMap.get(item.variant_id.toString()) || 0;
+                    } else {
+                        itemUnitCost = productCostMap.get(item.product_id?.toString()) || 0;
+                    }
+                    productCosts += itemUnitCost * (Number(item.quantity) || 1);
                 }
             }
 

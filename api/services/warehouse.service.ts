@@ -28,6 +28,7 @@ export interface PickingSessionItem {
   id: string;
   picking_session_id: string;
   product_id: string;
+  variant_id?: string;
   total_quantity_needed: number;
   quantity_picked: number;
   created_at: string;
@@ -35,6 +36,8 @@ export interface PickingSessionItem {
   product_name?: string;
   product_image?: string;
   product_sku?: string;
+  variant_title?: string;
+  units_per_pack?: number;
   shelf_location?: string;
 }
 
@@ -228,7 +231,7 @@ export async function createSession(
     while (hasMore) {
       const { data: pageData, error: normalizedError } = await supabaseAdmin
         .from('order_line_items')
-        .select('order_id, product_id, quantity, shopify_product_id, shopify_variant_id, product_name')
+        .select('order_id, product_id, variant_id, quantity, shopify_product_id, shopify_variant_id, product_name, variant_title, units_per_pack')
         .in('order_id', orderIds)
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -244,7 +247,15 @@ export async function createSession(
     }
 
     // Check if we have normalized line items (Shopify orders)
-    const productQuantities = new Map<string, number>();
+    // VARIANT SUPPORT: Aggregate by (product_id, variant_id) composite key
+    // Key format: "product_id" or "product_id|variant_id" if variant exists
+    const productQuantities = new Map<string, {
+      product_id: string;
+      variant_id: string | null;
+      variant_title: string | null;
+      units_per_pack: number;
+      quantity: number
+    }>();
 
     if (normalizedLineItems && normalizedLineItems.length > 0) {
       // Check if any line items are missing product_id mapping
@@ -267,13 +278,25 @@ export async function createSession(
         );
       }
 
-      // Aggregate quantities from normalized line items
+      // Aggregate quantities from normalized line items by (product_id, variant_id)
       normalizedLineItems.forEach(item => {
         const productId = item.product_id;
+        const variantId = item.variant_id || null;
         const quantity = parseInt(item.quantity, 10) || 0;
         if (productId) {
-          const currentQty = productQuantities.get(productId) || 0;
-          productQuantities.set(productId, currentQty + quantity);
+          const key = variantId ? `${productId}|${variantId}` : productId;
+          const existing = productQuantities.get(key);
+          if (existing) {
+            existing.quantity += quantity;
+          } else {
+            productQuantities.set(key, {
+              product_id: productId,
+              variant_id: variantId,
+              variant_title: item.variant_title || null,
+              units_per_pack: item.units_per_pack || 1,
+              quantity
+            });
+          }
         }
       });
     } else {
@@ -286,15 +309,27 @@ export async function createSession(
 
       if (ordersError) throw ordersError;
 
-      // Parse JSONB line_items and aggregate quantities
+      // Parse JSONB line_items and aggregate quantities by (product_id, variant_id)
       ordersWithLineItems?.forEach(order => {
         if (Array.isArray(order.line_items)) {
           order.line_items.forEach((item: any) => {
             const productId = item.product_id;
+            const variantId = item.variant_id || null;
             const quantity = parseInt(item.quantity, 10) || 0;
             if (productId) {
-              const currentQty = productQuantities.get(productId) || 0;
-              productQuantities.set(productId, currentQty + quantity);
+              const key = variantId ? `${productId}|${variantId}` : productId;
+              const existing = productQuantities.get(key);
+              if (existing) {
+                existing.quantity += quantity;
+              } else {
+                productQuantities.set(key, {
+                  product_id: productId,
+                  variant_id: variantId,
+                  variant_title: item.variant_title || null,
+                  units_per_pack: item.units_per_pack || 1,
+                  quantity
+                });
+              }
             }
           });
         }
@@ -302,7 +337,12 @@ export async function createSession(
     }
 
     // Validate all product IDs are UUIDs (reuse uuidRegex from line 81)
-    const invalidProductIds = Array.from(productQuantities.keys()).filter(id => !uuidRegex.test(id));
+    // Extract unique product IDs from the composite keys
+    const uniqueProductIds = new Set<string>();
+    productQuantities.forEach((data) => {
+      uniqueProductIds.add(data.product_id);
+    });
+    const invalidProductIds = Array.from(uniqueProductIds).filter(id => !uuidRegex.test(id));
 
     if (invalidProductIds.length > 0) {
       throw new Error(
@@ -313,7 +353,7 @@ export async function createSession(
 
     // STOCK VALIDATION: Check if there's enough stock for all products
     // SECURITY: Filter by store_id to prevent cross-store product access
-    const productIds = Array.from(productQuantities.keys());
+    const productIds = Array.from(uniqueProductIds);
     const { data: stockData, error: stockError } = await supabaseAdmin
       .from('products')
       .select('id, name, stock, sku')
@@ -322,16 +362,79 @@ export async function createSession(
 
     if (stockError) throw stockError;
 
+    // Also fetch variant info for stock validation (shared stock calculation)
+    const variantIds = Array.from(productQuantities.values())
+      .filter(d => d.variant_id)
+      .map(d => d.variant_id as string);
+
+    let variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
+    if (variantIds.length > 0) {
+      const { data: variantsData } = await supabaseAdmin
+        .from('product_variants')
+        .select('id, uses_shared_stock, units_per_pack, stock, variant_title')
+        .in('id', variantIds);
+
+      if (variantsData) {
+        variantsData.forEach(v => {
+          variantStockMap.set(v.id, {
+            uses_shared_stock: v.uses_shared_stock || false,
+            units_per_pack: v.units_per_pack || 1,
+            stock: v.stock || 0,
+            variant_title: v.variant_title
+          });
+        });
+      }
+    }
+
     const stockMap = new Map(stockData?.map(p => [p.id, { name: p.name, stock: p.stock || 0, sku: p.sku }]) || []);
     const insufficientStock: Array<{ name: string; sku: string; needed: number; available: number }> = [];
 
-    productQuantities.forEach((quantityNeeded, productId) => {
+    // For shared stock variants, we need to aggregate total units needed per parent product
+    const sharedStockNeeded = new Map<string, number>(); // product_id -> total units needed
+
+    productQuantities.forEach((data, key) => {
+      const product = stockMap.get(data.product_id);
+      if (!product) return;
+
+      if (data.variant_id) {
+        const variant = variantStockMap.get(data.variant_id);
+        if (variant?.uses_shared_stock) {
+          // Shared stock: accumulate units needed from parent
+          const unitsNeeded = data.quantity * (variant.units_per_pack || 1);
+          const currentNeeded = sharedStockNeeded.get(data.product_id) || 0;
+          sharedStockNeeded.set(data.product_id, currentNeeded + unitsNeeded);
+        } else if (variant) {
+          // Independent variant stock
+          if (variant.stock < data.quantity) {
+            insufficientStock.push({
+              name: `${product.name} - ${variant.variant_title}`,
+              sku: product.sku || 'N/A',
+              needed: data.quantity,
+              available: variant.stock
+            });
+          }
+        }
+      } else {
+        // No variant - check product stock directly
+        if (product.stock < data.quantity) {
+          insufficientStock.push({
+            name: product.name || 'Producto sin nombre',
+            sku: product.sku || 'N/A',
+            needed: data.quantity,
+            available: product.stock
+          });
+        }
+      }
+    });
+
+    // Validate shared stock requirements
+    sharedStockNeeded.forEach((unitsNeeded, productId) => {
       const product = stockMap.get(productId);
-      if (product && product.stock < quantityNeeded) {
+      if (product && product.stock < unitsNeeded) {
         insufficientStock.push({
           name: product.name || 'Producto sin nombre',
           sku: product.sku || 'N/A',
-          needed: quantityNeeded,
+          needed: unitsNeeded,
           available: product.stock
         });
       }
@@ -354,11 +457,12 @@ export async function createSession(
       );
     }
 
-    // Insert aggregated picking list
-    const pickingItems = Array.from(productQuantities.entries()).map(([productId, quantity]) => ({
+    // Insert aggregated picking list with variant support
+    const pickingItems = Array.from(productQuantities.entries()).map(([key, data]) => ({
       picking_session_id: session.id,
-      product_id: productId,
-      total_quantity_needed: quantity,
+      product_id: data.product_id,
+      variant_id: data.variant_id,
+      total_quantity_needed: data.quantity,
       quantity_picked: 0
     }));
 
@@ -425,17 +529,40 @@ export async function getPickingList(
 
     if (productsError) throw productsError;
 
+    // Get variant details if any items have variant_id
+    const variantIds = (items || []).filter(item => item.variant_id).map(item => item.variant_id);
+    let variantMap = new Map<string, { variant_title: string; units_per_pack: number }>();
+    if (variantIds.length > 0) {
+      const { data: variants } = await supabaseAdmin
+        .from('product_variants')
+        .select('id, variant_title, units_per_pack')
+        .in('id', variantIds);
+
+      if (variants) {
+        variants.forEach(v => variantMap.set(v.id, { variant_title: v.variant_title, units_per_pack: v.units_per_pack || 1 }));
+      }
+    }
+
     // Create product map for quick lookup
     const productMap = new Map(products?.map(p => [p.id, p]) || []);
 
-    // Format items
+    // Format items with variant info
     const formattedItems = (items || []).map(item => {
       const product = productMap.get(item.product_id);
+      const variant = item.variant_id ? variantMap.get(item.variant_id) : null;
+
+      // Include variant title in product name if variant exists
+      const displayName = variant
+        ? `${product?.name || 'Producto desconocido'} - ${variant.variant_title}`
+        : (product?.name || 'Producto desconocido');
+
       return {
         ...item,
-        product_name: product?.name || 'Producto desconocido',
+        product_name: displayName,
         product_image: product?.image_url,
         product_sku: product?.sku,
+        variant_title: variant?.variant_title,
+        units_per_pack: variant?.units_per_pack || 1,
         shelf_location: undefined
       };
     });
@@ -651,10 +778,12 @@ export async function finishPicking(
 
     const orderIdsInSession = sessionOrders?.map(so => so.order_id) || [];
 
+    // VARIANT SUPPORT: Include variant_id in packing records
     const packingRecords: Array<{
       picking_session_id: string;
       order_id: string;
       product_id: string;
+      variant_id?: string | null;
       quantity_needed: number;
       quantity_packed: number;
     }> = [];
@@ -669,7 +798,7 @@ export async function finishPicking(
     while (hasMore) {
       const { data: pageData, error: normalizedError } = await supabaseAdmin
         .from('order_line_items')
-        .select('order_id, product_id, quantity')
+        .select('order_id, product_id, variant_id, quantity')
         .in('order_id', orderIdsInSession)
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -685,14 +814,18 @@ export async function finishPicking(
     }
 
     if (normalizedLineItems && normalizedLineItems.length > 0) {
-      // Aggregate quantities when same product appears multiple times in an order (e.g., upsells)
-      const aggregatedItems = new Map<string, { order_id: string; product_id: string; quantity: number }>();
+      // Aggregate quantities by (order_id, product_id, variant_id)
+      const aggregatedItems = new Map<string, { order_id: string; product_id: string; variant_id: string | null; quantity: number }>();
 
       normalizedLineItems.forEach(item => {
         const productId = item.product_id;
+        const variantId = item.variant_id || null;
         const quantity = parseInt(item.quantity, 10) || 0;
         if (productId) {
-          const key = `${item.order_id}_${productId}`;
+          // Composite key includes variant_id
+          const key = variantId
+            ? `${item.order_id}_${productId}_${variantId}`
+            : `${item.order_id}_${productId}`;
           const existing = aggregatedItems.get(key);
           if (existing) {
             existing.quantity += quantity;
@@ -700,6 +833,7 @@ export async function finishPicking(
             aggregatedItems.set(key, {
               order_id: item.order_id,
               product_id: productId,
+              variant_id: variantId,
               quantity: quantity
             });
           }
@@ -711,6 +845,7 @@ export async function finishPicking(
           picking_session_id: sessionId,
           order_id: item.order_id,
           product_id: item.product_id,
+          variant_id: item.variant_id,
           quantity_needed: item.quantity,
           quantity_packed: 0
         });
@@ -724,16 +859,19 @@ export async function finishPicking(
 
       if (orderItemsError) throw orderItemsError;
 
-      // Aggregate quantities when same product appears multiple times in an order (e.g., upsells)
-      const aggregatedManualItems = new Map<string, { order_id: string; product_id: string; quantity: number }>();
+      // Aggregate quantities by (order_id, product_id, variant_id)
+      const aggregatedManualItems = new Map<string, { order_id: string; product_id: string; variant_id: string | null; quantity: number }>();
 
       ordersWithItems?.forEach(order => {
         if (Array.isArray(order.line_items)) {
           order.line_items.forEach((item: any) => {
             const productId = item.product_id;
+            const variantId = item.variant_id || null;
             const quantity = parseInt(item.quantity, 10) || 0;
             if (productId) {
-              const key = `${order.id}_${productId}`;
+              const key = variantId
+                ? `${order.id}_${productId}_${variantId}`
+                : `${order.id}_${productId}`;
               const existing = aggregatedManualItems.get(key);
               if (existing) {
                 existing.quantity += quantity;
@@ -741,6 +879,7 @@ export async function finishPicking(
                 aggregatedManualItems.set(key, {
                   order_id: order.id,
                   product_id: productId,
+                  variant_id: variantId,
                   quantity: quantity
                 });
               }
@@ -754,6 +893,7 @@ export async function finishPicking(
           picking_session_id: sessionId,
           order_id: item.order_id,
           product_id: item.product_id,
+          variant_id: item.variant_id,
           quantity_needed: item.quantity,
           quantity_packed: 0
         });
@@ -897,6 +1037,7 @@ export async function getPackingList(
         .select(`
           order_id,
           product_id,
+          variant_id,
           product_name,
           variant_title,
           quantity,
@@ -957,12 +1098,17 @@ export async function getPackingList(
     }
 
     // Create a map of packing progress for quick lookup
-    const packingProgressMap = new Map<string, { quantity_needed: number; quantity_packed: number }>();
+    // VARIANT SUPPORT: Key includes variant_id for correct matching
+    const packingProgressMap = new Map<string, { quantity_needed: number; quantity_packed: number; variant_id: string | null }>();
     packingProgress?.forEach((p: any) => {
-      const key = `${p.order_id}-${p.product_id}`;
+      // Key format: "order_id-product_id" or "order_id-product_id-variant_id"
+      const key = p.variant_id
+        ? `${p.order_id}-${p.product_id}-${p.variant_id}`
+        : `${p.order_id}-${p.product_id}`;
       packingProgressMap.set(key, {
         quantity_needed: p.quantity_needed,
-        quantity_packed: p.quantity_packed
+        quantity_packed: p.quantity_packed,
+        variant_id: p.variant_id || null
       });
     });
 
@@ -978,9 +1124,10 @@ export async function getPackingList(
       const useNormalized = normalizedItems.length > 0;
       const orderItems = useNormalized ? normalizedItems : jsonbItems;
 
-      // Aggregate items by product_id (handles duplicates like upsells of same product)
+      // Aggregate items by (product_id, variant_id) - VARIANT SUPPORT
       const aggregatedItemsMap = new Map<string, {
         product_id: string;
+        variant_id: string | null;
         product_name: string;
         product_image: string;
         quantity_needed: number;
@@ -989,9 +1136,13 @@ export async function getPackingList(
 
       orderItems.forEach((lineItem: any) => {
         const productId = lineItem.product_id;
+        const variantId = lineItem.variant_id || null;
         if (!productId) return;
 
-        const progressKey = `${order.id}-${productId}`;
+        // VARIANT SUPPORT: Key includes variant_id
+        const progressKey = variantId
+          ? `${order.id}-${productId}-${variantId}`
+          : `${order.id}-${productId}`;
         const progress = packingProgressMap.get(progressKey);
 
         let productName: string;
@@ -1007,19 +1158,25 @@ export async function getPackingList(
           itemQuantity = parseInt(lineItem.quantity, 10) || 0;
         } else {
           const product = jsonbProductsMap.get(productId);
-          productName = product?.name || lineItem.product_name || lineItem.name || 'Producto';
+          const baseName = product?.name || lineItem.product_name || lineItem.name || 'Producto';
+          productName = lineItem.variant_title
+            ? `${baseName} - ${lineItem.variant_title}`
+            : baseName;
           productImage = product?.image_url || lineItem.image_url || '';
           itemQuantity = parseInt(lineItem.quantity, 10) || 0;
         }
 
-        const existing = aggregatedItemsMap.get(productId);
+        // Composite key for aggregation includes variant_id
+        const aggregationKey = variantId ? `${productId}-${variantId}` : productId;
+        const existing = aggregatedItemsMap.get(aggregationKey);
         if (existing) {
-          // Same product exists - add quantities
+          // Same product+variant exists - add quantities
           existing.quantity_needed += progress?.quantity_needed || itemQuantity;
           existing.quantity_packed += progress?.quantity_packed || 0;
         } else {
-          aggregatedItemsMap.set(productId, {
+          aggregatedItemsMap.set(aggregationKey, {
             product_id: productId,
+            variant_id: variantId,
             product_name: productName,
             product_image: productImage,
             quantity_needed: progress?.quantity_needed || itemQuantity,
@@ -1033,13 +1190,15 @@ export async function getPackingList(
       packingProgress?.forEach((p: any) => {
         if (p.order_id !== order.id) return;
 
-        // Check if this packing_progress was already included via orderItems
-        const existing = aggregatedItemsMap.get(p.product_id);
+        // VARIANT SUPPORT: Check using composite key
+        const aggregationKey = p.variant_id ? `${p.product_id}-${p.variant_id}` : p.product_id;
+        const existing = aggregatedItemsMap.get(aggregationKey);
         if (!existing) {
           // This is an orphaned packing_progress record - include it so UI shows correct state
           const orphanProduct = jsonbProductsMap.get(p.product_id);
-          aggregatedItemsMap.set(p.product_id, {
+          aggregatedItemsMap.set(aggregationKey, {
             product_id: p.product_id,
+            variant_id: p.variant_id || null,
             product_name: orphanProduct?.name || p.products?.name || 'Producto (huérfano)',
             product_image: orphanProduct?.image_url || '',
             quantity_needed: p.quantity_needed,

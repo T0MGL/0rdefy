@@ -2,14 +2,17 @@ import { useRef, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { useAuth } from '@/contexts/AuthContext';
 import { logger } from '@/utils/logger';
+import { getCurrencySymbol } from '@/utils/currency';
 
 export interface ShippingLabelProps {
     order: {
         id: string;
         order_number: string;
+        order_date?: string;
         customer_name: string;
         customer_phone: string;
         customer_address?: string;
+        shipping_city?: string;
         address_reference?: string;
         neighborhood?: string;
         delivery_notes?: string;
@@ -47,6 +50,7 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
                     {/* Store Name & Header - Prominent */}
                     <div className="store-header">
                         <h1 className="store-name">{currentStore?.name}</h1>
+                        {order.order_date && <p className="order-date">{order.order_date}</p>}
                         <div className="order-tag">
                             <span className="label-type">ENTREGA</span>
                             <span className="order-id">#{order.order_number}</span>
@@ -71,6 +75,7 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
                         <div className="customer-details">
                             <p className="customer-name">{order.customer_name}</p>
                             <p className="customer-phone">{order.customer_phone}</p>
+                            {order.shipping_city && <p className="city">{order.shipping_city}</p>}
                             {order.customer_address && <p className="address">{order.customer_address}</p>}
                             {order.neighborhood && <p className="detail">Barrio: {order.neighborhood}</p>}
                             {order.address_reference && <p className="detail">Ref: {order.address_reference}</p>}
@@ -91,7 +96,7 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
                                 {order.cod_amount && order.cod_amount > 0 && (
                                     <div className="cod-info">
                                         <span className="label">COBRAR:</span>
-                                        <span className="value money">Gs. {order.cod_amount.toLocaleString()}</span>
+                                        <span className="value money">{getCurrencySymbol()} {order.cod_amount.toLocaleString()}</span>
                                     </div>
                                 )}
                             </div>
@@ -161,8 +166,16 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
             font-size: 1.4em; /* Relative unit */
             font-weight: 800;
             line-height: 1.1;
-            margin: 0 0 5px 0;
+            margin: 0 0 2px 0;
             word-break: break-word;
+        }
+
+        .order-date {
+            font-size: 0.65em;
+            font-weight: 400;
+            color: #555;
+            margin: 0 0 5px 0;
+            line-height: 1.2;
         }
 
         .order-tag {
@@ -256,6 +269,13 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
         .customer-phone {
             font-size: 0.9em;
             margin: 0;
+        }
+
+        .city {
+            font-size: 0.85em;
+            font-weight: 600;
+            margin: 2px 0 0 0;
+            color: #333;
         }
 
         .address {

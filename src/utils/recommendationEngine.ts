@@ -1,5 +1,6 @@
 import { Recommendation, Product, Ad, DashboardOverview } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
+import { formatCurrency } from '@/utils/currency';
 
 interface RecommendationEngineData {
   products: Product[];
@@ -33,7 +34,7 @@ export function generateRecommendations(data: RecommendationEngineData): Recomme
       type: 'marketing',
       title: 'Reasignar presupuesto publicitario',
       description: `${bestPlatform.platform} tiene un ROAS de ${bestPlatform.roas}x mientras que ${worstPlatform.platform} solo ${worstPlatform.roas}x. Considera reasignar presupuesto.`,
-      impact: `+ Gs. ${((worstPlatform.investment * 0.3) * (bestPlatform.roas - worstPlatform.roas)).toLocaleString()}/mes`,
+      impact: `+ ${formatCurrency((worstPlatform.investment * 0.3) * (bestPlatform.roas - worstPlatform.roas))}/mes`,
       actionLabel: 'Ver anuncios',
       actionUrl: '/ads',
     });
@@ -49,7 +50,7 @@ export function generateRecommendations(data: RecommendationEngineData): Recomme
       type: 'pricing',
       title: 'Ajustar precios de productos de bajo margen',
       description: `${lowMarginProducts.length} productos tienen margen inferior al 30%. Un aumento del 15% podría mejorar significativamente la rentabilidad.`,
-      impact: `+ Gs. ${(lowMarginProducts.reduce((sum, p) => sum + (p.price * p.sales * 0.15), 0)).toLocaleString()}/mes`,
+      impact: `+ ${formatCurrency(lowMarginProducts.reduce((sum, p) => sum + (p.price * p.sales * 0.15), 0))}/mes`,
       actionLabel: 'Ver productos',
       actionUrl: '/products',
     });

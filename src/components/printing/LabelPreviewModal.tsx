@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Printer, Copy, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import QRCode from 'qrcode';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 
 interface LabelData {
   storeName: string;
@@ -425,7 +426,7 @@ function LabelContent({
                   COBRAR
                 </div>
                 <div style={{ fontSize: '22px', fontWeight: 900, letterSpacing: '0.5px' }}>
-                  Gs. {data.codAmount?.toLocaleString()}
+                  {getCurrencySymbol()} {data.codAmount?.toLocaleString()}
                 </div>
               </div>
             ) : (

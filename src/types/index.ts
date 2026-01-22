@@ -144,12 +144,14 @@ export interface Order {
   order_line_items?: Array<{
     id: string;
     product_id?: string;
+    variant_id?: string; // Local variant ID (Migration 097)
     product_name: string;
     variant_title?: string;
     sku?: string;
     quantity: number;
     unit_price: number;
     total_price: number;
+    units_per_pack?: number; // Snapshot for audit (Migration 097)
     shopify_product_id?: string;
     shopify_variant_id?: string;
     products?: {
@@ -167,6 +169,10 @@ export interface Order {
   prepaid_method?: 'transfer' | 'efectivo_local' | 'qr' | 'otro';
   prepaid_at?: string;
   prepaid_by?: string;
+  // Delivery rating (customer feedback after QR scan)
+  delivery_rating?: number; // 1-5 stars
+  delivery_rating_comment?: string;
+  rated_at?: string;
 }
 
 export interface CreateOrderInput {
@@ -205,6 +211,38 @@ export interface Product {
   shopify_data?: any;
   last_synced_at?: string;
   sync_status?: 'synced' | 'pending' | 'error';
+  // Variant support (Migration 086/087/097)
+  has_variants?: boolean;
+  variants?: ProductVariant[];
+}
+
+// Product Variant for bundle pricing and SKU variations (Migration 086/087)
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  store_id?: string;
+  sku?: string;
+  variant_title: string;
+  option1_name?: string;
+  option1_value?: string;
+  option2_name?: string;
+  option2_value?: string;
+  option3_name?: string;
+  option3_value?: string;
+  price: number;
+  cost?: number;
+  stock: number;
+  // Shared stock for bundles (e.g., "Pareja" pack uses 2 units from parent stock)
+  uses_shared_stock: boolean;
+  units_per_pack: number;
+  // Calculated field: available packs for shared stock variants
+  available_stock?: number;
+  is_active: boolean;
+  position?: number;
+  image_url?: string;
+  // Shopify integration
+  shopify_variant_id?: string;
+  shopify_inventory_item_id?: string;
 }
 
 export interface Ad {

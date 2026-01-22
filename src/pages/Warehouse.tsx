@@ -5,6 +5,8 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { Package, PackageCheck, PackageOpen, Printer, ArrowLeft, Check, Plus, Minus, Layers, Loader2, XCircle, AlertTriangle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -475,9 +477,11 @@ export default function Warehouse() {
       const success = await printLabelPDF({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.order_number,
+        orderDate: order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy", { locale: es }) : undefined,
         customerName: order.customer_name,
         customerPhone: order.customer_phone,
         customerAddress: order.customer_address,
+        city: order.shipping_city,
         neighborhood: order.neighborhood,
         addressReference: order.address_reference,
         carrierName: order.carrier_name,
@@ -558,9 +562,11 @@ export default function Warehouse() {
       const labelsData = ordersToPrint.map(order => ({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.order_number,
+        orderDate: order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy", { locale: es }) : undefined,
         customerName: order.customer_name,
         customerPhone: order.customer_phone,
         customerAddress: order.customer_address,
+        city: order.shipping_city,
         neighborhood: order.neighborhood,
         addressReference: order.address_reference,
         carrierName: order.carrier_name,

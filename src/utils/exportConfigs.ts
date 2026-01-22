@@ -1,4 +1,5 @@
 import { ExportColumn } from '@/services/export.service';
+import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 
 /**
  * Export configuration for Orders
@@ -27,10 +28,10 @@ export const ordersExportColumns: ExportColumn[] = [
     format: (value) => String(value || 0)
   },
   {
-    header: 'Total (Gs.)',
+    header: 'Total',
     key: 'total',
     width: 15,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
     header: 'Estado',
@@ -103,16 +104,16 @@ export const productsExportColumns: ExportColumn[] = [
   { header: 'ID', key: 'id', width: 20 },
   { header: 'Nombre', key: 'name', width: 25 },
   {
-    header: 'Precio (Gs.)',
+    header: 'Precio',
     key: 'price',
     width: 15,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
-    header: 'Costo (Gs.)',
+    header: 'Costo',
     key: 'cost',
     width: 15,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
     header: 'Stock',
@@ -157,10 +158,10 @@ export const customersExportColumns: ExportColumn[] = [
     format: (value) => String(value || 0)
   },
   {
-    header: 'Total Gastado (Gs.)',
+    header: 'Total Gastado',
     key: 'total_spent',
     width: 20,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
     header: 'Fecha Creación',
@@ -199,16 +200,16 @@ export const campaignsExportColumns: ExportColumn[] = [
     }
   },
   {
-    header: 'Inversión (Gs.)',
+    header: 'Inversión',
     key: 'investment',
     width: 20,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
-    header: 'Ingresos (Gs.)',
+    header: 'Ingresos',
     key: 'revenue',
     width: 20,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
     header: 'ROI',
@@ -282,16 +283,16 @@ export const carriersExportColumns: ExportColumn[] = [
   { header: 'ID', key: 'id', width: 20 },
   { header: 'Nombre', key: 'name', width: 25 },
   {
-    header: 'Tarifa Base (Gs.)',
+    header: 'Tarifa Base',
     key: 'baseRate',
     width: 20,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
-    header: 'Tarifa/Km (Gs.)',
+    header: 'Tarifa/Km',
     key: 'perKmRate',
     width: 20,
-    format: (value) => `Gs. ${Number(value || 0).toLocaleString()}`
+    format: (value) => formatCurrency(Number(value || 0))
   },
   {
     header: 'Entregas Totales',
