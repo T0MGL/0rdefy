@@ -25,6 +25,7 @@ interface LabelData {
   paymentMethod?: string;
   paymentGateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
+  prepaidMethod?: string; // Manual prepaid: 'transfer', 'efectivo_local', 'qr', 'otro'
   deliveryToken: string;
   items: Array<{
     name: string;
@@ -77,7 +78,10 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   // 1. Check if order was paid online (Shopify Payments, PayPal, etc.)
   const isPaidOnline = data.financialStatus === 'paid' || data.financialStatus === 'authorized';
 
-  // 2. Check if payment gateway indicates COD
+  // 2. Check if order was manually marked as prepaid (transfer, QR, etc.)
+  const isPrepaid = !!data.prepaidMethod;
+
+  // 3. Check if payment gateway indicates COD
   const isCODGateway = data.paymentGateway === 'cash_on_delivery' ||
                        data.paymentGateway === 'cod' ||
                        data.paymentGateway === 'manual' ||
@@ -87,32 +91,38 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
                       data.paymentMethod === 'cod' ||
                       data.paymentMethod === 'cash_on_delivery';
 
-  // 3. CRITICAL: cod_amount is the SOURCE OF TRUTH from backend
+  // 4. CRITICAL: cod_amount is the SOURCE OF TRUTH from backend
   //    - cod_amount = 0 or undefined → nothing to collect (fully paid)
   //    - cod_amount > 0 → collect this exact amount (COD or upsell on paid order)
   const codAmountFromBackend = data.codAmount ?? 0;
 
-  // 4. Determine amount to collect:
+  // 5. Determine amount to collect:
+  //    - If prepaid (manually marked) → collect nothing
+  //    - If paid online → collect nothing
   //    - If cod_amount > 0, use it (backend explicitly set this)
-  //    - If NOT paid online AND gateway is COD, use totalPrice as fallback
+  //    - If NOT paid AND gateway is COD, use totalPrice as fallback (legacy)
   //    - Otherwise, collect nothing (PAGADO)
   let amountToCollect = 0;
-  if (codAmountFromBackend > 0) {
+  if (isPrepaid || isPaidOnline) {
+    // Order is already paid - do NOT collect anything
+    amountToCollect = 0;
+  } else if (codAmountFromBackend > 0) {
     // Backend says collect this exact amount
     amountToCollect = codAmountFromBackend;
-  } else if (!isPaidOnline && (isCODGateway || isCODMethod)) {
+  } else if (isCODGateway || isCODMethod) {
     // Legacy fallback for orders without cod_amount set
     amountToCollect = data.totalPrice || 0;
   }
-  // If paid online and no cod_amount > 0, amountToCollect = 0 → PAGADO
 
-  // 5. MASTER DECISION: COBRAR only if amountToCollect > 0
+  // 6. MASTER DECISION: COBRAR only if amountToCollect > 0
   const isCOD = amountToCollect > 0;
 
   console.log('🏷️ [LABEL] Payment determination:', {
     financialStatus: data.financialStatus,
+    prepaidMethod: data.prepaidMethod,
     paymentGateway: data.paymentGateway,
     isPaidOnline,
+    isPrepaid,
     codAmountFromBackend,
     totalPrice: data.totalPrice,
     amountToCollect,

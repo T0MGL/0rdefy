@@ -23,6 +23,7 @@ interface LabelData {
   codAmount?: number;
   paymentMethod?: string;
   financialStatus?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
+  prepaidMethod?: string; // Manual prepaid: 'transfer', 'efectivo_local', 'qr', 'otro'
   deliveryToken: string;
   items: Array<{
     name: string;
@@ -46,16 +47,20 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
   const deliveryUrl = data ? `${window.location.origin}/delivery/${data.deliveryToken}` : '';
 
   // Determine payment status
-  // Show COD if: has COD amount AND (financial status is NOT paid/authorized OR paymentMethod indicates cash)
+  // Show COD if: has COD amount AND NOT paid online AND NOT manually prepaid
   const isPaidByShopify = data?.financialStatus === 'paid' || data?.financialStatus === 'authorized';
+  const isPrepaid = !!data?.prepaidMethod; // Manually marked as prepaid (transfer, QR, etc.)
   const hasCODAmount = data?.codAmount && data.codAmount > 0;
   const isCashPayment = data?.paymentMethod === 'cash' ||
     data?.paymentMethod === 'efectivo' ||
     data?.paymentMethod === 'cod' ||
     data?.paymentMethod === 'cash_on_delivery';
 
-  // Show COD if there's an amount to collect and it's not already paid by Shopify
-  const showCOD = hasCODAmount && (!isPaidByShopify || isCashPayment);
+  // Show COD ONLY if:
+  // 1. There's an amount to collect (codAmount > 0)
+  // 2. NOT already paid by Shopify
+  // 3. NOT manually marked as prepaid
+  const showCOD = hasCODAmount && !isPaidByShopify && !isPrepaid;
 
   // DEBUG: Log payment data
   useEffect(() => {

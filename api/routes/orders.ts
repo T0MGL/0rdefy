@@ -122,6 +122,15 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             });
         }
 
+        // Determine if order is prepaid (either from Shopify or manually marked)
+        const financialStatus = (data.financial_status || '').toLowerCase();
+        const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+        const isPrepaid = !!data.prepaid_method;
+
+        // CRITICAL: If order is paid (Shopify or manual prepaid), cod_amount MUST be 0
+        // This prevents showing wrong collection amount to courier
+        const effectiveCodAmount = (isPaidOnline || isPrepaid) ? 0 : (data.cod_amount || 0);
+
         // Return delivery information for pending deliveries (including incidents)
         const deliveryInfo = {
             id: data.id,
@@ -134,8 +143,12 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             longitude: data.longitude,
             google_maps_link: data.google_maps_link,
             total_price: data.total_price,
-            cod_amount: data.cod_amount || 0,
+            cod_amount: effectiveCodAmount,
             payment_method: data.payment_method,
+            // Payment status fields for courier display
+            financial_status: data.financial_status,
+            prepaid_method: data.prepaid_method,
+            is_prepaid: isPaidOnline || isPrepaid,
             line_items: data.line_items,
             delivery_status: data.delivery_status,
             sleeves_status: data.sleeves_status,
@@ -686,9 +699,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 has_amount_discrepancy,
                 financial_status,
                 payment_method,
+                prepaid_method,
                 total_discounts,
                 neighborhood,
                 address_reference,
+                shipping_city,
                 line_items,
                 order_line_items (
                     id,
@@ -2340,6 +2355,130 @@ ordersRouter.post('/:id/mark-delivered-paid', requirePermission(Module.ORDERS, P
     } catch (error: any) {
         res.status(500).json({
             error: 'Error al actualizar estado del pedido',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// PATCH /api/orders/:id/mark-prepaid - Mark COD order as prepaid
+// ================================================================
+// Use this endpoint when a COD order has been paid via bank transfer
+// BEFORE delivery (customer paid upfront). This updates:
+// - financial_status = 'paid'
+// - cod_amount = 0 (nothing to collect at delivery)
+// - prepaid_method = 'transfer' (or specified method)
+// - prepaid_at = current timestamp
+// - prepaid_by = user who marked it
+//
+// This is useful for:
+// - Orders confirmed before the prepaid system was implemented
+// - Orders that need to be marked as prepaid after confirmation
+// - Remote areas where payment is required before shipping
+ordersRouter.patch('/:id/mark-prepaid', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.EDIT), async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const storeId = req.storeId;
+        const userId = req.userId;
+        const { prepaid_method = 'transfer' } = req.body;
+
+        // Valid prepaid methods
+        const validMethods = ['transfer', 'efectivo_local', 'qr', 'otro'];
+        if (!validMethods.includes(prepaid_method)) {
+            return res.status(400).json({
+                error: 'Invalid prepaid method',
+                message: `prepaid_method must be one of: ${validMethods.join(', ')}`,
+                valid_methods: validMethods
+            });
+        }
+
+        // First, check current order state
+        const { data: order, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select('id, sleeves_status, financial_status, cod_amount, prepaid_method')
+            .eq('id', id)
+            .eq('store_id', storeId)
+            .single();
+
+        if (fetchError || !order) {
+            return res.status(404).json({
+                error: 'Order not found',
+                message: 'El pedido no existe o no pertenece a esta tienda'
+            });
+        }
+
+        // Check if already prepaid
+        if (order.prepaid_method) {
+            return res.status(400).json({
+                error: 'Already prepaid',
+                message: 'Este pedido ya fue marcado como prepago',
+                prepaid_method: order.prepaid_method
+            });
+        }
+
+        // Check if already paid online (Shopify)
+        if (order.financial_status === 'paid' || order.financial_status === 'authorized') {
+            return res.status(400).json({
+                error: 'Already paid',
+                message: 'Este pedido ya está pagado (Shopify/Online)',
+                financial_status: order.financial_status
+            });
+        }
+
+        // Update order to mark as prepaid
+        const { data: updatedOrder, error: updateError } = await supabaseAdmin
+            .from('orders')
+            .update({
+                financial_status: 'paid',
+                cod_amount: 0,
+                prepaid_method: prepaid_method,
+                prepaid_at: new Date().toISOString(),
+                prepaid_by: userId,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+            .eq('store_id', storeId)
+            .select()
+            .single();
+
+        if (updateError) {
+            throw updateError;
+        }
+
+        // Add to order status history
+        await supabaseAdmin
+            .from('order_status_history')
+            .insert({
+                order_id: id,
+                status: order.sleeves_status, // Keep current status
+                notes: `Pedido marcado como prepago (${prepaid_method}). COD: ${order.cod_amount?.toLocaleString() || 0} → 0`,
+                changed_by: userId,
+                created_at: new Date().toISOString()
+            });
+
+        logger.info('ORDERS', `Order ${id} marked as prepaid`, {
+            method: prepaid_method,
+            previous_cod: order.cod_amount,
+            marked_by: userId
+        });
+
+        res.json({
+            success: true,
+            message: 'Pedido marcado como prepago - Transportador no debe cobrar',
+            data: {
+                id: updatedOrder.id,
+                financial_status: 'paid',
+                cod_amount: 0,
+                prepaid_method: prepaid_method,
+                prepaid_at: updatedOrder.prepaid_at,
+                previous_cod_amount: order.cod_amount
+            }
+        });
+
+    } catch (error: any) {
+        logger.error('ORDERS', `Error marking order as prepaid: ${error.message}`);
+        res.status(500).json({
+            error: 'Error marking order as prepaid',
             message: error.message
         });
     }

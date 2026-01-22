@@ -1099,6 +1099,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         paymentMethod: order.payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
         financialStatus: order.financial_status,
+        prepaidMethod: order.prepaid_method, // Manual prepaid: transfer, qr, etc.
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
           ? order.order_line_items.map((item: any) => ({
@@ -1166,6 +1167,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         paymentMethod: order.payment_method,
         paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
         financialStatus: order.financial_status,
+        prepaidMethod: order.prepaid_method, // Manual prepaid: transfer, qr, etc.
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
           ? order.order_line_items.map((item: any) => ({

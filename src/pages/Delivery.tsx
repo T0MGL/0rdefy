@@ -789,8 +789,9 @@ export default function Delivery() {
           </CardContent>
         </Card>
 
-        {/* COD Alert Card */}
-        {orderData.cod_amount > 0 && (
+        {/* Payment Status Card - Always show for clarity */}
+        {orderData.cod_amount > 0 ? (
+          // COD: Must collect cash
           <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10">
             <CardContent className="p-5">
               <div className="flex items-center gap-4">
@@ -799,7 +800,33 @@ export default function Delivery() {
                 </div>
                 <div className="flex-1">
                   <p className="text-amber-600 dark:text-amber-400 font-semibold text-sm uppercase tracking-wide">Cobro en Efectivo</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">{formatDeliveryCurrency(orderData.cod_amount || 0, orderData.currency)}</p>
+                  <p className="text-3xl font-bold text-foreground mt-1">{formatDeliveryCurrency(orderData.cod_amount, orderData.currency)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          // PREPAID: No collection needed - show payment method if available
+          <Card className="border-green-500/30 bg-gradient-to-r from-green-500/10 to-emerald-500/10">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-green-500/30">
+                  <CheckCircle className="h-7 w-7 text-white" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-green-600 dark:text-green-400 font-semibold text-sm uppercase tracking-wide">
+                    {orderData.is_prepaid ? 'Pedido Pagado' : 'Sin Cobro'}
+                  </p>
+                  <p className="text-2xl font-bold text-foreground mt-1">NO COBRAR</p>
+                  <p className="text-muted-foreground text-xs mt-1">
+                    {orderData.prepaid_method === 'transfer' && 'Pagado por transferencia bancaria'}
+                    {orderData.prepaid_method === 'efectivo_local' && 'Pagado en efectivo en local'}
+                    {orderData.prepaid_method === 'qr' && 'Pagado con QR'}
+                    {orderData.prepaid_method === 'otro' && 'Pago anticipado'}
+                    {!orderData.prepaid_method && orderData.financial_status === 'paid' && 'Pagado online (Shopify)'}
+                    {!orderData.prepaid_method && orderData.financial_status === 'authorized' && 'Pago autorizado (Shopify)'}
+                    {!orderData.prepaid_method && !orderData.financial_status && 'El cliente ya realizó el pago'}
+                  </p>
                 </div>
               </div>
             </CardContent>
