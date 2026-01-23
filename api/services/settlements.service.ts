@@ -425,13 +425,28 @@ export async function createDispatchSession(
   const sessionCode = await generateDispatchCodeWithRetry(storeId);
 
   // ============================================================
-  // VALIDATION 2: Get carrier zones and validate (BLOCKING)
+  // VALIDATION 2: Get carrier zones and coverage (BLOCKING)
   // ============================================================
   const { data: zones } = await supabaseAdmin
     .from('carrier_zones')
     .select('*')
     .eq('carrier_id', carrierId)
     .eq('is_active', true);
+
+  // Also get city-based coverage (new system - migration 090)
+  const { data: coverage } = await supabaseAdmin
+    .from('carrier_coverage')
+    .select('city, rate')
+    .eq('carrier_id', carrierId)
+    .eq('is_active', true);
+
+  // Build coverage map from new system (city -> rate)
+  const coverageMap = new Map<string, number>();
+  (coverage || []).forEach(c => {
+    if (c.city && c.rate != null) {
+      coverageMap.set(c.city.toLowerCase().trim(), c.rate);
+    }
+  });
 
   const zoneMap = new Map<string, number>();
   let hasDefaultZone = false;
@@ -445,8 +460,8 @@ export async function createDispatchSession(
     }
   });
 
-  // BLOCKING: Carrier must have at least one zone configured
-  if (!zones || zones.length === 0) {
+  // BLOCKING: Carrier must have at least one zone or coverage entry configured
+  if ((!zones || zones.length === 0) && (!coverage || coverage.length === 0)) {
     // Get carrier name for better error message
     const { data: carrier } = await supabaseAdmin
       .from('carriers')
@@ -456,8 +471,8 @@ export async function createDispatchSession(
 
     const carrierName = carrier?.name || carrierId.slice(0, 8);
     throw new Error(
-      `El carrier "${carrierName}" no tiene zonas configuradas. ` +
-      `Configure al menos una zona con tarifas antes de despachar. ` +
+      `El carrier "${carrierName}" no tiene zonas ni cobertura configuradas. ` +
+      `Configure al menos una zona/cobertura con tarifas antes de despachar. ` +
       `Vaya a Configuración > Carriers > Zonas para agregar zonas.`
     );
   }
@@ -544,12 +559,18 @@ export async function createDispatchSession(
   let totalPrepaidCarrierFees = 0;
 
   const sessionOrders = orders.map(order => {
-    // delivery_zone is the primary field for zone matching (shipping_city doesn't exist as column)
-    const city = (order.delivery_zone || '').toLowerCase().trim();
+    // FIX: Try new city-based coverage system first, then fall back to zone system
+    const shippingCity = (order.shipping_city || '').toLowerCase().trim();
+    const deliveryZone = (order.delivery_zone || '').toLowerCase().trim();
 
-    // Try to find rate: exact city match, then fallback zones
-    let rate = zoneMap.get(city);
-    if (rate === undefined) {
+    // Priority: 1) shipping_city in coverage, 2) delivery_zone in zones, 3) fallback zones, 4) 0
+    let rate: number | undefined;
+
+    if (shippingCity && coverageMap.has(shippingCity)) {
+      rate = coverageMap.get(shippingCity);
+    } else if (deliveryZone && zoneMap.has(deliveryZone)) {
+      rate = zoneMap.get(deliveryZone);
+    } else {
       // Try fallback zones in priority order
       for (const fallback of defaultZoneNames) {
         if (zoneMap.has(fallback)) {
@@ -2004,12 +2025,27 @@ async function processManualReconciliationLegacy(
     throw new Error(`${invalidOrders.length} pedido(s) no entregados sin motivo de falla: ${orderIds}`);
   }
 
-  // Get carrier zones for rate calculation
+  // Get carrier zones for rate calculation (legacy system)
   const { data: zones } = await supabaseAdmin
     .from('carrier_zones')
     .select('*')
     .eq('carrier_id', carrier_id)
     .eq('is_active', true);
+
+  // Get carrier coverage for rate calculation (new city-based system - migration 090)
+  const { data: coverage } = await supabaseAdmin
+    .from('carrier_coverage')
+    .select('city, rate')
+    .eq('carrier_id', carrier_id)
+    .eq('is_active', true);
+
+  // Build coverage map from new system (city -> rate)
+  const coverageMap = new Map<string, number>();
+  (coverage || []).forEach(c => {
+    if (c.city && c.rate != null) {
+      coverageMap.set(c.city.toLowerCase().trim(), c.rate);
+    }
+  });
 
   // Find default rate from fallback zones (priority: default > otros > interior > general)
   const fallbackZoneNames = ['default', 'otros', 'interior', 'general'];
@@ -2036,6 +2072,11 @@ async function processManualReconciliationLegacy(
     logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has no fallback zone, using first zone rate: ${defaultRate}`);
   } else if (!zones || zones.length === 0) {
     logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has NO zones configured, using hardcoded fallback rate: ${defaultRate}`);
+  }
+
+  // Log coverage map status for debugging
+  if (coverageMap.size > 0) {
+    logger.info('SETTLEMENTS', `[RECONCILIATION] Carrier has ${coverageMap.size} city-based coverage entries`);
   }
 
   // Get all orders from database and validate
@@ -2110,8 +2151,18 @@ async function processManualReconciliationLegacy(
     }
 
     const isCod = isCodPayment(dbOrder.payment_method);
-    const city = (dbOrder.delivery_zone || '').toLowerCase().trim();
-    const carrierFee = zoneMap.get(city) || defaultRate;
+
+    // FIX: Try new city-based coverage system first, then fall back to zone system
+    const shippingCity = (dbOrder.shipping_city || '').toLowerCase().trim();
+    const deliveryZone = (dbOrder.delivery_zone || '').toLowerCase().trim();
+
+    // Priority: 1) shipping_city in coverage, 2) delivery_zone in zones, 3) default
+    let carrierFee = defaultRate;
+    if (shippingCity && coverageMap.has(shippingCity)) {
+      carrierFee = coverageMap.get(shippingCity)!;
+    } else if (deliveryZone && zoneMap.has(deliveryZone)) {
+      carrierFee = zoneMap.get(deliveryZone)!;
+    }
 
     if (orderInput.delivered) {
       // Order was delivered successfully
@@ -3127,7 +3178,7 @@ async function getPendingReconciliationOrdersFallback(
       customer_address: typeof order.shipping_address === 'string'
         ? order.shipping_address
         : (order.shipping_address?.address1 || ''),
-      customer_city: order.delivery_zone || order.shipping_city || '',
+      customer_city: order.shipping_city || order.delivery_zone || '',
       total_price: order.total_price || 0,
       cod_amount: isCod ? (order.total_price || 0) : 0,
       payment_method: order.payment_method || '',
@@ -3261,15 +3312,30 @@ async function processDeliveryReconciliationFallback(
 
   const failedFeePercent = carrier?.failed_attempt_fee_percent ?? 50;
 
-  // STEP 3: Get zone rates for this carrier
+  // STEP 3: Get zone rates for this carrier (legacy system)
   const { data: zones } = await supabaseAdmin
     .from('carrier_zones')
     .select('zone_name, rate')
     .eq('carrier_id', params.carrier_id)
     .eq('store_id', storeId);
 
-  const zoneRates = new Map(zones?.map(z => [z.zone_name, z.rate || 0]) || []);
-  const defaultRate = zones?.[0]?.rate || 0;
+  // Also get city-based coverage (new system - migration 090)
+  const { data: coverage } = await supabaseAdmin
+    .from('carrier_coverage')
+    .select('city, rate')
+    .eq('carrier_id', params.carrier_id)
+    .eq('is_active', true);
+
+  // Build coverage map from new system (city -> rate)
+  const coverageRates = new Map<string, number>();
+  (coverage || []).forEach(c => {
+    if (c.city && c.rate != null) {
+      coverageRates.set(c.city.toLowerCase().trim(), c.rate);
+    }
+  });
+
+  const zoneRates = new Map(zones?.map(z => [z.zone_name?.toLowerCase(), z.rate || 0]) || []);
+  const defaultRate = zones?.[0]?.rate || 25000;
 
   // STEP 4: Calculate totals (all in memory first, before any updates)
   let totalOrders = 0;
@@ -3288,7 +3354,18 @@ async function processDeliveryReconciliationFallback(
     if (!order) continue; // Already validated, but safety check
 
     totalOrders++;
-    const zoneRate = zoneRates.get(order.delivery_zone || 'default') || defaultRate;
+
+    // FIX: Try new city-based coverage system first, then fall back to zone system
+    const shippingCity = (order.shipping_city || '').toLowerCase().trim();
+    const deliveryZone = (order.delivery_zone || '').toLowerCase().trim();
+
+    let zoneRate = defaultRate;
+    if (shippingCity && coverageRates.has(shippingCity)) {
+      zoneRate = coverageRates.get(shippingCity)!;
+    } else if (deliveryZone && zoneRates.has(deliveryZone)) {
+      zoneRate = zoneRates.get(deliveryZone)!;
+    }
+
     const isCod = isCodPayment(order.payment_method);
 
     if (orderData.delivered) {

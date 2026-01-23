@@ -261,7 +261,7 @@ export function Header() {
         {/* Welcome Message - Hidden on very small screens */}
         <div className="hidden sm:block">
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-card-foreground truncate max-w-[200px] md:max-w-none">
-            Hola, {user?.name || user?.email?.split('@')[0] || 'Usuario'}! 👋
+            Hola, {user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuario'}! 👋
           </h1>
         </div>
 

@@ -1801,14 +1801,35 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         const { data: currentOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
             .select(`
-                sleeves_status, delivery_link_token, line_items,
+                sleeves_status, delivery_link_token, line_items, store_id, deleted_at,
                 order_line_items (id, product_id, quantity, product_name)
             `)
             .eq('id', id)
             .eq('store_id', req.storeId)
+            .is('deleted_at', null)
             .single();
 
         if (fetchError || !currentOrder) {
+            // Debug: Try to find order without store_id filter to diagnose the issue
+            const { data: debugOrder } = await supabaseAdmin
+                .from('orders')
+                .select('id, store_id, deleted_at, sleeves_status')
+                .eq('id', id)
+                .single();
+
+            console.error('[PATCH /status] Order not found:', {
+                requestedId: id,
+                requestedStoreId: req.storeId,
+                foundOrder: debugOrder ? {
+                    id: debugOrder.id,
+                    store_id: debugOrder.store_id,
+                    deleted_at: debugOrder.deleted_at,
+                    status: debugOrder.sleeves_status,
+                    storeIdMatch: debugOrder.store_id === req.storeId
+                } : 'NOT_FOUND_AT_ALL',
+                fetchError: fetchError?.message
+            });
+
             return res.status(404).json({
                 error: 'Order not found',
                 code: 'ORDER_NOT_FOUND',
@@ -2692,7 +2713,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 const currentStatus = statusMatch ? statusMatch[1] : 'procesado';
                 return res.status(400).json({
                     error: 'Invalid order status',
-                    message: `El pedido ya está ${currentStatus}. Solo se pueden confirmar pedidos pendientes.`,
+                    message: `El pedido ya está ${currentStatus}. Solo se pueden confirmar pedidos pendientes o contactados.`,
                     code: 'INVALID_STATUS'
                 });
             }
@@ -3144,10 +3165,28 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
             `)
             .eq('id', id)
             .eq('store_id', storeId)
+            .is('deleted_at', null)
             .single();
 
         if (fetchError || !existingOrder) {
-            logger.error('API', `[mark-printed] Order not found: ${id}, error:`, fetchError);
+            // Debug: Try to find order without store_id filter
+            const { data: debugOrder } = await supabaseAdmin
+                .from('orders')
+                .select('id, store_id, deleted_at, sleeves_status')
+                .eq('id', id)
+                .single();
+
+            logger.error('API', `[mark-printed] Order not found:`, {
+                requestedId: id,
+                requestedStoreId: storeId,
+                foundOrder: debugOrder ? {
+                    store_id: debugOrder.store_id,
+                    deleted_at: debugOrder.deleted_at,
+                    storeIdMatch: debugOrder.store_id === storeId
+                } : 'NOT_FOUND',
+                fetchError: fetchError?.message
+            });
+
             return res.status(404).json({
                 error: 'Order not found',
                 message: 'El pedido no existe o no pertenece a esta tienda'

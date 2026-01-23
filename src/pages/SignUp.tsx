@@ -110,7 +110,7 @@ export default function SignUp() {
   };
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex bg-[#0a0a0a]">
       {/* Left Side - Illustration */}
       <AuthIllustration
         title="Ordefy"
@@ -118,19 +118,27 @@ export default function SignUp() {
       />
 
       {/* Right Side - Signup Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background overflow-y-auto">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative overflow-y-auto">
+        {/* Subtle glow continuation from left side */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle at 0% 50%, rgba(132, 204, 22, 0.06) 0%, transparent 50%)'
+          }}
+        />
+
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="w-full max-w-md"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="w-full max-w-md relative z-10"
         >
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-6">
             <div className="bg-primary/10 rounded-xl p-2">
               <Zap className="w-6 h-6 text-primary" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">Ordefy</h1>
+            <h1 className="text-2xl font-bold text-white">Ordefy</h1>
           </div>
 
           {/* Referral Badge */}
@@ -158,8 +166,8 @@ export default function SignUp() {
           )}
 
           <div className="mb-6">
-            <h2 className="text-3xl font-bold mb-2">Crear Cuenta</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-3xl font-bold mb-2 text-white">Crear Cuenta</h2>
+            <p className="text-slate-400">
               Completa tus datos para comenzar
             </p>
           </div>
@@ -167,7 +175,7 @@ export default function SignUp() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Name Field */}
             <div className="space-y-2">
-              <Label htmlFor="name" className="text-base font-medium">
+              <Label htmlFor="name" className="text-base font-medium text-slate-200">
                 Nombre completo
               </Label>
               <div className="relative">
@@ -189,7 +197,7 @@ export default function SignUp() {
 
             {/* Email Field */}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-base font-medium">
+              <Label htmlFor="email" className="text-base font-medium text-slate-200">
                 Email
               </Label>
               <div className="relative">
@@ -211,7 +219,7 @@ export default function SignUp() {
 
             {/* Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-base font-medium">
+              <Label htmlFor="password" className="text-base font-medium text-slate-200">
                 Contraseña
               </Label>
               <div className="relative">
@@ -241,7 +249,7 @@ export default function SignUp() {
 
             {/* Confirm Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword" className="text-base font-medium">
+              <Label htmlFor="confirmPassword" className="text-base font-medium text-slate-200">
                 Confirmar contraseña
               </Label>
               <div className="relative">
@@ -308,7 +316,7 @@ export default function SignUp() {
 
           {/* Login Link */}
           <div className="mt-6 text-center">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-slate-500">
               ¿Ya tienes cuenta?{' '}
               <button
                 type="button"
@@ -320,8 +328,8 @@ export default function SignUp() {
             </p>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-border/50 text-center">
-            <p className="text-xs text-muted-foreground">
+          <div className="mt-8 pt-6 border-t border-slate-800 text-center">
+            <p className="text-xs text-slate-600">
               © 2025 Bright Idea - Ordefy. Todos los derechos reservados.
             </p>
           </div>

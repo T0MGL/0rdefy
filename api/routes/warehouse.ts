@@ -12,6 +12,7 @@ import { Module, Permission } from '../permissions';
 import * as warehouseService from '../services/warehouse.service';
 import { noOrdersSelected, serverError, missingRequiredFields } from '../utils/errorResponses';
 import { validateUUIDParam, validateUUIDParams } from '../utils/sanitize';
+import { supabaseAdmin } from '../db/connection';
 
 const router = Router();
 
@@ -100,9 +101,38 @@ router.post('/sessions', requirePermission(Module.WAREHOUSE, Permission.CREATE),
     );
 
     res.status(201).json(session);
-  } catch (error) {
+  } catch (error: any) {
     logger.error('API', 'Error creating picking session:', error);
-    return serverError(res, error);
+
+    // Return user-friendly error messages for known validation errors
+    const errorMessage = error?.message || 'Error desconocido';
+
+    // Check for validation errors that should return 400
+    const isValidationError =
+      errorMessage.includes('confirmado') ||
+      errorMessage.includes('confirmed') ||
+      errorMessage.includes('inventario') ||
+      errorMessage.includes('Stock') ||
+      errorMessage.includes('stock') ||
+      errorMessage.includes('producto') ||
+      errorMessage.includes('product') ||
+      errorMessage.includes('Invalid order') ||
+      errorMessage.includes('Invalid product') ||
+      errorMessage.includes('No valid products') ||
+      errorMessage.includes('no existen');
+
+    if (isValidationError) {
+      return res.status(400).json({
+        error: 'Error de validación',
+        details: errorMessage
+      });
+    }
+
+    // For unknown errors, still provide some context
+    return res.status(500).json({
+      error: 'Error al crear sesión de preparación',
+      details: errorMessage
+    });
   }
 });
 

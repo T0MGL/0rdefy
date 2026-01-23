@@ -228,52 +228,52 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
         )}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center px-4 border-b border-sidebar-border relative">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <img
-              src="/favicon.ico"
-              alt="Ordefy Logo"
-              className="w-10 h-10 object-contain flex-shrink-0"
-            />
-            <AnimatePresence mode="wait">
-              {isExpanded && (
-                <motion.span
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -10 }}
-                  transition={{ duration: 0.15 }}
-                  className="font-bold text-xl text-sidebar-foreground whitespace-nowrap"
-                >
-                  Ordefy
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </div>
+        <div className="h-16 flex items-center border-b border-sidebar-border shrink-0">
+          {/* Collapsed: centered logo */}
+          {!isExpanded && (
+            <div className="w-full flex items-center justify-center">
+              <img
+                src="/favicon.ico"
+                alt="Ordefy Logo"
+                className="w-10 h-10 object-contain"
+              />
+            </div>
+          )}
 
-          {/* Pin button - only visible when expanded */}
-          <AnimatePresence mode="wait">
-            {isExpanded && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                transition={{ duration: 0.15 }}
+          {/* Expanded: logo + name + pin button */}
+          {isExpanded && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+              className="w-full flex items-center justify-between px-4"
+            >
+              <div className="flex items-center gap-3">
+                <img
+                  src="/favicon.ico"
+                  alt="Ordefy Logo"
+                  className="w-10 h-10 object-contain flex-shrink-0"
+                />
+                <span className="font-bold text-xl text-sidebar-foreground">
+                  Ordefy
+                </span>
+              </div>
+
+              {/* Pin button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={togglePin}
+                className={cn(
+                  'h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent flex-shrink-0',
+                  isPinned && 'text-primary bg-sidebar-accent'
+                )}
+                title={isPinned ? 'Desfijar sidebar' : 'Fijar sidebar abierto'}
               >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={togglePin}
-                  className={cn(
-                    'h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
-                    isPinned && 'text-primary bg-sidebar-accent'
-                  )}
-                  title={isPinned ? 'Desfijar sidebar' : 'Fijar sidebar abierto'}
-                >
-                  {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
-                </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
+              </Button>
+            </motion.div>
+          )}
         </div>
 
         {/* Navigation */}

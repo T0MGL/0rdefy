@@ -154,15 +154,55 @@ export async function createSession(
 
       const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
       if (nonConfirmedOrders.length > 0) {
-        throw new Error('Todos los pedidos deben estar en estado confirmado');
+        // Group orders by status for better error message
+        const statusCounts = nonConfirmedOrders.reduce((acc: Record<string, number>, o: any) => {
+          const status = o.sleeves_status || 'sin_estado';
+          acc[status] = (acc[status] || 0) + 1;
+          return acc;
+        }, {});
+
+        const statusSummary = Object.entries(statusCounts)
+          .map(([status, count]) => `${count} en "${status}"`)
+          .join(', ');
+
+        throw new Error(
+          `⚠️ No se puede crear la sesión de preparación\n\n` +
+          `${nonConfirmedOrders.length} pedido(s) no están en estado "confirmado":\n` +
+          `${statusSummary}\n\n` +
+          `💡 Solo los pedidos confirmados pueden agregarse a una sesión de preparación.\n` +
+          `Si los pedidos están en estado "contacted", debes confirmarlos primero.`
+        );
       }
 
       // 2. Generate unique session code
+      let sessionCode: string;
       const { data: codeData, error: codeError } = await supabaseAdmin
         .rpc('generate_session_code');
 
-      if (codeError) throw codeError;
-      const sessionCode = codeData;
+      if (codeError) {
+        // Fallback: Generate code locally if RPC doesn't exist (migration 081 not applied)
+        if (codeError.message?.includes('function') || codeError.code === '42883') {
+          logger.warn('WAREHOUSE', 'generate_session_code RPC not available, using local generation');
+          const now = new Date();
+          const datePart = now.toLocaleDateString('es-PY', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          }).replace(/\//g, '');
+          // Get count of sessions for today
+          const { count } = await supabaseAdmin
+            .from('picking_sessions')
+            .select('*', { count: 'exact', head: true })
+            .eq('store_id', storeId)
+            .gte('created_at', now.toISOString().split('T')[0]);
+          const sequenceNum = (count || 0) + 1;
+          sessionCode = `PREP-${datePart}-${String(sequenceNum).padStart(3, '0')}`;
+        } else {
+          throw codeError;
+        }
+      } else {
+        sessionCode = codeData;
+      }
 
       // 3. Create picking session
       const { data: sessionData, error: sessionError } = await supabaseAdmin
