@@ -19,7 +19,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Pencil, Trash2, Package, Loader2, Box, HelpCircle } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Pencil, Trash2, Package, Loader2, Box, HelpCircle, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   Tooltip,
@@ -27,16 +28,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { VariantType, isBundle } from '@/types';
 
 interface Variant {
   id: string;
   product_id: string;
   sku: string | null;
   variant_title: string;
+  variant_type?: VariantType;
   option1_name?: string | null;
   option1_value?: string | null;
   option2_name?: string | null;
   option2_value?: string | null;
+  option3_name?: string | null;
+  option3_value?: string | null;
   price: number;
   cost: number | null;
   stock: number;
@@ -44,6 +49,8 @@ interface Variant {
   position: number;
   uses_shared_stock?: boolean;
   units_per_pack?: number;
+  available_packs?: number;
+  available_stock?: number;
 }
 
 interface ProductVariantsManagerProps {
@@ -74,24 +81,33 @@ export function ProductVariantsManager({
   onVariantsUpdated
 }: ProductVariantsManagerProps) {
   const { toast } = useToast();
-  const [variants, setVariants] = useState<Variant[]>([]);
+  const [bundles, setBundles] = useState<Variant[]>([]);
+  const [variations, setVariations] = useState<Variant[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [parentStock, setParentStock] = useState(productStock);
+  const [activeTab, setActiveTab] = useState<'bundles' | 'variations'>('bundles');
 
-  // Form state
-  const [formData, setFormData] = useState({
+  // Bundle form state
+  const [bundleForm, setBundleForm] = useState({
+    variant_title: '',
+    sku: '',
+    price: '',
+    cost: '',
+    units_per_pack: '1'
+  });
+
+  // Variation form state
+  const [variationForm, setVariationForm] = useState({
     variant_title: '',
     sku: '',
     price: '',
     cost: '',
     stock: '0',
-    option1_name: 'Cantidad',
-    option1_value: '',
-    uses_shared_stock: true,
-    units_per_pack: '1'
+    option1_name: '',
+    option1_value: ''
   });
 
   // Fetch variants when dialog opens
@@ -104,7 +120,6 @@ export function ProductVariantsManager({
   const fetchVariants = async () => {
     setLoading(true);
     try {
-      // Fetch variants
       const response = await fetch(`${API_BASE}/api/products/${productId}/variants`, {
         headers: getAuthHeaders()
       });
@@ -114,17 +129,9 @@ export function ProductVariantsManager({
       }
 
       const data = await response.json();
-      setVariants(data.variants || []);
-
-      // Also fetch parent product stock
-      const productResponse = await fetch(`${API_BASE}/api/products/${productId}`, {
-        headers: getAuthHeaders()
-      });
-
-      if (productResponse.ok) {
-        const productData = await productResponse.json();
-        setParentStock(productData.stock || 0);
-      }
+      setBundles(data.bundles || []);
+      setVariations(data.variations || []);
+      setParentStock(data.parent_stock || 0);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -136,40 +143,124 @@ export function ProductVariantsManager({
     }
   };
 
-  const resetForm = () => {
-    setFormData({
+  const resetBundleForm = () => {
+    setBundleForm({
       variant_title: '',
       sku: '',
       price: '',
       cost: '',
-      stock: '0',
-      option1_name: 'Cantidad',
-      option1_value: '',
-      uses_shared_stock: true,
       units_per_pack: '1'
     });
     setEditingVariant(null);
     setShowAddForm(false);
   };
 
-  const handleEditVariant = (variant: Variant) => {
-    setFormData({
+  const resetVariationForm = () => {
+    setVariationForm({
+      variant_title: '',
+      sku: '',
+      price: '',
+      cost: '',
+      stock: '0',
+      option1_name: '',
+      option1_value: ''
+    });
+    setEditingVariant(null);
+    setShowAddForm(false);
+  };
+
+  const handleEditBundle = (variant: Variant) => {
+    setBundleForm({
+      variant_title: variant.variant_title,
+      sku: variant.sku || '',
+      price: variant.price.toString(),
+      cost: variant.cost?.toString() || '',
+      units_per_pack: (variant.units_per_pack || 1).toString()
+    });
+    setEditingVariant(variant);
+    setShowAddForm(true);
+    setActiveTab('bundles');
+  };
+
+  const handleEditVariation = (variant: Variant) => {
+    setVariationForm({
       variant_title: variant.variant_title,
       sku: variant.sku || '',
       price: variant.price.toString(),
       cost: variant.cost?.toString() || '',
       stock: variant.stock.toString(),
-      option1_name: variant.option1_name || 'Cantidad',
-      option1_value: variant.option1_value || '',
-      uses_shared_stock: variant.uses_shared_stock ?? true,
-      units_per_pack: (variant.units_per_pack || 1).toString()
+      option1_name: variant.option1_name || '',
+      option1_value: variant.option1_value || ''
     });
     setEditingVariant(variant);
     setShowAddForm(true);
+    setActiveTab('variations');
   };
 
-  const handleSaveVariant = async () => {
-    if (!formData.variant_title || !formData.price) {
+  const handleSaveBundle = async () => {
+    if (!bundleForm.variant_title || !bundleForm.price) {
+      toast({
+        title: 'Error',
+        description: 'Nombre del pack y precio son requeridos',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        variant_title: bundleForm.variant_title,
+        sku: bundleForm.sku || null,
+        price: parseFloat(bundleForm.price),
+        cost: bundleForm.cost ? parseFloat(bundleForm.cost) : null,
+        units_per_pack: parseInt(bundleForm.units_per_pack, 10) || 1,
+        image_url: productImageUrl
+      };
+
+      let response;
+      if (editingVariant) {
+        // Update existing - use generic endpoint with variant_type
+        response = await fetch(`${API_BASE}/api/products/${productId}/variants/${editingVariant.id}`, {
+          method: 'PUT',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ ...payload, variant_type: 'bundle', uses_shared_stock: true, stock: 0 })
+        });
+      } else {
+        // Create new bundle
+        response = await fetch(`${API_BASE}/api/products/${productId}/bundles`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Error al guardar pack');
+      }
+
+      toast({
+        title: editingVariant ? 'Pack actualizado' : 'Pack creado',
+        description: `El pack "${bundleForm.variant_title}" se ha guardado correctamente`
+      });
+
+      resetBundleForm();
+      fetchVariants();
+      onVariantsUpdated?.();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Error al guardar pack',
+        variant: 'destructive'
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveVariation = async () => {
+    if (!variationForm.variant_title || !variationForm.price) {
       toast({
         title: 'Error',
         description: 'Nombre de variante y precio son requeridos',
@@ -181,16 +272,14 @@ export function ProductVariantsManager({
     setSaving(true);
     try {
       const payload = {
-        variant_title: formData.variant_title,
-        sku: formData.sku || null,
-        price: parseFloat(formData.price),
-        cost: formData.cost ? parseFloat(formData.cost) : null,
-        stock: formData.uses_shared_stock ? 0 : (parseInt(formData.stock, 10) || 0),
-        option1_name: formData.option1_name || null,
-        option1_value: formData.option1_value || null,
-        uses_shared_stock: formData.uses_shared_stock,
-        units_per_pack: parseInt(formData.units_per_pack, 10) || 1,
-        image_url: productImageUrl // Inherit from parent product
+        variant_title: variationForm.variant_title,
+        sku: variationForm.sku || null,
+        price: parseFloat(variationForm.price),
+        cost: variationForm.cost ? parseFloat(variationForm.cost) : null,
+        stock: parseInt(variationForm.stock, 10) || 0,
+        option1_name: variationForm.option1_name || null,
+        option1_value: variationForm.option1_value || null,
+        image_url: productImageUrl
       };
 
       let response;
@@ -199,11 +288,11 @@ export function ProductVariantsManager({
         response = await fetch(`${API_BASE}/api/products/${productId}/variants/${editingVariant.id}`, {
           method: 'PUT',
           headers: getAuthHeaders(),
-          body: JSON.stringify(payload)
+          body: JSON.stringify({ ...payload, variant_type: 'variation', uses_shared_stock: false, units_per_pack: 1 })
         });
       } else {
-        // Create new
-        response = await fetch(`${API_BASE}/api/products/${productId}/variants`, {
+        // Create new variation
+        response = await fetch(`${API_BASE}/api/products/${productId}/variations`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
@@ -217,10 +306,10 @@ export function ProductVariantsManager({
 
       toast({
         title: editingVariant ? 'Variante actualizada' : 'Variante creada',
-        description: `La variante "${formData.variant_title}" se ha guardado correctamente`
+        description: `La variante "${variationForm.variant_title}" se ha guardado correctamente`
       });
 
-      resetForm();
+      resetVariationForm();
       fetchVariants();
       onVariantsUpdated?.();
     } catch (error: any) {
@@ -235,7 +324,8 @@ export function ProductVariantsManager({
   };
 
   const handleDeleteVariant = async (variant: Variant) => {
-    if (!confirm(`¿Eliminar variante "${variant.variant_title}"?`)) {
+    const typeLabel = variant.variant_type === 'bundle' ? 'pack' : 'variante';
+    if (!confirm(`Eliminar ${typeLabel} "${variant.variant_title}"?`)) {
       return;
     }
 
@@ -246,12 +336,12 @@ export function ProductVariantsManager({
       });
 
       if (!response.ok) {
-        throw new Error('Error al eliminar variante');
+        throw new Error('Error al eliminar');
       }
 
       toast({
-        title: 'Variante eliminada',
-        description: `La variante "${variant.variant_title}" se ha eliminado`
+        title: `${variant.variant_type === 'bundle' ? 'Pack' : 'Variante'} eliminado`,
+        description: `"${variant.variant_title}" se ha eliminado`
       });
 
       fetchVariants();
@@ -259,7 +349,7 @@ export function ProductVariantsManager({
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.message || 'Error al eliminar variante',
+        description: error.message || 'Error al eliminar',
         variant: 'destructive'
       });
     }
@@ -273,7 +363,7 @@ export function ProductVariantsManager({
     }).format(price);
   };
 
-  const currentUnitsPerPack = parseInt(formData.units_per_pack, 10) || 1;
+  const currentUnitsPerPack = parseInt(bundleForm.units_per_pack, 10) || 1;
   const calculatedPacks = Math.floor(parentStock / currentUnitsPerPack);
 
   return (
@@ -283,285 +373,486 @@ export function ProductVariantsManager({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              Packs y Variantes - {productName}
+              Gestionar Producto - {productName}
             </DialogTitle>
             <DialogDescription>
-              Configura diferentes opciones de venta: packs de diferentes cantidades, tallas, colores, etc.
+              Configura packs (cantidades con descuento) y variantes (tallas, colores) para este producto.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto space-y-4">
-            {/* Stock Summary Card */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-              <div className="flex items-start gap-4">
-                <div className="p-3 bg-blue-100 dark:bg-blue-900/50 rounded-lg">
-                  <Box className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+          <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setShowAddForm(false); }} className="flex-1 flex flex-col">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="bundles" className="flex items-center gap-2">
+                <Package className="h-4 w-4" />
+                Packs ({bundles.length})
+              </TabsTrigger>
+              <TabsTrigger value="variations" className="flex items-center gap-2">
+                <Tag className="h-4 w-4" />
+                Variantes ({variations.length})
+              </TabsTrigger>
+            </TabsList>
+
+            {/* BUNDLES TAB */}
+            <TabsContent value="bundles" className="flex-1 overflow-y-auto space-y-4 mt-4">
+              {/* Stock Summary Card for Bundles */}
+              <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-purple-100 dark:bg-purple-900/50 rounded-lg">
+                    <Box className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-purple-900 dark:text-purple-100">Stock Compartido</h3>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <HelpCircle className="h-4 w-4 text-purple-500" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>Los packs comparten el stock del producto padre. Al vender un pack de 2, se descuentan 2 unidades del stock total.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-3xl font-bold text-purple-700 dark:text-purple-300">{parentStock}</span>
+                      <span className="text-purple-600 dark:text-purple-400 ml-2">unidades fisicas</span>
+                    </div>
+                    {bundles.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {bundles.map(b => {
+                          const packs = b.available_packs ?? Math.floor(parentStock / (b.units_per_pack || 1));
+                          return (
+                            <div key={b.id} className="text-sm bg-white dark:bg-gray-800 px-3 py-1 rounded-full border border-purple-200 dark:border-purple-700">
+                              <span className="font-medium">{b.variant_title}:</span>{' '}
+                              <span className="text-purple-600 dark:text-purple-400">{packs} packs</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-blue-900 dark:text-blue-100">Stock del Producto</h3>
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <HelpCircle className="h-4 w-4 text-blue-500" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        <p>Este es el stock total de unidades fisicas. Las variantes calculan automaticamente cuantos packs se pueden vender basado en las unidades por pack.</p>
-                      </TooltipContent>
-                    </Tooltip>
+              </div>
+
+              {/* Bundle Add/Edit Form */}
+              {showAddForm && activeTab === 'bundles' && (
+                <div className="border rounded-lg p-4 space-y-4 bg-purple-50/50 dark:bg-purple-950/20">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Package className="h-4 w-4 text-purple-600" />
+                    {editingVariant ? 'Editar pack' : 'Nuevo pack'}
+                  </h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bundle_title" className="flex items-center gap-1">
+                        Nombre del pack *
+                        <Tooltip>
+                          <TooltipTrigger><HelpCircle className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+                          <TooltipContent><p>Ej: "Personal", "Pareja", "Familiar", "Oficina"</p></TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="bundle_title"
+                        value={bundleForm.variant_title}
+                        onChange={(e) => setBundleForm({ ...bundleForm, variant_title: e.target.value })}
+                        placeholder="Ej: Pareja"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="bundle_units" className="flex items-center gap-1">
+                        Unidades por pack *
+                        <Tooltip>
+                          <TooltipTrigger><HelpCircle className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+                          <TooltipContent><p>Cuantas unidades fisicas contiene este pack</p></TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="bundle_units"
+                        type="number"
+                        min="1"
+                        value={bundleForm.units_per_pack}
+                        onChange={(e) => setBundleForm({ ...bundleForm, units_per_pack: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Disponibles: {calculatedPacks} packs
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="bundle_sku">SKU (opcional)</Label>
+                      <Input
+                        id="bundle_sku"
+                        value={bundleForm.sku}
+                        onChange={(e) => setBundleForm({ ...bundleForm, sku: e.target.value.toUpperCase() })}
+                        placeholder="Ej: NOCTE-PAREJA"
+                        className="font-mono text-sm"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="bundle_price">Precio de venta *</Label>
+                      <Input
+                        id="bundle_price"
+                        type="number"
+                        value={bundleForm.price}
+                        onChange={(e) => setBundleForm({ ...bundleForm, price: e.target.value })}
+                        placeholder="350000"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="bundle_cost">Costo (opcional)</Label>
+                      <Input
+                        id="bundle_cost"
+                        type="number"
+                        value={bundleForm.cost}
+                        onChange={(e) => setBundleForm({ ...bundleForm, cost: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="md:col-span-2 p-3 rounded-lg bg-purple-100 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700">
+                      <p className="text-sm text-purple-800 dark:text-purple-200">
+                        <strong>Vista previa:</strong> Pack "{bundleForm.variant_title || '...'}" con {currentUnitsPerPack} unidad{currentUnitsPerPack > 1 ? 'es' : ''}.
+                        {bundleForm.price && ` Precio: ${formatPrice(parseFloat(bundleForm.price))}`}
+                      </p>
+                    </div>
                   </div>
-                  <div className="mt-1">
-                    <span className="text-3xl font-bold text-blue-700 dark:text-blue-300">{parentStock}</span>
-                    <span className="text-blue-600 dark:text-blue-400 ml-2">unidades fisicas</span>
+
+                  <div className="flex gap-2 justify-end pt-2 border-t">
+                    <Button variant="outline" onClick={resetBundleForm}>Cancelar</Button>
+                    <Button onClick={handleSaveBundle} disabled={saving} className="bg-purple-600 hover:bg-purple-700">
+                      {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {editingVariant ? 'Guardar cambios' : 'Crear pack'}
+                    </Button>
                   </div>
-                  {variants.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {variants.map(v => {
-                        const units = v.units_per_pack || 1;
-                        const packs = Math.floor(parentStock / units);
+                </div>
+              )}
+
+              {/* Bundles Table */}
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : bundles.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
+                  <Package className="h-12 w-12 mx-auto mb-4 opacity-50 text-purple-400" />
+                  <p className="text-lg font-medium">No hay packs configurados</p>
+                  <p className="text-sm mt-1 max-w-md mx-auto">
+                    Los packs son cantidades del mismo producto (1x, 2x, 3x) con precios diferenciados. Comparten el stock del producto padre.
+                  </p>
+                  <Button onClick={() => setShowAddForm(true)} className="mt-4 bg-purple-600 hover:bg-purple-700">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Crear primer pack
+                  </Button>
+                </div>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-purple-50 dark:bg-purple-950/30">
+                        <TableHead>Pack</TableHead>
+                        <TableHead>SKU</TableHead>
+                        <TableHead className="text-center">Unidades</TableHead>
+                        <TableHead className="text-right">Precio</TableHead>
+                        <TableHead className="text-right">Disponible</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bundles.map((bundle) => {
+                        const packs = bundle.available_packs ?? Math.floor(parentStock / (bundle.units_per_pack || 1));
                         return (
-                          <div key={v.id} className="text-sm bg-white dark:bg-gray-800 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-700">
-                            <span className="font-medium">{v.variant_title}:</span>{' '}
-                            <span className="text-blue-600 dark:text-blue-400">{packs} disponibles</span>
-                          </div>
+                          <TableRow key={bundle.id}>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
+                                  <Package className="h-3 w-3 mr-1" />
+                                  PACK
+                                </Badge>
+                                <span className="font-medium">{bundle.variant_title}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {bundle.sku ? (
+                                <code className="text-xs bg-muted px-2 py-1 rounded font-mono">{bundle.sku}</code>
+                              ) : (
+                                <span className="text-muted-foreground text-xs italic">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant="secondary" className="font-mono">
+                                {bundle.units_per_pack || 1}x
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              {formatPrice(bundle.price)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Badge variant={packs === 0 ? 'destructive' : packs <= 10 ? 'secondary' : 'default'}>
+                                {packs} packs
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button variant="ghost" size="icon" onClick={() => handleEditBundle(bundle)}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteVariant(bundle)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
                         );
                       })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {bundles.length > 0 && !showAddForm && (
+                <div className="flex justify-end">
+                  <Button onClick={() => setShowAddForm(true)} className="bg-purple-600 hover:bg-purple-700">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Agregar pack
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* VARIATIONS TAB */}
+            <TabsContent value="variations" className="flex-1 overflow-y-auto space-y-4 mt-4">
+              {/* Variation Info Card */}
+              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-200 dark:border-emerald-800">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg">
+                    <Tag className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-emerald-900 dark:text-emerald-100">Stock Independiente</h3>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <HelpCircle className="h-4 w-4 text-emerald-500" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>Cada variante tiene su propio inventario. Ideal para tallas, colores, o materiales diferentes.</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Add/Edit Form */}
-            {showAddForm && (
-              <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
-                <h4 className="font-medium flex items-center gap-2">
-                  {editingVariant ? 'Editar variante' : 'Nueva variante'}
-                </h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="variant_title" className="flex items-center gap-1">
-                      Nombre del pack/variante *
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Ej: "Personal", "Pareja", "Familiar", "Talla M", "Color Azul"</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </Label>
-                    <Input
-                      id="variant_title"
-                      value={formData.variant_title}
-                      onChange={(e) => setFormData({ ...formData, variant_title: e.target.value })}
-                      placeholder="Ej: Personal, Pareja, Oficina"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="sku" className="flex items-center gap-1">
-                      SKU
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
-                          <p>Codigo unico para identificar esta variante. Si usas Shopify o un landing page, asegurate de que coincida con el SKU de alla.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </Label>
-                    <Input
-                      id="sku"
-                      value={formData.sku}
-                      onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
-                      placeholder="Ej: NOCTE-GLASSES-PERSONAL"
-                      className="font-mono text-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="units_per_pack" className="flex items-center gap-1">
-                      Unidades por pack *
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
-                          <p>Cuantas unidades fisicas contiene este pack. Si vendes "pack de 2", pon 2. Si es unitario, pon 1.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </Label>
-                    <Input
-                      id="units_per_pack"
-                      type="number"
-                      min="1"
-                      value={formData.units_per_pack}
-                      onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value })}
-                      placeholder="1"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Con {parentStock} unidades, podras vender {calculatedPacks} de este pack
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
+                      Las variantes son versiones diferentes del producto con stock separado.
                     </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="price">Precio de venta *</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      value={formData.price}
-                      onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                      placeholder="199000"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="cost">Costo (opcional)</Label>
-                    <Input
-                      id="cost"
-                      type="number"
-                      value={formData.cost}
-                      onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                      placeholder="0"
-                    />
-                    <p className="text-xs text-muted-foreground">Para calcular margen de ganancia</p>
-                  </div>
-
-                  {/* Visual preview */}
-                  <div className="md:col-span-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
-                    <p className="text-sm text-green-800 dark:text-green-200">
-                      <strong>Vista previa:</strong> Al vender 1 "{formData.variant_title || 'pack'}"
-                      {currentUnitsPerPack > 1 ? ` se descontaran ${currentUnitsPerPack} unidades` : ' se descontara 1 unidad'} del stock.
-                      {formData.price && ` Precio: ${formatPrice(parseFloat(formData.price))}`}
-                    </p>
+                    {variations.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {variations.map(v => (
+                          <div key={v.id} className="text-sm bg-white dark:bg-gray-800 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-700">
+                            <span className="font-medium">{v.variant_title}:</span>{' '}
+                            <span className="text-emerald-600 dark:text-emerald-400">{v.stock} uds</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
+              </div>
 
-                <div className="flex gap-2 justify-end pt-2 border-t">
-                  <Button variant="outline" onClick={resetForm}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleSaveVariant} disabled={saving}>
-                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {editingVariant ? 'Guardar cambios' : 'Crear variante'}
+              {/* Variation Add/Edit Form */}
+              {showAddForm && activeTab === 'variations' && (
+                <div className="border rounded-lg p-4 space-y-4 bg-emerald-50/50 dark:bg-emerald-950/20">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Tag className="h-4 w-4 text-emerald-600" />
+                    {editingVariant ? 'Editar variante' : 'Nueva variante'}
+                  </h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="var_title" className="flex items-center gap-1">
+                        Nombre de variante *
+                        <Tooltip>
+                          <TooltipTrigger><HelpCircle className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+                          <TooltipContent><p>Ej: "Talla M", "Color Azul", "Material Acero"</p></TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="var_title"
+                        value={variationForm.variant_title}
+                        onChange={(e) => setVariationForm({ ...variationForm, variant_title: e.target.value })}
+                        placeholder="Ej: Talla M"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="var_stock">Stock *</Label>
+                      <Input
+                        id="var_stock"
+                        type="number"
+                        min="0"
+                        value={variationForm.stock}
+                        onChange={(e) => setVariationForm({ ...variationForm, stock: e.target.value })}
+                        placeholder="0"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="var_option_name">Atributo (opcional)</Label>
+                      <Input
+                        id="var_option_name"
+                        value={variationForm.option1_name}
+                        onChange={(e) => setVariationForm({ ...variationForm, option1_name: e.target.value })}
+                        placeholder="Ej: Talla, Color"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="var_option_value">Valor del atributo</Label>
+                      <Input
+                        id="var_option_value"
+                        value={variationForm.option1_value}
+                        onChange={(e) => setVariationForm({ ...variationForm, option1_value: e.target.value })}
+                        placeholder="Ej: M, Azul"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="var_sku">SKU (opcional)</Label>
+                      <Input
+                        id="var_sku"
+                        value={variationForm.sku}
+                        onChange={(e) => setVariationForm({ ...variationForm, sku: e.target.value.toUpperCase() })}
+                        placeholder="Ej: SHIRT-M-BLUE"
+                        className="font-mono text-sm"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="var_price">Precio de venta *</Label>
+                      <Input
+                        id="var_price"
+                        type="number"
+                        value={variationForm.price}
+                        onChange={(e) => setVariationForm({ ...variationForm, price: e.target.value })}
+                        placeholder="99000"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="var_cost">Costo (opcional)</Label>
+                      <Input
+                        id="var_cost"
+                        type="number"
+                        value={variationForm.cost}
+                        onChange={(e) => setVariationForm({ ...variationForm, cost: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 justify-end pt-2 border-t">
+                    <Button variant="outline" onClick={resetVariationForm}>Cancelar</Button>
+                    <Button onClick={handleSaveVariation} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">
+                      {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {editingVariant ? 'Guardar cambios' : 'Crear variante'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Variations Table */}
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : variations.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
+                  <Tag className="h-12 w-12 mx-auto mb-4 opacity-50 text-emerald-400" />
+                  <p className="text-lg font-medium">No hay variantes configuradas</p>
+                  <p className="text-sm mt-1 max-w-md mx-auto">
+                    Las variantes son versiones del producto con stock independiente: tallas, colores, materiales, etc.
+                  </p>
+                  <Button onClick={() => setShowAddForm(true)} className="mt-4 bg-emerald-600 hover:bg-emerald-700">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Crear primera variante
                   </Button>
                 </div>
-              </div>
-            )}
-
-            {/* Variants Table */}
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : variants.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
-                <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium">No hay variantes configuradas</p>
-                <p className="text-sm mt-1 max-w-md mx-auto">
-                  Crea variantes para vender el mismo producto en diferentes presentaciones:
-                  packs de 1, 2, 3 unidades con diferentes precios, o variaciones de talla/color.
-                </p>
-                <Button onClick={() => setShowAddForm(true)} className="mt-4">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Crear primera variante
-                </Button>
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead>Variante</TableHead>
-                      <TableHead>SKU</TableHead>
-                      <TableHead className="text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          Uds/Pack
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Unidades que se descuentan por cada venta</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </TableHead>
-                      <TableHead className="text-right">Precio</TableHead>
-                      <TableHead className="text-right">Disponible</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {variants.map((variant) => {
-                      const unitsPerPack = variant.units_per_pack || 1;
-                      const availablePacks = Math.floor(parentStock / unitsPerPack);
-
-                      return (
-                        <TableRow key={variant.id}>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-emerald-50 dark:bg-emerald-950/30">
+                        <TableHead>Variante</TableHead>
+                        <TableHead>SKU</TableHead>
+                        <TableHead>Atributo</TableHead>
+                        <TableHead className="text-right">Precio</TableHead>
+                        <TableHead className="text-right">Stock</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {variations.map((variation) => (
+                        <TableRow key={variation.id}>
                           <TableCell>
-                            <span className="font-medium">{variant.variant_title}</span>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-300">
+                                <Tag className="h-3 w-3 mr-1" />
+                                VAR
+                              </Badge>
+                              <span className="font-medium">{variation.variant_title}</span>
+                            </div>
                           </TableCell>
                           <TableCell>
-                            {variant.sku ? (
-                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono">{variant.sku}</code>
+                            {variation.sku ? (
+                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono">{variation.sku}</code>
                             ) : (
-                              <span className="text-muted-foreground text-xs italic">Sin SKU</span>
+                              <span className="text-muted-foreground text-xs italic">-</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant="outline" className="font-mono">
-                              {unitsPerPack} {unitsPerPack === 1 ? 'ud' : 'uds'}
-                            </Badge>
+                          <TableCell>
+                            {variation.option1_name && variation.option1_value ? (
+                              <span className="text-sm">{variation.option1_name}: {variation.option1_value}</span>
+                            ) : (
+                              <span className="text-muted-foreground text-xs italic">-</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right font-medium">
-                            {formatPrice(variant.price)}
+                            {formatPrice(variation.price)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Badge
-                              variant={availablePacks === 0 ? 'destructive' : availablePacks <= 10 ? 'secondary' : 'default'}
-                              className="font-mono"
-                            >
-                              {availablePacks}
+                            <Badge variant={variation.stock === 0 ? 'destructive' : variation.stock <= 10 ? 'secondary' : 'default'}>
+                              {variation.stock} uds
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleEditVariant(variant)}
-                                title="Editar"
-                              >
+                              <Button variant="ghost" size="icon" onClick={() => handleEditVariation(variation)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDeleteVariant(variant)}
-                                title="Eliminar"
-                              >
+                              <Button variant="ghost" size="icon" onClick={() => handleDeleteVariant(variation)}>
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
                           </TableCell>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </div>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {variations.length > 0 && !showAddForm && (
+                <div className="flex justify-end">
+                  <Button onClick={() => setShowAddForm(true)} className="bg-emerald-600 hover:bg-emerald-700">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Agregar variante
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter className="border-t pt-4">
-            {variants.length > 0 && !showAddForm && (
-              <Button onClick={() => setShowAddForm(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Agregar variante
-              </Button>
-            )}
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cerrar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -76,7 +76,7 @@ export interface Order {
   product: string;
   quantity: number;
   total: number;
-  status: 'pending' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident';
+  status: 'pending' | 'contacted' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident';
   payment_status?: 'pending' | 'collected' | 'failed';
   carrier: string;
   carrier_id?: string;
@@ -216,8 +216,100 @@ export interface Product {
   variants?: ProductVariant[];
 }
 
-// Product Variant for bundle pricing and SKU variations (Migration 086/087)
-export interface ProductVariant {
+// ============================================================================
+// Product Variants: Bundles vs Variations (Migration 101)
+// ============================================================================
+//
+// BUNDLE: Quantity packs with shared stock (1x, 2x, 3x)
+//   - uses_shared_stock = true (always)
+//   - units_per_pack >= 1
+//   - stock = 0 (uses parent product stock)
+//   - available_packs = floor(parent_stock / units_per_pack)
+//
+// VARIATION: Different product versions with independent stock (Size, Color)
+//   - uses_shared_stock = false (always)
+//   - units_per_pack = 1 (always)
+//   - stock = independent quantity
+//   - option1/2/3 for attributes (Size/M, Color/Blue)
+//
+// ============================================================================
+
+export type VariantType = 'bundle' | 'variation';
+
+// Base interface with common fields
+interface ProductVariantBase {
+  id: string;
+  product_id: string;
+  store_id?: string;
+  sku?: string;
+  variant_title: string;
+  price: number;
+  cost?: number;
+  is_active: boolean;
+  position?: number;
+  image_url?: string;
+  // Shopify integration
+  shopify_variant_id?: string;
+  shopify_inventory_item_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Bundle: Pack de cantidad con stock compartido del producto padre
+export interface BundleVariant extends ProductVariantBase {
+  variant_type: 'bundle';
+  uses_shared_stock: true;
+  units_per_pack: number;       // >= 1, e.g., 2 for "Pareja"
+  stock: 0;                     // Always 0, uses parent stock
+  available_packs?: number;     // Calculated: floor(parent_stock / units_per_pack)
+  // Bundles don't use option attributes
+  option1_name?: undefined;
+  option1_value?: undefined;
+  option2_name?: undefined;
+  option2_value?: undefined;
+  option3_name?: undefined;
+  option3_value?: undefined;
+}
+
+// Variation: Version del producto con stock independiente
+export interface VariationVariant extends ProductVariantBase {
+  variant_type: 'variation';
+  uses_shared_stock: false;
+  units_per_pack: 1;            // Always 1 for variations
+  stock: number;                // Independent stock
+  available_stock?: number;     // Same as stock for variations
+  // Attribute options (Size, Color, Material)
+  option1_name?: string;
+  option1_value?: string;
+  option2_name?: string;
+  option2_value?: string;
+  option3_name?: string;
+  option3_value?: string;
+}
+
+// Union type - a variant is either a Bundle OR a Variation
+export type ProductVariant = BundleVariant | VariationVariant;
+
+// Type guards for discriminated union
+export const isBundle = (variant: ProductVariant): variant is BundleVariant =>
+  variant.variant_type === 'bundle';
+
+export const isVariation = (variant: ProductVariant): variant is VariationVariant =>
+  variant.variant_type === 'variation';
+
+// Helper to get available quantity (packs for bundles, units for variations)
+export const getAvailableQuantity = (variant: ProductVariant, parentStock?: number): number => {
+  if (isBundle(variant)) {
+    if (variant.available_packs !== undefined) return variant.available_packs;
+    if (parentStock !== undefined) return Math.floor(parentStock / variant.units_per_pack);
+    return 0;
+  }
+  return variant.available_stock ?? variant.stock ?? 0;
+};
+
+// Legacy interface for backward compatibility during transition
+// TODO: Remove after full migration
+export interface ProductVariantLegacy {
   id: string;
   product_id: string;
   store_id?: string;
@@ -232,17 +324,15 @@ export interface ProductVariant {
   price: number;
   cost?: number;
   stock: number;
-  // Shared stock for bundles (e.g., "Pareja" pack uses 2 units from parent stock)
   uses_shared_stock: boolean;
   units_per_pack: number;
-  // Calculated field: available packs for shared stock variants
   available_stock?: number;
   is_active: boolean;
   position?: number;
   image_url?: string;
-  // Shopify integration
   shopify_variant_id?: string;
   shopify_inventory_item_id?: string;
+  variant_type?: VariantType;
 }
 
 export interface Ad {
