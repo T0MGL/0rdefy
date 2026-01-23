@@ -28,6 +28,7 @@ import {
   ReconciliationTable,
   AmountInputSection,
   ReconciliationSummary,
+  PendingReconciliationView,
   type CourierDateGroup,
 } from '@/components/settlements';
 import type { ReconciliationOrder, OrderReconciliation } from '@/components/settlements/ReconciliationTable';
@@ -385,6 +386,10 @@ export default function Settlements() {
 
   // Main tab state
   const [activeTab, setActiveTab] = useState<MainTab>('conciliaciones');
+
+  // Toggle between legacy (dispatch-based) and new (delivery-based) reconciliation
+  // Default to new system for better UX
+  const [useDeliveryBasedView, setUseDeliveryBasedView] = useState(true);
 
   // State for Conciliaciones tab
   const [loading, setLoading] = useState(false);
@@ -1105,25 +1110,55 @@ export default function Settlements() {
           {/* TAB: CONCILIACIONES */}
           {/* ============================================================ */}
           <TabsContent value="conciliaciones" className="space-y-6 mt-6">
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3">
-              <Button variant="outline" onClick={loadGroups} disabled={loading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Actualizar
-              </Button>
-              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-4 w-4 mr-2" />
-                Importar CSV
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleImportCSV}
-                className="hidden"
-              />
+            {/* View Toggle - New delivery-based view vs legacy dispatch-based */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant={useDeliveryBasedView ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setUseDeliveryBasedView(true)}
+                  className="gap-2"
+                >
+                  <Calendar className="h-4 w-4" />
+                  Por fecha de entrega
+                </Button>
+                <Button
+                  variant={!useDeliveryBasedView ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setUseDeliveryBasedView(false)}
+                  className="gap-2"
+                >
+                  <Truck className="h-4 w-4" />
+                  Por sesion de despacho
+                </Button>
+              </div>
+              {!useDeliveryBasedView && (
+                <div className="flex items-center gap-3">
+                  <Button variant="outline" onClick={loadGroups} disabled={loading}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                    Actualizar
+                  </Button>
+                  <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Importar CSV
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportCSV}
+                    className="hidden"
+                  />
+                </div>
+              )}
             </div>
 
+            {/* NEW: Delivery-based reconciliation view */}
+            {useDeliveryBasedView ? (
+              <PendingReconciliationView />
+            ) : (
+              <>
+            {/* LEGACY: Dispatch-based view */}
             {/* Summary Cards */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
@@ -1340,6 +1375,8 @@ export default function Settlements() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+              </>
+            )}
           </TabsContent>
 
           {/* ============================================================ */}

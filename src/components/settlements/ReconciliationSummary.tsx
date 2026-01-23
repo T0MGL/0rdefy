@@ -101,48 +101,77 @@ export function ReconciliationSummary({
         </div>
       </div>
 
-      {/* Financial Summary */}
-      <div className="space-y-3 mb-6">
-        <div className="flex items-center justify-between py-2">
+      {/* Financial Summary - Clear breakdown */}
+      <div className="space-y-2 mb-6 font-mono text-sm">
+        {/* Section: INGRESOS */}
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+          Ingresos
+        </div>
+        <div className="flex items-center justify-between py-1">
+          <span className="text-muted-foreground">Entregados ({totalDelivered})</span>
+          <span className="text-green-600">+{formatCurrency(totalCodExpected)}</span>
+        </div>
+        <div className="flex items-center justify-between py-1">
+          <span className="text-muted-foreground">Fallidos ({totalNotDelivered})</span>
+          <span className="text-muted-foreground">0 Gs</span>
+        </div>
+
+        <div className="border-t my-3" />
+
+        {/* Section: COD */}
+        <div className="flex items-center justify-between py-1">
+          <span className="text-muted-foreground">COD Esperado</span>
+          <span>{formatCurrency(totalCodExpected)}</span>
+        </div>
+        <div className="flex items-center justify-between py-1">
           <span className="text-muted-foreground">COD Cobrado</span>
-          <span className="font-semibold text-green-600">{formatCurrency(totalCodCollected)}</span>
+          <span className="font-semibold">{formatCurrency(totalCodCollected)}</span>
         </div>
-
-        <div className="flex items-center justify-between py-2 text-sm">
-          <span className="text-muted-foreground">
-            - Tarifas Courier ({totalDelivered} x {formatCurrency(carrierFeePerDelivery)})
-          </span>
-          <span className="text-red-600">-{formatCurrency(totalCarrierFees)}</span>
-        </div>
-
-        {totalNotDelivered > 0 && (
-          <div className="flex items-center justify-between py-2 text-sm">
-            <span className="text-muted-foreground">
-              - Intentos Fallidos ({totalNotDelivered} x {formatCurrency(carrierFeePerDelivery * failedAttemptFeeRate)})
-            </span>
-            <span className="text-red-600">-{formatCurrency(failedAttemptFees)}</span>
+        {hasDiscrepancy && (
+          <div className={cn(
+            "flex items-center justify-between py-1",
+            totalCodCollected - totalCodExpected < 0 ? 'text-red-600' : 'text-green-600'
+          )}>
+            <span>Diferencia</span>
+            <span>{totalCodCollected - totalCodExpected > 0 ? '+' : ''}{formatCurrency(totalCodCollected - totalCodExpected)}</span>
           </div>
         )}
 
-        <div className="border-t pt-3 mt-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-primary" />
-              <span className="font-bold text-lg">NETO A RECIBIR</span>
-            </div>
-            <span className={cn(
-              'text-2xl font-bold',
-              netReceivable >= 0 ? 'text-green-600' : 'text-red-600'
-            )}>
-              {formatCurrency(netReceivable)}
-            </span>
-          </div>
-          {netReceivable < 0 && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Monto negativo significa que debes pagar al courier
-            </p>
-          )}
+        <div className="border-t my-3" />
+
+        {/* Section: EGRESOS */}
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+          Tarifas
         </div>
+        <div className="flex items-center justify-between py-1 text-muted-foreground">
+          <span>Entregas ({totalDelivered} x {formatCurrency(carrierFeePerDelivery)})</span>
+          <span>-{formatCurrency(totalCarrierFees)}</span>
+        </div>
+        {totalNotDelivered > 0 && (
+          <div className="flex items-center justify-between py-1 text-muted-foreground">
+            <span>Fallidos ({totalNotDelivered} x {Math.round(failedAttemptFeeRate * 100)}%)</span>
+            <span>-{formatCurrency(failedAttemptFees)}</span>
+          </div>
+        )}
+
+        <div className="border-t border-primary/20 my-3" />
+
+        {/* NETO */}
+        <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5 text-primary" />
+            <span className="font-bold text-lg">NETO A RECIBIR</span>
+          </div>
+          <span className={cn(
+            'text-2xl font-bold',
+            netReceivable >= 0 ? 'text-green-600' : 'text-red-600'
+          )}>
+            {formatCurrency(netReceivable)}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground text-right">
+          {netReceivable >= 0 ? 'El courier te debe' : 'Le debes al courier'}
+        </p>
       </div>
 
       {/* Discrepancy Warning */}

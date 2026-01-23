@@ -2869,3 +2869,598 @@ export async function getCarrierAccountSummary(storeId: string): Promise<{
     pendingSettlements: pendingSettlements || 0,
   };
 }
+
+// ============================================================
+// DELIVERY-BASED RECONCILIATION (NEW SYSTEM)
+// Groups by delivery date instead of dispatch date for simpler UX
+// ============================================================
+
+export interface DeliveryDateGroup {
+  delivery_date: string;
+  carrier_id: string;
+  carrier_name: string;
+  failed_attempt_fee_percent: number;
+  total_orders: number;
+  total_cod: number;
+  total_prepaid: number;
+}
+
+export interface PendingReconciliationOrder {
+  id: string;
+  display_order_number: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_address: string;
+  customer_city: string;
+  total_price: number;
+  cod_amount: number;
+  payment_method: string;
+  is_cod: boolean;
+  delivered_at: string;
+}
+
+/**
+ * Get pending reconciliation groups - delivered orders grouped by date and carrier
+ * This is the main entry point for the new delivery-based reconciliation flow
+ */
+export async function getPendingReconciliation(storeId: string): Promise<DeliveryDateGroup[]> {
+  logger.info('SETTLEMENTS', 'getPendingReconciliation called', { storeId });
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('v_pending_reconciliation')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('delivery_date', { ascending: false });
+
+    if (error) {
+      logger.error('SETTLEMENTS', 'Error fetching pending reconciliation', error);
+      // Fallback to direct query if view doesn't exist yet
+      return await getPendingReconciliationFallback(storeId);
+    }
+
+    logger.info('SETTLEMENTS', `Found ${data?.length || 0} pending reconciliation groups`);
+    return data || [];
+  } catch (err: any) {
+    logger.error('SETTLEMENTS', 'Unexpected error in getPendingReconciliation', err);
+    return [];
+  }
+}
+
+/**
+ * Fallback query if view doesn't exist (for pre-migration compatibility)
+ */
+async function getPendingReconciliationFallback(storeId: string): Promise<DeliveryDateGroup[]> {
+  logger.info('SETTLEMENTS', 'Using fallback query for pending reconciliation');
+
+  const { data: orders, error } = await supabaseAdmin
+    .from('orders')
+    .select(`
+      id,
+      delivered_at,
+      courier_id,
+      total_price,
+      payment_method
+    `)
+    .eq('store_id', storeId)
+    .eq('sleeves_status', 'delivered')
+    .is('reconciled_at', null)
+    .not('delivered_at', 'is', null)
+    .not('courier_id', 'is', null);
+
+  if (error || !orders || orders.length === 0) {
+    return [];
+  }
+
+  // Get carrier info
+  const carrierIds = [...new Set(orders.map(o => o.courier_id))];
+  const { data: carriers } = await supabaseAdmin
+    .from('carriers')
+    .select('id, name, failed_attempt_fee_percent')
+    .in('id', carrierIds);
+
+  const carrierMap = new Map(carriers?.map(c => [c.id, c]) || []);
+
+  // Group by date and carrier
+  const groupMap = new Map<string, DeliveryDateGroup>();
+
+  orders.forEach((order: any) => {
+    const deliveryDate = new Date(order.delivered_at).toISOString().split('T')[0];
+    const groupKey = `${order.courier_id}_${deliveryDate}`;
+    const carrier = carrierMap.get(order.courier_id);
+    const isCod = isCodPayment(order.payment_method);
+
+    if (groupMap.has(groupKey)) {
+      const group = groupMap.get(groupKey)!;
+      group.total_orders++;
+      if (isCod) {
+        group.total_cod += order.total_price || 0;
+      } else {
+        group.total_prepaid++;
+      }
+    } else {
+      groupMap.set(groupKey, {
+        delivery_date: deliveryDate,
+        carrier_id: order.courier_id,
+        carrier_name: carrier?.name || 'Sin courier',
+        failed_attempt_fee_percent: carrier?.failed_attempt_fee_percent ?? 50,
+        total_orders: 1,
+        total_cod: isCod ? (order.total_price || 0) : 0,
+        total_prepaid: isCod ? 0 : 1,
+      });
+    }
+  });
+
+  return Array.from(groupMap.values()).sort((a, b) =>
+    new Date(b.delivery_date).getTime() - new Date(a.delivery_date).getTime()
+  );
+}
+
+/**
+ * Get orders for a specific delivery date and carrier
+ */
+export async function getPendingReconciliationOrders(
+  storeId: string,
+  carrierId: string,
+  deliveryDate: string
+): Promise<PendingReconciliationOrder[]> {
+  logger.info('SETTLEMENTS', 'getPendingReconciliationOrders called', {
+    storeId,
+    carrierId,
+    deliveryDate
+  });
+
+  try {
+    // Try RPC first (if migration has been applied)
+    const { data, error } = await supabaseAdmin.rpc('get_pending_reconciliation_orders', {
+      p_store_id: storeId,
+      p_carrier_id: carrierId,
+      p_delivery_date: deliveryDate
+    });
+
+    if (!error && data) {
+      logger.info('SETTLEMENTS', `Found ${data.length} orders via RPC`);
+      return data;
+    }
+
+    // Fallback to direct query
+    logger.info('SETTLEMENTS', 'Using fallback query for orders');
+    return await getPendingReconciliationOrdersFallback(storeId, carrierId, deliveryDate);
+  } catch (err: any) {
+    logger.error('SETTLEMENTS', 'Error in getPendingReconciliationOrders', err);
+    return await getPendingReconciliationOrdersFallback(storeId, carrierId, deliveryDate);
+  }
+}
+
+/**
+ * Fallback query for orders if RPC doesn't exist
+ */
+async function getPendingReconciliationOrdersFallback(
+  storeId: string,
+  carrierId: string,
+  deliveryDate: string
+): Promise<PendingReconciliationOrder[]> {
+  const startOfDay = `${deliveryDate}T00:00:00.000Z`;
+  const endOfDay = `${deliveryDate}T23:59:59.999Z`;
+
+  const { data: orders, error } = await supabaseAdmin
+    .from('orders')
+    .select(`
+      id,
+      shopify_order_name,
+      shopify_order_number,
+      customer_first_name,
+      customer_last_name,
+      customer_phone,
+      shipping_address,
+      delivery_zone,
+      shipping_city,
+      total_price,
+      payment_method,
+      delivered_at
+    `)
+    .eq('store_id', storeId)
+    .eq('courier_id', carrierId)
+    .eq('sleeves_status', 'delivered')
+    .is('reconciled_at', null)
+    .gte('delivered_at', startOfDay)
+    .lte('delivered_at', endOfDay)
+    .order('delivered_at', { ascending: true });
+
+  if (error || !orders) {
+    logger.error('SETTLEMENTS', 'Error in fallback orders query', error);
+    return [];
+  }
+
+  return orders.map((order: any) => {
+    const isCod = isCodPayment(order.payment_method);
+
+    // Unified display order number - always #XXXX format
+    let displayOrderNumber: string;
+    if (order.shopify_order_name) {
+      displayOrderNumber = order.shopify_order_name;
+    } else if (order.shopify_order_number) {
+      displayOrderNumber = `#${order.shopify_order_number}`;
+    } else {
+      displayOrderNumber = `#${order.id.slice(-4).toUpperCase()}`;
+    }
+
+    return {
+      id: order.id,
+      display_order_number: displayOrderNumber,
+      customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+      customer_phone: order.customer_phone || '',
+      customer_address: typeof order.shipping_address === 'string'
+        ? order.shipping_address
+        : (order.shipping_address?.address1 || ''),
+      customer_city: order.delivery_zone || order.shipping_city || '',
+      total_price: order.total_price || 0,
+      cod_amount: isCod ? (order.total_price || 0) : 0,
+      payment_method: order.payment_method || '',
+      is_cod: isCod,
+      delivered_at: order.delivered_at
+    };
+  });
+}
+
+export interface ProcessDeliveryReconciliationParams {
+  carrier_id: string;
+  delivery_date: string;
+  total_amount_collected: number;
+  discrepancy_notes?: string;
+  orders: Array<{
+    order_id: string;
+    delivered: boolean;
+    failure_reason?: string;
+  }>;
+}
+
+/**
+ * Process delivery-based reconciliation
+ */
+export async function processDeliveryReconciliation(
+  storeId: string,
+  userId: string,
+  params: ProcessDeliveryReconciliationParams
+): Promise<{
+  settlement_id: string;
+  settlement_code: string;
+  total_orders: number;
+  total_delivered: number;
+  total_not_delivered: number;
+  total_cod_expected: number;
+  total_cod_collected: number;
+  total_carrier_fees: number;
+  failed_attempt_fee: number;
+  net_receivable: number;
+}> {
+  logger.info('SETTLEMENTS', 'processDeliveryReconciliation called', {
+    storeId,
+    carrierId: params.carrier_id,
+    deliveryDate: params.delivery_date,
+    orderCount: params.orders.length
+  });
+
+  try {
+    // Try RPC first
+    const { data, error } = await supabaseAdmin.rpc('process_delivery_reconciliation', {
+      p_store_id: storeId,
+      p_user_id: userId,
+      p_carrier_id: params.carrier_id,
+      p_delivery_date: params.delivery_date,
+      p_total_amount_collected: params.total_amount_collected,
+      p_discrepancy_notes: params.discrepancy_notes || null,
+      p_orders: JSON.stringify(params.orders)
+    });
+
+    if (!error && data && data.length > 0) {
+      logger.info('SETTLEMENTS', 'Reconciliation processed via RPC', data[0]);
+      return data[0];
+    }
+
+    // Fallback to service-level processing
+    logger.info('SETTLEMENTS', 'Using fallback processing for reconciliation');
+    return await processDeliveryReconciliationFallback(storeId, userId, params);
+  } catch (err: any) {
+    logger.error('SETTLEMENTS', 'Error in processDeliveryReconciliation', err);
+    throw new Error('Error al procesar la conciliación');
+  }
+}
+
+/**
+ * Fallback processing if RPC doesn't exist
+ * CRITICAL: This fallback must maintain consistent behavior with the RPC
+ * - Non-delivered orders keep their status (delivered), only reconciled_at is set
+ * - Uses atomic settlement code generation to prevent duplicates
+ * - Validates all orders before processing
+ */
+async function processDeliveryReconciliationFallback(
+  storeId: string,
+  userId: string,
+  params: ProcessDeliveryReconciliationParams
+): Promise<any> {
+  logger.info('SETTLEMENTS', 'Starting fallback reconciliation processing', {
+    storeId,
+    carrierId: params.carrier_id,
+    orderCount: params.orders.length
+  });
+
+  // STEP 1: Validate all orders exist and belong to this store BEFORE processing
+  const orderIds = params.orders.map(o => o.order_id);
+  const { data: existingOrders, error: fetchError } = await supabaseAdmin
+    .from('orders')
+    .select('id, total_price, payment_method, delivery_zone, reconciled_at, store_id')
+    .in('id', orderIds)
+    .eq('store_id', storeId);
+
+  if (fetchError) {
+    logger.error('SETTLEMENTS', 'Error fetching orders for validation', fetchError);
+    throw new Error('Error al validar los pedidos');
+  }
+
+  // Validate all orders exist
+  const foundOrderIds = new Set(existingOrders?.map(o => o.id) || []);
+  const missingOrders = orderIds.filter(id => !foundOrderIds.has(id));
+  if (missingOrders.length > 0) {
+    throw new Error(`Pedidos no encontrados o no pertenecen a esta tienda: ${missingOrders.length}`);
+  }
+
+  // Check if any orders are already reconciled
+  const alreadyReconciled = existingOrders?.filter(o => o.reconciled_at !== null) || [];
+  if (alreadyReconciled.length > 0) {
+    throw new Error(`Algunos pedidos ya fueron conciliados: ${alreadyReconciled.length}`);
+  }
+
+  // Create a map for quick lookup
+  const orderMap = new Map(existingOrders?.map(o => [o.id, o]) || []);
+
+  // STEP 2: Get carrier info
+  const { data: carrier } = await supabaseAdmin
+    .from('carriers')
+    .select('name, failed_attempt_fee_percent')
+    .eq('id', params.carrier_id)
+    .single();
+
+  if (!carrier) {
+    throw new Error('Transportadora no encontrada');
+  }
+
+  const failedFeePercent = carrier?.failed_attempt_fee_percent ?? 50;
+
+  // STEP 3: Get zone rates for this carrier
+  const { data: zones } = await supabaseAdmin
+    .from('carrier_zones')
+    .select('zone_name, rate')
+    .eq('carrier_id', params.carrier_id)
+    .eq('store_id', storeId);
+
+  const zoneRates = new Map(zones?.map(z => [z.zone_name, z.rate || 0]) || []);
+  const defaultRate = zones?.[0]?.rate || 0;
+
+  // STEP 4: Calculate totals (all in memory first, before any updates)
+  let totalOrders = 0;
+  let totalDelivered = 0;
+  let totalNotDelivered = 0;
+  let totalCodExpected = 0;
+  let totalCodDelivered = 0;
+  let totalPrepaidDelivered = 0;
+  let totalCarrierFees = 0;
+  let failedAttemptFee = 0;
+
+  const orderUpdates: Array<{ id: string; reconciled_at: string }> = [];
+
+  for (const orderData of params.orders) {
+    const order = orderMap.get(orderData.order_id);
+    if (!order) continue; // Already validated, but safety check
+
+    totalOrders++;
+    const zoneRate = zoneRates.get(order.delivery_zone || 'default') || defaultRate;
+    const isCod = isCodPayment(order.payment_method);
+
+    if (orderData.delivered) {
+      totalDelivered++;
+      totalCarrierFees += zoneRate;
+      if (isCod) {
+        totalCodExpected += order.total_price || 0;
+        totalCodDelivered++;
+      } else {
+        totalPrepaidDelivered++;
+      }
+    } else {
+      totalNotDelivered++;
+      failedAttemptFee += zoneRate * failedFeePercent / 100;
+    }
+
+    // Queue the update (don't execute yet)
+    orderUpdates.push({
+      id: order.id,
+      reconciled_at: new Date().toISOString()
+    });
+  }
+
+  if (totalOrders === 0) {
+    throw new Error('No hay pedidos válidos para procesar');
+  }
+
+  const netReceivable = params.total_amount_collected - totalCarrierFees - failedAttemptFee;
+
+  // STEP 5: Generate settlement code atomically
+  // Format: LIQ-DDMMYYYY-XXX (e.g., LIQ-23012026-001)
+  const [year, month, day] = params.delivery_date.split('-');
+  const dateFormatted = `${day}${month}${year}`;
+  const codePrefix = `LIQ-${dateFormatted}`;
+
+  // Find existing settlements with this prefix to determine next number
+  const { data: existingSettlements } = await supabaseAdmin
+    .from('daily_settlements')
+    .select('settlement_code')
+    .eq('store_id', storeId)
+    .like('settlement_code', `${codePrefix}-%`)
+    .order('settlement_code', { ascending: false })
+    .limit(1);
+
+  let nextNumber = 1;
+  if (existingSettlements && existingSettlements.length > 0) {
+    const lastCode = existingSettlements[0].settlement_code;
+    const lastNumberStr = lastCode.split('-').pop();
+    const lastNumber = parseInt(lastNumberStr || '0', 10);
+    nextNumber = lastNumber + 1;
+  }
+
+  const settlementCode = `${codePrefix}-${String(nextNumber).padStart(3, '0')}`;
+
+  // STEP 6: Create settlement record FIRST (to catch unique constraint violation)
+  const { data: settlement, error: settlementError } = await supabaseAdmin
+    .from('daily_settlements')
+    .insert({
+      store_id: storeId,
+      carrier_id: params.carrier_id,
+      settlement_code: settlementCode,
+      settlement_date: params.delivery_date,
+      total_dispatched: totalOrders,
+      total_delivered: totalDelivered,
+      total_not_delivered: totalNotDelivered,
+      total_cod_delivered: totalCodDelivered,
+      total_prepaid_delivered: totalPrepaidDelivered,
+      total_cod_collected: params.total_amount_collected,
+      total_carrier_fees: totalCarrierFees,
+      failed_attempt_fee: failedAttemptFee,
+      net_receivable: netReceivable,
+      balance_due: netReceivable,
+      status: 'pending',
+      notes: params.discrepancy_notes,
+      created_by: userId
+    })
+    .select()
+    .single();
+
+  if (settlementError) {
+    // Check if it's a duplicate code error (race condition)
+    if (settlementError.code === '23505') {
+      logger.warn('SETTLEMENTS', 'Settlement code collision, retrying with incremented number');
+      // Retry with incremented number
+      const retryCode = `${codePrefix}-${String(nextNumber + 1).padStart(3, '0')}`;
+      const { data: retrySettlement, error: retryError } = await supabaseAdmin
+        .from('daily_settlements')
+        .insert({
+          store_id: storeId,
+          carrier_id: params.carrier_id,
+          settlement_code: retryCode,
+          settlement_date: params.delivery_date,
+          total_dispatched: totalOrders,
+          total_delivered: totalDelivered,
+          total_not_delivered: totalNotDelivered,
+          total_cod_delivered: totalCodDelivered,
+          total_prepaid_delivered: totalPrepaidDelivered,
+          total_cod_collected: params.total_amount_collected,
+          total_carrier_fees: totalCarrierFees,
+          failed_attempt_fee: failedAttemptFee,
+          net_receivable: netReceivable,
+          balance_due: netReceivable,
+          status: 'pending',
+          notes: params.discrepancy_notes,
+          created_by: userId
+        })
+        .select()
+        .single();
+
+      if (retryError) {
+        logger.error('SETTLEMENTS', 'Retry also failed', retryError);
+        throw new Error('Error al crear la liquidación (código duplicado)');
+      }
+
+      // Continue with retry settlement
+      return processOrderUpdatesAndReturn(
+        retrySettlement!,
+        retryCode,
+        totalOrders,
+        totalDelivered,
+        totalNotDelivered,
+        totalCodExpected,
+        params.total_amount_collected,
+        totalCarrierFees,
+        failedAttemptFee,
+        netReceivable,
+        orderUpdates
+      );
+    }
+
+    logger.error('SETTLEMENTS', 'Error creating settlement', settlementError);
+    throw new Error('Error al crear la liquidación');
+  }
+
+  // STEP 7: Update all orders as reconciled
+  return processOrderUpdatesAndReturn(
+    settlement,
+    settlementCode,
+    totalOrders,
+    totalDelivered,
+    totalNotDelivered,
+    totalCodExpected,
+    params.total_amount_collected,
+    totalCarrierFees,
+    failedAttemptFee,
+    netReceivable,
+    orderUpdates
+  );
+}
+
+/**
+ * Helper to update orders and return result
+ * CRITICAL: Only sets reconciled_at, does NOT change sleeves_status
+ * This matches the RPC behavior for consistency
+ */
+async function processOrderUpdatesAndReturn(
+  settlement: any,
+  settlementCode: string,
+  totalOrders: number,
+  totalDelivered: number,
+  totalNotDelivered: number,
+  totalCodExpected: number,
+  totalCodCollected: number,
+  totalCarrierFees: number,
+  failedAttemptFee: number,
+  netReceivable: number,
+  orderUpdates: Array<{ id: string; reconciled_at: string }>
+): Promise<any> {
+  // Update orders in batches of 50 for performance
+  const batchSize = 50;
+  for (let i = 0; i < orderUpdates.length; i += batchSize) {
+    const batch = orderUpdates.slice(i, i + batchSize);
+    const ids = batch.map(o => o.id);
+    const reconciled_at = batch[0].reconciled_at;
+
+    const { error: updateError } = await supabaseAdmin
+      .from('orders')
+      .update({ reconciled_at })
+      .in('id', ids);
+
+    if (updateError) {
+      logger.error('SETTLEMENTS', 'Error updating orders batch', {
+        batch: i / batchSize,
+        error: updateError
+      });
+      // Don't throw - settlement already created, orders will be updated on next reconciliation attempt
+      // This is a tradeoff: we prefer not to orphan the settlement record
+    }
+  }
+
+  logger.info('SETTLEMENTS', 'Fallback reconciliation completed', {
+    settlement_id: settlement.id,
+    settlement_code: settlementCode,
+    orders_updated: orderUpdates.length
+  });
+
+  return {
+    settlement_id: settlement.id,
+    settlement_code: settlementCode,
+    total_orders: totalOrders,
+    total_delivered: totalDelivered,
+    total_not_delivered: totalNotDelivered,
+    total_cod_expected: totalCodExpected,
+    total_cod_collected: totalCodCollected,
+    total_carrier_fees: totalCarrierFees,
+    failed_attempt_fee: failedAttemptFee,
+    net_receivable: netReceivable
+  };
+}
