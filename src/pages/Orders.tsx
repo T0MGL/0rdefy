@@ -39,7 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star, StickyNote } from 'lucide-react';
 import { format, isAfter, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -60,6 +60,7 @@ import {
 
 const statusColors = {
   pending: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800',
+  contacted: 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800',
   confirmed: 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800',
   in_preparation: 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800',
   ready_to_ship: 'bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-800',
@@ -73,6 +74,7 @@ const statusColors = {
 
 const statusLabels: Record<string, string> = {
   pending: 'Pendiente',
+  contacted: 'Contactado',
   confirmed: 'Confirmado',
   in_preparation: 'En Preparación',
   ready_to_ship: 'Preparado',
@@ -500,6 +502,56 @@ export default function Orders() {
     }
   }, [toast]);
 
+  // Handle marking order as contacted (WhatsApp message sent)
+  const handleContact = useCallback(async (orderId: string, whatsappLink: string) => {
+    // Store original order for rollback
+    let originalOrder: Order | null = null;
+
+    // Only update status if order is pending (not if already contacted)
+    const orderToUpdate = orders.find(o => o.id === orderId);
+    if (!orderToUpdate || orderToUpdate.status !== 'pending') {
+      // Just open WhatsApp if not pending
+      window.open(whatsappLink, '_blank');
+      return;
+    }
+
+    // Open WhatsApp first for better UX
+    window.open(whatsappLink, '_blank');
+
+    // Optimistic update - update UI immediately
+    setOrders(prev => {
+      originalOrder = prev.find(o => o.id === orderId) || null;
+      if (!originalOrder) return prev;
+      return prev.map(o =>
+        o.id === orderId
+          ? { ...o, status: 'contacted' as Order['status'] }
+          : o
+      );
+    });
+
+    if (!originalOrder) return;
+
+    try {
+      const updatedOrder = await ordersService.contact(orderId);
+      if (updatedOrder) {
+        // Update with server response (no flickering - smooth transition)
+        setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+        toast({
+          title: 'Mensaje enviado',
+          description: 'El pedido ha sido marcado como contactado',
+        });
+      } else {
+        // Revert optimistic update on failure
+        setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder! : o)));
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder! : o)));
+      // Don't show error - WhatsApp was opened successfully, just status update failed
+      console.error('Error updating order status to contacted:', error);
+    }
+  }, [toast, orders]);
+
   // Helper function to generate WhatsApp confirmation message
   const generateWhatsAppConfirmationLink = useCallback((order: Order) => {
     const storeName = currentStore?.name || 'Nuestra Tienda';
@@ -594,6 +646,25 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
     }
   }, [orders, toast]);
 
+  // Handle internal notes update from QuickView
+  const handleNotesUpdate = useCallback((orderId: string, notes: string | null) => {
+    setOrders(prev => prev.map(o =>
+      o.id === orderId
+        ? { ...o, internal_notes: notes, has_internal_notes: !!notes }
+        : o
+    ));
+    // Also update selectedOrder if it's the same order
+    setSelectedOrder(prev =>
+      prev?.id === orderId
+        ? { ...prev, internal_notes: notes, has_internal_notes: !!notes }
+        : prev
+    );
+    toast({
+      title: 'Nota guardada',
+      description: notes ? 'Nota interna actualizada correctamente' : 'Nota interna eliminada',
+    });
+  }, [toast]);
+
   const handleCreateOrder = useCallback(async (data: any) => {
     logger.log('🚀 [ORDERS] Creating order with data:', data);
 
@@ -646,6 +717,8 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         variant_id: data.variantId || null,
         variant_title: data.variantTitle || null,
         units_per_pack: data.unitsPerPack || 1,
+        // Internal notes (admin only)
+        internal_notes: data.internalNotes || null,
       } as any);
 
       logger.log('✅ [ORDERS] Order created:', newOrder);
@@ -723,6 +796,8 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         upsell_product_name: upsellProduct?.name,
         upsell_product_price: upsellProduct?.price,
         upsell_quantity: data.upsellQuantity,
+        // Internal notes (admin only)
+        internal_notes: data.internalNotes || null,
       } as any);
 
       if (updatedOrder) {
@@ -1640,7 +1715,23 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                       </td>
                       <td className="py-4 px-6">
                         <div>
-                          <p className="text-sm font-medium">{order.customer}</p>
+                          <p className="text-sm font-medium flex items-center gap-1.5">
+                            {order.customer}
+                            {order.has_internal_notes && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <StickyNote
+                                    size={14}
+                                    className="text-amber-500 flex-shrink-0 cursor-help"
+                                  />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <p className="font-medium text-xs mb-1">Nota interna:</p>
+                                  <p className="text-xs whitespace-pre-wrap">{order.internal_notes?.substring(0, 150)}{order.internal_notes && order.internal_notes.length > 150 ? '...' : ''}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </p>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1670,6 +1761,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="pending">Pendiente</SelectItem>
+                            <SelectItem value="contacted">Contactado</SelectItem>
                             <SelectItem value="confirmed">Confirmado</SelectItem>
                             <SelectItem value="in_preparation">En Preparación</SelectItem>
                             <SelectItem value="ready_to_ship">Preparado</SelectItem>
@@ -1735,7 +1827,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                                     size="sm"
                                     variant="outline"
                                     className="h-7 px-2 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
-                                    onClick={() => window.open(generateWhatsAppConfirmationLink(order), '_blank')}
+                                    onClick={() => handleContact(order.id, generateWhatsAppConfirmationLink(order))}
                                   >
                                     <MessageSquare size={14} className="mr-1" />
                                     Enviar
@@ -1753,6 +1845,49 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                               onClick={() => {
                                 // Always show confirmation dialog to assign carrier, zone, upsell, etc.
                                 // This is required for dispatch/settlement reconciliation
+                                setOrderToConfirm(order);
+                                setConfirmDialogOpen(true);
+                              }}
+                            >
+                              <CheckCircle size={14} className="mr-1" />
+                              Confirmar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 hover:shadow-sm transition-all duration-200"
+                              onClick={() => handleReject(order.id)}
+                            >
+                              <XCircle size={14} className="mr-1" />
+                              Rechazar
+                            </Button>
+                          </div>
+                        )}
+                        {order.status === 'contacted' && (
+                          <div className="flex gap-1 justify-center flex-wrap">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:border-amber-400 dark:hover:border-amber-700 hover:shadow-sm transition-all duration-200"
+                                    onClick={() => window.open(generateWhatsAppConfirmationLink(order), '_blank')}
+                                  >
+                                    <MessageSquare size={14} className="mr-1" />
+                                    Re-enviar
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Volver a enviar mensaje de WhatsApp</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
+                              onClick={() => {
                                 setOrderToConfirm(order);
                                 setConfirmDialogOpen(true);
                               }}
@@ -2087,6 +2222,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         open={isQuickViewOpen}
         onOpenChange={setIsQuickViewOpen}
         onStatusUpdate={handleStatusUpdate}
+        onNotesUpdate={handleNotesUpdate}
       />
 
       {/* Create Order Dialog */}
@@ -2152,6 +2288,8 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                   // Upsell data (if exists)
                   upsellProductId: upsellItem?.product_id || undefined,
                   upsellQuantity: upsellItem?.quantity || undefined,
+                  // Internal notes
+                  internalNotes: orderToEdit.internal_notes || '',
                 }}
                 onSubmit={handleUpdateOrder}
                 onCancel={() => {

@@ -126,6 +126,8 @@ export const ordersService = {
         shipping_city_normalized: (order as any).shipping_city_normalized || null,
         delivery_zone: (order as any).delivery_zone || null,
         is_pickup: (order as any).is_pickup || false,
+        // Internal admin notes
+        internal_notes: (order as any).internal_notes || null,
       };
 
       logger.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);
@@ -215,6 +217,11 @@ export const ordersService = {
       // Delivery preferences
       if ((data as any).delivery_preferences !== undefined) {
         backendData.delivery_preferences = (data as any).delivery_preferences;
+      }
+
+      // Internal notes
+      if ((data as any).internal_notes !== undefined) {
+        backendData.internal_notes = (data as any).internal_notes;
       }
 
       // Update main order data
@@ -381,6 +388,52 @@ export const ordersService = {
       };
     } catch (error) {
       logger.error('Error confirming order:', error);
+      return undefined;
+    }
+  },
+
+  // Mark order as contacted (WhatsApp message sent, waiting for customer response)
+  contact: async (id: string): Promise<Order | undefined> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          sleeves_status: 'contacted',
+          confirmed_by: 'manual',
+          confirmation_method: 'whatsapp',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Transform backend response to frontend format
+      const data = result.data;
+      const lineItems = data.line_items || [];
+      const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+
+      return {
+        id: data.id,
+        customer: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || 'Cliente',
+        address: data.customer_address || '',
+        product: firstItem?.product_name || firstItem?.title || 'Producto',
+        quantity: firstItem?.quantity || 1,
+        total: data.total_price || 0,
+        status: 'contacted',
+        carrier: data.shipping_address?.company || 'Sin transportadora',
+        date: data.created_at,
+        phone: data.customer_phone || '',
+        confirmedByWhatsApp: false,
+        delivery_link_token: data.delivery_link_token,
+        latitude: data.latitude,
+        longitude: data.longitude,
+      };
+    } catch (error) {
+      logger.error('Error marking order as contacted:', error);
       return undefined;
     }
   },
@@ -597,6 +650,32 @@ export const ordersService = {
     } catch (error) {
       logger.error('Error reconciling orders:', error);
       return false;
+    }
+  },
+
+  /**
+   * Update internal notes for an order
+   * Notes are for admin observations - not visible to customers or couriers
+   * Max 5000 characters
+   */
+  updateInternalNotes: async (id: string, notes: string | null): Promise<{ success: boolean; data?: { internal_notes: string | null } }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders/${id}/internal-notes`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ internal_notes: notes }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return { success: true, data: result.data };
+    } catch (error) {
+      logger.error('Error updating internal notes:', error);
+      throw error;
     }
   },
 };

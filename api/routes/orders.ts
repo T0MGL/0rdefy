@@ -1046,7 +1046,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             shipping_city,
             shipping_city_normalized,
             delivery_zone,
-            is_pickup
+            is_pickup,
+            // Internal admin notes
+            internal_notes
         } = req.body;
 
         // Validation
@@ -1181,7 +1183,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 shipping_city: shipping_city || null,
                 shipping_city_normalized: shipping_city_normalized || null,
                 delivery_zone: delivery_zone || null,
-                is_pickup: is_pickup || false
+                is_pickup: is_pickup || false,
+                // Internal admin notes (max 5000 chars)
+                internal_notes: internal_notes?.trim()?.substring(0, 5000) || null
             }])
             .select()
             .single();
@@ -1205,6 +1209,8 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     let variantSku = item.sku || null;
                     let unitsPerPack = item.units_per_pack || 1;
                     let unitPrice = safeNumber(item.price, 0);
+                    // Migration 101: variant_type for bundle vs variation tracking
+                    let variantType: string | null = item.variant_type || null; // Accept from payload for external webhooks
 
                     console.log('📦 [ORDER CREATE] Processing line item:', {
                         product_id: productId,
@@ -1214,11 +1220,11 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         title: item.title
                     });
 
-                    // Migration 097: If variant_id provided, fetch variant details
+                    // Migration 097/101: If variant_id provided, fetch variant details including variant_type
                     if (variantId) {
                         const { data: variant, error: variantError } = await supabaseAdmin
                             .from('product_variants')
-                            .select('id, product_id, variant_title, sku, price, units_per_pack, image_url')
+                            .select('id, product_id, variant_title, sku, price, units_per_pack, image_url, variant_type, uses_shared_stock')
                             .eq('id', variantId)
                             .maybeSingle();
 
@@ -1228,9 +1234,14 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                             unitPrice = safeNumber(variant.price, unitPrice);
                             unitsPerPack = variant.units_per_pack || 1;
                             imageUrl = variant.image_url || imageUrl;
+                            // Migration 101: variant_type - payload takes priority, then DB, then infer from uses_shared_stock
+                            if (!variantType) {
+                                variantType = variant.variant_type || (variant.uses_shared_stock ? 'bundle' : 'variation');
+                            }
                             console.log('📦 [ORDER CREATE] Variant found:', {
                                 variant_id: variantId,
                                 variant_title: variantTitle,
+                                variant_type: variantType,
                                 price: unitPrice,
                                 units_per_pack: unitsPerPack
                             });
@@ -1263,6 +1274,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         order_id: data.id,
                         product_id: productId,
                         variant_id: variantId, // Migration 097
+                        variant_type: variantType, // Migration 101: bundle vs variation for audit trail
                         product_name: item.product_name || item.name || item.title || 'Producto',
                         variant_title: variantTitle,
                         sku: variantSku,
@@ -1330,6 +1342,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             courier_id,
             payment_method,
             payment_status,
+            internal_notes,
             version // Optimistic locking: client sends current version
         } = req.body;
 
@@ -1402,6 +1415,11 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         }
         if (payment_status !== undefined) {
             updateData.payment_status = payment_status;
+        }
+
+        // Handle internal notes (admin only)
+        if (internal_notes !== undefined) {
+            updateData.internal_notes = internal_notes?.trim()?.substring(0, 5000) || null;
         }
 
         // ================================================================
@@ -1522,6 +1540,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
 // ================================================================
 const STATUS_LABELS: Record<string, string> = {
     pending: 'Pendiente',
+    contacted: 'Contactado',
     confirmed: 'Confirmado',
     in_preparation: 'En Preparación',
     ready_to_ship: 'Listo para Enviar',
@@ -1539,6 +1558,7 @@ const STATUS_LABELS: Record<string, string> = {
 // NOTE: Rules are permissive to allow manual control, especially for Free plan users without warehouse
 const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; message?: string; requiresStockRestore?: boolean }>> = {
     pending: {
+        contacted: { allowed: true },      // Mark as contacted (WhatsApp sent)
         confirmed: { allowed: true },
         in_preparation: { allowed: true }, // Allow skip for manual workflows (no warehouse)
         ready_to_ship: { allowed: true },  // Allow skip for manual workflows
@@ -1550,8 +1570,22 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
         returned: { allowed: true },
         incident: { allowed: true },
     },
+    contacted: {
+        pending: { allowed: true },        // Revert to pending
+        confirmed: { allowed: true },      // Customer confirmed
+        in_preparation: { allowed: true }, // Skip to preparation
+        ready_to_ship: { allowed: true },  // Skip for manual workflows
+        shipped: { allowed: true },        // Skip for manual workflows
+        in_transit: { allowed: true },     // Skip for manual workflows
+        delivered: { allowed: true },      // Skip for manual workflows
+        cancelled: { allowed: true },
+        rejected: { allowed: true },
+        returned: { allowed: true },
+        incident: { allowed: true },
+    },
     confirmed: {
         pending: { allowed: true },        // Revert to pending
+        contacted: { allowed: true },      // Revert to contacted
         in_preparation: { allowed: true },
         ready_to_ship: { allowed: true },  // Allow skip for manual workflows
         shipped: { allowed: true },        // Allow skip for manual workflows
@@ -1564,6 +1598,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     },
     in_preparation: {
         pending: { allowed: true },        // Allow full revert
+        contacted: { allowed: true },      // Revert to contacted
         confirmed: { allowed: true },      // Revert one step
         ready_to_ship: { allowed: true },
         shipped: { allowed: true },        // Allow skip
@@ -1575,6 +1610,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     },
     ready_to_ship: {
         pending: { allowed: true, requiresStockRestore: true },       // Allow revert (restores stock)
+        contacted: { allowed: true, requiresStockRestore: true },     // Revert to contacted (restores stock)
         confirmed: { allowed: true, requiresStockRestore: true },     // Allow revert (restores stock)
         in_preparation: { allowed: true, requiresStockRestore: true }, // Revert restores stock
         shipped: { allowed: true },
@@ -1586,6 +1622,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     },
     shipped: {
         pending: { allowed: true, requiresStockRestore: true },       // Allow full revert
+        contacted: { allowed: true, requiresStockRestore: true },     // Revert to contacted
         confirmed: { allowed: true, requiresStockRestore: true },     // Allow revert
         in_preparation: { allowed: true, requiresStockRestore: true }, // Allow revert
         ready_to_ship: { allowed: true },  // Can go back to ready
@@ -1597,6 +1634,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     },
     in_transit: {
         pending: { allowed: true, requiresStockRestore: true },       // Allow full revert
+        contacted: { allowed: true, requiresStockRestore: true },     // Revert to contacted
         confirmed: { allowed: true, requiresStockRestore: true },     // Allow revert
         in_preparation: { allowed: true, requiresStockRestore: true }, // Allow revert
         ready_to_ship: { allowed: true },  // Can go back
@@ -1612,6 +1650,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
         incident: { allowed: true },
         // Disallow going back to earlier states (delivered is final)
         pending: { allowed: false, message: 'Un pedido entregado no puede volver a pendiente. Usa "Devuelto" si el cliente lo devuelve.' },
+        contacted: { allowed: false, message: 'Un pedido entregado no puede volver a contactado. Usa "Devuelto" si es necesario.' },
         confirmed: { allowed: false, message: 'Un pedido entregado no puede volver a confirmado. Usa "Devuelto" si es necesario.' },
         in_preparation: { allowed: false, message: 'Un pedido entregado no puede volver a preparación.' },
         ready_to_ship: { allowed: false, message: 'Un pedido entregado no puede volver a listo para enviar.' },
@@ -1621,6 +1660,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     },
     cancelled: {
         pending: { allowed: true },        // Reactivate
+        contacted: { allowed: true },      // Reactivate to contacted
         confirmed: { allowed: true },      // Reactivate directly to confirmed
         in_preparation: { allowed: true }, // Allow reactivating further along
         ready_to_ship: { allowed: true },  // Allow reactivating further along
@@ -1633,6 +1673,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     rejected: {
         // Same as cancelled - allow reactivation
         pending: { allowed: true },
+        contacted: { allowed: true },      // Reactivate to contacted
         confirmed: { allowed: true },
         in_preparation: { allowed: true },
         ready_to_ship: { allowed: true },
@@ -1646,6 +1687,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     returned: {
         // Returned is usually final, but allow correcting errors
         pending: { allowed: true },        // Allow if marked returned by mistake
+        contacted: { allowed: true },      // Allow if marked returned by mistake
         confirmed: { allowed: true },
         in_preparation: { allowed: true },
         ready_to_ship: { allowed: true },
@@ -1658,6 +1700,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, { allowed: boolean; mess
     incident: {
         // From incident, can go to any state (incident needs resolution)
         pending: { allowed: true },
+        contacted: { allowed: true },      // Can go to contacted
         confirmed: { allowed: true },
         in_preparation: { allowed: true },
         ready_to_ship: { allowed: true },
@@ -1745,7 +1788,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             force = false // Allow forcing certain transitions (for admin override)
         } = req.body;
 
-        const validStatuses = ['pending', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped', 'incident'];
+        const validStatuses = ['pending', 'contacted', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped', 'incident'];
         if (!validStatuses.includes(sleeves_status)) {
             return res.status(400).json({
                 error: 'Invalid status',
@@ -1873,6 +1916,12 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             sleeves_status,
             updated_at: new Date().toISOString()
         };
+
+        if (sleeves_status === 'contacted') {
+            updateData.contacted_at = new Date().toISOString();
+            updateData.contacted_by = confirmed_by || 'api';
+            updateData.contacted_method = confirmation_method || 'whatsapp';
+        }
 
         if (sleeves_status === 'confirmed') {
             updateData.confirmed_at = new Date().toISOString();

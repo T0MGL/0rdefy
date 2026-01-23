@@ -1,6 +1,8 @@
 import { Order } from '@/types';
 import { logger } from '@/utils/logger';
 import { formatCurrency } from '@/utils/currency';
+import { ordersService } from '@/services/orders.service';
+import { useToast } from '@/hooks/use-toast';
 import {
   Sheet,
   SheetContent,
@@ -9,6 +11,7 @@ import {
 } from '@/components/ui/sheet';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Textarea } from './ui/textarea';
 import {
   Select,
   SelectContent,
@@ -16,8 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink, Star } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Phone, MessageCircle, Eye, MapPin, Package, Calendar, Truck, ExternalLink, Star, Pencil, X, Save, Loader2, StickyNote } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 
 // Helper function to calculate relative time
 function getRelativeTime(dateString: string): string {
@@ -43,10 +46,12 @@ interface OrderQuickViewProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onStatusUpdate?: (orderId: string, newStatus: Order['status']) => Promise<void>;
+  onNotesUpdate?: (orderId: string, notes: string | null) => void;
 }
 
 const statusColors = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
+  contacted: 'bg-amber-500/20 text-amber-700 border-amber-500/30',
   confirmed: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
   in_preparation: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
   ready_to_ship: 'bg-cyan-500/20 text-cyan-700 border-cyan-500/30',
@@ -65,6 +70,7 @@ const statusColors = {
 
 const statusLabels = {
   pending: 'Pendiente',
+  contacted: 'Contactado',
   confirmed: 'Confirmado',
   in_preparation: 'En Preparación',
   ready_to_ship: 'Preparado',
@@ -81,15 +87,50 @@ const statusLabels = {
   rejected: 'Rechazado',
 };
 
-export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: OrderQuickViewProps) {
+export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNotesUpdate }: OrderQuickViewProps) {
+  const { toast } = useToast();
   const [currentStatus, setCurrentStatus] = useState<Order['status']>(order?.status || 'pending');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Internal notes editing state
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [notesValue, setNotesValue] = useState(order?.internal_notes || '');
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
 
   useEffect(() => {
     if (order) {
       setCurrentStatus(order.status);
+      setNotesValue(order.internal_notes || '');
+      setIsEditingNotes(false);
     }
   }, [order]);
+
+  // Check if there are unsaved notes changes
+  const hasUnsavedNotes = isEditingNotes && notesValue !== (order?.internal_notes || '');
+
+  // Handle panel close - prevent if saving or confirm if unsaved changes
+  const handleOpenChange = useCallback((newOpen: boolean) => {
+    if (!newOpen) {
+      // Prevent close while saving
+      if (isSavingNotes) {
+        toast({
+          title: 'Guardando...',
+          description: 'Espera a que se guarde la nota antes de cerrar',
+          variant: 'default',
+        });
+        return;
+      }
+      // Warn if unsaved changes
+      if (hasUnsavedNotes) {
+        const confirm = window.confirm('Tienes cambios sin guardar en las notas. ¿Deseas cerrar sin guardar?');
+        if (!confirm) return;
+        // Reset notes to original value
+        setNotesValue(order?.internal_notes || '');
+        setIsEditingNotes(false);
+      }
+    }
+    onOpenChange(newOpen);
+  }, [isSavingNotes, hasUnsavedNotes, order?.internal_notes, onOpenChange, toast]);
 
   const handleSaveStatus = async () => {
     if (!order || !onStatusUpdate || currentStatus === order.status) return;
@@ -106,10 +147,39 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
     }
   };
 
+  const handleSaveNotes = async () => {
+    if (!order) return;
+
+    setIsSavingNotes(true);
+    try {
+      const trimmedNotes = notesValue.trim() || null;
+      await ordersService.updateInternalNotes(order.id, trimmedNotes);
+      setIsEditingNotes(false);
+      // Notify parent to update the order in the list
+      if (onNotesUpdate) {
+        onNotesUpdate(order.id, trimmedNotes);
+      }
+    } catch (error: any) {
+      logger.error('Error saving notes:', error);
+      toast({
+        title: 'Error al guardar',
+        description: error?.message || 'No se pudo guardar la nota. Intenta de nuevo.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingNotes(false);
+    }
+  };
+
+  const handleCancelNotesEdit = () => {
+    setNotesValue(order?.internal_notes || '');
+    setIsEditingNotes(false);
+  };
+
   if (!order) return null;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between">
@@ -341,15 +411,77 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate }: Or
             </div>
           </div>
 
-          {/* Notas Internas (Admin) */}
-          {order.internal_notes && (
-            <div className="space-y-3">
-              <h4 className="font-semibold text-sm text-muted-foreground">NOTAS INTERNAS</h4>
+          {/* Notas Internas (Admin) - Siempre visible, editable inline */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-sm text-muted-foreground flex items-center gap-2">
+                <StickyNote size={14} />
+                NOTAS INTERNAS
+              </h4>
+              {!isEditingNotes && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsEditingNotes(true)}
+                >
+                  <Pencil size={14} className="mr-1" />
+                  {order.internal_notes ? 'Editar' : 'Agregar nota'}
+                </Button>
+              )}
+            </div>
+
+            {isEditingNotes ? (
+              <div className="space-y-2">
+                <Textarea
+                  placeholder="Escribe notas internas sobre este pedido... (ej: cliente pidió entregar después del 25, quiere pagar con transferencia)"
+                  className="min-h-[100px] resize-none text-sm"
+                  value={notesValue}
+                  onChange={(e) => setNotesValue(e.target.value)}
+                  maxLength={5000}
+                  disabled={isSavingNotes}
+                  autoFocus
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    {notesValue.length}/5000 caracteres
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelNotesEdit}
+                      disabled={isSavingNotes}
+                    >
+                      <X size={14} className="mr-1" />
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveNotes}
+                      disabled={isSavingNotes}
+                    >
+                      {isSavingNotes ? (
+                        <Loader2 size={14} className="mr-1 animate-spin" />
+                      ) : (
+                        <Save size={14} className="mr-1" />
+                      )}
+                      Guardar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : order.internal_notes ? (
               <div className="p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800/30 border-dashed">
                 <p className="text-sm whitespace-pre-wrap text-amber-900 dark:text-amber-200">{order.internal_notes}</p>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="p-3 bg-muted/30 rounded-lg border border-dashed text-center">
+                <p className="text-sm text-muted-foreground">Sin notas internas</p>
+                <p className="text-xs text-muted-foreground mt-1">Haz click en "Agregar nota" para guardar recordatorios</p>
+              </div>
+            )}
+          </div>
 
           {/* Timeline */}
           <div className="space-y-3">
