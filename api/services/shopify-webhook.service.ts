@@ -1176,7 +1176,7 @@ export class ShopifyWebhookService {
       if (variantOrConditions.length > 0) {
         const { data: variantData, error: variantError } = await this.supabaseAdmin
           .from('product_variants')
-          .select('id, product_id, shopify_variant_id, sku, image_url')
+          .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
           .eq('store_id', storeId)
           .eq('is_active', true)
           .or(variantOrConditions.join(','));
@@ -1195,8 +1195,16 @@ export class ShopifyWebhookService {
       const bySku = new Map<string, { id: string; image_url: string | null }>();
 
       // Variants: separate maps to track variant_id separately from product_id
-      const variantByShopifyId = new Map<string, { variant_id: string; product_id: string; image_url: string | null }>();
-      const variantBySku = new Map<string, { variant_id: string; product_id: string; image_url: string | null }>();
+      // Include variant_type for bundle vs variation distinction
+      type VariantMatch = {
+        variant_id: string;
+        product_id: string;
+        image_url: string | null;
+        variant_type: string | null;
+        uses_shared_stock: boolean | null;
+      };
+      const variantByShopifyId = new Map<string, VariantMatch>();
+      const variantBySku = new Map<string, VariantMatch>();
 
       // Build product maps
       for (const p of products) {
@@ -1212,20 +1220,21 @@ export class ShopifyWebhookService {
       }
 
       // Build variant maps (these have higher priority for variant matching)
+      // Include variant_type for bundle vs variation tracking
       for (const v of variants) {
+        const variantData: VariantMatch = {
+          variant_id: v.id,
+          product_id: v.product_id,
+          image_url: v.image_url,
+          variant_type: v.variant_type || (v.uses_shared_stock ? 'bundle' : 'variation'),
+          uses_shared_stock: v.uses_shared_stock
+        };
+
         if (v.shopify_variant_id) {
-          variantByShopifyId.set(v.shopify_variant_id, {
-            variant_id: v.id,
-            product_id: v.product_id,
-            image_url: v.image_url
-          });
+          variantByShopifyId.set(v.shopify_variant_id, variantData);
         }
         if (v.sku) {
-          variantBySku.set(v.sku.toUpperCase(), {
-            variant_id: v.id,
-            product_id: v.product_id,
-            image_url: v.image_url
-          });
+          variantBySku.set(v.sku.toUpperCase(), variantData);
         }
       }
 
@@ -1240,6 +1249,7 @@ export class ShopifyWebhookService {
         let productId: string | null = null;
         let variantId: string | null = null;
         let imageUrl: string | null = null;
+        let variantType: string | null = null; // NEW: bundle or variation
 
         // Priority order for matching:
         // 1. product_variants by shopify_variant_id (highest priority - exact variant match)
@@ -1257,13 +1267,15 @@ export class ShopifyWebhookService {
           variantId = variantMatchByShopifyId.variant_id;
           productId = variantMatchByShopifyId.product_id;
           imageUrl = variantMatchByShopifyId.image_url;
-          logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by shopify_variant_id: ${shopifyVariantId}`);
+          variantType = variantMatchByShopifyId.variant_type;
+          logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by shopify_variant_id: ${shopifyVariantId} (type: ${variantType})`);
         } else if (variantMatchBySku) {
           // Second best: SKU match in product_variants
           variantId = variantMatchBySku.variant_id;
           productId = variantMatchBySku.product_id;
           imageUrl = variantMatchBySku.image_url;
-          logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by SKU: ${sku}`);
+          variantType = variantMatchBySku.variant_type;
+          logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by SKU: ${sku} (type: ${variantType})`);
         } else {
           // Fallback to products table (legacy behavior for simple products)
           const matchByVariant = shopifyVariantId ? byVariant.get(shopifyVariantId) : null;
@@ -1274,6 +1286,7 @@ export class ShopifyWebhookService {
           if (match) {
             productId = match.id;
             imageUrl = match.image_url;
+            // Products without variants default to 'variation' (safer default)
           }
         }
 
@@ -1298,7 +1311,8 @@ export class ShopifyWebhookService {
         return {
           order_id: orderId,
           product_id: productId,
-          variant_id: variantId, // NEW: Link to product_variants for stock tracking
+          variant_id: variantId, // Link to product_variants for stock tracking
+          variant_type: variantType, // NEW: 'bundle' | 'variation' for audit trail
           shopify_product_id: shopifyProductId,
           shopify_variant_id: shopifyVariantId,
           shopify_line_item_id: shopifyLineItemId,

@@ -34,7 +34,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers } from 'lucide-react';
+import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote } from 'lucide-react';
 import { productsService } from '@/services/products.service';
 import { useState, useEffect } from 'react';
 import { Product, ProductVariant } from '@/types';
@@ -73,6 +73,7 @@ const orderSchema = z.object({
   paymentMethod: z.enum(['paid', 'cod'], {
     errorMap: () => ({ message: 'Selecciona un método de pago' })
   }),
+  internalNotes: z.string().max(5000, 'Máximo 5000 caracteres').optional(),
 });
 
 type OrderFormValues = z.infer<typeof orderSchema>;
@@ -92,6 +93,8 @@ export interface OrderFormData extends OrderFormValues {
   variantPrice?: number;
   variantTitle?: string;
   unitsPerPack?: number;
+  // Internal notes (admin-only, not visible to customers)
+  internalNotes?: string;
 }
 
 interface OrderFormProps {
@@ -170,6 +173,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
       quantity: initialData?.quantity || 1,
       carrier: initialData?.carrier || '',
       paymentMethod: initialData?.paymentMethod || 'cod',
+      internalNotes: initialData?.internalNotes || '',
     },
   });
 
@@ -470,6 +474,8 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         variantPrice: selectedVariant?.price,
         variantTitle: selectedVariant?.variant_title,
         unitsPerPack: selectedVariant?.units_per_pack,
+        // Internal notes (trim to null if empty)
+        internalNotes: data.internalNotes?.trim() || undefined,
       };
 
       await onSubmit(extendedData);
@@ -485,6 +491,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         quantity: 1,
         carrier: '',
         paymentMethod: 'cod',
+        internalNotes: '',
       });
       setSelectedCity(null);
       setCitySearch('');
@@ -883,9 +890,10 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                   );
                 })()}
 
-                {/* Variant options */}
+                {/* Variant options - with PACK/VAR badges */}
                 {selectedProductVariants.filter(v => v.is_active).map((variant) => {
-                  const availableStock = variant.uses_shared_stock
+                  const isBundle = variant.uses_shared_stock || (variant as any).variant_type === 'bundle';
+                  const availableStock = isBundle
                     ? Math.floor(parentStock / (variant.units_per_pack || 1))
                     : variant.stock;
                   const isOutOfStock = availableStock <= 0;
@@ -907,16 +915,28 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                         {selectedVariantId === variant.id && (
                           <Check className="h-4 w-4 text-primary" />
                         )}
-                        <div>
-                          <span className="font-medium">{variant.variant_title}</span>
-                          {variant.uses_shared_stock && variant.units_per_pack > 1 && (
-                            <span className="text-xs text-muted-foreground ml-2">
-                              ({variant.units_per_pack} unidades)
-                            </span>
+                        <div className="flex items-center gap-2">
+                          {/* Type badge: PACK (purple) or VAR (emerald) */}
+                          {isBundle ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700">
+                              PACK
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                              VAR
+                            </Badge>
                           )}
-                          {variant.sku && (
-                            <p className="text-xs text-muted-foreground">SKU: {variant.sku}</p>
-                          )}
+                          <div>
+                            <span className="font-medium">{variant.variant_title}</span>
+                            {isBundle && variant.units_per_pack > 1 && (
+                              <span className="text-xs text-muted-foreground ml-1">
+                                ({variant.units_per_pack}x)
+                              </span>
+                            )}
+                            {variant.sku && (
+                              <p className="text-xs text-muted-foreground">SKU: {variant.sku}</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -929,7 +949,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-xs">
-                            {availableStock} disp.
+                            {availableStock} {isBundle ? 'packs' : 'uds'}
                           </Badge>
                         )}
                       </div>
@@ -1146,6 +1166,32 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                   <SelectItem value="paid">Pagado</SelectItem>
                 </SelectContent>
               </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Internal Notes (Admin only) */}
+        <FormField
+          control={form.control}
+          name="internalNotes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="flex items-center gap-2">
+                <StickyNote className="h-4 w-4" />
+                Notas internas
+                <span className="text-muted-foreground text-xs font-normal">(opcional)</span>
+              </FormLabel>
+              <FormControl>
+                <Textarea
+                  placeholder="Notas para el equipo... (ej: cliente pidió entregar después del 25, quiere pagar con transferencia)"
+                  className="resize-none min-h-[80px]"
+                  {...field}
+                />
+              </FormControl>
+              <p className="text-xs text-muted-foreground">
+                Solo visible para el equipo, no para el cliente ni repartidor
+              </p>
               <FormMessage />
             </FormItem>
           )}

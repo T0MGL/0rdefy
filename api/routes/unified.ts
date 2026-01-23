@@ -439,13 +439,17 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
         // Filter out soft-deleted and test orders
         const orders = (ordersData || []).filter(o => !o.deleted_at && o.is_test !== true);
 
-        // Fetch campaigns from all stores
-        const { data: campaignsData } = await supabaseAdmin
-            .from('campaigns')
-            .select('investment, created_at, status, store_id')
-            .in('store_id', storeIds);
+        // Fetch marketing expenses from additional_values (category='marketing', type='expense')
+        const { data: marketingExpensesData } = await supabaseAdmin
+            .from('additional_values')
+            .select('amount, date, store_id')
+            .in('store_id', storeIds)
+            .eq('category', 'marketing')
+            .eq('type', 'expense')
+            .gte('date', previousPeriodStart.toISOString().split('T')[0])
+            .lte('date', currentPeriodEnd.toISOString().split('T')[0]);
 
-        const campaigns = campaignsData || [];
+        const marketingExpenses = marketingExpensesData || [];
 
         // Split orders into periods
         const currentPeriodOrders = orders.filter(o => new Date(o.created_at) >= currentPeriodStart);
@@ -454,17 +458,20 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
             return date >= previousPeriodStart && date < currentPeriodStart;
         });
 
-        // Calculate gasto publicitario for each period
-        const currentGasto = campaigns
-            .filter(c => new Date(c.created_at) >= currentPeriodStart && c.status === 'active')
-            .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
-
-        const previousGasto = campaigns
-            .filter(c => {
-                const d = new Date(c.created_at);
-                return d >= previousPeriodStart && d < currentPeriodStart && c.status === 'active';
+        // Calculate gasto publicitario for each period (from additional_values)
+        const currentGasto = marketingExpenses
+            .filter(m => {
+                const expenseDate = new Date(m.date);
+                return expenseDate >= currentPeriodStart && expenseDate <= currentPeriodEnd;
             })
-            .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
+            .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+
+        const previousGasto = marketingExpenses
+            .filter(m => {
+                const expenseDate = new Date(m.date);
+                return expenseDate >= previousPeriodStart && expenseDate < currentPeriodStart;
+            })
+            .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
         // Helper to calculate metrics for a period
         const calculateMetrics = async (ordersList: any[], gastoPublicitario: number) => {
@@ -772,14 +779,15 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
         // Filter out test/deleted
         const filteredOrders = (orders || []).filter(o => !o.deleted_at && o.is_test !== true);
 
-        // Fetch campaigns
-        const { data: campaignsData } = await supabaseAdmin
-            .from('campaigns')
-            .select('investment, created_at, status')
+        // Fetch marketing expenses from additional_values (category='marketing', type='expense')
+        const { data: marketingExpensesData } = await supabaseAdmin
+            .from('additional_values')
+            .select('amount, date')
             .in('store_id', storeIds)
-            .eq('status', 'active');
+            .eq('category', 'marketing')
+            .eq('type', 'expense');
 
-        const campaigns = campaignsData || [];
+        const marketingExpenses = marketingExpensesData || [];
 
         // Collect product IDs
         const productIds = new Set<string>();
@@ -832,11 +840,11 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
             }
         }
 
-        // Add campaign costs per day
-        for (const campaign of campaigns) {
-            const date = new Date(campaign.created_at).toISOString().split('T')[0];
+        // Add marketing expenses per day (from additional_values)
+        for (const expense of marketingExpenses) {
+            const date = expense.date; // already in YYYY-MM-DD format
             if (dailyData[date]) {
-                dailyData[date].gasto_publicitario += Number(campaign.investment) || 0;
+                dailyData[date].gasto_publicitario += Number(expense.amount) || 0;
             }
         }
 

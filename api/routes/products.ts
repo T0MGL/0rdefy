@@ -1188,15 +1188,16 @@ productsRouter.get('/:id/can-delete', async (req: AuthRequest, res: Response) =>
 
 // ================================================================
 // GET /api/products/:id/variants - Get all variants for a product
+// Returns variants separated by type: bundles[] and variations[]
 // ================================================================
 productsRouter.get('/:id/variants', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
-        // Verify product belongs to store
+        // Verify product belongs to store and get parent stock
         const { data: product, error: productError } = await supabaseAdmin
             .from('products')
-            .select('id, name, has_variants')
+            .select('id, name, has_variants, stock')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
@@ -1205,20 +1206,46 @@ productsRouter.get('/:id/variants', validateUUIDParam('id'), async (req: AuthReq
             return res.status(404).json({ error: 'Producto no encontrado' });
         }
 
-        // Get variants
+        // Get variants with variant_type
         const { data: variants, error } = await supabaseAdmin
             .from('product_variants')
-            .select('id, product_id, sku, variant_title, option1_name, option1_value, option2_name, option2_value, option3_name, option3_value, price, cost, stock, image_url, position, shopify_variant_id, is_active, uses_shared_stock, units_per_pack')
+            .select('id, product_id, sku, variant_title, variant_type, option1_name, option1_value, option2_name, option2_value, option3_name, option3_value, price, cost, stock, image_url, position, shopify_variant_id, is_active, uses_shared_stock, units_per_pack')
             .eq('product_id', id)
             .eq('is_active', true)
             .order('position', { ascending: true });
 
         if (error) throw error;
 
+        const parentStock = product.stock || 0;
+
+        // Separate bundles and variations, calculate availability
+        const bundles = (variants || [])
+            .filter((v: any) => v.variant_type === 'bundle' || v.uses_shared_stock === true)
+            .map((v: any) => ({
+                ...v,
+                variant_type: 'bundle' as const,
+                available_packs: Math.floor(parentStock / (v.units_per_pack || 1))
+            }));
+
+        const variations = (variants || [])
+            .filter((v: any) => v.variant_type === 'variation' || (v.variant_type !== 'bundle' && v.uses_shared_stock === false))
+            .map((v: any) => ({
+                ...v,
+                variant_type: 'variation' as const,
+                available_stock: v.stock || 0
+            }));
+
         res.json({
             product_id: id,
             product_name: product.name,
+            parent_stock: parentStock,
             has_variants: product.has_variants || false,
+            has_bundles: bundles.length > 0,
+            has_variations: variations.length > 0,
+            // Separated by type for clear UX
+            bundles,
+            variations,
+            // Legacy: all variants for backward compatibility
             variants: variants || []
         });
     } catch (error: any) {
@@ -1232,6 +1259,7 @@ productsRouter.get('/:id/variants', validateUUIDParam('id'), async (req: AuthReq
 
 // ================================================================
 // POST /api/products/:id/variants - Create a new variant
+// Supports variant_type: 'bundle' | 'variation' (inferred from uses_shared_stock if not provided)
 // ================================================================
 productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
@@ -1239,6 +1267,7 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
         const {
             sku,
             variant_title,
+            variant_type,  // NEW: 'bundle' | 'variation'
             option1_name,
             option1_value,
             option2_name,
@@ -1255,6 +1284,26 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
             uses_shared_stock = true,
             units_per_pack = 1
         } = req.body;
+
+        // Infer variant_type from uses_shared_stock if not explicitly provided
+        const resolvedVariantType = variant_type || (uses_shared_stock ? 'bundle' : 'variation');
+
+        // Enforce business rules based on variant_type
+        let finalUsesSharedStock = uses_shared_stock;
+        let finalUnitsPerPack = units_per_pack;
+        let finalStock = stock;
+
+        if (resolvedVariantType === 'bundle') {
+            // Bundles MUST use shared stock
+            finalUsesSharedStock = true;
+            finalStock = 0; // Bundles don't have independent stock
+            finalUnitsPerPack = Math.max(1, parseInt(units_per_pack, 10) || 1);
+        } else if (resolvedVariantType === 'variation') {
+            // Variations MUST NOT use shared stock
+            finalUsesSharedStock = false;
+            finalUnitsPerPack = 1; // Variations always have units_per_pack = 1
+            finalStock = parseInt(stock, 10) || 0;
+        }
 
         // Verify product belongs to store and get image_url for inheritance
         const { data: product, error: productError } = await supabaseAdmin
@@ -1329,23 +1378,24 @@ productsRouter.post('/:id/variants', validateUUIDParam('id'), requirePermission(
                 store_id: req.storeId,
                 sku,
                 variant_title,
-                option1_name,
-                option1_value,
-                option2_name,
-                option2_value,
-                option3_name,
-                option3_value,
+                variant_type: resolvedVariantType, // NEW: bundle or variation
+                option1_name: resolvedVariantType === 'variation' ? option1_name : null,
+                option1_value: resolvedVariantType === 'variation' ? option1_value : null,
+                option2_name: resolvedVariantType === 'variation' ? option2_name : null,
+                option2_value: resolvedVariantType === 'variation' ? option2_value : null,
+                option3_name: resolvedVariantType === 'variation' ? option3_name : null,
+                option3_value: resolvedVariantType === 'variation' ? option3_value : null,
                 price: parseFloat(price),
                 cost: cost ? parseFloat(cost) : null,
-                stock: uses_shared_stock ? 0 : (parseInt(stock, 10) || 0),
+                stock: finalStock,
                 image_url: image_url || product.image_url, // Auto-inherit from parent
                 barcode,
                 weight: weight ? parseFloat(weight) : null,
                 weight_unit,
                 position: nextPosition,
                 is_active: true,
-                uses_shared_stock: uses_shared_stock,
-                units_per_pack: parsedUnitsPerPack
+                uses_shared_stock: finalUsesSharedStock,
+                units_per_pack: finalUnitsPerPack
             }])
             .select()
             .single();
@@ -1711,6 +1761,231 @@ productsRouter.post('/:id/variants/bulk', validateUUIDParam('id'), requirePermis
         logger.error('SERVER', `[POST /api/products/${req.params.id}/variants/bulk] Error:`, error);
         res.status(500).json({
             error: 'Error al crear variantes',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/products/:id/bundles - Create a bundle (simplified endpoint)
+// Auto-sets: variant_type='bundle', uses_shared_stock=true, stock=0
+// ================================================================
+productsRouter.post('/:id/bundles', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const {
+            sku,
+            variant_title,
+            units_per_pack = 1,
+            price,
+            cost,
+            image_url
+        } = req.body;
+
+        // Verify product belongs to store
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('id, name, store_id, image_url, stock')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Validate required fields
+        if (!variant_title || price === undefined) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'variant_title and price are required'
+            });
+        }
+
+        const parsedUnitsPerPack = Math.max(1, parseInt(units_per_pack, 10) || 1);
+
+        // Get next position
+        const { data: maxPos } = await supabaseAdmin
+            .from('product_variants')
+            .select('position')
+            .eq('product_id', id)
+            .order('position', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const nextPosition = (maxPos?.position || 0) + 1;
+
+        // Create bundle with enforced business rules
+        const { data: bundle, error } = await supabaseAdmin
+            .from('product_variants')
+            .insert([{
+                product_id: id,
+                store_id: req.storeId,
+                sku,
+                variant_title,
+                variant_type: 'bundle',
+                uses_shared_stock: true,  // Bundles ALWAYS use shared stock
+                units_per_pack: parsedUnitsPerPack,
+                stock: 0,  // Bundles don't have independent stock
+                price: parseFloat(price),
+                cost: cost ? parseFloat(cost) : null,
+                image_url: image_url || product.image_url,
+                position: nextPosition,
+                is_active: true,
+                // Bundles don't use option attributes
+                option1_name: null,
+                option1_value: null,
+                option2_name: null,
+                option2_value: null,
+                option3_name: null,
+                option3_value: null
+            }])
+            .select()
+            .single();
+
+        if (error) {
+            if (error.code === '23505') {
+                return res.status(409).json({
+                    error: 'SKU duplicado',
+                    message: 'Ya existe una variante o producto con este SKU'
+                });
+            }
+            throw error;
+        }
+
+        // Mark product as having variants
+        await supabaseAdmin
+            .from('products')
+            .update({ has_variants: true, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+        // Calculate available packs
+        const availablePacks = Math.floor((product.stock || 0) / parsedUnitsPerPack);
+
+        res.status(201).json({
+            message: 'Pack creado exitosamente',
+            data: {
+                ...bundle,
+                available_packs: availablePacks
+            }
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[POST /api/products/${req.params.id}/bundles] Error:`, error);
+        res.status(500).json({
+            error: 'Error al crear pack',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/products/:id/variations - Create a variation (simplified endpoint)
+// Auto-sets: variant_type='variation', uses_shared_stock=false, units_per_pack=1
+// ================================================================
+productsRouter.post('/:id/variations', validateUUIDParam('id'), requirePermission(Module.PRODUCTS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const {
+            sku,
+            variant_title,
+            option1_name,
+            option1_value,
+            option2_name,
+            option2_value,
+            option3_name,
+            option3_value,
+            price,
+            cost,
+            stock = 0,
+            image_url
+        } = req.body;
+
+        // Verify product belongs to store
+        const { data: product, error: productError } = await supabaseAdmin
+            .from('products')
+            .select('id, name, store_id, image_url')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Validate required fields
+        if (!variant_title || price === undefined) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'variant_title and price are required'
+            });
+        }
+
+        // Get next position
+        const { data: maxPos } = await supabaseAdmin
+            .from('product_variants')
+            .select('position')
+            .eq('product_id', id)
+            .order('position', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const nextPosition = (maxPos?.position || 0) + 1;
+
+        // Create variation with enforced business rules
+        const { data: variation, error } = await supabaseAdmin
+            .from('product_variants')
+            .insert([{
+                product_id: id,
+                store_id: req.storeId,
+                sku,
+                variant_title,
+                variant_type: 'variation',
+                uses_shared_stock: false,  // Variations ALWAYS have independent stock
+                units_per_pack: 1,  // Variations always have units_per_pack = 1
+                stock: parseInt(stock, 10) || 0,
+                price: parseFloat(price),
+                cost: cost ? parseFloat(cost) : null,
+                image_url: image_url || product.image_url,
+                position: nextPosition,
+                is_active: true,
+                // Variations use option attributes
+                option1_name,
+                option1_value,
+                option2_name,
+                option2_value,
+                option3_name,
+                option3_value
+            }])
+            .select()
+            .single();
+
+        if (error) {
+            if (error.code === '23505') {
+                return res.status(409).json({
+                    error: 'SKU duplicado',
+                    message: 'Ya existe una variante o producto con este SKU'
+                });
+            }
+            throw error;
+        }
+
+        // Mark product as having variants
+        await supabaseAdmin
+            .from('products')
+            .update({ has_variants: true, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+        res.status(201).json({
+            message: 'Variante creada exitosamente',
+            data: {
+                ...variation,
+                available_stock: variation.stock
+            }
+        });
+    } catch (error: any) {
+        logger.error('SERVER', `[POST /api/products/${req.params.id}/variations] Error:`, error);
+        res.status(500).json({
+            error: 'Error al crear variante',
             message: error.message
         });
     }

@@ -79,8 +79,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         // Build query - fetch orders from previousPeriodStart to currentPeriodEnd
         // This ensures we have data for both current and previous periods
-        // OPTIMIZATION: Only select required fields (not JSONB columns like line_items, customer)
-        // This reduces data transfer from ~5KB/order to ~0.2KB/order (96% reduction)
+        // NOTE: Product costs are calculated from order_line_items table (normalized)
         const query = supabaseAdmin
             .from('orders')
             .select('id, created_at, total_price, sleeves_status, shipping_cost, confirmed_at, delivered_at, shipped_at, deleted_at, is_test')
@@ -112,39 +111,39 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             return date >= previous7DaysStart && date < last7DaysStart;
         });
 
-        // ===== GET GASTO PUBLICITARIO COSTS FROM CAMPAIGNS TABLE =====
-        // Get all campaigns for this store (active campaigns only)
-        const { data: campaignsData, error: campaignsError } = await supabaseAdmin
-            .from('campaigns')
-            .select('investment, created_at, status')
-            .eq('store_id', req.storeId);
+        // ===== GET GASTO PUBLICITARIO FROM ADDITIONAL_VALUES TABLE =====
+        // Marketing expenses are registered by users in the additional_values table
+        // with category='marketing' and type='expense'
+        const { data: marketingExpensesData, error: marketingExpensesError } = await supabaseAdmin
+            .from('additional_values')
+            .select('amount, date')
+            .eq('store_id', req.storeId)
+            .eq('category', 'marketing')
+            .eq('type', 'expense')
+            .gte('date', previousPeriodStart.toISOString().split('T')[0])
+            .lte('date', currentPeriodEnd.toISOString().split('T')[0]);
 
-        if (campaignsError) {
-            logger.error('SERVER', '[GET /api/analytics/overview] Campaign query error:', campaignsError);
+        if (marketingExpensesError) {
+            logger.error('SERVER', '[GET /api/analytics/overview] Marketing expenses query error:', marketingExpensesError);
         }
 
-        const campaigns = campaignsData || [];
+        const marketingExpenses = marketingExpensesData || [];
 
         // Calculate gasto publicitario costs for current period
-        const currentGastoPublicitarioCosts = campaigns
-            .filter(c => {
-                const campaignDate = new Date(c.created_at);
-                return campaignDate >= last7DaysStart && c.status === 'active';
+        const currentGastoPublicitarioCosts = marketingExpenses
+            .filter(m => {
+                const expenseDate = new Date(m.date);
+                return expenseDate >= last7DaysStart && expenseDate <= currentPeriodEnd;
             })
-            .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
+            .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
         // Calculate gasto publicitario costs for previous period
-        const previousGastoPublicitarioCosts = campaigns
-            .filter(c => {
-                const campaignDate = new Date(c.created_at);
-                return campaignDate >= previous7DaysStart && campaignDate < last7DaysStart && c.status === 'active';
+        const previousGastoPublicitarioCosts = marketingExpenses
+            .filter(m => {
+                const expenseDate = new Date(m.date);
+                return expenseDate >= previous7DaysStart && expenseDate < last7DaysStart;
             })
-            .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
-
-        // Calculate total gasto publicitario costs (all active campaigns)
-        const totalGastoPublicitarioCosts = campaigns
-            .filter(c => c.status === 'active')
-            .reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
+            .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
         // ===== HELPER FUNCTION: Calculate metrics for a set of orders =====
         const calculateMetrics = async (ordersList: any[], gastoPublicitarioCosts: number, periodStart: Date, periodEnd: Date) => {
@@ -212,97 +211,64 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Ejemplo: Si precio = 11000 y tasa = 10%, entonces IVA = 11000 - (11000 / 1.10) = 1000
             const taxCollectedValue = taxRate > 0 ? (rev - (rev / (1 + taxRate / 100))) : 0;
 
-            // 3. PRODUCT COSTS (Optimized: batch query instead of N+1)
-            // VARIANT SUPPORT: Collect both product_ids and variant_ids
-            const productIds = new Set<string>();
-            const variantIds = new Set<string>();
-            for (const order of ordersList) {
-                if (order.line_items && Array.isArray(order.line_items)) {
-                    for (const item of order.line_items) {
-                        if (item.product_id) {
-                            productIds.add(item.product_id.toString());
-                        }
-                        if (item.variant_id) {
-                            variantIds.add(item.variant_id.toString());
-                        }
-                    }
+            // 3. PRODUCT COSTS - Use normalized order_line_items table for accurate product mapping
+            // This is more reliable than JSONB line_items which may have Shopify IDs instead of local UUIDs
+            const orderIds = ordersList.map(o => o.id);
+
+            // Fetch line items from normalized table with product costs
+            const { data: lineItemsData } = orderIds.length > 0 ? await supabaseAdmin
+                .from('order_line_items')
+                .select(`
+                    order_id,
+                    product_id,
+                    variant_id,
+                    quantity,
+                    products:product_id (id, cost, packaging_cost, additional_costs),
+                    variants:variant_id (id, cost)
+                `)
+                .in('order_id', orderIds) : { data: [] };
+
+            // Group line items by order_id for cost calculation
+            const lineItemsByOrder = new Map<string, any[]>();
+            (lineItemsData || []).forEach(item => {
+                const orderId = item.order_id;
+                if (!lineItemsByOrder.has(orderId)) {
+                    lineItemsByOrder.set(orderId, []);
                 }
-            }
+                lineItemsByOrder.get(orderId)!.push(item);
+            });
 
-            // Fetch all products in a single query
-            // Use local product IDs (UUIDs) from line_items to match products
-            const productCostMap = new Map<string, number>();
-            if (productIds.size > 0) {
-                const { data: productsData } = await supabaseAdmin
-                    .from('products')
-                    .select('id, cost, packaging_cost, additional_costs')
-                    .in('id', Array.from(productIds))
-                    .eq('store_id', req.storeId);
-
-                if (productsData) {
-                    productsData.forEach(product => {
-                        if (product.id) {
-                            // Calculate total unit cost including packaging and extras
-                            const baseCost = Number(product.cost) || 0;
-                            const packaging = Number(product.packaging_cost) || 0;
-                            const additional = Number(product.additional_costs) || 0;
-                            const totalUnitCost = baseCost + packaging + additional;
-
-                            productCostMap.set(product.id, totalUnitCost);
-                        }
-                    });
-                }
-            }
-
-            // VARIANT SUPPORT: Fetch variant costs
-            // Variant costs override product costs when variant has its own cost defined
-            const variantCostMap = new Map<string, number>();
-            if (variantIds.size > 0) {
-                const { data: variantsData } = await supabaseAdmin
-                    .from('product_variants')
-                    .select('id, product_id, cost')
-                    .in('id', Array.from(variantIds));
-
-                if (variantsData) {
-                    variantsData.forEach(variant => {
-                        if (variant.id && variant.cost !== null && variant.cost !== undefined) {
-                            // Variant has its own cost - use it
-                            variantCostMap.set(variant.id, Number(variant.cost) || 0);
-                        }
-                        // If variant has no cost, we'll fall back to product cost
-                    });
-                }
-            }
-
-            // Calculate product costs using the cached product data
-            // Total product costs (all orders)
+            // Calculate product costs
             let productCosts = 0;
-            // Real product costs (only delivered orders - actual money spent)
             let realProductCosts = 0;
 
             for (const order of ordersList) {
-                if (order.line_items && Array.isArray(order.line_items)) {
-                    let orderCost = 0;
-                    for (const item of order.line_items) {
-                        // VARIANT SUPPORT: Check variant cost first, then fall back to product cost
-                        let itemUnitCost = 0;
-                        if (item.variant_id && variantCostMap.has(item.variant_id.toString())) {
-                            // Use variant-specific cost
-                            itemUnitCost = variantCostMap.get(item.variant_id.toString()) || 0;
-                        } else {
-                            // Use product cost (includes packaging + additional)
-                            itemUnitCost = productCostMap.get(item.product_id?.toString()) || 0;
-                        }
+                const items = lineItemsByOrder.get(order.id) || [];
+                let orderCost = 0;
 
-                        const itemCost = itemUnitCost * Number(item.quantity || 1);
-                        orderCost += itemCost;
-                        productCosts += itemCost;
+                for (const item of items) {
+                    let itemUnitCost = 0;
+
+                    // Check variant cost first (if variant exists and has cost)
+                    if (item.variants && item.variants.cost !== null && item.variants.cost !== undefined) {
+                        itemUnitCost = Number(item.variants.cost) || 0;
+                    }
+                    // Fall back to product cost
+                    else if (item.products) {
+                        const baseCost = Number(item.products.cost) || 0;
+                        const packaging = Number(item.products.packaging_cost) || 0;
+                        const additional = Number(item.products.additional_costs) || 0;
+                        itemUnitCost = baseCost + packaging + additional;
                     }
 
-                    // Only count costs for delivered orders (real money out)
-                    if (order.sleeves_status === 'delivered') {
-                        realProductCosts += orderCost;
-                    }
+                    const itemCost = itemUnitCost * Number(item.quantity || 1);
+                    orderCost += itemCost;
+                    productCosts += itemCost;
+                }
+
+                // Only count costs for delivered orders (real money spent)
+                if (order.sleeves_status === 'delivered') {
+                    realProductCosts += orderCost;
                 }
             }
 
@@ -324,11 +290,11 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Also add to real revenue if it's actual cash
             realRevenue += additionalIncome;
 
-            // IMPORTANTE: additional_values de tipo "expense" NO se suman aquí
-            // Solo se muestran en la pestaña de Additional Values
-            // Los gastos de marketing/publicidad ya están en la tabla campaigns
+            // NOTE: Marketing expenses (category='marketing', type='expense') from additional_values
+            // are now included in gastoPublicitarioCosts parameter passed to this function.
+            // Other expense categories (employees, operational) are display-only and not included in analytics.
 
-            // 4. GASTO PUBLICITARIO (from campaigns table)
+            // 4. GASTO PUBLICITARIO (from additional_values table, category='marketing')
             const gastoPublicitario = gastoPublicitarioCosts;
 
             // 5. TOTAL OPERATIONAL COSTS
@@ -620,27 +586,28 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         const orders = ordersData || [];
 
-        // Get gasto publicitario costs from campaigns table
-        const { data: campaignsData, error: campaignsError } = await supabaseAdmin
-            .from('campaigns')
-            .select('investment, created_at, status')
+        // Get gasto publicitario from additional_values table (category='marketing', type='expense')
+        const { data: marketingExpensesData, error: marketingExpensesError } = await supabaseAdmin
+            .from('additional_values')
+            .select('amount, date')
             .eq('store_id', req.storeId)
-            .eq('status', 'active');
+            .eq('category', 'marketing')
+            .eq('type', 'expense');
 
-        if (campaignsError) {
-            logger.error('SERVER', '[GET /api/analytics/chart] Campaign query error:', campaignsError);
+        if (marketingExpensesError) {
+            logger.error('SERVER', '[GET /api/analytics/chart] Marketing expenses query error:', marketingExpensesError);
         }
 
-        const campaigns = campaignsData || [];
+        const marketingExpenses = marketingExpensesData || [];
 
-        // Group campaigns by date
-        const dailyCampaignCosts: Record<string, number> = {};
-        for (const campaign of campaigns) {
-            const date = new Date(campaign.created_at).toISOString().split('T')[0];
-            if (!dailyCampaignCosts[date]) {
-                dailyCampaignCosts[date] = 0;
+        // Group marketing expenses by date
+        const dailyMarketingCosts: Record<string, number> = {};
+        for (const expense of marketingExpenses) {
+            const date = expense.date; // already in YYYY-MM-DD format
+            if (!dailyMarketingCosts[date]) {
+                dailyMarketingCosts[date] = 0;
             }
-            dailyCampaignCosts[date] += Number(campaign.investment) || 0;
+            dailyMarketingCosts[date] += Number(expense.amount) || 0;
         }
 
         // VARIANT SUPPORT: Collect both product_ids and variant_ids for batch query
@@ -788,9 +755,9 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             dailyData[date].productCosts += dailyAdditionalValues[date].expense;
         }
 
-        // Add gasto publicitario costs from campaigns for each day
+        // Add gasto publicitario costs from marketing expenses for each day
         for (const date in dailyData) {
-            dailyData[date].gasto_publicitario = Math.round(dailyCampaignCosts[date] || 0);
+            dailyData[date].gasto_publicitario = Math.round(dailyMarketingCosts[date] || 0);
         }
 
         // Calculate chart data with real profit (only delivered orders)
@@ -1339,14 +1306,19 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
 
         const orders = activeOrders || [];
 
-        // Get gasto publicitario costs (for proration)
-        const { data: campaignsData } = await supabaseAdmin
-            .from('campaigns')
-            .select('investment')
+        // Get gasto publicitario costs (for proration) from additional_values (marketing expenses)
+        // Get expenses from last 30 days for proration
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const { data: marketingExpensesData } = await supabaseAdmin
+            .from('additional_values')
+            .select('amount')
             .eq('store_id', req.storeId)
-            .eq('status', 'active');
+            .eq('category', 'marketing')
+            .eq('type', 'expense')
+            .gte('date', thirtyDaysAgo.toISOString().split('T')[0]);
 
-        const totalGastoPublicitario = (campaignsData || []).reduce((sum, c) => sum + (Number(c.investment) || 0), 0);
+        const totalGastoPublicitario = (marketingExpensesData || []).reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
         const gastoPublicitarioPerOrder = orders.length > 0 ? totalGastoPublicitario / orders.length : 0;
 
         // VARIANT SUPPORT: Collect both product_ids and variant_ids for batch query

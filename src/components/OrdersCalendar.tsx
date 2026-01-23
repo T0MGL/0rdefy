@@ -10,6 +10,7 @@ import { formatCurrency } from '@/utils/currency';
 
 const statusColors = {
   pending: 'bg-yellow-500',
+  contacted: 'bg-amber-500',
   confirmed: 'bg-blue-500',
   in_preparation: 'bg-indigo-500',
   ready_to_ship: 'bg-cyan-500',

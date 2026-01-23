@@ -119,12 +119,13 @@ export function RevenueIntelligence() {
   // Margen neto = Ingresos - (Productos + Envío + Publicidad)
   const netProfit = overview.realNetProfit ?? overview.netProfit;
 
+  // Net margin breakdown: Gross Margin - Operating Costs = Net Profit
+  // Shows how gross margin is reduced by operating expenses to arrive at net profit
   const netMarginData = [
     { name: 'Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
     { name: 'Gasto Publicitario', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
     { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
     { name: 'Confirmación', value: Math.round(totalConfirmationCosts), color: 'hsl(280, 91%, 60%)' },
-    { name: 'Ops', value: Math.round(totalProductCosts + totalDeliveryCosts + totalConfirmationCosts + gasto_publicitario - grossMargin), color: 'hsl(0, 0%, 60%)' },
     { name: 'NETO', value: Math.round(netProfit), color: 'hsl(84, 81%, 63%)' },
   ];
 

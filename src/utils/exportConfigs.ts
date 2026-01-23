@@ -40,6 +40,7 @@ export const ordersExportColumns: ExportColumn[] = [
     format: (value) => {
       const statusLabels: Record<string, string> = {
         pending: 'Pendiente',
+        contacted: 'Contactado',
         confirmed: 'Confirmado',
         in_preparation: 'En Preparación',
         ready_to_ship: 'Preparado',
