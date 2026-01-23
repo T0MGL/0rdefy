@@ -41,6 +41,7 @@ interface PackingOneByOneProps {
   currentOrderIndex: number;
   onPackItem: (orderId: string, productId: string) => Promise<void>;
   onPackAllItems: (orderId: string) => Promise<void>;
+  onAutoPackSession?: () => Promise<void>;
   onPrintLabel: (order: OrderForPacking) => Promise<void>;
   onNextOrder: () => void;
   onPreviousOrder: () => void;
@@ -55,6 +56,7 @@ export function PackingOneByOne({
   currentOrderIndex,
   onPackItem,
   onPackAllItems,
+  onAutoPackSession,
   onPrintLabel,
   onNextOrder,
   onPreviousOrder,
@@ -67,6 +69,7 @@ export function PackingOneByOne({
   const currentOrder = orders[currentOrderIndex];
 
   const [packingProduct, setPackingProduct] = useState<string | null>(null);
+  const [autoPackingSession, setAutoPackingSession] = useState(false);
   const [printingOrder, setPrintingOrder] = useState(false);
   const [reportDialog, setReportDialog] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -126,6 +129,18 @@ export function PackingOneByOne({
     }
   }, [currentOrder, onPackAllItems]);
 
+  // Handle auto-packing entire session
+  const handleAutoPackSession = useCallback(async () => {
+    if (!onAutoPackSession) return;
+
+    setAutoPackingSession(true);
+    try {
+      await onAutoPackSession();
+    } finally {
+      setAutoPackingSession(false);
+    }
+  }, [onAutoPackSession]);
+
   // Handle printing label
   const handlePrintLabel = useCallback(async () => {
     if (!currentOrder) return;
@@ -163,21 +178,46 @@ export function PackingOneByOne({
             </p>
           </div>
 
-          {allOrdersComplete && (
-            <Button
-              onClick={onCompleteSession}
-              disabled={loading}
-              size="lg"
-              className="gap-2 bg-primary"
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Check className="h-4 w-4" />
-              )}
-              Finalizar Sesión
-            </Button>
-          )}
+          <div className="flex items-center gap-3">
+            {/* Auto-Pack All Button - Only show if not all orders complete */}
+            {!allOrdersComplete && onAutoPackSession && (
+              <Button
+                onClick={handleAutoPackSession}
+                disabled={autoPackingSession || loading}
+                size="lg"
+                variant="default"
+                className="gap-2 bg-primary hover:bg-primary/90"
+              >
+                {autoPackingSession ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Empacando Todo...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Empacar Todos ({progress.ordersTotal - progress.ordersComplete})
+                  </>
+                )}
+              </Button>
+            )}
+
+            {allOrdersComplete && (
+              <Button
+                onClick={onCompleteSession}
+                disabled={loading}
+                size="lg"
+                className="gap-2 bg-primary"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                Finalizar Sesión
+              </Button>
+            )}
+          </div>
         </div>
 
         <Progress value={progress.percentage} className="h-2" />

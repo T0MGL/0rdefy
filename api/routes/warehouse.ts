@@ -281,6 +281,68 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
 });
 
 /**
+ * POST /api/warehouse/sessions/:sessionId/auto-pack
+ * Packs all items for all orders in a session with a single call
+ * This dramatically reduces warehouse operation time from O(n*m) clicks to O(1)
+ */
+router.post('/sessions/:sessionId/auto-pack', validateUUIDParam('sessionId'), async (req, res) => {
+  try {
+    const storeId = req.storeId;
+    const { sessionId } = req.params;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    const result = await warehouseService.autoPackSession(sessionId, storeId);
+
+    res.json(result);
+  } catch (error) {
+    logger.error('API', 'Error auto-packing session:', error);
+
+    const isValidationError = error.message?.includes('not found') ||
+                              error.message?.includes('packing status') ||
+                              error.message?.includes('access denied');
+
+    res.status(isValidationError ? 400 : 500).json({
+      error: 'Error al empacar automáticamente',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/warehouse/sessions/:sessionId/pack-order/:orderId
+ * Packs all items for a single order in one call
+ * Useful for the "Empacar" button on individual order cards
+ */
+router.post('/sessions/:sessionId/pack-order/:orderId', validateUUIDParams(['sessionId', 'orderId']), async (req, res) => {
+  try {
+    const storeId = req.storeId;
+    const { sessionId, orderId } = req.params;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    const result = await warehouseService.packAllItemsForOrder(sessionId, orderId, storeId);
+
+    res.json(result);
+  } catch (error) {
+    logger.error('API', 'Error packing order:', error);
+
+    const isValidationError = error.message?.includes('not found') ||
+                              error.message?.includes('packing status') ||
+                              error.message?.includes('Cannot pack order');
+
+    res.status(isValidationError ? 400 : 500).json({
+      error: 'Error al empacar pedido',
+      details: error.message
+    });
+  }
+});
+
+/**
  * POST /api/warehouse/sessions/:sessionId/complete
  * Completes a picking session
  */

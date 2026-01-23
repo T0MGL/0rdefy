@@ -2042,3 +2042,272 @@ export async function completeSession(
     throw error;
   }
 }
+
+/**
+ * Auto-pack all items for all orders in a session
+ * This dramatically reduces warehouse operation time from O(n*m) clicks to O(1)
+ * Used by the "Empacar Todo" button in the warehouse UI
+ */
+export async function autoPackSession(
+  sessionId: string,
+  storeId: string
+): Promise<{
+  success: boolean;
+  session_id: string;
+  orders_packed: number;
+  items_packed: number;
+  total_units: number;
+  packed_at: string;
+}> {
+  try {
+    // Call the atomic RPC function
+    const { data, error } = await supabaseAdmin
+      .rpc('auto_pack_session', {
+        p_session_id: sessionId,
+        p_store_id: storeId
+      });
+
+    if (error) {
+      // Fallback implementation if RPC not available (migration not run)
+      if (error.message?.includes('function') || error.code === '42883') {
+        logger.warn('WAREHOUSE', 'auto_pack_session RPC not available, using fallback');
+        return await autoPackSessionFallback(sessionId, storeId);
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    logger.error('WAREHOUSE', 'Error in autoPackSession:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fallback implementation for autoPackSession when RPC is not available
+ */
+async function autoPackSessionFallback(
+  sessionId: string,
+  storeId: string
+): Promise<{
+  success: boolean;
+  session_id: string;
+  orders_packed: number;
+  items_packed: number;
+  total_units: number;
+  packed_at: string;
+}> {
+  // 1. Validate session exists and is in packing status
+  const { data: session, error: sessionError } = await supabaseAdmin
+    .from('picking_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (sessionError || !session) {
+    throw new Error('Session not found or access denied');
+  }
+
+  if (session.status !== 'packing') {
+    throw new Error(`Session must be in packing status. Current status: ${session.status}`);
+  }
+
+  // 2. Fetch all unpacked items
+  const { data: unpackedItems, error: fetchError } = await supabaseAdmin
+    .from('packing_progress')
+    .select('*')
+    .eq('picking_session_id', sessionId);
+
+  if (fetchError) throw fetchError;
+
+  // 3. Update each item to be fully packed
+  let itemsUpdated = 0;
+  let unitsUpdated = 0;
+  const orderIds = new Set<string>();
+
+  for (const item of (unpackedItems || [])) {
+    if (item.quantity_packed < item.quantity_needed) {
+      await supabaseAdmin
+        .from('packing_progress')
+        .update({
+          quantity_packed: item.quantity_needed,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', item.id);
+
+      itemsUpdated++;
+      unitsUpdated += item.quantity_needed;
+      orderIds.add(item.order_id);
+    }
+  }
+
+  // 4. Update session activity
+  await supabaseAdmin
+    .from('picking_sessions')
+    .update({
+      last_activity_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', sessionId);
+
+  return {
+    success: true,
+    session_id: sessionId,
+    orders_packed: orderIds.size,
+    items_packed: itemsUpdated,
+    total_units: unitsUpdated,
+    packed_at: new Date().toISOString()
+  };
+}
+
+/**
+ * Pack all items for a single order in one call
+ * Useful for the "Empacar" button on individual order cards
+ */
+export async function packAllItemsForOrder(
+  sessionId: string,
+  orderId: string,
+  storeId: string
+): Promise<{
+  success: boolean;
+  session_id: string;
+  order_id: string;
+  items_packed: number;
+  total_units: number;
+  is_complete: boolean;
+  packed_at: string;
+}> {
+  try {
+    // Call the atomic RPC function
+    const { data, error } = await supabaseAdmin
+      .rpc('pack_all_items_for_order', {
+        p_session_id: sessionId,
+        p_order_id: orderId,
+        p_store_id: storeId
+      });
+
+    if (error) {
+      // Fallback implementation if RPC not available
+      if (error.message?.includes('function') || error.code === '42883') {
+        logger.warn('WAREHOUSE', 'pack_all_items_for_order RPC not available, using fallback');
+        return await packAllItemsForOrderFallback(sessionId, orderId, storeId);
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    logger.error('WAREHOUSE', 'Error in packAllItemsForOrder:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fallback implementation for packAllItemsForOrder when RPC is not available
+ */
+async function packAllItemsForOrderFallback(
+  sessionId: string,
+  orderId: string,
+  storeId: string
+): Promise<{
+  success: boolean;
+  session_id: string;
+  order_id: string;
+  items_packed: number;
+  total_units: number;
+  is_complete: boolean;
+  packed_at: string;
+}> {
+  // 1. Validate session
+  const { data: session, error: sessionError } = await supabaseAdmin
+    .from('picking_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (sessionError || !session) {
+    throw new Error('Session not found or access denied');
+  }
+
+  if (session.status !== 'packing') {
+    throw new Error(`Session must be in packing status. Current status: ${session.status}`);
+  }
+
+  // 2. Validate order is in session and can be packed
+  const { data: order, error: orderError } = await supabaseAdmin
+    .from('orders')
+    .select('id, sleeves_status')
+    .eq('id', orderId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (orderError || !order) {
+    throw new Error('Order not found');
+  }
+
+  const blockedStatuses = ['ready_to_ship', 'shipped', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned'];
+  if (blockedStatuses.includes(order.sleeves_status)) {
+    throw new Error(`Cannot pack order with status: ${order.sleeves_status}`);
+  }
+
+  // 3. Verify order is in session
+  const { data: sessionOrder, error: soError } = await supabaseAdmin
+    .from('picking_session_orders')
+    .select('order_id')
+    .eq('picking_session_id', sessionId)
+    .eq('order_id', orderId)
+    .single();
+
+  if (soError || !sessionOrder) {
+    throw new Error('Order not found in this session');
+  }
+
+  // 4. Get unpacked items for this order
+  const { data: unpackedItems, error: itemsError } = await supabaseAdmin
+    .from('packing_progress')
+    .select('*')
+    .eq('picking_session_id', sessionId)
+    .eq('order_id', orderId);
+
+  if (itemsError) throw itemsError;
+
+  // 5. Update each item to be fully packed
+  let itemsUpdated = 0;
+  let unitsUpdated = 0;
+
+  for (const item of (unpackedItems || [])) {
+    if (item.quantity_packed < item.quantity_needed) {
+      await supabaseAdmin
+        .from('packing_progress')
+        .update({
+          quantity_packed: item.quantity_needed,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', item.id);
+
+      itemsUpdated++;
+      unitsUpdated += (item.quantity_needed - item.quantity_packed);
+    }
+  }
+
+  // 6. Update session activity
+  await supabaseAdmin
+    .from('picking_sessions')
+    .update({
+      last_activity_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', sessionId);
+
+  return {
+    success: true,
+    session_id: sessionId,
+    order_id: orderId,
+    items_packed: itemsUpdated,
+    total_units: unitsUpdated,
+    is_complete: true,
+    packed_at: new Date().toISOString()
+  };
+}

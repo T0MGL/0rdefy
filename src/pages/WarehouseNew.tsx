@@ -382,35 +382,41 @@ export default function WarehouseNew() {
   const handlePackAllItems = useCallback(async (orderId: string) => {
     if (!session || !packingData) return;
 
-    const order = packingData.orders.find(o => o.id === orderId);
-    if (!order) return;
-
-    // Calculate how many packs we need to do for each item
-    const packOperations: Array<{ productId: string; count: number }> = [];
-
-    for (const item of order.items) {
-      const remaining = item.quantity_needed - item.quantity_packed;
-      if (remaining > 0) {
-        const available = packingData.availableItems.find(
-          i => i.product_id === item.product_id
-        );
-        const canPack = Math.min(remaining, available?.remaining || 0);
-        if (canPack > 0) {
-          packOperations.push({ productId: item.product_id, count: canPack });
-        }
-      }
+    // Use the new atomic RPC to pack all items for a single order
+    try {
+      await warehouseService.packAllItemsForOrder(session.id, orderId);
+      // Reload data after operation
+      await loadPackingList(session.id);
+    } catch (error) {
+      logger.error('Error packing all items for order:', error);
+      throw error;
     }
+  }, [session, loadPackingList]);
 
-    // Execute all pack operations sequentially
-    for (const op of packOperations) {
-      for (let i = 0; i < op.count; i++) {
-        await warehouseService.updatePackingProgress(session.id, orderId, op.productId);
-      }
+  // NEW: Auto-pack entire session with a single click
+  const handleAutoPackSession = useCallback(async () => {
+    if (!session) return;
+
+    setActionLoading(true);
+    try {
+      const result = await warehouseService.autoPackSession(session.id);
+      await loadPackingList(session.id);
+
+      toast({
+        title: 'Empaque completado',
+        description: `${result.orders_packed} pedidos empacados en un instante`,
+      });
+    } catch (error: any) {
+      logger.error('Error auto-packing session:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'No se pudo empacar automáticamente',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(false);
     }
-
-    // Reload data after all operations
-    await loadPackingList(session.id);
-  }, [session, packingData, loadPackingList]);
+  }, [session, toast, loadPackingList]);
 
   const handlePrintLabel = useCallback(async (order: OrderForPacking) => {
     try {
@@ -686,6 +692,7 @@ export default function WarehouseNew() {
             currentOrderIndex={currentOrderIndex}
             onPackItem={handlePackItem}
             onPackAllItems={handlePackAllItems}
+            onAutoPackSession={handleAutoPackSession}
             onPrintLabel={handlePrintLabel}
             onNextOrder={() => setCurrentOrderIndex(i => Math.min(i + 1, packingData.orders.length - 1))}
             onPreviousOrder={() => setCurrentOrderIndex(i => Math.max(i - 1, 0))}

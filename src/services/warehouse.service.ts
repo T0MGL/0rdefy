@@ -249,3 +249,36 @@ export async function getStaleSessions(): Promise<Array<{
   const response = await apiClient.get(`${BASE_URL}/sessions/stale`);
   return response.data;
 }
+
+/**
+ * Auto-pack all items for all orders in a session with a single call
+ * This dramatically reduces warehouse operation time from minutes to seconds
+ */
+export async function autoPackSession(sessionId: string): Promise<{
+  success: boolean;
+  session_id: string;
+  orders_packed: number;
+  items_packed: number;
+  total_units: number;
+  packed_at: string;
+}> {
+  const response = await apiClient.post(`${BASE_URL}/sessions/${sessionId}/auto-pack`);
+  return response.data;
+}
+
+/**
+ * Pack all items for a single order in one call
+ * Useful for the "Empacar" button on individual order cards
+ */
+export async function packAllItemsForOrder(sessionId: string, orderId: string): Promise<{
+  success: boolean;
+  session_id: string;
+  order_id: string;
+  items_packed: number;
+  total_units: number;
+  is_complete: boolean;
+  packed_at: string;
+}> {
+  const response = await apiClient.post(`${BASE_URL}/sessions/${sessionId}/pack-order/${orderId}`);
+  return response.data;
+}
