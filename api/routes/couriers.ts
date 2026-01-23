@@ -19,6 +19,7 @@ import {
   getTopCouriers,
   getUnderperformingCouriers
 } from '../utils/courier-stats';
+import { validateUUIDParam } from '../utils/sanitize';
 
 export const couriersRouter = Router();
 
@@ -121,7 +122,7 @@ couriersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/couriers - Create new courier
 // ================================================================
-couriersRouter.post('/', async (req: AuthRequest, res: Response) => {
+couriersRouter.post('/', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const {
             name,
@@ -171,7 +172,7 @@ couriersRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/couriers/:id - Update courier
 // ================================================================
-couriersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+couriersRouter.put('/:id', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -222,7 +223,7 @@ couriersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PATCH /api/couriers/:id/toggle - Toggle courier active status
 // ================================================================
-couriersRouter.patch('/:id/toggle', async (req: AuthRequest, res: Response) => {
+couriersRouter.patch('/:id/toggle', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -278,7 +279,7 @@ couriersRouter.patch('/:id/toggle', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/couriers/:id - Delete courier
 // ================================================================
-couriersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+couriersRouter.delete('/:id', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -471,7 +472,7 @@ couriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/couriers/:id/zones - Create a zone for a courier
 // ================================================================
-couriersRouter.post('/:id/zones', async (req: AuthRequest, res: Response) => {
+couriersRouter.post('/:id/zones', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { zone_name, zone_code, rate, is_active = true } = req.body;
@@ -550,7 +551,7 @@ couriersRouter.post('/:id/zones', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/couriers/zones/:zoneId - Update a zone
 // ================================================================
-couriersRouter.put('/zones/:zoneId', async (req: AuthRequest, res: Response) => {
+couriersRouter.put('/zones/:zoneId', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { zoneId } = req.params;
         const { zone_name, zone_code, rate, is_active } = req.body;
@@ -606,7 +607,7 @@ couriersRouter.put('/zones/:zoneId', async (req: AuthRequest, res: Response) => 
 // ================================================================
 // DELETE /api/couriers/zones/:zoneId - Delete a zone
 // ================================================================
-couriersRouter.delete('/zones/:zoneId', async (req: AuthRequest, res: Response) => {
+couriersRouter.delete('/zones/:zoneId', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { zoneId } = req.params;
 
@@ -636,6 +637,129 @@ couriersRouter.delete('/zones/:zoneId', async (req: AuthRequest, res: Response) 
         logger.error('API', `[DELETE /api/couriers/zones/${req.params.zoneId}] Error:`, error);
         res.status(500).json({
             error: 'Error al eliminar zona',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/couriers/:id/reviews - Get customer reviews/ratings for courier
+// ================================================================
+couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { limit = '50', offset = '0' } = req.query;
+
+        logger.info('API', `⭐ [COURIERS] Fetching reviews for courier ${id}`);
+
+        // First verify the courier exists and get their aggregate rating
+        const { data: courier, error: courierError } = await supabaseAdmin
+            .from('carriers')
+            .select('id, name, average_rating, total_ratings')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (courierError || !courier) {
+            return res.status(404).json({
+                error: 'Courier not found'
+            });
+        }
+
+        // Fetch individual reviews (orders with ratings for this courier)
+        const { data: reviews, error: reviewsError, count } = await supabaseAdmin
+            .from('orders')
+            .select(`
+                id,
+                delivery_rating,
+                delivery_rating_comment,
+                rated_at,
+                shopify_order_number,
+                shopify_order_name,
+                customer_first_name,
+                customer_last_name,
+                customer,
+                delivered_at,
+                date
+            `, { count: 'exact' })
+            .eq('courier_id', id)
+            .eq('store_id', req.storeId)
+            .not('delivery_rating', 'is', null)
+            .order('rated_at', { ascending: false })
+            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
+
+        if (reviewsError) {
+            logger.error('API', '[COURIERS] Reviews query error:', reviewsError);
+            throw reviewsError;
+        }
+
+        // Calculate rating distribution
+        const { data: distribution, error: distError } = await supabaseAdmin
+            .from('orders')
+            .select('delivery_rating')
+            .eq('courier_id', id)
+            .eq('store_id', req.storeId)
+            .not('delivery_rating', 'is', null);
+
+        const ratingDistribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        if (!distError && distribution) {
+            distribution.forEach((r: any) => {
+                if (r.delivery_rating >= 1 && r.delivery_rating <= 5) {
+                    ratingDistribution[r.delivery_rating as keyof typeof ratingDistribution]++;
+                }
+            });
+        }
+
+        // Format reviews for response with safe null handling
+        const formattedReviews = (reviews || []).map(r => {
+            // Safe order number - prefer Shopify fields, fallback to ID slice
+            let orderNumber = '#N/A';
+            if (r.shopify_order_name) {
+                orderNumber = r.shopify_order_name;
+            } else if (r.shopify_order_number) {
+                orderNumber = `#${r.shopify_order_number}`;
+            } else if (r.id) {
+                orderNumber = `#${r.id.slice(0, 4).toUpperCase()}`;
+            }
+
+            // Safe customer name with fallbacks
+            const customerName = r.customer
+                || `${r.customer_first_name || ''} ${r.customer_last_name || ''}`.trim()
+                || 'Cliente';
+
+            return {
+                id: r.id || '',
+                rating: r.delivery_rating || 0,
+                comment: r.delivery_rating_comment || null,
+                rated_at: r.rated_at || null,
+                order_number: orderNumber,
+                customer_name: customerName,
+                delivery_date: r.delivered_at || r.date || null
+            };
+        });
+
+        logger.info('API', `✅ [COURIERS] Found ${formattedReviews.length} reviews for courier ${id}`);
+
+        res.json({
+            courier: {
+                id: courier.id,
+                name: courier.name,
+                average_rating: parseFloat(courier.average_rating) || 0,
+                total_ratings: courier.total_ratings || 0
+            },
+            reviews: formattedReviews,
+            rating_distribution: ratingDistribution,
+            pagination: {
+                total: count || 0,
+                limit: parseInt(limit as string, 10),
+                offset: parseInt(offset as string, 10),
+                hasMore: parseInt(offset as string, 10) + (formattedReviews.length) < (count || 0)
+            }
+        });
+    } catch (error: any) {
+        logger.error('API', `[GET /api/couriers/${req.params.id}/reviews] Error:`, error);
+        res.status(500).json({
+            error: 'Error al obtener reviews del courier',
             message: error.message
         });
     }

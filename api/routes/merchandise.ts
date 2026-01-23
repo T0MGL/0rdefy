@@ -147,7 +147,7 @@ merchandiseRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/merchandise - Create new shipment
 // ================================================================
-merchandiseRouter.post('/', async (req: AuthRequest, res: Response) => {
+merchandiseRouter.post('/', requirePermission(Module.MERCHANDISE, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const {
       supplier_id,
@@ -258,7 +258,7 @@ merchandiseRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PATCH /api/merchandise/:id - Update shipment header
 // ================================================================
-merchandiseRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
+merchandiseRouter.patch('/:id', requirePermission(Module.MERCHANDISE, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const {
@@ -320,7 +320,7 @@ merchandiseRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
 // POST /api/merchandise/:id/receive - Receive shipment
 // ================================================================
 // This is the critical endpoint that updates inventory
-merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) => {
+merchandiseRouter.post('/:id/receive', requirePermission(Module.MERCHANDISE, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { items } = req.body;
@@ -529,7 +529,7 @@ merchandiseRouter.post('/:id/receive', async (req: AuthRequest, res: Response) =
 // ================================================================
 // DELETE /api/merchandise/:id - Delete shipment
 // ================================================================
-merchandiseRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+merchandiseRouter.delete('/:id', requirePermission(Module.MERCHANDISE, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
 

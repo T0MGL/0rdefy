@@ -103,7 +103,22 @@ interface OrderReconciliation {
   failure_reason?: string;
 }
 
-type WorkflowStep = 'selection' | 'reconciliation' | 'confirm' | 'complete';
+type WorkflowStep = 'selection' | 'reconciliation' | 'confirm' | 'payment' | 'complete';
+
+type PaymentOption = 'paid_by_carrier' | 'paid_to_carrier' | 'deducted_from_cod' | 'pending';
+
+interface ReconciliationResult {
+  settlement_id: string;
+  settlement_code: string;
+  total_orders: number;
+  total_delivered: number;
+  total_not_delivered: number;
+  total_cod_expected: number;
+  total_cod_collected: number;
+  total_carrier_fees: number;
+  failed_attempt_fee: number;
+  net_receivable: number;
+}
 
 const FAILURE_REASONS = [
   { value: 'no_answer', label: 'No contesta' },
@@ -131,6 +146,12 @@ export function PendingReconciliationView() {
   const [reconciliationState, setReconciliationState] = useState<Map<string, OrderReconciliation>>(new Map());
   const [totalAmountCollected, setTotalAmountCollected] = useState<number | null>(null);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
+
+  // Payment step state
+  const [reconciliationResult, setReconciliationResult] = useState<ReconciliationResult | null>(null);
+  const [selectedPaymentOption, setSelectedPaymentOption] = useState<PaymentOption | null>(null);
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
 
   // Load pending reconciliation groups
   const loadGroups = useCallback(async () => {
@@ -364,12 +385,20 @@ export function PendingReconciliationView() {
 
       const result = await response.json();
 
-      toast({
-        title: 'Conciliacion completada',
-        description: `Liquidacion ${result.data.settlement_code} creada exitosamente`,
-      });
+      // Save the result for payment step
+      setReconciliationResult(result.data);
 
-      setCurrentStep('complete');
+      // If net_receivable is 0, skip payment step
+      if (Math.abs(result.data.net_receivable) < 1) {
+        toast({
+          title: 'Conciliacion completada',
+          description: `Liquidacion ${result.data.settlement_code} creada. Balance en cero.`,
+        });
+        setCurrentStep('complete');
+      } else {
+        // Go to payment step to determine how the balance was settled
+        setCurrentStep('payment');
+      }
     } catch (error: any) {
       logger.error('[PendingReconciliation] Error processing:', error);
       toast({
@@ -379,6 +408,81 @@ export function PendingReconciliationView() {
       });
     } finally {
       setProcessing(false);
+    }
+  };
+
+  // Handle payment registration
+  const handleRegisterPayment = async () => {
+    if (!reconciliationResult || !selectedPaymentOption) return;
+
+    // If pending, just go to complete without registering payment
+    if (selectedPaymentOption === 'pending') {
+      toast({
+        title: 'Liquidacion creada',
+        description: `${reconciliationResult.settlement_code} - Pago pendiente de registrar`,
+      });
+      setCurrentStep('complete');
+      return;
+    }
+
+    setPaymentProcessing(true);
+    try {
+      const netReceivable = reconciliationResult.net_receivable;
+      const amount = Math.abs(netReceivable);
+
+      // Determine payment direction and method based on selection
+      let direction: 'from_carrier' | 'to_carrier';
+      let method: string;
+
+      if (selectedPaymentOption === 'paid_by_carrier') {
+        direction = 'from_carrier';
+        method = 'cash';
+      } else if (selectedPaymentOption === 'paid_to_carrier') {
+        direction = 'to_carrier';
+        method = 'bank_transfer';
+      } else {
+        // deducted_from_cod - courier already deducted, so it's effectively a payment
+        direction = netReceivable > 0 ? 'from_carrier' : 'to_carrier';
+        method = 'deduction';
+      }
+
+      // Call the settlement payment API
+      const response = await fetch(
+        `${API_BASE}/api/settlements/v2/${reconciliationResult.settlement_id}/pay`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            amount,
+            method,
+            reference: paymentReference || `${direction === 'from_carrier' ? 'Pago recibido' : 'Pago enviado'} - ${reconciliationResult.settlement_code}`,
+            notes: selectedPaymentOption === 'deducted_from_cod'
+              ? 'Descontado del COD por el courier'
+              : null,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al registrar el pago');
+      }
+
+      toast({
+        title: 'Pago registrado',
+        description: `Liquidacion ${reconciliationResult.settlement_code} completada`,
+      });
+
+      setCurrentStep('complete');
+    } catch (error: any) {
+      logger.error('[PendingReconciliation] Error registering payment:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'No se pudo registrar el pago',
+        variant: 'destructive',
+      });
+    } finally {
+      setPaymentProcessing(false);
     }
   };
 
@@ -394,6 +498,10 @@ export function PendingReconciliationView() {
       setSearchTerm('');
     } else if (currentStep === 'confirm') {
       setCurrentStep('reconciliation');
+    } else if (currentStep === 'payment') {
+      // Can't go back from payment - reconciliation already done
+      // Just complete without payment
+      setCurrentStep('complete');
     } else if (currentStep === 'complete') {
       setCurrentStep('selection');
       setSelectedGroup(null);
@@ -402,6 +510,9 @@ export function PendingReconciliationView() {
       setTotalAmountCollected(null);
       setDiscrepancyNotes('');
       setSearchTerm('');
+      setReconciliationResult(null);
+      setSelectedPaymentOption(null);
+      setPaymentReference('');
       loadGroups();
     }
   };
@@ -823,6 +934,220 @@ export function PendingReconciliationView() {
     );
   };
 
+  // Render payment step view
+  const renderPayment = () => {
+    if (!reconciliationResult) return null;
+
+    const netReceivable = reconciliationResult.net_receivable;
+    const isPositive = netReceivable > 0; // Courier owes us
+
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-4">
+            <DollarSign className="h-8 w-8 text-amber-600" />
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Registrar Pago</h2>
+          <p className="text-muted-foreground">
+            Liquidacion {reconciliationResult.settlement_code} creada exitosamente
+          </p>
+        </div>
+
+        {/* Balance Summary */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {isPositive ? 'El courier te debe:' : 'Le debes al courier:'}
+              </p>
+              <p className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(Math.abs(netReceivable))}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {reconciliationResult.total_delivered} entregados · {reconciliationResult.total_not_delivered} fallidos
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Payment Options */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Como se resolvio este saldo?</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {isPositive ? (
+              // Courier owes us - payment options
+              <>
+                <label
+                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                    selectedPaymentOption === 'paid_by_carrier'
+                      ? 'border-primary bg-primary/5'
+                      : 'hover:bg-muted/50'
+                  }`}
+                  onClick={() => setSelectedPaymentOption('paid_by_carrier')}
+                >
+                  <input
+                    type="radio"
+                    name="paymentOption"
+                    checked={selectedPaymentOption === 'paid_by_carrier'}
+                    onChange={() => setSelectedPaymentOption('paid_by_carrier')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium">El courier me pago</p>
+                    <p className="text-sm text-muted-foreground">
+                      Recibi el dinero en efectivo o transferencia
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                    selectedPaymentOption === 'deducted_from_cod'
+                      ? 'border-primary bg-primary/5'
+                      : 'hover:bg-muted/50'
+                  }`}
+                  onClick={() => setSelectedPaymentOption('deducted_from_cod')}
+                >
+                  <input
+                    type="radio"
+                    name="paymentOption"
+                    checked={selectedPaymentOption === 'deducted_from_cod'}
+                    onChange={() => setSelectedPaymentOption('deducted_from_cod')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium">Ya fue descontado del COD</p>
+                    <p className="text-sm text-muted-foreground">
+                      El courier me entrego el monto neto (ya descontadas las tarifas)
+                    </p>
+                  </div>
+                </label>
+              </>
+            ) : (
+              // We owe courier - payment options
+              <>
+                <label
+                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                    selectedPaymentOption === 'paid_to_carrier'
+                      ? 'border-primary bg-primary/5'
+                      : 'hover:bg-muted/50'
+                  }`}
+                  onClick={() => setSelectedPaymentOption('paid_to_carrier')}
+                >
+                  <input
+                    type="radio"
+                    name="paymentOption"
+                    checked={selectedPaymentOption === 'paid_to_carrier'}
+                    onChange={() => setSelectedPaymentOption('paid_to_carrier')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium">Ya pague al courier</p>
+                    <p className="text-sm text-muted-foreground">
+                      Le pague las tarifas en efectivo o transferencia
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                    selectedPaymentOption === 'deducted_from_cod'
+                      ? 'border-primary bg-primary/5'
+                      : 'hover:bg-muted/50'
+                  }`}
+                  onClick={() => setSelectedPaymentOption('deducted_from_cod')}
+                >
+                  <input
+                    type="radio"
+                    name="paymentOption"
+                    checked={selectedPaymentOption === 'deducted_from_cod'}
+                    onChange={() => setSelectedPaymentOption('deducted_from_cod')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium">Se descontara del proximo COD</p>
+                    <p className="text-sm text-muted-foreground">
+                      El courier lo descontara de entregas futuras
+                    </p>
+                  </div>
+                </label>
+              </>
+            )}
+
+            <label
+              className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                selectedPaymentOption === 'pending'
+                  ? 'border-primary bg-primary/5'
+                  : 'hover:bg-muted/50'
+              }`}
+              onClick={() => setSelectedPaymentOption('pending')}
+            >
+              <input
+                type="radio"
+                name="paymentOption"
+                checked={selectedPaymentOption === 'pending'}
+                onChange={() => setSelectedPaymentOption('pending')}
+                className="mt-1"
+              />
+              <div>
+                <p className="font-medium">Pendiente de pago</p>
+                <p className="text-sm text-muted-foreground">
+                  Registrar el pago mas tarde desde la seccion de Cuentas
+                </p>
+              </div>
+            </label>
+
+            {/* Reference input for paid options */}
+            {selectedPaymentOption && selectedPaymentOption !== 'pending' && (
+              <div className="pt-3 space-y-2">
+                <Label htmlFor="paymentRef">Referencia (opcional)</Label>
+                <Input
+                  id="paymentRef"
+                  placeholder="Numero de transferencia, recibo, etc."
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSelectedPaymentOption('pending');
+              handleRegisterPayment();
+            }}
+            disabled={paymentProcessing}
+          >
+            Omitir por ahora
+          </Button>
+          <Button
+            onClick={handleRegisterPayment}
+            disabled={!selectedPaymentOption || paymentProcessing}
+          >
+            {paymentProcessing ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Registrando...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                {selectedPaymentOption === 'pending' ? 'Finalizar' : 'Registrar Pago'}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   // Render complete view
   const renderComplete = () => (
     <div className="flex flex-col items-center justify-center py-12">
@@ -831,7 +1156,11 @@ export function PendingReconciliationView() {
       </div>
       <h2 className="text-xl font-semibold mb-2">Conciliacion Completada</h2>
       <p className="text-muted-foreground text-center max-w-md mb-6">
-        La liquidacion ha sido creada exitosamente. Puedes ver el detalle en la seccion de Cuentas.
+        {reconciliationResult?.settlement_code
+          ? `Liquidacion ${reconciliationResult.settlement_code} procesada.`
+          : 'La liquidacion ha sido creada exitosamente.'
+        }
+        {' '}Puedes ver el detalle en la seccion de Cuentas.
       </p>
       <Button onClick={handleBack}>
         Volver al Inicio
@@ -844,6 +1173,7 @@ export function PendingReconciliationView() {
     <div className="space-y-6">
       {currentStep === 'selection' && renderSelection()}
       {currentStep === 'reconciliation' && renderReconciliation()}
+      {currentStep === 'payment' && renderPayment()}
       {currentStep === 'complete' && renderComplete()}
     </div>
   );

@@ -202,7 +202,7 @@ export default function Orders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentStore, user } = useAuth();
   const { hasFeature } = useSubscription();
-  const userRole = user?.role || 'viewer'; // Default to viewer if no role
+  const userRole = currentStore?.role?.toLowerCase() || 'viewer'; // Role is on store, not user
 
   // Plan-based feature checks
   const hasWarehouseFeature = hasFeature('warehouse');

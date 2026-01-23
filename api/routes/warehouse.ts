@@ -79,7 +79,7 @@ router.get('/sessions/active', async (req, res) => {
  * Creates a new picking session from confirmed orders
  * Body: { orderIds: string[] }
  */
-router.post('/sessions', async (req, res) => {
+router.post('/sessions', requirePermission(Module.WAREHOUSE, Permission.CREATE), async (req, res) => {
   try {
     const storeId = req.storeId;
     const userId = req.userId;
@@ -136,7 +136,7 @@ router.get('/sessions/:sessionId/picking-list', validateUUIDParam('sessionId'), 
  * Updates picking progress for a specific product
  * Body: { productId: string, quantityPicked: number }
  */
-router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionId'), async (req, res) => {
+router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -177,7 +177,7 @@ router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionI
  * POST /api/warehouse/sessions/:sessionId/finish-picking
  * Finishes picking phase and transitions to packing
  */
-router.post('/sessions/:sessionId/finish-picking', validateUUIDParam('sessionId'), async (req, res) => {
+router.post('/sessions/:sessionId/finish-picking', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -235,7 +235,7 @@ router.get('/sessions/:sessionId/packing-list', validateUUIDParam('sessionId'), 
  * Assigns one unit of a product to an order (using atomic RPC with row locking)
  * Body: { orderId: string, productId: string }
  */
-router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionId'), async (req, res) => {
+router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -285,7 +285,7 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
  * Packs all items for all orders in a session with a single call
  * This dramatically reduces warehouse operation time from O(n*m) clicks to O(1)
  */
-router.post('/sessions/:sessionId/auto-pack', validateUUIDParam('sessionId'), async (req, res) => {
+router.post('/sessions/:sessionId/auto-pack', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -316,7 +316,7 @@ router.post('/sessions/:sessionId/auto-pack', validateUUIDParam('sessionId'), as
  * Packs all items for a single order in one call
  * Useful for the "Empacar" button on individual order cards
  */
-router.post('/sessions/:sessionId/pack-order/:orderId', validateUUIDParams(['sessionId', 'orderId']), async (req, res) => {
+router.post('/sessions/:sessionId/pack-order/:orderId', validateUUIDParams(['sessionId', 'orderId']), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId, orderId } = req.params;
@@ -346,7 +346,7 @@ router.post('/sessions/:sessionId/pack-order/:orderId', validateUUIDParams(['ses
  * POST /api/warehouse/sessions/:sessionId/complete
  * Completes a picking session
  */
-router.post('/sessions/:sessionId/complete', validateUUIDParam('sessionId'), async (req, res) => {
+router.post('/sessions/:sessionId/complete', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
@@ -376,7 +376,7 @@ router.post('/sessions/:sessionId/complete', validateUUIDParam('sessionId'), asy
  * Abandons a picking session and restores orders to confirmed status
  * Body: { reason?: string }
  */
-router.post('/sessions/:sessionId/abandon', validateUUIDParam('sessionId'), async (req, res) => {
+router.post('/sessions/:sessionId/abandon', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const userId = req.userId;
@@ -411,7 +411,7 @@ router.post('/sessions/:sessionId/abandon', validateUUIDParam('sessionId'), asyn
  * DELETE /api/warehouse/sessions/:sessionId/orders/:orderId
  * Removes a single order from a session and restores it to confirmed
  */
-router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessionId', 'orderId']), async (req, res) => {
+router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessionId', 'orderId']), requirePermission(Module.WAREHOUSE, Permission.DELETE), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId, orderId } = req.params;
@@ -476,6 +476,83 @@ router.get('/sessions/stale', async (req, res) => {
     logger.error('API', 'Error fetching stale sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones obsoletas',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/warehouse/sessions/orphaned
+ * Gets list of sessions with orders that have incompatible statuses
+ * (e.g., orders that are already shipped/delivered but still in active sessions)
+ */
+router.get('/sessions/orphaned', async (req, res) => {
+  try {
+    const storeId = req.storeId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('v_orphaned_picking_session_orders')
+      .select('*')
+      .eq('store_id', storeId);
+
+    if (error) throw error;
+
+    res.json({
+      orphaned_orders: data || [],
+      count: data?.length || 0
+    });
+  } catch (error) {
+    logger.error('API', 'Error fetching orphaned sessions:', error);
+    res.status(500).json({
+      error: 'Error al obtener sesiones huérfanas',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/warehouse/cleanup-orphaned-sessions
+ * Cleans up sessions that contain orders with incompatible statuses
+ * This uses the cleanup_orphaned_picking_sessions() RPC function
+ * Requires DELETE permission on WAREHOUSE module (admin/owner only)
+ */
+router.post('/cleanup-orphaned-sessions', requirePermission(Module.WAREHOUSE, Permission.DELETE), async (req, res) => {
+  try {
+    const storeId = req.storeId;
+    const userId = req.userId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
+
+    // Log who triggered the cleanup for audit trail
+    logger.info('API', `User ${userId} initiated orphaned session cleanup for store ${storeId}`);
+
+    const { data, error } = await supabaseAdmin
+      .rpc('cleanup_orphaned_picking_sessions', { p_store_id: storeId });
+
+    if (error) throw error;
+
+    const results = data || [];
+    const sessionsProcessed = results.length;
+    const ordersRemoved = results.reduce((sum: number, r: any) => sum + (r.orders_removed || 0), 0);
+
+    logger.info('API', `Cleanup completed: ${sessionsProcessed} sessions processed, ${ordersRemoved} orders removed by user ${userId}`);
+
+    res.json({
+      success: true,
+      sessions_processed: sessionsProcessed,
+      orders_removed: ordersRemoved,
+      details: results
+    });
+  } catch (error) {
+    logger.error('API', 'Error cleaning up orphaned sessions:', error);
+    res.status(500).json({
+      error: 'Error al limpiar sesiones huérfanas',
       details: error.message
     });
   }

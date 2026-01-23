@@ -130,8 +130,12 @@ export function FirstTimeTooltip({
   async function checkFirstVisit() {
     setIsLoading(true);
     try {
-      const isFirstVisit = onboardingService.isFirstVisit(moduleId);
+      // Use async API call to get accurate state from database
+      const isFirstVisit = await onboardingService.shouldShowTipAsync(moduleId);
       setIsVisible(isFirstVisit);
+    } catch {
+      // On error, default to not showing
+      setIsVisible(false);
     } finally {
       setIsLoading(false);
     }
@@ -284,6 +288,11 @@ export function FirstTimeTooltip({
  * A) User clicks X (manual dismiss)
  * B) User has visited 3 times
  * C) User completes first action (call onboardingService.markFirstActionCompleted)
+ *
+ * ARCHITECTURE: Uses async API check on mount to prevent FOUC (flash of unstyled content)
+ * - Initial state is 'loading' (null) - nothing rendered
+ * - After API response: either show (true) or hide (false)
+ * - No flash because we never go from false → true
  */
 
 interface FirstTimeWelcomeBannerProps {
@@ -301,17 +310,41 @@ export function FirstTimeWelcomeBanner({
   tips,
   onDismiss,
 }: FirstTimeWelcomeBannerProps) {
-  const [isVisible, setIsVisible] = useState(false);
+  // null = loading, true = visible, false = hidden
+  const [isVisible, setIsVisible] = useState<boolean | null>(null);
+  const hasIncrementedRef = useRef(false);
 
   useEffect(() => {
-    // Check if should show using combined logic
-    const shouldShow = onboardingService.shouldShowTip(moduleId);
-    setIsVisible(shouldShow);
+    let mounted = true;
+    hasIncrementedRef.current = false;
 
-    // Increment visit count each time user visits this module
-    if (shouldShow) {
-      onboardingService.incrementVisitCount(moduleId);
+    async function checkAndShow() {
+      try {
+        // Use async version to get accurate state from API
+        const shouldShow = await onboardingService.shouldShowTipAsync(moduleId);
+
+        if (!mounted) return;
+
+        setIsVisible(shouldShow);
+
+        // Increment visit count only once per mount, and only if showing
+        if (shouldShow && !hasIncrementedRef.current) {
+          hasIncrementedRef.current = true;
+          onboardingService.incrementVisitCount(moduleId);
+        }
+      } catch {
+        // On error, default to not showing (better UX than flickering)
+        if (mounted) {
+          setIsVisible(false);
+        }
+      }
     }
+
+    checkAndShow();
+
+    return () => {
+      mounted = false;
+    };
   }, [moduleId]);
 
   async function handleDismiss() {
@@ -321,7 +354,8 @@ export function FirstTimeWelcomeBanner({
     await onboardingService.dismissModuleTip(moduleId);
   }
 
-  if (!isVisible) {
+  // Loading state or hidden - render nothing
+  if (isVisible !== true) {
     return null;
   }
 

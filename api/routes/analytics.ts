@@ -1029,7 +1029,7 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
         // OPTIMIZATION: Only select required fields for top products
         const { data: productsData, error: productsError } = await supabaseAdmin
             .from('products')
-            .select('id, name, price, cost, packaging_cost, additional_costs, image_url, stock_quantity')
+            .select('id, name, price, cost, packaging_cost, additional_costs, image_url, stock')
             .in('id', topProductIds);
 
         if (productsError) {
@@ -1085,10 +1085,13 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
         lookbackDate.setDate(lookbackDate.getDate() - parseInt(lookbackDays as string, 10));
 
         // OPTIMIZATION: Only select required fields for cash projection
+        // Exclude deleted and test orders at database level
         const { data: historicalOrders, error: historicalError } = await supabaseAdmin
             .from('orders')
             .select('id, created_at, total_price, sleeves_status')
             .eq('store_id', req.storeId)
+            .is('deleted_at', null)
+            .or('is_test.is.null,is_test.eq.false')
             .gte('created_at', lookbackDate.toISOString())
             .limit(10000); // Cap at 10K orders
 
@@ -1099,6 +1102,8 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
             .from('orders')
             .select('id, total_price, sleeves_status')
             .eq('store_id', req.storeId)
+            .is('deleted_at', null)
+            .or('is_test.is.null,is_test.eq.false')
             .neq('sleeves_status', 'cancelled')
             .limit(10000); // Cap at 10K orders
 
@@ -1239,11 +1244,13 @@ analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: 
     try {
         const { startDate, endDate } = req.query;
 
-        // Build query
+        // Build query - exclude deleted and test orders
         let query = supabaseAdmin
             .from('orders')
             .select('sleeves_status')
-            .eq('store_id', req.storeId);
+            .eq('store_id', req.storeId)
+            .is('deleted_at', null)
+            .or('is_test.is.null,is_test.eq.false');
 
         // Apply date filters if provided
         if (startDate) {
@@ -2033,6 +2040,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
                 shipped_at,
                 delivered_at,
                 created_at,
+                reconciled_at,
                 carriers!left(id, name)
             `)
             .eq('store_id', req.storeId)
@@ -2067,9 +2075,15 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
 
         // ===== 3. CALCULATE SHIPPING COSTS BY ORDER STATUS =====
 
-        // Delivered orders - costs that MUST be paid to carriers
-        const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
-        const deliveredCosts = deliveredOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
+        // Delivered orders - all delivered for stats
+        const allDeliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
+
+        // Unreconciled delivered orders - costs that MUST be paid to carriers (pending reconciliation)
+        const unreconciledDeliveredOrders = allDeliveredOrders.filter(o => !o.reconciled_at);
+        const deliveredCosts = unreconciledDeliveredOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
+
+        // Keep deliveredOrders for backwards compatibility in other calculations
+        const deliveredOrders = allDeliveredOrders;
 
         // In-transit orders - future costs (pending delivery)
         const inTransitOrders = orders.filter(o => o.sleeves_status === 'shipped');
@@ -2130,8 +2144,11 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
             const carrier = carrierMap.get(carrierId)!;
 
             if (order.sleeves_status === 'delivered') {
-                carrier.deliveredOrders++;
-                carrier.deliveredCosts += shippingCost;
+                // Only count unreconciled delivered orders in toPayCarriers
+                if (!order.reconciled_at) {
+                    carrier.deliveredOrders++;
+                    carrier.deliveredCosts += shippingCost;
+                }
             } else if (order.sleeves_status === 'shipped') {
                 carrier.inTransitOrders++;
                 carrier.inTransitCosts += shippingCost;
@@ -2207,9 +2224,9 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
             data: {
                 // Main Cost Metrics
                 costs: {
-                    // Costs from delivered orders (MUST be paid to carriers)
+                    // Costs from UNRECONCILED delivered orders (pending reconciliation/payment)
                     toPayCarriers: Math.round(deliveredCosts),
-                    toPayCarriersOrders: deliveredOrders.length,
+                    toPayCarriersOrders: unreconciledDeliveredOrders.length,
 
                     // Costs already settled and PAID to carriers
                     paidToCarriers: Math.round(paidToCarriers),

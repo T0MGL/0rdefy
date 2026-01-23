@@ -142,7 +142,7 @@ suppliersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/suppliers - Create new supplier
 // ================================================================
-suppliersRouter.post('/', async (req: AuthRequest, res: Response) => {
+suppliersRouter.post('/', requirePermission(Module.SUPPLIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const {
             name,
@@ -208,7 +208,7 @@ suppliersRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/suppliers/:id - Update supplier
 // ================================================================
-suppliersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+suppliersRouter.put('/:id', requirePermission(Module.SUPPLIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -270,7 +270,7 @@ suppliersRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/suppliers/:id - Delete supplier
 // ================================================================
-suppliersRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+suppliersRouter.delete('/:id', requirePermission(Module.SUPPLIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 

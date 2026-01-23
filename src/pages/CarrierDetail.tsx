@@ -7,10 +7,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { carriersService } from '@/services/carriers.service';
+import { Progress } from '@/components/ui/progress';
+import { carriersService, CarrierReview, RatingDistribution } from '@/services/carriers.service';
 import { ordersService } from '@/services/orders.service';
 import { formatCurrency } from '@/utils/currency';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { logger } from '@/utils/logger';
 import {
@@ -24,10 +25,43 @@ import {
   Search,
   CheckCircle2,
   MapPin,
-  ExternalLink
+  ExternalLink,
+  Star,
+  MessageSquare,
+  User,
+  Calendar
 } from 'lucide-react';
 import { Order } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+
+// Safe date formatting helpers
+const safeFormatDate = (dateString: string | null | undefined, formatStr: string): string => {
+  try {
+    if (!dateString) return 'Sin fecha';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Sin fecha';
+    return format(date, formatStr, { locale: es });
+  } catch {
+    return 'Sin fecha';
+  }
+};
+
+const safeFormatDistance = (dateString: string | null | undefined): string => {
+  try {
+    if (!dateString) return 'Sin fecha';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Sin fecha';
+    return formatDistanceToNow(date, { addSuffix: true, locale: es });
+  } catch {
+    return 'Sin fecha';
+  }
+};
+
+const safeNumber = (value: any, decimals: number = 1): string => {
+  const num = parseFloat(value);
+  if (isNaN(num)) return '0.0';
+  return num.toFixed(decimals);
+};
 
 export default function CarrierDetail() {
   const { id } = useParams();
@@ -40,6 +74,11 @@ export default function CarrierDetail() {
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [zoneFilter, setZoneFilter] = useState('');
   const [showReconciled, setShowReconciled] = useState(false);
+
+  // Reviews State
+  const [reviews, setReviews] = useState<CarrierReview[]>([]);
+  const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution>({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
+  const [reviewsLoading, setReviewsLoading] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -63,6 +102,26 @@ export default function CarrierDetail() {
             o.carrier?.toLowerCase() === foundCarrier.carrier_name?.toLowerCase()
           );
           setOrders(carrierOrders);
+
+          // Fetch reviews for this carrier
+          setReviewsLoading(true);
+          try {
+            const reviewsData = await carriersService.getReviews(foundCarrier.id, { limit: 50 });
+            setReviews(reviewsData.reviews);
+            setRatingDistribution(reviewsData.rating_distribution);
+            // Update carrier with latest rating from reviews endpoint
+            if (reviewsData.courier) {
+              setCarrier((prev: any) => ({
+                ...prev,
+                average_rating: reviewsData.courier.average_rating,
+                total_ratings: reviewsData.courier.total_ratings
+              }));
+            }
+          } catch (reviewError) {
+            logger.error('Error loading reviews:', reviewError);
+          } finally {
+            setReviewsLoading(false);
+          }
         }
 
       } catch (error) {
@@ -152,11 +211,11 @@ export default function CarrierDetail() {
     // CSV Generation
     const headers = ['Fecha', 'Orden #', 'Cliente', 'Barrio/Zona', 'Monto COD', 'Estado'];
     const rows = reconciliationData.orders.map(o => [
-      format(new Date(o.date), 'yyyy-MM-dd'),
-      o.shopify_order_number || o.id.slice(0, 8),
-      `"${o.customer}"`, // Quote to handle commas
-      `"${o.neighborhood || ''}"`,
-      o.cod_amount,
+      safeFormatDate(o.date, 'yyyy-MM-dd'),
+      o.shopify_order_number || o.id?.slice(0, 8) || 'N/A',
+      `"${(o.customer || '').replace(/"/g, '""')}"`, // Quote and escape for CSV
+      `"${(o.neighborhood || '').replace(/"/g, '""')}"`,
+      o.cod_amount || 0,
       o.reconciled_at ? 'Pagado' : 'Pendiente'
     ]);
 
@@ -244,10 +303,19 @@ export default function CarrierDetail() {
             </div>
             <div>
               <h2 className="text-2xl font-bold text-card-foreground">{carrier.name || carrier.carrier_name}</h2>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-3 mt-1">
                 <Badge variant={carrier.is_active ? 'default' : 'secondary'}>
                   {carrier.is_active ? 'Activo' : 'Inactivo'}
                 </Badge>
+                {(carrier.total_ratings || 0) > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <Star size={16} className="fill-yellow-400 text-yellow-400" />
+                    <span className="font-semibold">{safeNumber(carrier.average_rating)}</span>
+                    <span className="text-sm text-muted-foreground">
+                      ({carrier.total_ratings} {carrier.total_ratings === 1 ? 'reseña' : 'reseñas'})
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -369,7 +437,7 @@ export default function CarrierDetail() {
                           />
                         </td>
                         <td className="p-4">
-                          {format(new Date(order.date), 'dd MMM yyyy', { locale: es })}
+                          {safeFormatDate(order.date, 'dd MMM yyyy')}
                         </td>
                         <td className="p-4 font-mono font-medium">
                           <Link to={`/orders/${order.id}`} className="hover:underline text-primary">
@@ -428,6 +496,7 @@ export default function CarrierDetail() {
 
         {/* --- METRICS OVERVIEW TAB --- */}
         <TabsContent value="overview" className="space-y-6">
+          {/* Delivery Metrics Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="p-6 bg-card">
               <div className="flex items-center gap-3 mb-2">
@@ -461,10 +530,200 @@ export default function CarrierDetail() {
             </Card>
           </div>
 
-          {/* Visual check that we removed the empty regions table as requested */}
-          <Card className="p-12 text-center text-muted-foreground bg-muted/20 border-dashed">
-            <p>Las métricas detalladas por región han sido removidas para enfocar en la conciliación por zonas.</p>
-            <p className="text-sm mt-2">Utilice la pestaña "Conciliaciones" para filtrar por barrios específicos.</p>
+          {/* Rating Summary Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Average Rating Card */}
+            <Card className="p-6 bg-card">
+              <div className="flex items-center gap-2 mb-4">
+                <Star className="text-yellow-500" size={20} />
+                <h3 className="font-semibold text-card-foreground">Calificación Promedio</h3>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="text-5xl font-bold text-card-foreground">
+                  {safeNumber(carrier?.average_rating)}
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        size={20}
+                        className={
+                          star <= Math.round(carrier?.average_rating || 0)
+                            ? 'fill-yellow-400 text-yellow-400'
+                            : 'text-muted-foreground/30'
+                        }
+                      />
+                    ))}
+                  </div>
+                  <span className="text-sm text-muted-foreground mt-1">
+                    {carrier?.total_ratings || 0} calificaciones
+                  </span>
+                </div>
+              </div>
+              {(carrier?.total_ratings || 0) === 0 && (
+                <p className="text-sm text-muted-foreground mt-4">
+                  Aún no hay calificaciones de clientes
+                </p>
+              )}
+            </Card>
+
+            {/* Rating Distribution Card */}
+            <Card className="p-6 bg-card lg:col-span-2">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp className="text-blue-500" size={20} />
+                <h3 className="font-semibold text-card-foreground">Distribución de Calificaciones</h3>
+              </div>
+              {(carrier?.total_ratings || 0) > 0 ? (
+                <div className="space-y-3">
+                  {[5, 4, 3, 2, 1].map((rating) => {
+                    const count = ratingDistribution[rating as keyof RatingDistribution] || 0;
+                    const total = carrier?.total_ratings || 1;
+                    const percentage = (count / total) * 100;
+                    return (
+                      <div key={rating} className="flex items-center gap-3">
+                        <div className="flex items-center gap-1 w-12">
+                          <span className="text-sm font-medium">{rating}</span>
+                          <Star size={14} className="fill-yellow-400 text-yellow-400" />
+                        </div>
+                        <div className="flex-1">
+                          <Progress
+                            value={percentage}
+                            className="h-2"
+                          />
+                        </div>
+                        <span className="text-sm text-muted-foreground w-16 text-right">
+                          {count} ({percentage.toFixed(0)}%)
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-32 text-muted-foreground">
+                  <p>Sin datos de distribución aún</p>
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* Customer Reviews Section */}
+          <Card className="bg-card">
+            <div className="p-4 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="text-primary" size={20} />
+                <h3 className="font-semibold">Reseñas de Clientes</h3>
+                <Badge variant="secondary" className="ml-2">
+                  {reviews.length}
+                </Badge>
+              </div>
+            </div>
+
+            {reviewsLoading ? (
+              <div className="p-8 text-center text-muted-foreground">
+                Cargando reseñas...
+              </div>
+            ) : reviews.length === 0 ? (
+              <div className="p-12 text-center">
+                <MessageSquare className="mx-auto text-muted-foreground/50 mb-4" size={48} />
+                <h4 className="font-medium text-card-foreground mb-2">Sin reseñas aún</h4>
+                <p className="text-sm text-muted-foreground">
+                  Las reseñas aparecerán aquí cuando los clientes califiquen sus entregas
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
+                {reviews.map((review) => (
+                  <div key={review.id} className="p-4 hover:bg-accent/30 transition-colors">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        {/* Header: Customer + Order */}
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                            <User size={16} className="text-muted-foreground" />
+                          </div>
+                          <div>
+                            <span className="font-medium text-card-foreground">
+                              {review.customer_name}
+                            </span>
+                            <span className="text-muted-foreground mx-2">·</span>
+                            <Link
+                              to={`/orders/${review.id}`}
+                              className="text-sm text-primary hover:underline"
+                            >
+                              Pedido {review.order_number}
+                            </Link>
+                          </div>
+                        </div>
+
+                        {/* Rating Stars */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="flex">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                size={16}
+                                className={
+                                  star <= review.rating
+                                    ? 'fill-yellow-400 text-yellow-400'
+                                    : 'text-muted-foreground/30'
+                                }
+                              />
+                            ))}
+                          </div>
+                          <Badge
+                            variant={
+                              review.rating >= 4
+                                ? 'default'
+                                : review.rating >= 3
+                                ? 'secondary'
+                                : 'destructive'
+                            }
+                            className={
+                              review.rating >= 4
+                                ? 'bg-green-100 text-green-800 hover:bg-green-100'
+                                : review.rating >= 3
+                                ? ''
+                                : ''
+                            }
+                          >
+                            {review.rating === 5
+                              ? 'Excelente'
+                              : review.rating === 4
+                              ? 'Muy Bueno'
+                              : review.rating === 3
+                              ? 'Bueno'
+                              : review.rating === 2
+                              ? 'Regular'
+                              : 'Malo'}
+                          </Badge>
+                        </div>
+
+                        {/* Comment */}
+                        {review.comment && (
+                          <p className="text-sm text-card-foreground bg-muted/50 rounded-lg p-3 mt-2">
+                            "{review.comment}"
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Date */}
+                      <div className="text-right text-sm text-muted-foreground shrink-0">
+                        <div className="flex items-center gap-1">
+                          <Calendar size={14} />
+                          <span>{safeFormatDistance(review.rated_at)}</span>
+                        </div>
+                        {review.delivery_date && (
+                          <div className="mt-1 text-xs">
+                            Entregado: {safeFormatDate(review.delivery_date, 'dd/MM/yyyy')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         </TabsContent>
 

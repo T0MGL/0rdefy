@@ -37,6 +37,7 @@ export interface ExternalOrderPayload {
     quantity: number;
     price: number;
     variant_title?: string;
+    variant_type?: 'bundle' | 'variation'; // Migration 101: Explicit type for bundles vs variations
   }>;
 
   totals: {
@@ -610,10 +611,12 @@ export class ExternalWebhookService {
 
       // 8.5 Crear order_line_items para tracking de inventario
       // Intentar mapear SKU a productos/variantes
+      // Migration 101: Include variant_type for bundle vs variation tracking
       const orderLineItems = [];
       for (const item of payload.items) {
         let productId: string | null = null;
         let variantId: string | null = null;
+        let variantType: string | null = item.variant_type || null; // Accept from payload for external control
 
         // Buscar producto o variante por SKU
         if (item.sku) {
@@ -636,9 +639,10 @@ export class ExternalWebhookService {
             logger.warn('BACKEND', `[ExternalWebhook] RPC find_product_or_variant_by_sku not available, trying fallback`);
 
             // Fallback: Try variant first, then product
+            // Migration 101: Also fetch variant_type and uses_shared_stock
             const { data: variantMatch } = await supabaseAdmin
               .from('product_variants')
-              .select('id, product_id')
+              .select('id, product_id, variant_type, uses_shared_stock')
               .eq('store_id', storeId)
               .ilike('sku', item.sku)
               .eq('is_active', true)
@@ -647,6 +651,11 @@ export class ExternalWebhookService {
             if (variantMatch) {
               productId = variantMatch.product_id;
               variantId = variantMatch.id;
+              // Migration 101: Get variant_type from DB if not in payload
+              if (!variantType) {
+                variantType = variantMatch.variant_type || (variantMatch.uses_shared_stock ? 'bundle' : 'variation');
+              }
+              logger.info('BACKEND', `✅ [ExternalWebhook] Variant found by SKU: ${item.sku} (type: ${variantType})`);
             } else {
               const { data: productMatch } = await supabaseAdmin
                 .from('products')
@@ -658,6 +667,7 @@ export class ExternalWebhookService {
 
               if (productMatch) {
                 productId = productMatch.id;
+                // Products without variants default to null (no variant_type)
               }
             }
           }
@@ -667,6 +677,7 @@ export class ExternalWebhookService {
           order_id: order.id,
           product_id: productId,
           variant_id: variantId,
+          variant_type: variantType, // Migration 101: bundle vs variation for audit trail
           product_name: item.name,
           variant_title: item.variant_title || null,
           sku: item.sku || null,

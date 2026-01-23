@@ -1405,7 +1405,41 @@ export async function markSettlementPaid(
 
   logger.info('SETTLEMENTS', `Payment recorded: ${payment.amount} for settlement ${settlementId} (status: ${data.data.status})`);
 
-  return data.data as DailySettlement;
+  // ============================================================
+  // Register payment in carrier account movements
+  // ============================================================
+  // This creates a movement to track the actual money flow
+  const settlementData = data.data as DailySettlement;
+
+  if (settlementData.carrier_id) {
+    try {
+      // Determine payment direction based on net_receivable
+      // Positive net_receivable = carrier owes store = payment from carrier
+      // Negative net_receivable = store owes carrier = payment to carrier
+      const direction: 'from_carrier' | 'to_carrier' =
+        (settlementData.net_receivable || 0) >= 0 ? 'from_carrier' : 'to_carrier';
+
+      await registerCarrierPayment(
+        storeId,
+        settlementData.carrier_id,
+        payment.amount,
+        direction,
+        payment.method,
+        {
+          paymentReference: payment.reference,
+          notes: payment.notes || `Pago de liquidación ${settlementData.settlement_code}`,
+          settlementIds: [settlementId],
+        }
+      );
+
+      logger.info('SETTLEMENTS', `Carrier payment movement created for settlement ${settlementId}`);
+    } catch (movementError: any) {
+      // Log but don't fail - settlement is already recorded
+      logger.warn('SETTLEMENTS', `Warning: Could not create carrier payment movement: ${movementError.message}`);
+    }
+  }
+
+  return settlementData;
 }
 
 // ============================================================

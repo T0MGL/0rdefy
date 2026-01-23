@@ -27,6 +27,41 @@ export interface Carrier {
   contact_email?: string;
 }
 
+export interface CarrierReview {
+  id: string;
+  rating: number;
+  comment: string | null;
+  rated_at: string;
+  order_number: string;
+  customer_name: string;
+  delivery_date: string;
+}
+
+export interface RatingDistribution {
+  1: number;
+  2: number;
+  3: number;
+  4: number;
+  5: number;
+}
+
+export interface CarrierReviewsResponse {
+  courier: {
+    id: string;
+    name: string;
+    average_rating: number;
+    total_ratings: number;
+  };
+  reviews: CarrierReview[];
+  rating_distribution: RatingDistribution;
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 let API_URL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
 API_URL = API_URL.trim();
 API_URL = API_URL.replace(/(\/api\/?)+$/i, '');
@@ -144,5 +179,33 @@ export const carriersService = {
 
     const result = await response.json();
     return result.data;
+  },
+
+  async getReviews(id: string, options?: { limit?: number; offset?: number }): Promise<CarrierReviewsResponse> {
+    try {
+      const params = new URLSearchParams();
+      if (options?.limit) {
+        params.append('limit', options.limit.toString());
+      }
+      if (options?.offset) {
+        params.append('offset', options.offset.toString());
+      }
+      const url = `${API_URL}/api/couriers/${id}/reviews${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const response = await fetch(url, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error('Error al obtener reviews');
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      logger.error('Error fetching courier reviews:', error);
+      return {
+        courier: { id, name: '', average_rating: 0, total_ratings: 0 },
+        reviews: [],
+        rating_distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+        pagination: { total: 0, limit: 50, offset: 0, hasMore: false }
+      };
+    }
   },
 };

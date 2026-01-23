@@ -1,41 +1,30 @@
 /**
- * FeatureGate Component
+ * PlanUpgradeBlocker Component
  *
- * A wrapper component that checks if the user's plan has access to a feature.
- * If not, it shows a professional upgrade prompt instead of the children.
+ * A professional, full-page component that blocks access to features
+ * not included in the user's current plan. Designed to match the
+ * quality level of a $150k SaaS product.
  *
- * IMPORTANT: This component renders a loading skeleton IMMEDIATELY while
- * checking subscription status to prevent any flash of content or lag.
- *
- * Usage:
- *   <FeatureGate feature="warehouse">
- *     <WarehouseContent />
- *   </FeatureGate>
- *
- * Or for page-level blocking:
- *   const { hasFeature, loading } = useSubscription();
- *   if (loading) return <FeatureGateLoading />;
- *   if (!hasFeature('warehouse')) {
- *     return <FeatureBlockedPage feature="warehouse" />;
- *   }
+ * Features:
+ * - Instant blocking (no page load, then block)
+ * - Reassuring messaging about data safety
+ * - Direct navigation to subscription settings
+ * - Professional design matching ErrorBoundary style
  */
 
-import { ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Lock,
   Sparkles,
   ArrowRight,
   ArrowLeft,
-  Check,
   ShieldCheck,
   Package,
   Rocket,
-  Crown,
-  Loader2
+  Check,
+  Crown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useSubscription, PlanFeature, FEATURE_NAMES, FEATURE_MIN_PLAN } from '@/contexts/SubscriptionContext';
 
 // Plan display info with enhanced styling
@@ -105,97 +94,29 @@ const PLAN_HIGHLIGHTS: Record<string, string[]> = {
   ],
 };
 
-interface FeatureGateProps {
+interface PlanUpgradeBlockerProps {
   feature: PlanFeature;
-  children: ReactNode;
-  /** If true, shows a full-page blocked state instead of hiding content */
-  fullPage?: boolean;
-  /** Optional custom loading component */
-  loadingFallback?: ReactNode;
+  /** Optional: Custom title override */
+  title?: string;
+  /** Optional: Custom description override */
+  description?: string;
 }
 
 /**
- * FeatureGateLoading - Professional loading state shown while checking subscription
+ * PlanUpgradeBlocker - Full-page professional upgrade prompt
  *
- * This is shown IMMEDIATELY to prevent any flash of unauthorized content.
+ * Use this component when a user tries to access a feature they don't have.
+ * It provides a calming, professional experience that encourages upgrades
+ * without causing anxiety about data loss.
  */
-export function FeatureGateLoading() {
-  return (
-    <div className="min-h-[calc(100vh-200px)] flex items-center justify-center p-4">
-      <div className="max-w-lg w-full text-center space-y-6">
-        {/* Animated loading icon */}
-        <div className="relative mx-auto w-20 h-20">
-          <div className="absolute inset-0 bg-primary/10 rounded-full animate-pulse" />
-          <div className="relative flex items-center justify-center w-20 h-20 bg-card rounded-full border border-border shadow-lg">
-            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          </div>
-        </div>
-
-        {/* Loading message */}
-        <div className="space-y-2">
-          <Skeleton className="h-6 w-48 mx-auto" />
-          <Skeleton className="h-4 w-64 mx-auto" />
-        </div>
-
-        {/* Skeleton cards */}
-        <div className="grid grid-cols-2 gap-3">
-          <Skeleton className="h-20 rounded-xl" />
-          <Skeleton className="h-20 rounded-xl" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * FeatureGate - Conditionally render children based on plan feature access
- *
- * CRITICAL: Shows loading state IMMEDIATELY to prevent any content flash.
- * The page never renders unauthorized content even for a millisecond.
- */
-export function FeatureGate({ feature, children, fullPage = false, loadingFallback }: FeatureGateProps) {
-  const { hasFeature, shouldShowLockedFeatures, loading } = useSubscription();
-
-  // IMPORTANT: Show loading state IMMEDIATELY to prevent flash of content
-  // This ensures the user never sees unauthorized content
-  if (loading) {
-    if (loadingFallback) return <>{loadingFallback}</>;
-    if (fullPage) return <FeatureGateLoading />;
-    return null;
-  }
-
-  if (hasFeature(feature)) {
-    return <>{children}</>;
-  }
-
-  // If user is a collaborator (shouldn't see locked features), show nothing
-  if (!shouldShowLockedFeatures) {
-    return null;
-  }
-
-  // Show blocked page for owners
-  if (fullPage) {
-    return <FeatureBlockedPage feature={feature} />;
-  }
-
-  // For inline gates, show a small locked indicator
-  return <FeatureLockedInline feature={feature} />;
-}
-
-/**
- * FeatureBlockedPage - Professional full-page upgrade prompt
- *
- * Matches the quality and style of the ErrorBoundary component.
- * Designed to be reassuring and professional, not alarming.
- */
-export function FeatureBlockedPage({ feature }: { feature: PlanFeature }) {
+export function PlanUpgradeBlocker({ feature, title, description }: PlanUpgradeBlockerProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { subscription, canUpgrade } = useSubscription();
 
   const minPlan = FEATURE_MIN_PLAN[feature];
   const planInfo = PLAN_INFO[minPlan] || PLAN_INFO.starter;
-  const displayName = FEATURE_NAMES[feature] || feature;
+  const displayName = title || FEATURE_NAMES[feature] || feature;
   const currentPlan = subscription?.plan?.toLowerCase() || 'free';
   const highlights = PLAN_HIGHLIGHTS[minPlan] || PLAN_HIGHLIGHTS.starter;
   const PlanIcon = planInfo.icon;
@@ -212,6 +133,7 @@ export function FeatureBlockedPage({ feature }: { feature: PlanFeature }) {
   };
 
   const handleGoBack = () => {
+    // Try to go back, or go to dashboard if no history
     if (window.history.length > 2) {
       navigate(-1);
     } else {
@@ -241,10 +163,14 @@ export function FeatureBlockedPage({ feature }: { feature: PlanFeature }) {
             {displayName}
           </h1>
           <p className="text-muted-foreground text-base leading-relaxed max-w-md mx-auto">
-            Esta funcionalidad está disponible a partir del plan{' '}
-            <span className={`font-semibold ${planInfo.color}`}>
-              {planInfo.name}
-            </span>
+            {description || (
+              <>
+                Esta funcionalidad está disponible a partir del plan{' '}
+                <span className={`font-semibold ${planInfo.color}`}>
+                  {planInfo.name}
+                </span>
+              </>
+            )}
           </p>
         </div>
 
@@ -315,7 +241,7 @@ export function FeatureBlockedPage({ feature }: { feature: PlanFeature }) {
               <ArrowRight className="w-4 h-4" />
             </Button>
           ) : (
-            <div className="bg-muted/50 rounded-lg px-4 py-3 text-sm text-muted-foreground max-w-sm">
+            <div className="bg-muted/50 rounded-lg px-4 py-3 text-sm text-muted-foreground">
               <p className="font-medium text-foreground mb-1">Contacta a tu administrador</p>
               <p>Solo el propietario de la tienda puede actualizar el plan.</p>
             </div>
@@ -341,51 +267,125 @@ export function FeatureBlockedPage({ feature }: { feature: PlanFeature }) {
 }
 
 /**
- * FeatureLockedInline - Compact inline indicator for locked features
+ * LimitReachedBlocker - For when users hit their plan limits (orders, products, users)
  */
-export function FeatureLockedInline({ feature }: { feature: PlanFeature }) {
+interface LimitReachedBlockerProps {
+  limitType: 'orders' | 'products' | 'users';
+  current: number;
+  limit: number;
+}
+
+export function LimitReachedBlocker({ limitType, current, limit }: LimitReachedBlockerProps) {
   const navigate = useNavigate();
-  const location = useLocation();
-  const minPlan = FEATURE_MIN_PLAN[feature];
-  const planInfo = PLAN_INFO[minPlan] || PLAN_INFO.starter;
-  const displayName = FEATURE_NAMES[feature] || feature;
-  const PlanIcon = planInfo.icon;
+  const { canUpgrade } = useSubscription();
+
+  const limitInfo = {
+    orders: {
+      title: 'Límite de Pedidos Alcanzado',
+      description: 'Has alcanzado el máximo de pedidos permitidos en tu plan actual este mes.',
+      icon: Package,
+    },
+    products: {
+      title: 'Límite de Productos Alcanzado',
+      description: 'Has alcanzado el máximo de productos permitidos en tu plan actual.',
+      icon: Package,
+    },
+    users: {
+      title: 'Límite de Usuarios Alcanzado',
+      description: 'Has alcanzado el máximo de usuarios permitidos en tu plan actual.',
+      icon: ShieldCheck,
+    },
+  };
+
+  const info = limitInfo[limitType];
+  const LimitIcon = info.icon;
 
   const handleUpgrade = () => {
     navigate('/settings', {
       state: {
         openSection: 'subscription',
-        fromFeature: feature,
-        returnPath: location.pathname
+        fromLimit: limitType
       }
     });
   };
 
   return (
-    <div className={`rounded-xl border ${planInfo.borderColor} ${planInfo.bgColor} p-4`}>
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <Lock className={`h-5 w-5 ${planInfo.color}`} />
-          <PlanIcon className={`absolute -bottom-1 -right-1 h-3 w-3 ${planInfo.iconColor}`} />
+    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center bg-gradient-to-br from-amber-500/5 via-background to-amber-500/10 p-4">
+      <div className="max-w-lg w-full text-center space-y-6">
+        {/* Icon */}
+        <div className="relative mx-auto w-24 h-24">
+          <div className="absolute inset-0 bg-amber-100 dark:bg-amber-950/40 rounded-full animate-pulse" />
+          <div className="relative flex items-center justify-center w-24 h-24 bg-card rounded-full border border-amber-200 dark:border-amber-800 shadow-lg">
+            <LimitIcon className="w-10 h-10 text-amber-600 dark:text-amber-400" />
+          </div>
         </div>
-        <div className="flex-1">
-          <p className="font-medium text-sm text-foreground">{displayName}</p>
-          <p className="text-xs text-muted-foreground">
-            Disponible desde plan {planInfo.name}
+
+        {/* Message */}
+        <div className="space-y-3">
+          <h1 className="text-2xl font-semibold text-foreground">{info.title}</h1>
+          <p className="text-muted-foreground text-base leading-relaxed max-w-md mx-auto">
+            {info.description}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleUpgrade}
-          className="gap-1.5"
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          Upgrade
-        </Button>
+
+        {/* Usage Display */}
+        <div className="inline-flex items-center gap-3 px-5 py-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl">
+          <span className="text-amber-700 dark:text-amber-300 font-mono text-lg font-bold">
+            {current}/{limit}
+          </span>
+          <span className="text-amber-600 dark:text-amber-400 text-sm">
+            {limitType === 'orders' ? 'pedidos este mes' : limitType === 'products' ? 'productos' : 'usuarios'}
+          </span>
+        </div>
+
+        {/* Reassurance */}
+        <div className="bg-card border border-border rounded-xl p-4 shadow-sm max-w-sm mx-auto">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+              <ShieldCheck className="w-4 h-4 text-green-600 dark:text-green-400" />
+            </div>
+            <div className="text-left">
+              <p className="text-foreground text-sm font-medium">Tus datos están seguros</p>
+              <p className="text-muted-foreground text-xs mt-0.5">
+                No perderás ningún pedido ni información existente
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+          {canUpgrade ? (
+            <Button
+              onClick={handleUpgrade}
+              size="lg"
+              className="px-8 gap-2 bg-amber-600 hover:bg-amber-700 shadow-lg shadow-amber-500/25"
+            >
+              Aumentar límites
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          ) : (
+            <div className="bg-muted/50 rounded-lg px-4 py-3 text-sm text-muted-foreground">
+              <p>Contacta a tu administrador para actualizar el plan.</p>
+            </div>
+          )}
+          <Button
+            onClick={() => navigate(-1)}
+            variant="outline"
+            size="lg"
+            className="px-6 gap-2"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Volver
+          </Button>
+        </div>
+
+        <p className="text-muted-foreground/60 text-xs pt-2">
+          ¿Necesitas ayuda? <span className="text-muted-foreground">soporte@ordefy.io</span>
+        </p>
       </div>
     </div>
   );
 }
 
-export default FeatureGate;
+export default PlanUpgradeBlocker;

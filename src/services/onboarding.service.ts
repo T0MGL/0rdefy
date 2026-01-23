@@ -2,8 +2,10 @@
  * Onboarding Service
  * Tracks user setup progress and provides checklist data
  *
- * IMPORTANT: This service now uses database-backed tracking for proper
- * multi-user support. LocalStorage is only used as a fallback/cache.
+ * ARCHITECTURE: Database is the single source of truth
+ * - All state is persisted to and read from the database
+ * - localStorage is ONLY used as offline fallback cache
+ * - In-memory cache is keyed by userId+storeId to prevent cross-user pollution
  */
 
 import apiClient from './api.client';
@@ -27,63 +29,88 @@ export interface OnboardingProgress {
   hasShopify: boolean;
   hasDismissed: boolean;
   visitedModules?: string[];
+  moduleVisitCounts?: Record<string, number>;
+  firstActionsCompleted?: string[];
   userRole?: string;
 }
 
-// Storage keys (used as fallback cache only)
+// Storage keys for offline fallback only
 const STORAGE_KEYS = {
-  DISMISSED: 'ordefy_onboarding_dismissed',
-  FIRST_VISIT: 'ordefy_first_visit_modules',
-  VISIT_COUNTS: 'ordefy_module_visit_counts',
-  FIRST_ACTIONS: 'ordefy_module_first_actions',
-  // Cache for DB-backed data
   PROGRESS_CACHE: 'ordefy_onboarding_progress_cache',
+  OFFLINE_QUEUE: 'ordefy_onboarding_offline_queue',
 };
 
 // Maximum visits before auto-hiding tips
 const MAX_VISITS_BEFORE_HIDE = 3;
 
-// Cache for progress data to avoid repeated API calls
-let progressCache: OnboardingProgress | null = null;
-let cacheTimestamp = 0;
+// Cache configuration - keyed by userId:storeId to prevent cross-user pollution
+interface CacheEntry {
+  data: OnboardingProgress;
+  timestamp: number;
+}
+const progressCache = new Map<string, CacheEntry>();
 const CACHE_TTL = 30000; // 30 seconds
+
+// Module tip state cache - prefetched from API for instant shouldShowTip() calls
+interface TipStateCache {
+  moduleStates: Map<string, boolean>; // moduleId -> shouldShow
+  timestamp: number;
+}
+const tipStateCache = new Map<string, TipStateCache>(); // keyed by userId:storeId
+const TIP_STATE_CACHE_TTL = 60000; // 60 seconds
+
+/**
+ * Get cache key for current user/store context
+ */
+function getCacheKey(): string {
+  const userId = localStorage.getItem('user_id') || 'anonymous';
+  const storeId = localStorage.getItem('current_store_id') || 'no-store';
+  return `${userId}:${storeId}`;
+}
 
 /**
  * Get onboarding progress from API
- * Now uses database-backed hasDismissed and visitedModules
+ * Uses database as single source of truth
  */
 export async function getOnboardingProgress(): Promise<OnboardingProgress> {
+  const cacheKey = getCacheKey();
+  const cached = progressCache.get(cacheKey);
+
   // Return cached data if fresh
-  if (progressCache && Date.now() - cacheTimestamp < CACHE_TTL) {
-    return progressCache;
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
   }
 
   try {
     const response = await apiClient.get('/onboarding/progress');
-    const data = response.data;
+    const data: OnboardingProgress = response.data;
 
-    // Use database value for hasDismissed (not LocalStorage)
-    progressCache = {
-      ...data,
-      // hasDismissed comes from database now, not LocalStorage
-      hasDismissed: data.hasDismissed ?? false,
-    };
-    cacheTimestamp = Date.now();
+    // Store in memory cache with user-specific key
+    progressCache.set(cacheKey, {
+      data,
+      timestamp: Date.now(),
+    });
 
-    // Sync to local cache for offline fallback
+    // Also store in localStorage for offline fallback
     try {
-      localStorage.setItem(STORAGE_KEYS.PROGRESS_CACHE, JSON.stringify(progressCache));
+      localStorage.setItem(
+        `${STORAGE_KEYS.PROGRESS_CACHE}_${cacheKey}`,
+        JSON.stringify(data)
+      );
     } catch {
       // localStorage might be full or unavailable
     }
 
-    return progressCache;
+    // Prefetch tip states for common modules
+    prefetchTipStates(['orders', 'products', 'customers', 'warehouse']);
+
+    return data;
   } catch (error) {
     console.error('Error fetching onboarding progress:', error);
 
     // Try to use cached data from localStorage
     try {
-      const cached = localStorage.getItem(STORAGE_KEYS.PROGRESS_CACHE);
+      const cached = localStorage.getItem(`${STORAGE_KEYS.PROGRESS_CACHE}_${cacheKey}`);
       if (cached) {
         return JSON.parse(cached);
       }
@@ -100,23 +127,37 @@ export async function getOnboardingProgress(): Promise<OnboardingProgress> {
  * Invalidate progress cache (call after mutations)
  */
 export function invalidateProgressCache(): void {
-  progressCache = null;
-  cacheTimestamp = 0;
+  const cacheKey = getCacheKey();
+  progressCache.delete(cacheKey);
+  tipStateCache.delete(cacheKey);
 }
 
 /**
  * Mark onboarding as dismissed (user chose to hide checklist)
- * Now persists to database, not just localStorage
+ * Persists to database, updates local cache optimistically
  */
 export async function dismissOnboarding(): Promise<void> {
-  // Persist to server (primary source of truth)
+  const cacheKey = getCacheKey();
+
+  // Optimistic update - update local cache immediately
+  const cached = progressCache.get(cacheKey);
+  if (cached) {
+    cached.data.hasDismissed = true;
+    cached.timestamp = Date.now();
+  }
+
   try {
     await apiClient.post('/onboarding/dismiss');
-    invalidateProgressCache();
+    // Cache already updated optimistically
   } catch (error) {
     console.error('Error dismissing onboarding on server:', error);
-    // Fallback to localStorage for offline scenarios
-    localStorage.setItem(STORAGE_KEYS.DISMISSED, 'true');
+    // Revert optimistic update on error
+    if (cached) {
+      cached.data.hasDismissed = false;
+    }
+    // Queue for retry when online
+    queueOfflineAction({ type: 'dismiss' });
+    throw error;
   }
 }
 
@@ -124,45 +165,158 @@ export async function dismissOnboarding(): Promise<void> {
  * Reset onboarding dismissal (show checklist again)
  */
 export async function resetOnboardingDismissal(): Promise<void> {
-  localStorage.removeItem(STORAGE_KEYS.DISMISSED);
   invalidateProgressCache();
-  // Note: Would need a server endpoint to reset DB value
   try {
     await apiClient.post('/onboarding/reset');
   } catch {
-    // Non-critical, just invalidate cache
+    // Non-critical
+  }
+}
+
+/**
+ * Prefetch tip states for multiple modules in one API call
+ * Uses optimized batch endpoint (single DB query)
+ * This enables instant synchronous shouldShowTip() calls
+ */
+async function prefetchTipStates(moduleIds: string[]): Promise<void> {
+  const cacheKey = getCacheKey();
+
+  try {
+    // Use batch endpoint for efficiency (1 API call, 1 DB query)
+    const response = await apiClient.post('/onboarding/batch-tip-states', { moduleIds });
+    const states: Record<string, boolean> = response.data;
+
+    // Update tip state cache
+    const moduleStates = new Map<string, boolean>();
+    for (const [moduleId, shouldShow] of Object.entries(states)) {
+      moduleStates.set(moduleId, shouldShow);
+    }
+
+    tipStateCache.set(cacheKey, {
+      moduleStates,
+      timestamp: Date.now(),
+    });
+  } catch {
+    // Fallback to individual fetches if batch endpoint fails
+    try {
+      const results = await Promise.all(
+        moduleIds.map(async (moduleId) => {
+          try {
+            const response = await apiClient.get(`/onboarding/should-show-tip/${moduleId}`);
+            return { moduleId, shouldShow: response.data.shouldShow };
+          } catch {
+            return { moduleId, shouldShow: true };
+          }
+        })
+      );
+
+      const moduleStates = new Map<string, boolean>();
+      for (const { moduleId, shouldShow } of results) {
+        moduleStates.set(moduleId, shouldShow);
+      }
+
+      tipStateCache.set(cacheKey, {
+        moduleStates,
+        timestamp: Date.now(),
+      });
+    } catch {
+      // Non-critical, tips will be fetched individually on demand
+    }
   }
 }
 
 /**
  * Check if tip should be shown for a module
- * Uses database-backed tracking for proper multi-user support
+ * Uses cached API response for instant synchronous calls
+ * Falls back to API call if cache miss
  */
 export function shouldShowTip(moduleId: string): boolean {
-  // A) Check if manually dismissed (from cached progress)
-  if (progressCache?.visitedModules?.includes(moduleId)) {
-    return false;
+  const cacheKey = getCacheKey();
+  const cached = tipStateCache.get(cacheKey);
+
+  // Check prefetched cache first
+  if (cached && Date.now() - cached.timestamp < TIP_STATE_CACHE_TTL) {
+    const cachedState = cached.moduleStates.get(moduleId);
+    if (cachedState !== undefined) {
+      return cachedState;
+    }
   }
 
-  // Fallback to localStorage for dismissed modules
-  const dismissed = getDismissedModulesLocal();
-  if (dismissed.includes(moduleId)) {
-    return false;
+  // Check progress cache for visited modules
+  const progressCached = progressCache.get(cacheKey);
+  if (progressCached) {
+    const progress = progressCached.data;
+
+    // Check if manually dismissed
+    if (progress.visitedModules?.includes(moduleId)) {
+      return false;
+    }
+
+    // Check visit count from DB data
+    const visitCount = progress.moduleVisitCounts?.[moduleId] || 0;
+    if (visitCount >= MAX_VISITS_BEFORE_HIDE) {
+      return false;
+    }
+
+    // Check if first action completed
+    if (progress.firstActionsCompleted?.includes(moduleId)) {
+      return false;
+    }
   }
 
-  // B) Check visit count (max 3)
-  const visitCount = getModuleVisitCountLocal(moduleId);
-  if (visitCount >= MAX_VISITS_BEFORE_HIDE) {
-    return false;
-  }
-
-  // C) Check if first action completed
-  const actionsCompleted = getCompletedActionsLocal();
-  if (actionsCompleted.includes(moduleId)) {
-    return false;
-  }
+  // Default to showing tip (will be fetched from API async)
+  // Trigger async fetch to update cache for next call
+  fetchTipStateAsync(moduleId);
 
   return true;
+}
+
+/**
+ * Async fetch of tip state to update cache
+ */
+async function fetchTipStateAsync(moduleId: string): Promise<void> {
+  const cacheKey = getCacheKey();
+
+  try {
+    const response = await apiClient.get(`/onboarding/should-show-tip/${moduleId}`);
+    const shouldShow = response.data.shouldShow;
+
+    // Update cache
+    let cached = tipStateCache.get(cacheKey);
+    if (!cached) {
+      cached = { moduleStates: new Map(), timestamp: Date.now() };
+      tipStateCache.set(cacheKey, cached);
+    }
+    cached.moduleStates.set(moduleId, shouldShow);
+    cached.timestamp = Date.now();
+  } catch {
+    // Non-critical
+  }
+}
+
+/**
+ * Check if should show tip - async version for initial render
+ * Use this when you need accurate state (e.g., initial component mount)
+ */
+export async function shouldShowTipAsync(moduleId: string): Promise<boolean> {
+  try {
+    const response = await apiClient.get(`/onboarding/should-show-tip/${moduleId}`);
+    const shouldShow = response.data.shouldShow;
+
+    // Update cache
+    const cacheKey = getCacheKey();
+    let cached = tipStateCache.get(cacheKey);
+    if (!cached) {
+      cached = { moduleStates: new Map(), timestamp: Date.now() };
+      tipStateCache.set(cacheKey, cached);
+    }
+    cached.moduleStates.set(moduleId, shouldShow);
+
+    return shouldShow;
+  } catch {
+    // On error, use sync version as fallback
+    return shouldShowTip(moduleId);
+  }
 }
 
 /**
@@ -174,69 +328,80 @@ export function isFirstVisitToModule(moduleId: string): boolean {
 
 /**
  * Increment visit count for a module
- * Persists to both localStorage (immediate) and server (durable)
+ * Persists to database, returns the new count from DB (not localStorage)
  */
 export async function incrementVisitCount(moduleId: string): Promise<number> {
-  // Update localStorage immediately for responsive UI
-  const counts = getVisitCountsLocal();
-  counts[moduleId] = (counts[moduleId] || 0) + 1;
-  localStorage.setItem(STORAGE_KEYS.VISIT_COUNTS, JSON.stringify(counts));
-
-  // Also persist to server (fire-and-forget)
   try {
-    await apiClient.post('/onboarding/increment-visit', { moduleId });
-  } catch {
-    // Non-critical, localStorage is the fallback
-  }
+    const response = await apiClient.post('/onboarding/increment-visit', { moduleId });
+    const newCount = response.data.count;
 
-  return counts[moduleId];
+    // Update local cache with DB value
+    const cacheKey = getCacheKey();
+    const cached = progressCache.get(cacheKey);
+    if (cached) {
+      if (!cached.data.moduleVisitCounts) {
+        cached.data.moduleVisitCounts = {};
+      }
+      cached.data.moduleVisitCounts[moduleId] = newCount;
+    }
+
+    // Update tip state cache if count exceeds threshold
+    if (newCount >= MAX_VISITS_BEFORE_HIDE) {
+      const tipCached = tipStateCache.get(cacheKey);
+      if (tipCached) {
+        tipCached.moduleStates.set(moduleId, false);
+      }
+    }
+
+    return newCount;
+  } catch (error) {
+    console.error('Error incrementing visit count:', error);
+    // Queue for retry when online
+    queueOfflineAction({ type: 'increment-visit', moduleId });
+    return 1;
+  }
 }
 
 /**
- * Get visit count for a specific module (from localStorage cache)
+ * Get visit count for a specific module
  */
 export function getModuleVisitCount(moduleId: string): number {
-  return getModuleVisitCountLocal(moduleId);
-}
-
-/**
- * Get visit count from localStorage
- */
-function getModuleVisitCountLocal(moduleId: string): number {
-  const counts = getVisitCountsLocal();
-  return counts[moduleId] || 0;
-}
-
-/**
- * Get all visit counts from localStorage
- */
-function getVisitCountsLocal(): Record<string, number> {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEYS.VISIT_COUNTS);
-    return stored ? JSON.parse(stored) : {};
-  } catch {
-    return {};
-  }
+  const cacheKey = getCacheKey();
+  const cached = progressCache.get(cacheKey);
+  return cached?.data.moduleVisitCounts?.[moduleId] || 0;
 }
 
 /**
  * Mark a module tip as manually dismissed (X button)
- * Persists to both localStorage and server
+ * Persists to database
  */
 export async function dismissModuleTip(moduleId: string): Promise<void> {
-  // Update localStorage immediately
-  const dismissed = getDismissedModulesLocal();
-  if (!dismissed.includes(moduleId)) {
-    dismissed.push(moduleId);
-    localStorage.setItem(STORAGE_KEYS.FIRST_VISIT, JSON.stringify(dismissed));
+  const cacheKey = getCacheKey();
+
+  // Optimistic update
+  const cached = progressCache.get(cacheKey);
+  if (cached) {
+    if (!cached.data.visitedModules) {
+      cached.data.visitedModules = [];
+    }
+    if (!cached.data.visitedModules.includes(moduleId)) {
+      cached.data.visitedModules.push(moduleId);
+    }
   }
 
-  // Persist to server
+  // Update tip state cache
+  const tipCached = tipStateCache.get(cacheKey);
+  if (tipCached) {
+    tipCached.moduleStates.set(moduleId, false);
+  }
+
   try {
     await apiClient.post('/onboarding/visit-module', { moduleId });
     invalidateProgressCache();
   } catch (error) {
     console.error('Error dismissing module tip on server:', error);
+    // Queue for retry when online
+    queueOfflineAction({ type: 'dismiss-tip', moduleId });
   }
 }
 
@@ -248,25 +413,12 @@ export async function markModuleVisited(moduleId: string): Promise<void> {
 }
 
 /**
- * Get list of manually dismissed modules from localStorage
- */
-function getDismissedModulesLocal(): string[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEYS.FIRST_VISIT);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Get dismissed modules (combines DB + localStorage)
+ * Get dismissed modules (from cached progress)
  */
 export function getDismissedModules(): string[] {
-  const local = getDismissedModulesLocal();
-  const fromProgress = progressCache?.visitedModules || [];
-  // Merge and dedupe
-  return [...new Set([...local, ...fromProgress])];
+  const cacheKey = getCacheKey();
+  const cached = progressCache.get(cacheKey);
+  return cached?.data.visitedModules || [];
 }
 
 /**
@@ -278,57 +430,126 @@ export function getVisitedModules(): string[] {
 
 /**
  * Mark first action completed for a module
- * Persists to both localStorage and server
+ * Persists to database
  */
 export async function markFirstActionCompleted(moduleId: string): Promise<void> {
-  // Update localStorage immediately
-  const actions = getCompletedActionsLocal();
-  if (!actions.includes(moduleId)) {
-    actions.push(moduleId);
-    localStorage.setItem(STORAGE_KEYS.FIRST_ACTIONS, JSON.stringify(actions));
+  const cacheKey = getCacheKey();
+
+  // Optimistic update
+  const cached = progressCache.get(cacheKey);
+  if (cached) {
+    if (!cached.data.firstActionsCompleted) {
+      cached.data.firstActionsCompleted = [];
+    }
+    if (!cached.data.firstActionsCompleted.includes(moduleId)) {
+      cached.data.firstActionsCompleted.push(moduleId);
+    }
   }
 
-  // Persist to server (fire-and-forget)
+  // Update tip state cache
+  const tipCached = tipStateCache.get(cacheKey);
+  if (tipCached) {
+    tipCached.moduleStates.set(moduleId, false);
+  }
+
   try {
     await apiClient.post('/onboarding/first-action', { moduleId });
-  } catch {
-    // Non-critical
+  } catch (error) {
+    console.error('Error marking first action:', error);
+    // Queue for retry when online
+    queueOfflineAction({ type: 'first-action', moduleId });
   }
 }
 
 /**
- * Get list of modules where first action was completed (from localStorage)
- */
-function getCompletedActionsLocal(): string[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEYS.FIRST_ACTIONS);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Get completed actions
+ * Get completed actions (from cached progress)
  */
 export function getCompletedActions(): string[] {
-  return getCompletedActionsLocal();
+  const cacheKey = getCacheKey();
+  const cached = progressCache.get(cacheKey);
+  return cached?.data.firstActionsCompleted || [];
 }
 
 /**
  * Reset first-visit tracking (for testing)
  */
 export async function resetFirstVisits(): Promise<void> {
-  localStorage.removeItem(STORAGE_KEYS.FIRST_VISIT);
-  localStorage.removeItem(STORAGE_KEYS.VISIT_COUNTS);
-  localStorage.removeItem(STORAGE_KEYS.FIRST_ACTIONS);
-  localStorage.removeItem(STORAGE_KEYS.PROGRESS_CACHE);
   invalidateProgressCache();
+
+  // Clear all localStorage keys for this user
+  const cacheKey = getCacheKey();
+  localStorage.removeItem(`${STORAGE_KEYS.PROGRESS_CACHE}_${cacheKey}`);
+  localStorage.removeItem(STORAGE_KEYS.OFFLINE_QUEUE);
 
   try {
     await apiClient.post('/onboarding/reset');
   } catch {
     // Non-critical
+  }
+}
+
+/**
+ * Queue an action for retry when back online
+ */
+interface OfflineAction {
+  type: 'dismiss' | 'dismiss-tip' | 'first-action' | 'increment-visit';
+  moduleId?: string;
+  timestamp?: number;
+}
+
+function queueOfflineAction(action: OfflineAction): void {
+  try {
+    const queueStr = localStorage.getItem(STORAGE_KEYS.OFFLINE_QUEUE) || '[]';
+    const queue: OfflineAction[] = JSON.parse(queueStr);
+    queue.push({ ...action, timestamp: Date.now() });
+    localStorage.setItem(STORAGE_KEYS.OFFLINE_QUEUE, JSON.stringify(queue));
+  } catch {
+    // localStorage might be unavailable
+  }
+}
+
+/**
+ * Process offline queue when back online
+ */
+export async function processOfflineQueue(): Promise<void> {
+  try {
+    const queueStr = localStorage.getItem(STORAGE_KEYS.OFFLINE_QUEUE) || '[]';
+    const queue: OfflineAction[] = JSON.parse(queueStr);
+
+    if (queue.length === 0) return;
+
+    for (const action of queue) {
+      try {
+        switch (action.type) {
+          case 'dismiss':
+            await apiClient.post('/onboarding/dismiss');
+            break;
+          case 'dismiss-tip':
+            if (action.moduleId) {
+              await apiClient.post('/onboarding/visit-module', { moduleId: action.moduleId });
+            }
+            break;
+          case 'first-action':
+            if (action.moduleId) {
+              await apiClient.post('/onboarding/first-action', { moduleId: action.moduleId });
+            }
+            break;
+          case 'increment-visit':
+            if (action.moduleId) {
+              await apiClient.post('/onboarding/increment-visit', { moduleId: action.moduleId });
+            }
+            break;
+        }
+      } catch {
+        // Individual action failed, will be retried next time
+      }
+    }
+
+    // Clear queue after processing
+    localStorage.removeItem(STORAGE_KEYS.OFFLINE_QUEUE);
+    invalidateProgressCache();
+  } catch {
+    // Queue processing failed
   }
 }
 
@@ -345,7 +566,21 @@ function getDefaultProgress(): OnboardingProgress {
     hasShopify: false,
     hasDismissed: false,
     visitedModules: [],
+    moduleVisitCounts: {},
+    firstActionsCompleted: [],
   };
+}
+
+// Process offline queue when module loads (if online)
+if (typeof window !== 'undefined' && navigator.onLine) {
+  processOfflineQueue();
+}
+
+// Listen for online event to process queue
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    processOfflineQueue();
+  });
 }
 
 export const onboardingService = {
@@ -355,6 +590,7 @@ export const onboardingService = {
   invalidateCache: invalidateProgressCache,
   // New combined logic
   shouldShowTip,
+  shouldShowTipAsync,
   incrementVisitCount,
   getModuleVisitCount,
   dismissModuleTip,
@@ -365,6 +601,8 @@ export const onboardingService = {
   markVisited: markModuleVisited,
   getVisitedModules,
   resetFirstVisits,
+  // Offline support
+  processOfflineQueue,
 };
 
 export default onboardingService;

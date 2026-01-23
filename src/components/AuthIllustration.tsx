@@ -10,9 +10,14 @@ export default function AuthIllustration({
   subtitle = "Gestiona tu e-commerce con inteligencia"
 }: AuthIllustrationProps) {
   return (
-    <div className="hidden lg:flex lg:w-1/2 bg-slate-900 relative overflow-hidden items-center justify-center">
-      {/* Subtle gradient overlay */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800/50 to-slate-900"></div>
+    <div className="hidden lg:flex lg:w-1/2 bg-[#0a0a0a] relative overflow-hidden items-center justify-center">
+      {/* Subtle lime green radial glow - matching og-image branding */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: 'radial-gradient(circle at 50% 50%, rgba(132, 204, 22, 0.12) 0%, rgba(132, 204, 22, 0) 70%)'
+        }}
+      />
 
       {/* Animated background particles */}
       <div className="absolute inset-0 overflow-hidden">
@@ -45,15 +50,20 @@ export default function AuthIllustration({
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center px-12 text-center">
-        {/* Title */}
+        {/* Logo with gradient - matching og-image branding */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
           className="mb-4"
         >
-          <h1 className="text-5xl md:text-6xl font-bold text-white tracking-tight">
-            <span className="italic font-serif">O</span>rdefy
+          <h1 className="text-5xl md:text-6xl font-semibold tracking-tight">
+            <span style={{ color: '#84cc16' }}>O</span>
+            <span style={{ color: '#a3e635' }}>r</span>
+            <span style={{ color: '#bef264' }}>d</span>
+            <span style={{ color: '#d9f99d' }}>e</span>
+            <span style={{ color: '#ecfccb' }}>f</span>
+            <span style={{ color: '#f7fee7' }}>y</span>
           </h1>
         </motion.div>
 
@@ -67,7 +77,7 @@ export default function AuthIllustration({
           {subtitle}
         </motion.p>
 
-        {/* SVG Illustration */}
+        {/* SVG Illustration - ORIGINAL COLORS */}
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -280,7 +290,7 @@ export default function AuthIllustration({
           </svg>
         </motion.div>
 
-        {/* Feature tags */}
+        {/* Feature tags - Lime green to match app branding */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -293,7 +303,7 @@ export default function AuthIllustration({
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.3, delay: 0.6 + i * 0.1 }}
-              className="px-4 py-2 bg-slate-800 text-slate-300 text-sm rounded-full border border-slate-700"
+              className="px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-full"
             >
               {tag}
             </motion.span>

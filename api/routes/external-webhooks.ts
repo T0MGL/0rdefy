@@ -335,7 +335,8 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
         sku: 'SKU-001',
         quantity: 2,
         price: 150000,
-        variant_title: 'Talla M'
+        variant_title: 'Talla M',
+        variant_type: 'variation'  // 'bundle' for quantity packs, 'variation' for sizes/colors
       }
     ],
 
@@ -377,8 +378,9 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
         'shipping_address.country': 'País (default: Paraguay)',
         'shipping_address.reference': 'Referencia de ubicación (ej: Casa blanca)',
         'shipping_address.notes': 'Instrucciones de entrega',
-        'items[].sku': 'SKU para mapear con productos existentes',
+        'items[].sku': 'SKU para mapear con productos existentes (e.g., NOCTE-GLASSES-PAREJA)',
         'items[].variant_title': 'Variante del producto',
+        'items[].variant_type': '"bundle" para packs de cantidad (1x, 2x, 3x) o "variation" para tallas/colores. Si no se envía, se infiere del SKU en la DB.',
         'totals.subtotal': 'Subtotal antes de envío/descuentos',
         'totals.shipping': 'Costo de envío',
         'totals.discount': 'Descuento aplicado',

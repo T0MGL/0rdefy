@@ -759,7 +759,7 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
 
         let query = supabaseAdmin
             .from('orders')
-            .select('created_at, total_price, sleeves_status, shipping_cost, store_id, line_items')
+            .select('created_at, total_price, sleeves_status, shipping_cost, store_id, line_items, deleted_at, is_test')
             .in('store_id', storeIds);
 
         if (startDateParam && endDateParam) {

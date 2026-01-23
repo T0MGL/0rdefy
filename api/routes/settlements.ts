@@ -1,9 +1,9 @@
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
-import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';
+import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { requireFeature } from '../middleware/planLimits';
-import { Module } from '../permissions';
+import { Module, Permission } from '../permissions';
 import * as settlementsService from '../services/settlements.service';
 import { getTodayInTimezone } from '../utils/dateUtils';
 import { logger } from '../utils/logger';
@@ -207,7 +207,7 @@ settlementsRouter.get('/dispatch-sessions/:id', async (req: AuthRequest, res: Re
  * POST /api/settlements/dispatch-sessions
  * Create new dispatch session with orders
  */
-settlementsRouter.post('/dispatch-sessions', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/dispatch-sessions', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrier_id, order_ids } = req.body;
 
@@ -272,7 +272,7 @@ settlementsRouter.get('/dispatch-sessions/:id/export', async (req: AuthRequest, 
  * POST /api/settlements/dispatch-sessions/:id/import
  * Import delivery results from CSV
  */
-settlementsRouter.post('/dispatch-sessions/:id/import', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/dispatch-sessions/:id/import', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { results } = req.body;
@@ -298,7 +298,7 @@ settlementsRouter.post('/dispatch-sessions/:id/import', async (req: AuthRequest,
  * POST /api/settlements/dispatch-sessions/:id/process
  * Process dispatch session and create settlement
  */
-settlementsRouter.post('/dispatch-sessions/:id/process', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/dispatch-sessions/:id/process', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -362,7 +362,7 @@ settlementsRouter.get('/v2/:id', async (req: AuthRequest, res: Response) => {
  * POST /api/settlements/v2/:id/pay
  * Record payment for settlement
  */
-settlementsRouter.post('/v2/:id/pay', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/v2/:id/pay', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { amount, method, reference, notes } = req.body;
@@ -418,7 +418,7 @@ settlementsRouter.get('/zones', async (req: AuthRequest, res: Response) => {
  * POST /api/settlements/zones
  * Create or update carrier zone
  */
-settlementsRouter.post('/zones', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/zones', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrier_id, zone_name, zone_code, rate, is_active } = req.body;
 
@@ -452,7 +452,7 @@ settlementsRouter.post('/zones', async (req: AuthRequest, res: Response) => {
  * POST /api/settlements/zones/bulk
  * Bulk import carrier zones (from Excel)
  */
-settlementsRouter.post('/zones/bulk', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/zones/bulk', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrier_id, zones } = req.body;
 
@@ -480,7 +480,7 @@ settlementsRouter.post('/zones/bulk', async (req: AuthRequest, res: Response) =>
  * DELETE /api/settlements/zones/:id
  * Delete carrier zone
  */
-settlementsRouter.delete('/zones/:id', async (req: AuthRequest, res: Response) => {
+settlementsRouter.delete('/zones/:id', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -618,7 +618,7 @@ settlementsRouter.get('/pending-reconciliation/:date/:carrierId', async (req: Au
  * POST /api/settlements/reconcile-delivery - Process delivery-based reconciliation
  * Simpler flow: just date, carrier, and order results
  */
-settlementsRouter.post('/reconcile-delivery', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/reconcile-delivery', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrier_id, delivery_date, orders, total_amount_collected, discrepancy_notes } = req.body;
 
@@ -743,7 +743,7 @@ settlementsRouter.post('/reconcile-delivery', async (req: AuthRequest, res: Resp
  * POST /api/settlements/manual-reconciliation - Process manual reconciliation
  * Without CSV - using checkbox UI
  */
-settlementsRouter.post('/manual-reconciliation', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/manual-reconciliation', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrier_id, dispatch_date, orders, total_amount_collected, discrepancy_notes, confirm_discrepancy } = req.body;
 
@@ -990,7 +990,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', async (req: Auth
 // ================================================================
 // PATCH /api/settlements/carrier-accounts/:carrierId/config - Update config
 // ================================================================
-settlementsRouter.patch('/carrier-accounts/:carrierId/config', async (req: AuthRequest, res: Response) => {
+settlementsRouter.patch('/carrier-accounts/:carrierId/config', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
     const { settlement_type, charges_failed_attempts, payment_schedule, failed_attempt_fee_percent } = req.body;
@@ -1022,7 +1022,7 @@ settlementsRouter.patch('/carrier-accounts/:carrierId/config', async (req: AuthR
 // ================================================================
 // POST /api/settlements/carrier-accounts/:carrierId/adjustment - Create adjustment
 // ================================================================
-settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
     const { amount, type, description } = req.body;
@@ -1056,7 +1056,7 @@ settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', async (req: Au
 // ================================================================
 // POST /api/settlements/carrier-payments - Register payment
 // ================================================================
-settlementsRouter.post('/carrier-payments', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/carrier-payments', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const {
       carrier_id,
@@ -1142,7 +1142,7 @@ settlementsRouter.get('/carrier-payments', async (req: AuthRequest, res: Respons
 // ================================================================
 // POST /api/settlements/backfill-movements - Backfill movements (admin)
 // ================================================================
-settlementsRouter.post('/backfill-movements', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/backfill-movements', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     logger.info('💰 [CARRIER ACCOUNTS] Backfilling movements for store:', req.storeId);
 
@@ -1209,7 +1209,7 @@ settlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/settlements - Create new settlement
 // ================================================================
-settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const {
       settlement_date,
@@ -1313,7 +1313,7 @@ settlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/settlements/:id - Update settlement
 // ================================================================
-settlementsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+settlementsRouter.put('/:id', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -1353,7 +1353,7 @@ settlementsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/settlements/:id/complete - Complete/close settlement
 // ================================================================
-settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) => {
+settlementsRouter.post('/:id/complete', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { collected_cash, notes } = req.body;
@@ -1406,7 +1406,7 @@ settlementsRouter.post('/:id/complete', async (req: AuthRequest, res: Response) 
 // ================================================================
 // DELETE /api/settlements/:id - Delete settlement
 // ================================================================
-settlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+settlementsRouter.delete('/:id', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
 

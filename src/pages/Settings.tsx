@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -145,6 +145,18 @@ export default function Settings() {
 
   // Check if user is owner (only owners can access billing/subscription)
   const isOwner = permissions.currentRole === Role.OWNER;
+
+  const location = useLocation();
+
+  // Handle navigation from FeatureGate upgrade prompts
+  useEffect(() => {
+    const state = location.state as { openSection?: string; fromFeature?: string } | null;
+    if (state?.openSection === 'subscription') {
+      setActiveTab('subscription');
+      // Clear the state to prevent re-triggering on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');

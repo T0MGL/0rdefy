@@ -344,6 +344,58 @@ onboardingRouter.get('/should-show-tip/:moduleId', verifyToken, extractStoreId, 
 });
 
 /**
+ * POST /api/onboarding/batch-tip-states
+ * Get tip visibility states for multiple modules in one call (optimized prefetching)
+ */
+onboardingRouter.post('/batch-tip-states', verifyToken, extractStoreId, async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId;
+        const storeId = req.storeId;
+        const { moduleIds } = req.body;
+
+        if (!userId || !storeId) {
+            return res.status(400).json({
+                success: false,
+                error: 'User ID and Store ID are required'
+            });
+        }
+
+        if (!Array.isArray(moduleIds) || moduleIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'moduleIds array is required'
+            });
+        }
+
+        // Use the optimized database function
+        const { data, error } = await supabaseAdmin.rpc('get_batch_tip_states', {
+            p_store_id: storeId,
+            p_user_id: userId,
+            p_module_ids: moduleIds,
+            p_max_visits: 3
+        });
+
+        if (error) {
+            logger.error('API', 'Error fetching batch tip states:', error);
+            // Fallback: return all as true (show tips)
+            const fallback: Record<string, boolean> = {};
+            for (const moduleId of moduleIds) {
+                fallback[moduleId] = true;
+            }
+            return res.json(fallback);
+        }
+
+        return res.json(data);
+    } catch (error) {
+        logger.error('API', 'Error in batch tip states endpoint:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Error al obtener estados de tips'
+        });
+    }
+});
+
+/**
  * POST /api/onboarding/reset
  * Reset onboarding progress (for testing/dev)
  */
@@ -426,10 +478,10 @@ async function computeProgressManually(storeId: string, userId: string, userRole
             .eq('status', 'active')
             .limit(1);
 
-        // Check if dismissed
+        // Get onboarding progress record with all fields
         const { data: progress } = await supabaseAdmin
             .from('onboarding_progress')
-            .select('checklist_dismissed')
+            .select('checklist_dismissed, visited_modules, module_visit_counts, first_actions_completed')
             .eq('store_id', storeId)
             .eq('user_id', userId)
             .single();
@@ -440,6 +492,9 @@ async function computeProgressManually(storeId: string, userId: string, userRole
         const hasOrder = orders && orders.length > 0;
         const hasShopify = shopify && shopify.length > 0;
         const hasDismissed = progress?.checklist_dismissed || false;
+        const visitedModules = progress?.visited_modules || [];
+        const moduleVisitCounts = progress?.module_visit_counts || {};
+        const firstActionsCompleted = progress?.first_actions_completed || [];
 
         // Customer step is complete if has customer OR has Shopify (auto-creates customers)
         const customerStepComplete = hasCustomer || hasShopify;
@@ -508,6 +563,9 @@ async function computeProgressManually(storeId: string, userId: string, userRole
             isComplete: completedCount === totalCount,
             hasShopify,
             hasDismissed,
+            visitedModules,
+            moduleVisitCounts,
+            firstActionsCompleted,
             userRole
         });
     } catch (error) {

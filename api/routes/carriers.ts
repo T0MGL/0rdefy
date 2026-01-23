@@ -169,7 +169,7 @@ carriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthReques
 // ================================================================
 // POST /api/carriers - Create new carrier
 // ================================================================
-carriersRouter.post('/', async (req: AuthRequest, res: Response) => {
+carriersRouter.post('/', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const {
             carrier_name,
@@ -235,7 +235,7 @@ carriersRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/carriers/:id - Update carrier
 // ================================================================
-carriersRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+carriersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -291,7 +291,7 @@ carriersRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
 // ================================================================
 // DELETE /api/carriers/:id - Delete carrier
 // ================================================================
-carriersRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+carriersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -325,7 +325,7 @@ carriersRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, 
 // ================================================================
 // PATCH /api/carriers/:id/toggle - Toggle carrier active status
 // ================================================================
-carriersRouter.patch('/:id/toggle', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+carriersRouter.patch('/:id/toggle', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 

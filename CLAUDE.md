@@ -232,7 +232,7 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
 **Backward Compatible:** Existing variants auto-classified based on uses_shared_stock flag.
 
 ### Warehouse (Picking & Packing)
-**Files:** `src/pages/Warehouse.tsx`, `src/pages/WarehouseNew.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`, `079_atomic_packing_increment.sql`, `100_warehouse_batch_packing.sql`
+**Files:** `src/pages/Warehouse.tsx`, `src/pages/WarehouseNew.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`, `079_atomic_packing_increment.sql`, `100_warehouse_batch_packing.sql`, `102_auto_cleanup_picking_sessions_on_status_change.sql`
 **Documentation:** `WAREHOUSE_PACKING_RACE_FIX.md`
 
 **Workflow:**
@@ -268,9 +268,23 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
 - **Hybrid mode:** Auto-pack for standard cases, manual mode preserved for exceptions
 - **Full audit trail:** All packing_progress records updated with timestamps
 
+**Orphan Session Auto-Cleanup (Migration 102 - NEW):**
+- **Problem:** Orders changed to shipped/delivered directly from Orders page remain in picking sessions
+- **Solution:** Database trigger automatically removes orders from sessions when status changes
+- **Trigger:** `trigger_cleanup_picking_session_on_order_status` fires AFTER UPDATE on orders.sleeves_status
+- **Scenarios handled:**
+  1. Order moves to shipped/in_transit/delivered directly → removed from session
+  2. Order cancelled/rejected while in_preparation → removed from session
+  3. Session becomes empty after removal → marked as completed/abandoned
+- **Functions:** `cleanup_order_from_picking_session_on_status_change()`, `cleanup_orphaned_picking_sessions(store_id)`
+- **View:** `v_orphaned_picking_session_orders` - shows orders with incompatible statuses in active sessions
+- **Stock deduction:** Works correctly via migration 098 (fires on shipped/in_transit/ready_to_ship)
+
 **API Endpoints (NEW):**
 - `POST /api/warehouse/sessions/:id/auto-pack` - Pack all orders in session instantly
 - `POST /api/warehouse/sessions/:id/pack-order/:orderId` - Pack single order completely
+- `GET /api/warehouse/sessions/orphaned` - List orders in sessions with incompatible statuses
+- `POST /api/warehouse/cleanup-orphaned-sessions` - Clean up orphaned sessions (Migration 102)
 
 **Session Recovery:**
 - Abandoned sessions: Orders restored to confirmed, can be re-picked
@@ -287,6 +301,7 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
 - `v_stale_warehouse_sessions`: Sessions needing attention (WARNING/CRITICAL)
 - `v_orders_stuck_in_preparation`: Orders that may be orphaned
 - `v_warehouse_session_stats`: Daily completion rates and metrics
+- `v_orphaned_picking_session_orders`: Orders in sessions with incompatible statuses (Migration 102)
 
 **Recent Updates (Dec 2024 - Jan 2026):**
 - ✅ Fixed 500 error in picking-list endpoint (query optimization)
@@ -311,6 +326,12 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
   - 75%+ reduction in clicks (from 20+ to 5)
   - 15 orders completed in ~30 seconds
   - "Empacar Todos" button in PackingOneByOne component
+- ✅ **NEW: Orphan Session Auto-Cleanup (migration 102):**
+  - Automatic cleanup when orders change status outside warehouse flow
+  - Supports "direct dispatch" workflow (skip picking/packing, go directly to shipped)
+  - Database trigger handles all scenarios (shipped, delivered, cancelled)
+  - Empty sessions automatically abandoned
+  - Stock deduction still works correctly (via migration 098)
   - Atomic RPCs with fallback support
 
 ### Merchandise (Inbound Shipments)
@@ -504,6 +525,86 @@ carrier_coverage (Per-store rates):
 - `useCoverageSystem` state defaults to `true`
 - Legacy zone-based system still works when disabled
 - Orders store both `delivery_zone` and `shipping_city_normalized`
+
+### Carrier Reviews & Ratings System - NEW: Jan 2026
+**Files:** `src/pages/CarrierDetail.tsx`, `api/routes/couriers.ts`, `src/services/carriers.service.ts`, `db/migrations/013_delivery_rating_system.sql`
+
+**Purpose:** Track customer satisfaction with deliveries. Customers rate their delivery experience (1-5 stars + optional comment) via QR code after receiving their order. Store owners can see which customer gave which rating, identify problem couriers, and track performance trends.
+
+**How it Works:**
+1. Customer receives delivery → scans QR code on shipping label
+2. Customer rates delivery (1-5 stars) + optional comment
+3. Rating saved to `orders.delivery_rating` + `orders.delivery_rating_comment`
+4. Database trigger auto-recalculates `carriers.average_rating` + `carriers.total_ratings`
+5. Store owner views CarrierDetail → sees ratings, distribution, and individual reviews
+
+**Database Schema:**
+```sql
+-- Orders table (added by migration 013)
+orders.delivery_rating INT CHECK (1-5)
+orders.delivery_rating_comment TEXT
+orders.rated_at TIMESTAMP
+
+-- Carriers table (added by migration 013)
+carriers.average_rating DECIMAL(3,2) DEFAULT 0.00
+carriers.total_ratings INT DEFAULT 0
+```
+
+**API Endpoints:**
+- `GET /api/couriers/:id/reviews` - Get paginated reviews with rating distribution
+- `POST /api/orders/:id/rate-delivery` - Submit rating (public, token-based)
+
+**Response Structure:**
+```json
+{
+  "courier": { "id": "...", "name": "Juan", "average_rating": 4.7, "total_ratings": 42 },
+  "reviews": [
+    {
+      "id": "order-id",
+      "rating": 5,
+      "comment": "Excelente servicio, muy rápido",
+      "order_number": "#1315",
+      "customer_name": "María García",
+      "rated_at": "2026-01-22T14:30:00Z",
+      "delivery_date": "2026-01-22"
+    }
+  ],
+  "rating_distribution": { "5": 28, "4": 8, "3": 4, "2": 1, "1": 1 }
+}
+```
+
+**UI Features (CarrierDetail - Métricas Tab):**
+- **Average Rating Card:** Large rating number (4.7) with visual stars
+- **Rating Distribution:** Progress bars showing % of 5-star, 4-star, etc.
+- **Reviews List:** Scrollable list showing each review with:
+  - Customer name + clickable order number
+  - Star rating + badge (Excelente/Muy Bueno/Bueno/Regular/Malo)
+  - Customer comment (if provided)
+  - Relative time ("hace 2 días") + delivery date
+- **Header Badge:** Rating shown next to carrier name in header
+
+**TypeScript Types:**
+```typescript
+interface CarrierReview {
+  id: string;
+  rating: number;
+  comment: string | null;
+  rated_at: string;
+  order_number: string;
+  customer_name: string;
+  delivery_date: string;
+}
+
+interface RatingDistribution {
+  1: number; 2: number; 3: number; 4: number; 5: number;
+}
+```
+
+**Production Safety:**
+- Safe date formatting with fallbacks (never throws on invalid dates)
+- Null-safe number formatting
+- UUID validation on API endpoints
+- Graceful error handling with empty state UI
 
 ### Delivery Preferences System (Customer Scheduling) - NEW: Jan 2026
 **Files:** `src/components/DeliveryPreferencesAccordion.tsx`, `src/components/OrderConfirmationDialog.tsx`, `src/components/forms/OrderForm.tsx`, `src/pages/Orders.tsx`, `db/migrations/095_delivery_preferences.sql`
@@ -973,10 +1074,13 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - can_start_trial (validate trial eligibility)
 - get_store_usage (orders, products, users vs plan limits)
 - has_feature_access (check feature access by plan)
-- get_onboarding_progress (compute onboarding status from store data)
+- get_onboarding_progress (compute onboarding status from store data - optimized single query)
+- get_batch_tip_states (batch tip visibility for multiple modules - prefetching optimization)
 - dismiss_onboarding_checklist (user preference to hide checklist)
 - mark_module_visited (track first-time module visits)
 - is_first_module_visit (check if module has been visited)
+- increment_module_visit_count (DB-backed visit counter)
+- should_show_module_tip (combined tip visibility logic)
 
 **Triggers:**
 - Auto-update: customer stats, carrier stats, order status history, delivery tokens, COD calculation, warehouse timestamps
@@ -1128,3 +1232,5 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 099: **NEW:** Contacted order status (new "contacted" status between pending and confirmed - tracks WhatsApp message sent, awaiting customer response, view for follow-up reminders)
 - 100: **NEW:** Warehouse batch packing / Auto-Pack Mode (auto_pack_session RPC for one-click packing, pack_all_items_for_order for single-order completion, 75% click reduction, atomic operations with fallback)
 - 100: **NEW:** Delivery-based reconciliation system (simpler UX - groups by delivered_at instead of dispatch session, unified #XXXX order identifiers, 2-step reconciliation flow)
+- 102: **NEW:** Orphan session auto-cleanup (trigger removes orders from picking sessions when status changes outside warehouse flow, handles shipped/delivered/cancelled, auto-abandons empty sessions, stock deduction unaffected)
+- 103: **NEW:** Onboarding seamless UX fixes (optimized N+1 queries to single query, get_batch_tip_states for prefetching, DB as single source of truth, moduleVisitCounts and firstActionsCompleted in API response, performance indexes)

@@ -112,7 +112,7 @@ router.get('/sessions/:id', async (req, res) => {
  *   notes?: string
  * }
  */
-router.post('/sessions', async (req, res) => {
+router.post('/sessions', requirePermission(Module.RETURNS, Permission.CREATE), async (req, res) => {
   try {
     const storeId = req.storeId;
     const userId = req.userId;
@@ -160,7 +160,7 @@ router.post('/sessions', async (req, res) => {
  *   rejection_notes?: string
  * }
  */
-router.patch('/items/:id', async (req, res) => {
+router.patch('/items/:id', requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const storeId = req.storeId;
@@ -193,7 +193,7 @@ router.patch('/items/:id', async (req, res) => {
  * POST /api/returns/sessions/:id/complete
  * Complete return session (process inventory and order status updates)
  */
-router.post('/sessions/:id/complete', async (req, res) => {
+router.post('/sessions/:id/complete', requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const storeId = req.storeId;
@@ -224,7 +224,7 @@ router.post('/sessions/:id/complete', async (req, res) => {
  * POST /api/returns/sessions/:id/cancel
  * Cancel return session
  */
-router.post('/sessions/:id/cancel', async (req, res) => {
+router.post('/sessions/:id/cancel', requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const storeId = req.storeId;

@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -29,6 +29,8 @@ import {
   AlertCircle,
   Lock,
   BarChart3,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -37,8 +39,8 @@ import { useSubscription, PATH_TO_FEATURE, PlanFeature, FEATURE_MIN_PLAN } from 
 import { useUpgradeModal } from '@/components/UpgradeModal';
 
 interface SidebarProps {
-  collapsed: boolean;
-  onToggle: () => void;
+  collapsed?: boolean; // Now optional - kept for backwards compatibility but not used
+  onToggle?: () => void; // Now optional - kept for backwards compatibility
 }
 
 interface MenuItem {
@@ -106,11 +108,50 @@ const menuSections: MenuSection[] = [
   },
 ];
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+// Constants for sidebar dimensions
+const SIDEBAR_COLLAPSED_WIDTH = 80;
+const SIDEBAR_EXPANDED_WIDTH = 280;
+const HOVER_DELAY_MS = 200; // Delay before collapsing on mouse leave
+
+export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarProps) {
+  // Hover-based expansion state (replaces prop-based collapsed state)
+  const [isHovering, setIsHovering] = useState(false);
+  const [isPinned, setIsPinned] = useState(false); // Allow users to pin sidebar open
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const [expandedSections, setExpandedSections] = useState<string[]>(['Dashboards', 'Ventas', 'Logística']);
   const { permissions } = useAuth();
   const { hasFeatureByPath, shouldShowLockedFeatures, loading: subscriptionLoading } = useSubscription();
   const { openModal, UpgradeModalComponent } = useUpgradeModal();
+
+  // Sidebar is expanded when hovering OR pinned
+  const isExpanded = isHovering || isPinned;
+
+  // Handle mouse enter - expand immediately
+  const handleMouseEnter = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    setIsHovering(true);
+  }, []);
+
+  // Handle mouse leave - collapse with delay for smoother UX
+  const handleMouseLeave = useCallback(() => {
+    if (isPinned) return; // Don't collapse if pinned
+
+    hoverTimeoutRef.current = setTimeout(() => {
+      setIsHovering(false);
+    }, HOVER_DELAY_MS);
+  }, [isPinned]);
+
+  // Toggle pin state
+  const togglePin = useCallback(() => {
+    setIsPinned(prev => !prev);
+    if (!isPinned) {
+      setIsHovering(true); // Keep expanded when pinning
+    }
+  }, [isPinned]);
 
   const toggleSection = (sectionLabel: string) => {
     setExpandedSections(prev =>
@@ -159,219 +200,251 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       .filter(section => section.items.length > 0);
   }, [permissions]);
 
-  if (collapsed) {
-    // Collapsed view - show flat list of all items with icons only
-    const allItems = filteredMenuSections.flatMap(section => section.items);
+  // Flat list of all items for collapsed view
+  const allItems = filteredMenuSections.flatMap(section => section.items);
 
-    return (
+  return (
+    // Outer container - ALWAYS takes 80px in the flex flow (never changes)
+    <div
+      className="flex-shrink-0 relative"
+      style={{ width: SIDEBAR_COLLAPSED_WIDTH }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      {/* Actual sidebar - positioned absolutely when expanded to overlay content */}
       <motion.aside
         initial={false}
-        animate={{ width: 80 }}
-        className="h-screen bg-sidebar border-r border-sidebar-border flex flex-col sticky top-0 overflow-hidden"
+        animate={{
+          width: isExpanded ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COLLAPSED_WIDTH
+        }}
+        transition={{
+          duration: 0.2,
+          ease: 'easeOut'
+        }}
+        className={cn(
+          'h-screen bg-sidebar border-r border-sidebar-border flex flex-col fixed top-0 left-0 overflow-hidden',
+          'z-40', // Ensure sidebar is above content
+          isExpanded && 'shadow-2xl shadow-black/20' // Add shadow when expanded
+        )}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center justify-center px-4 border-b border-sidebar-border">
-          <img
-            src="/favicon.ico"
-            alt="Ordefy Logo"
-            className="w-12 h-12 object-contain cursor-pointer"
-            onClick={onToggle}
-            title="Expandir sidebar"
-          />
+        <div className="h-16 flex items-center px-4 border-b border-sidebar-border relative">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <img
+              src="/favicon.ico"
+              alt="Ordefy Logo"
+              className="w-10 h-10 object-contain flex-shrink-0"
+            />
+            <AnimatePresence mode="wait">
+              {isExpanded && (
+                <motion.span
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.15 }}
+                  className="font-bold text-xl text-sidebar-foreground whitespace-nowrap"
+                >
+                  Ordefy
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Pin button - only visible when expanded */}
+          <AnimatePresence mode="wait">
+            {isExpanded && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.15 }}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={togglePin}
+                  className={cn(
+                    'h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+                    isPinned && 'text-primary bg-sidebar-accent'
+                  )}
+                  title={isPinned ? 'Desfijar sidebar' : 'Fijar sidebar abierto'}
+                >
+                  {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Navigation - Flat list when collapsed */}
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {allItems.map((item) => {
-            const Icon = item.icon;
-            const locked = isItemLocked(item.path);
+        {/* Navigation */}
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto overflow-x-hidden">
+          {/* Collapsed view - flat icon list */}
+          {!isExpanded && (
+            <>
+              {allItems.map((item) => {
+                const Icon = item.icon;
+                const locked = isItemLocked(item.path);
 
-            // If locked, show as button that opens upgrade modal
-            if (locked) {
-              return (
-                <button
-                  key={item.path}
-                  onClick={() => openModal(getFeatureForPath(item.path), item.label)}
-                  className={cn(
-                    'w-full flex items-center justify-center px-2 py-2.5 rounded-lg transition-all duration-200',
-                    'hover:bg-sidebar-accent/50 cursor-pointer',
-                    'text-sidebar-foreground/40 opacity-50'
-                  )}
-                  title={`${item.label} (Requiere upgrade)`}
-                >
-                  <div className="relative">
-                    <Icon size={18} className="flex-shrink-0" />
-                    <Lock size={10} className="absolute -top-1 -right-1 text-sidebar-foreground/60" />
-                  </div>
-                </button>
-              );
-            }
-
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === '/'}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center justify-center px-2 py-2.5 rounded-lg transition-all duration-200',
-                    'hover:bg-sidebar-accent',
-                    isActive
-                      ? 'bg-sidebar-accent text-primary font-medium'
-                      : 'text-sidebar-foreground/80 hover:text-sidebar-foreground'
-                  )
+                if (locked) {
+                  return (
+                    <button
+                      key={item.path}
+                      onClick={() => openModal(getFeatureForPath(item.path), item.label)}
+                      className={cn(
+                        'w-full flex items-center justify-center px-2 py-2.5 rounded-lg transition-all duration-200',
+                        'hover:bg-sidebar-accent/50 cursor-pointer',
+                        'text-sidebar-foreground/40 opacity-50'
+                      )}
+                      title={`${item.label} (Requiere upgrade)`}
+                    >
+                      <div className="relative">
+                        <Icon size={18} className="flex-shrink-0" />
+                        <Lock size={10} className="absolute -top-1 -right-1 text-sidebar-foreground/60" />
+                      </div>
+                    </button>
+                  );
                 }
-                title={item.label}
-              >
-                <Icon size={18} className="flex-shrink-0" />
-              </NavLink>
-            );
-          })}
+
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end={item.path === '/'}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex items-center justify-center px-2 py-2.5 rounded-lg transition-all duration-200',
+                        'hover:bg-sidebar-accent',
+                        isActive
+                          ? 'bg-sidebar-accent text-primary font-medium'
+                          : 'text-sidebar-foreground/80 hover:text-sidebar-foreground'
+                      )
+                    }
+                    title={item.label}
+                  >
+                    <Icon size={18} className="flex-shrink-0" />
+                  </NavLink>
+                );
+              })}
+            </>
+          )}
+
+          {/* Expanded view - grouped sections */}
+          {isExpanded && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15, delay: 0.05 }}
+              className="space-y-2"
+            >
+              {filteredMenuSections.map((section) => {
+                const SectionIcon = section.icon;
+                const isSectionExpanded = expandedSections.includes(section.label);
+
+                return (
+                  <div key={section.label} className="space-y-1">
+                    {/* Section Header */}
+                    <button
+                      onClick={() => toggleSection(section.label)}
+                      className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200',
+                        'hover:bg-sidebar-accent text-sidebar-foreground/90 hover:text-sidebar-foreground',
+                        'text-xs font-semibold uppercase tracking-wider'
+                      )}
+                    >
+                      <SectionIcon size={14} className="flex-shrink-0" />
+                      <span className="flex-1 text-left whitespace-nowrap">{section.label}</span>
+                      <ChevronDown
+                        size={14}
+                        className={cn(
+                          'transition-transform duration-200',
+                          isSectionExpanded ? 'rotate-180' : ''
+                        )}
+                      />
+                    </button>
+
+                    {/* Section Items */}
+                    <AnimatePresence initial={false}>
+                      {isSectionExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden space-y-0.5 pl-2"
+                        >
+                          {section.items.map((item) => {
+                            const Icon = item.icon;
+                            const locked = isItemLocked(item.path);
+
+                            if (locked) {
+                              return (
+                                <button
+                                  key={item.path}
+                                  onClick={() => openModal(getFeatureForPath(item.path), item.label)}
+                                  className={cn(
+                                    'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200',
+                                    'hover:bg-sidebar-accent/50 cursor-pointer',
+                                    'text-sidebar-foreground/40 opacity-50'
+                                  )}
+                                >
+                                  <div className="relative">
+                                    <Icon size={16} className="flex-shrink-0" />
+                                    <Lock size={8} className="absolute -top-0.5 -right-0.5 text-sidebar-foreground/60" />
+                                  </div>
+                                  <span className="text-sm flex-1 text-left whitespace-nowrap">{item.label}</span>
+                                  <Lock size={12} className="text-sidebar-foreground/40" />
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <NavLink
+                                key={item.path}
+                                to={item.path}
+                                end={item.path === '/'}
+                                className={({ isActive }) =>
+                                  cn(
+                                    'flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200',
+                                    'hover:bg-sidebar-accent',
+                                    isActive
+                                      ? 'bg-sidebar-accent text-primary font-medium'
+                                      : 'text-sidebar-foreground/80 hover:text-sidebar-foreground'
+                                  )
+                                }
+                              >
+                                <Icon size={16} className="flex-shrink-0" />
+                                <span className="text-sm whitespace-nowrap">{item.label}</span>
+                              </NavLink>
+                            );
+                          })}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </motion.div>
+          )}
         </nav>
 
         {/* Upgrade Modal */}
         <UpgradeModalComponent />
 
-        {/* Expand button at bottom */}
-        <div className="p-3 border-t border-sidebar-border">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggle}
-            className="w-full text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-            title="Expandir sidebar"
-          >
-            <ChevronRight size={20} />
-          </Button>
-        </div>
+        {/* Pin indicator at bottom when collapsed */}
+        {!isExpanded && isPinned && (
+          <div className="p-3 border-t border-sidebar-border">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={togglePin}
+              className="w-full text-primary hover:text-primary hover:bg-sidebar-accent"
+              title="Sidebar fijado - click para desfijar"
+            >
+              <PinOff size={18} />
+            </Button>
+          </div>
+        )}
       </motion.aside>
-    );
-  }
-
-  return (
-    <motion.aside
-      initial={false}
-      animate={{ width: 280 }}
-      className="h-screen bg-sidebar border-r border-sidebar-border flex flex-col sticky top-0 overflow-hidden"
-    >
-      {/* Logo */}
-      <div className="h-16 flex items-center justify-center px-4 border-b border-sidebar-border relative">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex items-center gap-3 flex-1"
-        >
-          <img
-            src="/favicon.ico"
-            alt="Ordefy Logo"
-            className="w-10 h-10 object-contain"
-          />
-          <span className="font-bold text-xl text-sidebar-foreground">Ordefy</span>
-        </motion.div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggle}
-          className="text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-        >
-          <ChevronLeft size={20} />
-        </Button>
-      </div>
-
-      {/* Navigation - Grouped sections */}
-      <nav className="flex-1 p-3 space-y-2 overflow-y-auto">
-        {filteredMenuSections.map((section) => {
-          const SectionIcon = section.icon;
-          const isExpanded = expandedSections.includes(section.label);
-
-          return (
-            <div key={section.label} className="space-y-1">
-              {/* Section Header */}
-              <button
-                onClick={() => toggleSection(section.label)}
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200',
-                  'hover:bg-sidebar-accent text-sidebar-foreground/90 hover:text-sidebar-foreground',
-                  'text-xs font-semibold uppercase tracking-wider'
-                )}
-              >
-                <SectionIcon size={14} className="flex-shrink-0" />
-                <span className="flex-1 text-left">{section.label}</span>
-                <ChevronDown
-                  size={14}
-                  className={cn(
-                    'transition-transform duration-200',
-                    isExpanded ? 'rotate-180' : ''
-                  )}
-                />
-              </button>
-
-              {/* Section Items */}
-              <AnimatePresence initial={false}>
-                {isExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden space-y-0.5 pl-2"
-                  >
-                    {section.items.map((item) => {
-                      const Icon = item.icon;
-                      const locked = isItemLocked(item.path);
-
-                      // If locked, show as button that opens upgrade modal
-                      if (locked) {
-                        return (
-                          <button
-                            key={item.path}
-                            onClick={() => openModal(getFeatureForPath(item.path), item.label)}
-                            className={cn(
-                              'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200',
-                              'hover:bg-sidebar-accent/50 cursor-pointer',
-                              'text-sidebar-foreground/40 opacity-50'
-                            )}
-                          >
-                            <div className="relative">
-                              <Icon size={16} className="flex-shrink-0" />
-                              <Lock size={8} className="absolute -top-0.5 -right-0.5 text-sidebar-foreground/60" />
-                            </div>
-                            <span className="text-sm flex-1 text-left">{item.label}</span>
-                            <Lock size={12} className="text-sidebar-foreground/40" />
-                          </button>
-                        );
-                      }
-
-                      return (
-                        <NavLink
-                          key={item.path}
-                          to={item.path}
-                          end={item.path === '/'}
-                          className={({ isActive }) =>
-                            cn(
-                              'flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200',
-                              'hover:bg-sidebar-accent',
-                              isActive
-                                ? 'bg-sidebar-accent text-primary font-medium'
-                                : 'text-sidebar-foreground/80 hover:text-sidebar-foreground'
-                            )
-                          }
-                        >
-                          <Icon size={16} className="flex-shrink-0" />
-                          <span className="text-sm">{item.label}</span>
-                        </NavLink>
-                      );
-                    })}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
-      </nav>
-
-      {/* Upgrade Modal */}
-      <UpgradeModalComponent />
-    </motion.aside>
+    </div>
   );
 }

@@ -178,7 +178,7 @@ customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequ
 // ================================================================
 // POST /api/customers - Create new customer
 // ================================================================
-customersRouter.post('/', async (req: AuthRequest, res: Response) => {
+customersRouter.post('/', requirePermission(Module.CUSTOMERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const {
             shopify_customer_id,
@@ -238,7 +238,7 @@ customersRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/customers/:id - Update customer
 // ================================================================
-customersRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+customersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.CUSTOMERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -412,7 +412,7 @@ customersRouter.get('/search', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/customers/:id - Delete customer
 // ================================================================
-customersRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+customersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.CUSTOMERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
