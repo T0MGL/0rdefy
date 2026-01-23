@@ -93,9 +93,9 @@ import { Button } from '@/components/ui/button'
 
 **Stock Flow:**
 ```
-pending → confirmed → in_preparation → ready_to_ship → shipped → delivered
-  100       100           100              97            97        97
-                                           ⬇️ DECREMENT
+pending → contacted → confirmed → in_preparation → ready_to_ship → shipped → delivered
+  100       100          100           100              97            97        97
+                                                        ⬇️ DECREMENT
 ```
 
 **Key Features:**
@@ -161,63 +161,78 @@ pending → confirmed → in_preparation → ready_to_ship → shipped → deliv
 
 **Image Upload:** Currently NOT supported - only accepts external URLs. Products without images use placeholder.
 
-### Product Variants & Bundles System (NEW: Jan 2026)
-**Files:** `src/components/ProductVariantsManager.tsx`, `api/routes/products.ts`, `db/migrations/086_product_variants_system.sql`, `db/migrations/087_shared_stock_bundles.sql`
+### Product Variants & Bundles System (UPDATED: Jan 2026 - Migration 101)
+**Files:** `src/components/ProductVariantsManager.tsx`, `api/routes/products.ts`, `db/migrations/086_product_variants_system.sql`, `db/migrations/087_shared_stock_bundles.sql`, `db/migrations/101_bundle_variation_separation.sql`
 
-**Use Cases:**
-- **Bundles:** Same product in packs of 1, 2, 3+ units (e.g., NOCTE Glasses Personal/Pareja/Oficina)
-- **Sizes:** S, M, L, XL
-- **Colors:** Red, Blue, Green
-- **Combinations:** Size + Color
+**IMPORTANT: Bundles vs Variations are now CLEARLY SEPARATED:**
 
-**Architecture:**
-- `products` table: Parent product with total physical stock
-- `product_variants` table: Individual variants with SKU, price, units_per_pack
-- **Shared Stock Mode:** All variants draw from parent's stock pool
-- **Independent Stock Mode:** Each variant has its own stock (backwards compatible)
+| Concept | variant_type | uses_shared_stock | Stock | Example |
+|---------|--------------|-------------------|-------|---------|
+| **BUNDLE** | `'bundle'` | `TRUE` (always) | Shared with parent | NOCTE Personal (1x), Pareja (2x), Oficina (3x) |
+| **VARIATION** | `'variation'` | `FALSE` (always) | Independent per variant | T-Shirt Size S, M, L, XL |
 
-**How Shared Stock Works:**
+**Products can have BOTH bundles AND variations simultaneously.**
+
+**Bundle (Pack) Example:**
 ```
 Product: NOCTE Glasses, stock = 150 physical units
-Variant "Personal": units_per_pack = 1, available = 150 packs
-Variant "Pareja": units_per_pack = 2, available = 75 packs
-Variant "Oficina": units_per_pack = 3, available = 50 packs
+├── Bundle "Personal": units_per_pack=1, available=150 packs
+├── Bundle "Pareja": units_per_pack=2, available=75 packs
+└── Bundle "Oficina": units_per_pack=3, available=50 packs
 
-When selling 1x "Pareja" pack: deducts 2 units from parent (150 → 148)
+When selling 1x "Pareja": deducts 2 units from parent (150 → 148)
+```
+
+**Variation Example:**
+```
+Product: Camiseta Premium (parent stock NOT used for variations)
+├── Variation "Talla S": stock=50 (independent)
+├── Variation "Talla M": stock=80 (independent)
+└── Variation "Talla L": stock=30 (independent)
+
+When selling 1x "Talla M": deducts 1 from variation stock (80 → 79)
 ```
 
 **API Endpoints:**
-- `GET /api/products/:id/variants` - List variants with calculated availability
-- `POST /api/products/:id/variants` - Create variant (with uses_shared_stock, units_per_pack)
+- `GET /api/products/:id/variants` - Returns { bundles[], variations[], parent_stock }
+- `POST /api/products/:id/bundles` - Create bundle (auto: variant_type='bundle', uses_shared_stock=true)
+- `POST /api/products/:id/variations` - Create variation (auto: variant_type='variation', uses_shared_stock=false)
+- `POST /api/products/:id/variants` - Generic create (with variant_type parameter)
 - `PUT /api/products/:id/variants/:variantId` - Update variant
 - `DELETE /api/products/:id/variants/:variantId` - Delete variant
 
-**Database Functions (Migration 087):**
-- `deduct_shared_stock_for_variant(variant_id, qty, order_id)` - Deduct stock on order ship
-- `restore_shared_stock_for_variant(variant_id, qty, order_id)` - Restore on cancel/return
-- `get_variant_available_stock(variant_id)` - Calculate available packs
-- `adjust_variant_stock(variant_id, qty_change, type)` - Manual stock adjustment
-- `enable_shared_stock_for_product(product_id)` - Batch enable shared stock
+**Database Schema (Migration 101):**
+- `product_variants.variant_type` - VARCHAR(20): 'bundle' | 'variation'
+- `order_line_items.variant_type` - Audit trail of what type was ordered
+- **CHECK constraint:** Enforces bundle→shared_stock, variation→independent
 
-**Tables:**
-- `product_variants`: id, product_id, store_id, sku, variant_title, price, cost, stock, uses_shared_stock, units_per_pack, is_active, position
-- `order_line_items.variant_id` - Links orders to specific variants
-- `inventory_movements.variant_id` - Tracks stock changes per variant
+**Database Functions:**
+- `deduct_shared_stock_for_variant()` - Type-aware stock deduction (bundle→parent, variation→self)
+- `restore_shared_stock_for_variant()` - Type-aware stock restoration
+- `resolve_variant_type(variant_id, payload_type)` - Fallback chain for webhooks
 
-**Views:**
-- `v_variants_with_availability` - Variants with calculated available stock
-- `v_products_with_variants` - Products with variant summary (min/max price, total stock)
+**Views (Migration 101):**
+- `v_bundles_inventory` - Bundles with pack availability
+- `v_variations_inventory` - Variations with independent stock
+- `v_all_variants_inventory` - Combined with type indicator
 
 **UI Component:** ProductVariantsManager dialog with:
-- Visual stock summary card showing physical units and packs per variant
-- Form with tooltips explaining each field
-- Live preview of stock calculations
-- Table with availability badges
+- **Two tabs:** "Packs" (purple) and "Variantes" (emerald)
+- Separate forms for each type with appropriate fields
+- Visual badges: PACK vs VAR in tables and OrderForm
+- Stock display: "X packs" for bundles, "X uds" for variations
 
-**Backward Compatible:** Existing products without variants continue working unchanged.
+**TypeScript Types (Discriminated Union):**
+```typescript
+type ProductVariant = BundleVariant | VariationVariant;
+const isBundle = (v: ProductVariant): v is BundleVariant => v.variant_type === 'bundle';
+const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type === 'variation';
+```
+
+**Backward Compatible:** Existing variants auto-classified based on uses_shared_stock flag.
 
 ### Warehouse (Picking & Packing)
-**Files:** `src/pages/Warehouse.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`, `079_atomic_packing_increment.sql`
+**Files:** `src/pages/Warehouse.tsx`, `src/pages/WarehouseNew.tsx`, `api/routes/warehouse.ts`, `api/services/warehouse.service.ts`, `db/migrations/015_warehouse_picking.sql`, `021_improve_warehouse_session_code.sql`, `058_warehouse_production_ready_fixes.sql`, `079_atomic_packing_increment.sql`, `100_warehouse_batch_packing.sql`
 **Documentation:** `WAREHOUSE_PACKING_RACE_FIX.md`
 
 **Workflow:**
@@ -238,12 +253,24 @@ When selling 1x "Pareja" pack: deducts 2 units from parent (150 → 148)
 - **Atomic Packing:** `update_packing_progress_atomic()` RPC with row locking
 - **Staleness Indicators:** UI shows WARNING (>24h) and CRITICAL (>48h) sessions
 
-**Concurrent Packing Protection (Migration 079 - NEW):**
+**Concurrent Packing Protection (Migration 079):**
 - **Three-layer defense:** Primary atomic RPC → Fallback atomic RPC → CAS optimistic locking
 - **Zero lost updates:** Multiple workers can pack same product simultaneously without conflicts
 - **`increment_packing_quantity()`:** Atomic increment with full validation and row locking
 - **Performance:** 3x reduction in database round-trips (1 RPC vs 3 queries)
 - **Backward compatible:** Graceful degradation if RPCs unavailable
+
+**Auto-Pack Mode (Migration 100 - NEW):**
+- **One-click packing:** "Empacar Todos" button packs entire session instantly
+- **Dramatic time reduction:** 15 orders in ~30 seconds instead of several minutes (75%+ click reduction)
+- **`auto_pack_session()`:** Atomic RPC that distributes all products to all orders in single transaction
+- **`pack_all_items_for_order()`:** Pack a single order completely with one click
+- **Hybrid mode:** Auto-pack for standard cases, manual mode preserved for exceptions
+- **Full audit trail:** All packing_progress records updated with timestamps
+
+**API Endpoints (NEW):**
+- `POST /api/warehouse/sessions/:id/auto-pack` - Pack all orders in session instantly
+- `POST /api/warehouse/sessions/:id/pack-order/:orderId` - Pack single order completely
 
 **Session Recovery:**
 - Abandoned sessions: Orders restored to confirmed, can be re-picked
@@ -272,13 +299,19 @@ When selling 1x "Pareja" pack: deducts 2 units from parent (150 → 148)
 - ✅ Collaborator invitation system with role-based access (migration 030)
 - ✅ Shopify order fields expansion - total_discounts, tags, timestamps (migration 033)
 - ✅ Hard delete system for orders - Complete cascading cleanup (migration 039)
-- ✅ **NEW: Production-ready warehouse fixes (migration 058):**
+- ✅ **Production-ready warehouse fixes (migration 058):**
   - Session abandonment with order restoration
   - 3-digit session codes (999/day capacity)
   - Atomic packing operations with row locking
   - Session staleness tracking and auto-cleanup
   - Cancel Session UI button with confirmation dialog
   - Visual indicators for stale sessions (>24h WARNING, >48h CRITICAL)
+- ✅ **NEW: Auto-Pack Mode (migration 100):**
+  - One-click packing for entire sessions
+  - 75%+ reduction in clicks (from 20+ to 5)
+  - 15 orders completed in ~30 seconds
+  - "Empacar Todos" button in PackingOneByOne component
+  - Atomic RPCs with fallback support
 
 ### Merchandise (Inbound Shipments)
 **Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`, `db/migrations/062_merchandise_system_production_fixes.sql`
@@ -532,9 +565,38 @@ carrier_coverage (Per-store rates):
 - Frontend helper `getScheduledDeliveryInfo()` for consistent badge display
 
 ### Dispatch & Settlements System (Courier Reconciliation)
-**Files:** `src/pages/Settlements.tsx`, `api/routes/settlements.ts`, `api/services/settlements.service.ts`, `db/migrations/045_dispatch_settlements_system.sql`, `059_dispatch_settlements_production_fixes.sql`
+**Files:** `src/pages/Settlements.tsx`, `src/components/settlements/PendingReconciliationView.tsx`, `api/routes/settlements.ts`, `api/services/settlements.service.ts`, `db/migrations/045_dispatch_settlements_system.sql`, `059_dispatch_settlements_production_fixes.sql`, `100_delivery_based_reconciliation.sql`
 
-**Workflow (Despacho → Conciliación → Liquidación → Pago):**
+**NEW: Delivery-Based Reconciliation (Migration 100) - Simplified UX:**
+The system now supports TWO reconciliation modes:
+1. **Por fecha de entrega (DEFAULT):** Groups by `delivered_at` date - simpler, more intuitive
+2. **Por sesion de despacho (Legacy):** Groups by dispatch session - original complex flow
+
+**New Simplified Workflow:**
+1. View dates with delivered orders pending reconciliation
+2. Select date + carrier combination
+3. Mark orders as delivered/not delivered (checkboxes)
+4. Enter total amount collected
+5. Confirm and create settlement (2 steps total)
+
+**New API Endpoints:**
+- `GET /api/settlements/pending-reconciliation` - List delivered orders grouped by date/carrier
+- `GET /api/settlements/pending-reconciliation/:date/:carrierId` - Get orders for specific date/carrier
+- `POST /api/settlements/reconcile-delivery` - Process delivery-based reconciliation
+
+**New Components:**
+- `PendingReconciliationView.tsx` - Complete self-contained view for delivery-based reconciliation
+- Toggle buttons in Settlements.tsx to switch between modes
+
+**Unified Order Identifier:**
+All order numbers now use consistent `#XXXX` format:
+1. Shopify order name (#1315) - preferred
+2. Shopify order number (#12345) - fallback
+3. Last 4 UUID chars (#A1B2) - manual orders
+
+Never shows confusing "ORD-" or "SH#" prefixes.
+
+**Legacy Workflow (Despacho → Conciliación → Liquidación → Pago):**
 1. **Despacho:** Select ready_to_ship orders → create dispatch session (DISP-DDMMYYYY-NNN)
 2. **Export CSV:** Download session for courier (Google Sheets/Excel compatible)
 3. **Courier Delivery:** Courier delivers orders, marks results in CSV
@@ -874,7 +936,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 **Tables:**
 - Base: stores (subscription_plan, max_users), users, user_stores (invited_by, invited_at, is_active), store_config
 - Business: products, customers, carriers, suppliers, campaigns, additional_values
-- Orders: orders (statuses: pending, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at, **is_pickup**, **internal_notes**, **shipping_city**, **shopify_shipping_method**), order_line_items
+- Orders: orders (statuses: pending, **contacted**, confirmed, in_preparation, ready_to_ship, shipped, delivered, cancelled, returned; fields: total_discounts, order_status_url, tags, processed_at, cancelled_at, **is_pickup**, **internal_notes**, **shipping_city**, **shopify_shipping_method**, **contacted_at**, **contacted_by**), order_line_items
 - History: order_status_history, follow_up_log
 - Delivery: delivery_attempts, daily_settlements, settlement_orders
 - Dispatch: dispatch_sessions, dispatch_session_orders, carrier_zones (zone-based courier rates)
@@ -1063,3 +1125,6 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 094: **NEW:** Order notes & Shopify field enhancements (internal_notes for admin observations, shopify_shipping_method capture, city extraction from shipping_address, address_reference from address2)
 - 095: **NEW:** Delivery preferences system (delivery_preferences JSONB - not_before_date, preferred_time_slot, delivery_notes for customer scheduling)
 - 098: **NEW:** Stock trigger fix for all ship statuses (trigger now fires on shipped/in_transit, SKU fallback lookup when product_id is NULL, auto-updates order_line_items.product_id)
+- 099: **NEW:** Contacted order status (new "contacted" status between pending and confirmed - tracks WhatsApp message sent, awaiting customer response, view for follow-up reminders)
+- 100: **NEW:** Warehouse batch packing / Auto-Pack Mode (auto_pack_session RPC for one-click packing, pack_all_items_for_order for single-order completion, 75% click reduction, atomic operations with fallback)
+- 100: **NEW:** Delivery-based reconciliation system (simpler UX - groups by delivered_at instead of dispatch session, unified #XXXX order identifiers, 2-step reconciliation flow)
