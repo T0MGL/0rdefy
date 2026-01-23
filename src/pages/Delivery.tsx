@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { logger } from '@/utils/logger';
@@ -163,10 +163,12 @@ export default function Delivery() {
   const handleConfirmDelivery = async () => {
     if (state.type !== 'pending') return;
 
-    const isPrepaid = state.data.cod_amount === 0 || state.data.cod_amount === null;
+    // Order requires COD collection only if cod_amount is explicitly positive
+    // This handles undefined, null, 0 as "no collection needed" (prepaid)
+    const requiresCOD = state.data.cod_amount > 0;
 
     // Only require payment method if order requires COD collection
-    if (!isPrepaid && !paymentMethod) {
+    if (requiresCOD && !paymentMethod) {
       toast({
         title: 'Método de pago requerido',
         description: 'Debes seleccionar el método de pago usado por el cliente',
@@ -175,7 +177,7 @@ export default function Delivery() {
       return;
     }
 
-    if (!isPrepaid && differentAmountCollected && !amountCollected) {
+    if (requiresCOD && differentAmountCollected && !amountCollected) {
       toast({
         title: 'Monto requerido',
         description: 'Debes ingresar el monto que cobraste',
@@ -190,7 +192,7 @@ export default function Delivery() {
       const payload: any = {};
 
       // Only include payment info if order requires COD collection
-      if (!isPrepaid) {
+      if (requiresCOD) {
         payload.payment_method = paymentMethod;
 
         if (differentAmountCollected && amountCollected) {
@@ -347,23 +349,6 @@ export default function Delivery() {
       });
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const openInMaps = () => {
-    if (state.type !== 'pending') return;
-    const { google_maps_link, latitude, longitude, customer_address, neighborhood } = state.data;
-
-    if (google_maps_link) {
-      window.open(google_maps_link, '_blank');
-    } else if (latitude && longitude) {
-      window.open(`https://www.google.com/maps?q=${latitude},${longitude}`, '_blank');
-    } else if (customer_address) {
-      const parts = [];
-      if (customer_address) parts.push(customer_address);
-      if (neighborhood) parts.push(neighborhood);
-      const address = parts.join(', ');
-      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
     }
   };
 
