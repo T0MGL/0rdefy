@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Eye, EyeOff, Mail, Lock, User, Zap, Gift, Check, Building2 } from 'lucide-react';
 import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
+import AuthIllustration from '@/components/AuthIllustration';
 
 const signupSchema = z.object({
   name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
@@ -110,64 +111,11 @@ export default function SignUp() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary/95 via-primary/80 to-primary/70 relative overflow-hidden">
-        <div className="absolute inset-0 bg-black/20"></div>
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItaDJWMzZoLTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bS00IDBoMnYyaC0ydi0yem0tNCAwaC0ydjJoMnYtMnptMTIgMGgydjJoLTJ2LTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-20"></div>
-
-        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mb-12"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3 shadow-lg">
-                <Zap className="w-8 h-8 text-white drop-shadow-lg" />
-              </div>
-              <h1 className="text-5xl font-bold text-white drop-shadow-lg">Ordefy</h1>
-            </div>
-            <div className="h-1 w-20 bg-white rounded-full shadow-lg"></div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <h2 className="text-3xl font-semibold mb-4 text-white drop-shadow-md">
-              Comienza a gestionar tu e-commerce
-            </h2>
-            <p className="text-xl text-white mb-8 leading-relaxed drop-shadow-md">
-              Crea tu cuenta y accede a todas las herramientas para optimizar tu negocio.
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="space-y-4"
-          >
-            {[
-              { title: 'Gestión de Pedidos', desc: 'Control total desde la confirmación hasta la entrega' },
-              { title: 'Inventario Inteligente', desc: 'Sincronización automática con Shopify' },
-              { title: 'Analytics en Tiempo Real', desc: 'Métricas y KPIs para tomar mejores decisiones' },
-            ].map((feature, index) => (
-              <div key={index} className="flex items-start gap-3">
-                <div className="mt-1 rounded-full bg-white/20 backdrop-blur-sm p-2 shadow-md">
-                  <Check className="w-3 h-3 text-white" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-lg text-white drop-shadow-md">{feature.title}</h3>
-                  <p className="text-white/90 drop-shadow-sm">{feature.desc}</p>
-                </div>
-              </div>
-            ))}
-          </motion.div>
-        </div>
-      </div>
+      {/* Left Side - Illustration */}
+      <AuthIllustration
+        title="Ordefy"
+        subtitle="Comienza a gestionar tu e-commerce"
+      />
 
       {/* Right Side - Signup Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background overflow-y-auto">

@@ -10,6 +10,7 @@ import { Eye, EyeOff, Mail, Lock, Zap } from 'lucide-react';
 import { z } from 'zod';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { logger } from '@/utils/logger';
+import AuthIllustration from '@/components/AuthIllustration';
 
 const loginSchema = z.object({
   email: z.string().email('Ingresa un email válido'),
@@ -123,69 +124,11 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary/95 via-primary/80 to-primary/70 relative overflow-hidden">
-        {/* Dark overlay for better text contrast */}
-        <div className="absolute inset-0 bg-black/20"></div>
-
-        {/* Pattern Overlay */}
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMwMDAiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItaDJWMzZoLTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bTAtNGgydjJoLTJ2LTJ6bS00IDBoMnYyaC0ydi0yem0tNCAwaC0ydjJoMnYtMnptMTIgMGgydjJoLTJ2LTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-20"></div>
-
-        {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mb-12"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3 shadow-lg">
-                <Zap className="w-8 h-8 text-white drop-shadow-lg" />
-              </div>
-              <h1 className="text-5xl font-bold text-white drop-shadow-lg">Ordefy</h1>
-            </div>
-            <div className="h-1 w-20 bg-white rounded-full shadow-lg"></div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <h2 className="text-3xl font-semibold mb-4 text-white drop-shadow-md">
-              Gestiona tu comercio electrónico con inteligencia
-            </h2>
-            <p className="text-xl text-white mb-8 leading-relaxed drop-shadow-md">
-              Optimiza pedidos, inventario, campañas y logística en una sola plataforma.
-              Toma decisiones inteligentes con análisis en tiempo real.
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="space-y-4"
-          >
-            {[
-              { title: 'Dashboard Inteligente', desc: 'Métricas y KPIs en tiempo real con análisis predictivo' },
-              { title: 'Gestión de Pedidos', desc: 'Control total de tus órdenes y automatización de procesos' },
-              { title: 'Analytics Avanzado', desc: 'Recomendaciones inteligentes para optimizar tu negocio' },
-            ].map((feature, index) => (
-              <div key={index} className="flex items-start gap-3">
-                <div className="mt-1 rounded-full bg-white/20 backdrop-blur-sm p-2 shadow-md">
-                  <div className="w-2 h-2 bg-white rounded-full shadow-sm" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-lg text-white drop-shadow-md">{feature.title}</h3>
-                  <p className="text-white drop-shadow-sm">{feature.desc}</p>
-                </div>
-              </div>
-            ))}
-          </motion.div>
-        </div>
-      </div>
+      {/* Left Side - Illustration */}
+      <AuthIllustration
+        title="Ordefy"
+        subtitle="Gestiona tu comercio electrónico con inteligencia"
+      />
 
       {/* Right Side - Login Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background">
