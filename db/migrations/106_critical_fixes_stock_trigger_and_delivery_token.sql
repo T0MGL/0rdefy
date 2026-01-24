@@ -139,7 +139,7 @@ BEGIN
               NOT EXISTS (
                   SELECT 1 FROM picking_session_items psi
                   WHERE psi.picking_session_id = ps.id
-                  AND psi.quantity_to_pick > 0
+                  AND psi.total_quantity_needed > 0
               )
           )
     LOOP
@@ -186,9 +186,9 @@ SELECT
     ps.status,
     ps.created_at,
     COUNT(DISTINCT pso.order_id) as order_count,
-    COALESCE(SUM(psi.quantity_to_pick), 0) as total_items_to_pick,
+    COALESCE(SUM(psi.total_quantity_needed), 0) as total_items_needed,
     CASE
-        WHEN COALESCE(SUM(psi.quantity_to_pick), 0) = 0 THEN 'CORRUPTED - No items'
+        WHEN COALESCE(SUM(psi.total_quantity_needed), 0) = 0 THEN 'CORRUPTED - No items'
         ELSE 'OK'
     END as health_status
 FROM picking_sessions ps
@@ -196,7 +196,7 @@ LEFT JOIN picking_session_orders pso ON pso.picking_session_id = ps.id
 LEFT JOIN picking_session_items psi ON psi.picking_session_id = ps.id
 WHERE ps.status IN ('picking', 'packing')
 GROUP BY ps.id, ps.code, ps.store_id, ps.status, ps.created_at
-HAVING COALESCE(SUM(psi.quantity_to_pick), 0) = 0;
+HAVING COALESCE(SUM(psi.total_quantity_needed), 0) = 0;
 
 COMMENT ON VIEW v_corrupted_picking_sessions IS
 'Shows picking sessions that are corrupted (have orders but 0 items to pick)';

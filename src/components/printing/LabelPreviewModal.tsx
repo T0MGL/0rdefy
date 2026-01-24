@@ -449,8 +449,22 @@ function LabelContent({
                 </div>
               </div>
             )}
-            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-              {data.carrierName || 'ENVÍO PROPIO'}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+              <div style={{ fontSize: '8px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.7 }}>
+                DELIVERY
+              </div>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                textAlign: 'center',
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {data.carrierName || 'ENVÍO PROPIO'}
+              </div>
             </div>
           </div>
         </div>
