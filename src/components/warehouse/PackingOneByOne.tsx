@@ -2,9 +2,14 @@
  * PackingOneByOne Component
  * Full-screen packing interface that shows one order at a time
  * Uses pagination instead of split-view for a cleaner, focused experience
+ *
+ * UPDATED: Jan 2026 - Full variant support (Migration 108)
+ * - Uses composite keys (product_id|variant_id) for all lookups
+ * - Properly handles bundles and variations
+ * - Fixed pagination overflow for large order counts
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { logger } from '@/utils/logger';
 import {
   Package,
@@ -18,7 +23,8 @@ import {
   Phone,
   MapPin,
   Truck,
-  XCircle
+  XCircle,
+  MoreHorizontal
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,12 +40,24 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import type { OrderForPacking, PackingListResponse } from '@/services/warehouse.service';
+import { useToast } from '@/hooks/use-toast';
+import type { OrderForPacking, PackingListResponse, PackingProgressItem, AvailableItem } from '@/services/warehouse.service';
+import { getProductVariantKey } from '@/services/warehouse.service';
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface PackingOneByOneProps {
   packingData: PackingListResponse;
   currentOrderIndex: number;
-  onPackItem: (orderId: string, productId: string) => Promise<void>;
+  /**
+   * Pack a single item - now includes optional variantId
+   * @param orderId - Order to pack into
+   * @param productId - Product being packed
+   * @param variantId - Optional variant ID (Migration 108)
+   */
+  onPackItem: (orderId: string, productId: string, variantId?: string | null) => Promise<void>;
   onPackAllItems: (orderId: string) => Promise<void>;
   onAutoPackSession?: () => Promise<void>;
   onPrintLabel: (order: OrderForPacking) => Promise<void>;
@@ -48,8 +66,16 @@ interface PackingOneByOneProps {
   onGoToOrder: (index: number) => void;
   onCompleteSession: () => Promise<void>;
   onCancelSession?: () => Promise<void>;
+  onReportProblem?: (orderId: string, reason: string) => Promise<void>;
   loading?: boolean;
 }
+
+// Maximum pagination dots to show before collapsing
+const MAX_PAGINATION_DOTS = 7;
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
 
 export function PackingOneByOne({
   packingData,
@@ -63,18 +89,46 @@ export function PackingOneByOne({
   onGoToOrder,
   onCompleteSession,
   onCancelSession,
+  onReportProblem,
   loading,
 }: PackingOneByOneProps) {
+  const { toast } = useToast();
   const { orders, availableItems } = packingData;
-  const currentOrder = orders[currentOrderIndex];
+
+  // BOUNDS CHECK FIX: Ensure currentOrderIndex is within valid range
+  // This prevents crashes when orders are removed externally (e.g., auto-cleanup)
+  const safeOrderIndex = Math.min(Math.max(0, currentOrderIndex), Math.max(0, orders.length - 1));
+  const currentOrder = orders.length > 0 ? orders[safeOrderIndex] : null;
+
+  // FIX: Notify parent when currentOrderIndex is out of bounds (e.g., order removed by auto-cleanup)
+  useEffect(() => {
+    if (orders.length > 0 && currentOrderIndex >= orders.length) {
+      onGoToOrder(Math.max(0, orders.length - 1));
+    }
+  }, [currentOrderIndex, orders.length, onGoToOrder]);
 
   const [packingProduct, setPackingProduct] = useState<string | null>(null);
   const [autoPackingSession, setAutoPackingSession] = useState(false);
   const [printingOrder, setPrintingOrder] = useState(false);
   const [reportDialog, setReportDialog] = useState(false);
   const [reportReason, setReportReason] = useState('');
+  const [reportingProblem, setReportingProblem] = useState(false);
   const [cancelDialog, setCancelDialog] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+
+  // ============================================================================
+  // MEMOIZED VALUES
+  // ============================================================================
+
+  // Build a Map for O(1) availability lookups using composite keys
+  const availabilityMap = useMemo(() => {
+    const map = new Map<string, AvailableItem>();
+    for (const item of availableItems) {
+      const key = getProductVariantKey(item.product_id, item.variant_id);
+      map.set(key, item);
+    }
+    return map;
+  }, [availableItems]);
 
   // Progress calculation
   const progress = useMemo(() => {
@@ -99,19 +153,74 @@ export function PackingOneByOne({
 
   const allOrdersComplete = progress.ordersComplete === progress.ordersTotal;
 
-  // Check item availability in basket
-  const getItemAvailability = useCallback((productId: string) => {
-    const item = availableItems.find(i => i.product_id === productId);
-    return item?.remaining || 0;
-  }, [availableItems]);
+  // Calculate pagination dots (with ellipsis for large order counts)
+  const paginationDots = useMemo(() => {
+    if (orders.length <= MAX_PAGINATION_DOTS) {
+      // Show all dots
+      return orders.map((order, index) => ({
+        type: 'dot' as const,
+        index,
+        order,
+      }));
+    }
 
-  // Handle packing a single item
-  const handlePackItem = useCallback(async (productId: string) => {
+    // Need to collapse - show first, last, current and neighbors
+    const dots: Array<{ type: 'dot' | 'ellipsis'; index?: number; order?: typeof orders[0] }> = [];
+    const current = safeOrderIndex;
+
+    // Always show first
+    dots.push({ type: 'dot', index: 0, order: orders[0] });
+
+    // Show ellipsis if there's a gap before current range
+    if (current > 2) {
+      dots.push({ type: 'ellipsis' });
+    }
+
+    // Show current-1, current, current+1 (if valid)
+    for (let i = Math.max(1, current - 1); i <= Math.min(orders.length - 2, current + 1); i++) {
+      if (i > 0 && i < orders.length - 1) {
+        dots.push({ type: 'dot', index: i, order: orders[i] });
+      }
+    }
+
+    // Show ellipsis if there's a gap after current range
+    if (current < orders.length - 3) {
+      dots.push({ type: 'ellipsis' });
+    }
+
+    // Always show last
+    if (orders.length > 1) {
+      dots.push({ type: 'dot', index: orders.length - 1, order: orders[orders.length - 1] });
+    }
+
+    return dots;
+  }, [orders, safeOrderIndex]);
+
+  // ============================================================================
+  // CALLBACKS
+  // ============================================================================
+
+  /**
+   * Get item availability using composite key (product_id + variant_id)
+   * FIX: Now properly handles variants (Migration 108)
+   */
+  const getItemAvailability = useCallback((productId: string, variantId?: string | null): number => {
+    const key = getProductVariantKey(productId, variantId);
+    const item = availabilityMap.get(key);
+    return item?.remaining || 0;
+  }, [availabilityMap]);
+
+  /**
+   * Handle packing a single item (with variant support)
+   * FIX: Now passes variant_id to parent (Migration 108)
+   */
+  const handlePackItem = useCallback(async (productId: string, variantId?: string | null) => {
     if (!currentOrder) return;
 
-    setPackingProduct(productId);
+    const key = getProductVariantKey(productId, variantId);
+    setPackingProduct(key);
     try {
-      await onPackItem(currentOrder.id, productId);
+      await onPackItem(currentOrder.id, productId, variantId);
     } finally {
       setPackingProduct(null);
     }
@@ -153,6 +262,51 @@ export function PackingOneByOne({
     }
   }, [currentOrder, onPrintLabel]);
 
+  // Handle reporting a problem
+  const handleReportProblem = useCallback(async () => {
+    if (!currentOrder || !reportReason.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Por favor describe el problema',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setReportingProblem(true);
+    try {
+      if (onReportProblem) {
+        await onReportProblem(currentOrder.id, reportReason);
+        toast({
+          title: 'Problema reportado',
+          description: `Se ha registrado el problema para el pedido #${currentOrder.order_number}`,
+        });
+      } else {
+        // Fallback: Just log and show confirmation
+        logger.info(`Problem reported for order ${currentOrder.id}: ${reportReason}`);
+        toast({
+          title: 'Problema registrado',
+          description: 'El problema ha sido registrado. Contacta a tu supervisor para seguimiento.',
+        });
+      }
+      setReportDialog(false);
+      setReportReason('');
+    } catch (error) {
+      logger.error('Error reporting problem:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo registrar el problema. Intenta de nuevo.',
+        variant: 'destructive',
+      });
+    } finally {
+      setReportingProblem(false);
+    }
+  }, [currentOrder, reportReason, onReportProblem, toast]);
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+
   if (!currentOrder) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -163,7 +317,7 @@ export function PackingOneByOne({
 
   const orderComplete = currentOrder.is_complete;
   const canPackMore = currentOrder.items.some(
-    item => item.quantity_packed < item.quantity_needed && getItemAvailability(item.product_id) > 0
+    item => item.quantity_packed < item.quantity_needed && getItemAvailability(item.product_id, item.variant_id) > 0
   );
 
   return (
@@ -317,15 +471,16 @@ export function PackingOneByOne({
               </h3>
 
               <div className="space-y-3">
-                {currentOrder.items.map(item => {
+                {currentOrder.items.map((item: PackingProgressItem) => {
                   const itemComplete = item.quantity_packed >= item.quantity_needed;
-                  const availableInBasket = getItemAvailability(item.product_id);
+                  const availableInBasket = getItemAvailability(item.product_id, item.variant_id);
                   const canPack = !itemComplete && availableInBasket > 0;
-                  const isPacking = packingProduct === item.product_id;
+                  const itemKey = getProductVariantKey(item.product_id, item.variant_id);
+                  const isPacking = packingProduct === itemKey;
 
                   return (
                     <div
-                      key={item.product_id}
+                      key={itemKey}
                       className={cn(
                         'flex items-center gap-4 p-4 rounded-lg border transition-all',
                         itemComplete
@@ -334,7 +489,11 @@ export function PackingOneByOne({
                             ? 'bg-card border-border hover:border-primary/50 cursor-pointer'
                             : 'bg-muted/30 border-transparent'
                       )}
-                      onClick={() => canPack && !isPacking && packingProduct !== 'all' && handlePackItem(item.product_id)}
+                      onClick={() => {
+                        if (canPack && !isPacking && packingProduct !== 'all') {
+                          handlePackItem(item.product_id, item.variant_id);
+                        }
+                      }}
                     >
                       {/* Status Indicator */}
                       <div className="shrink-0">
@@ -480,22 +639,28 @@ export function PackingOneByOne({
             )}
           </div>
 
-          {/* Pagination Dots */}
-          <div className="flex items-center gap-2">
-            {orders.map((order, index) => (
-              <button
-                key={order.id}
-                onClick={() => onGoToOrder(index)}
-                className={cn(
-                  'w-3 h-3 rounded-full transition-all',
-                  index === currentOrderIndex
-                    ? 'bg-primary scale-125'
-                    : order.is_complete
-                      ? 'bg-primary/50'
-                      : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
-                )}
-                title={`Pedido #${order.order_number}`}
-              />
+          {/* Pagination Dots - Now with overflow handling */}
+          <div className="flex items-center gap-1.5">
+            {paginationDots.map((dot, idx) => (
+              dot.type === 'ellipsis' ? (
+                <div key={`ellipsis-before-${dot.index ?? idx}`} className="px-1">
+                  <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                </div>
+              ) : dot.index !== undefined ? (
+                <button
+                  key={`dot-${dot.index}`}
+                  onClick={() => onGoToOrder(dot.index!)}
+                  className={cn(
+                    'w-3 h-3 rounded-full transition-all',
+                    dot.index === safeOrderIndex
+                      ? 'bg-primary scale-125'
+                      : dot.order?.is_complete
+                        ? 'bg-primary/50'
+                        : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                  )}
+                  title={`Pedido #${dot.order?.order_number}`}
+                />
+              ) : null
             ))}
           </div>
 
@@ -511,11 +676,11 @@ export function PackingOneByOne({
         </div>
 
         <p className="text-center text-sm text-muted-foreground mt-2">
-          Pedido {currentOrderIndex + 1} de {orders.length}
+          Pedido {safeOrderIndex + 1} de {orders.length}
         </p>
       </div>
 
-      {/* Report Problem Dialog */}
+      {/* Report Problem Dialog - Now functional */}
       <Dialog open={reportDialog} onOpenChange={setReportDialog}>
         <DialogContent>
           <DialogHeader>
@@ -537,22 +702,37 @@ export function PackingOneByOne({
               value={reportReason}
               onChange={(e) => setReportReason(e.target.value)}
               rows={4}
+              maxLength={500}
             />
+            <p className="text-xs text-muted-foreground mt-1 text-right">
+              {reportReason.length}/500
+            </p>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReportDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReportDialog(false);
+                setReportReason('');
+              }}
+              disabled={reportingProblem}
+            >
               Cancelar
             </Button>
             <Button
               variant="destructive"
-              onClick={() => {
-                // TODO: Implement report logic
-                setReportDialog(false);
-                setReportReason('');
-              }}
+              onClick={handleReportProblem}
+              disabled={reportingProblem || !reportReason.trim()}
             >
-              Enviar Reporte
+              {reportingProblem ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Enviando...
+                </>
+              ) : (
+                'Enviar Reporte'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -611,6 +791,6 @@ export function PackingOneByOne({
         </DialogContent>
       </Dialog>
 
-      </div>
+    </div>
   );
 }

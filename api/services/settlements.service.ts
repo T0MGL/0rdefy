@@ -2982,6 +2982,7 @@ export interface PendingReconciliationOrder {
   payment_method: string;
   is_cod: boolean;
   delivered_at: string;
+  carrier_fee: number;
 }
 
 /**
@@ -3157,6 +3158,30 @@ async function getPendingReconciliationOrdersFallback(
     return [];
   }
 
+  // Fetch carrier zone rates (legacy system)
+  const { data: zones } = await supabaseAdmin
+    .from('carrier_zones')
+    .select('zone_name, rate')
+    .eq('carrier_id', carrierId)
+    .eq('store_id', storeId);
+
+  // Fetch city-based coverage rates (new system - migration 090)
+  const { data: coverage } = await supabaseAdmin
+    .from('carrier_coverage')
+    .select('city, rate')
+    .eq('carrier_id', carrierId)
+    .eq('is_active', true);
+
+  const coverageRates = new Map<string, number>();
+  (coverage || []).forEach(c => {
+    if (c.city && c.rate != null) {
+      coverageRates.set(c.city.toLowerCase().trim(), c.rate);
+    }
+  });
+
+  const zoneRates = new Map(zones?.map(z => [z.zone_name?.toLowerCase(), z.rate || 0]) || []);
+  const defaultRate = zones?.[0]?.rate || 25000;
+
   return orders.map((order: any) => {
     const isCod = isCodPayment(order.payment_method);
 
@@ -3168,6 +3193,17 @@ async function getPendingReconciliationOrdersFallback(
       displayOrderNumber = `#${order.shopify_order_number}`;
     } else {
       displayOrderNumber = `#${order.id.slice(-4).toUpperCase()}`;
+    }
+
+    // Calculate carrier fee using city-based coverage first, then zone fallback
+    const shippingCity = (order.shipping_city || '').toLowerCase().trim();
+    const deliveryZone = (order.delivery_zone || '').toLowerCase().trim();
+
+    let carrierFee = defaultRate;
+    if (shippingCity && coverageRates.has(shippingCity)) {
+      carrierFee = coverageRates.get(shippingCity)!;
+    } else if (deliveryZone && zoneRates.has(deliveryZone)) {
+      carrierFee = zoneRates.get(deliveryZone)!;
     }
 
     return {
@@ -3183,7 +3219,8 @@ async function getPendingReconciliationOrdersFallback(
       cod_amount: isCod ? (order.total_price || 0) : 0,
       payment_method: order.payment_method || '',
       is_cod: isCod,
-      delivered_at: order.delivered_at
+      delivered_at: order.delivered_at,
+      carrier_fee: carrierFee
     };
   });
 }

@@ -704,6 +704,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 neighborhood,
                 address_reference,
                 shipping_city,
+                delivery_zone,
                 line_items,
                 order_line_items (
                     id,
@@ -840,6 +841,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 customer_address: order.customer_address,
                 // NEW: Shopify city extraction
                 shipping_city: order.shipping_city,
+                delivery_zone: order.delivery_zone,
                 // NEW: Internal admin notes (truncated indicator for list)
                 internal_notes: order.internal_notes,
                 has_internal_notes: !!order.internal_notes,
@@ -998,6 +1000,7 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
             printed_by: data.printed_by,
             // NEW: Internal admin notes
             internal_notes: data.internal_notes,
+            has_internal_notes: !!data.internal_notes,
             // NEW: Shopify shipping method
             shopify_shipping_method: data.shopify_shipping_method,
             shopify_shipping_method_code: data.shopify_shipping_method_code,
@@ -1522,6 +1525,9 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             printed: data.printed,
             printed_at: data.printed_at,
             printed_by: data.printed_by,
+            // Internal admin notes
+            internal_notes: data.internal_notes,
+            has_internal_notes: !!data.internal_notes,
             // Line items for edit dialog
             order_line_items: lineItems
         };
@@ -2052,7 +2058,8 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         // Apply status mapping before returning (shipped -> in_transit for frontend consistency)
         const responseData = {
             ...data,
-            sleeves_status: mapStatus(data.sleeves_status)
+            sleeves_status: mapStatus(data.sleeves_status),
+            has_internal_notes: !!data.internal_notes
         };
 
         res.json({
@@ -2849,7 +2856,8 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                 is_pickup: result.is_pickup,
                 was_marked_prepaid: result.was_marked_prepaid,
                 financial_status: result.final_financial_status,
-                delivery_preferences: delivery_preferences || null
+                delivery_preferences: delivery_preferences || null,
+                has_internal_notes: !!confirmedOrder.internal_notes
             },
             meta: {
                 upsell_applied: result.upsell_applied,
@@ -3284,7 +3292,10 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
         res.json({
             success: true,
             message: 'Pedido marcado como impreso',
-            data: updatedOrder
+            data: {
+                ...updatedOrder,
+                has_internal_notes: !!updatedOrder.internal_notes
+            }
         });
     } catch (error: any) {
         res.status(500).json({

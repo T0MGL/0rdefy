@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { OnboardingGuard } from "@/components/OnboardingGuard";
 import { AuthProvider, Module } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -96,18 +97,25 @@ const SkipLink = () => (
 
 // Layout wrapper component to avoid duplication
 // Sidebar now handles its own hover-based expansion state internally
+// Mobile: Bottom tabs navigation, Desktop: Sidebar
 const AppLayout = ({ children }: { children: React.ReactNode }) => (
   <div className="flex min-h-screen w-full bg-background">
     <SkipLink />
-    <Sidebar />
+    {/* Sidebar - Hidden on mobile, visible on lg+ */}
+    <div className="hidden lg:block">
+      <Sidebar />
+    </div>
     <div className="flex-1 flex flex-col min-w-0">
       <Header />
-      <main id="main-content" className="flex-1 p-4 sm:p-6 overflow-auto" tabIndex={-1}>
+      {/* Main content - Add bottom padding on mobile for bottom nav */}
+      <main id="main-content" className="flex-1 p-4 sm:p-6 pb-24 lg:pb-6 overflow-auto" tabIndex={-1}>
         <Suspense fallback={<PageSkeleton />}>
           {children}
         </Suspense>
       </main>
     </div>
+    {/* Mobile Bottom Navigation - Visible only on mobile */}
+    <MobileBottomNav />
   </div>
 );
 

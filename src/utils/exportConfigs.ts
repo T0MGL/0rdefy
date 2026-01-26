@@ -34,24 +34,16 @@ export const ordersExportColumns: ExportColumn[] = [
     format: (value) => formatCurrency(Number(value || 0))
   },
   {
-    header: 'Estado',
-    key: 'status',
+    header: 'Zona',
+    key: 'delivery_zone',
     width: 15,
-    format: (value) => {
-      const statusLabels: Record<string, string> = {
-        pending: 'Pendiente',
-        contacted: 'Contactado',
-        confirmed: 'Confirmado',
-        in_preparation: 'En Preparación',
-        ready_to_ship: 'Preparado',
-        shipped: 'En Tránsito',
-        in_transit: 'En Tránsito',
-        delivered: 'Entregado',
-        returned: 'Devuelto',
-        cancelled: 'Cancelado',
-        incident: 'Incidencia',
-      };
-      return statusLabels[value] || value;
+    format: (value, row: any) => {
+      if (!value) return 'Sin asignar';
+      const zone = String(value).toUpperCase();
+      if (zone === 'ASUNCION') return 'Asunción';
+      if (zone === 'CENTRAL') return 'Central';
+      // For interior or other zones, show the city name
+      return row?.shipping_city || String(value).replace(/_/g, ' ');
     }
   },
   { header: 'Transportadora', key: 'carrier', width: 20 },

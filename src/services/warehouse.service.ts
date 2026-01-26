@@ -1,11 +1,43 @@
 /**
  * Warehouse Service
  * Frontend service for warehouse picking and packing operations
+ *
+ * UPDATED: Jan 2026 - Full variant support (Migration 108)
+ * All operations now properly handle product variants (bundles and variations)
  */
 
 import apiClient from './api.client';
 
 const BASE_URL = '/warehouse';
+
+// ============================================================================
+// HELPER: Generate composite key for product+variant combinations
+// ============================================================================
+
+/**
+ * Generates a unique key for a product+variant combination
+ * Used for Maps, availability lookups, and optimistic updates
+ * Handles null, undefined, empty string, and whitespace-only variantId consistently
+ */
+export function getProductVariantKey(productId: string, variantId?: string | null): string {
+  const normalizedVariantId = variantId && variantId.trim() ? variantId.trim() : null;
+  return normalizedVariantId ? `${productId}|${normalizedVariantId}` : productId;
+}
+
+/**
+ * Parses a composite key back to product_id and variant_id
+ */
+export function parseProductVariantKey(key: string): { productId: string; variantId: string | null } {
+  if (key.includes('|')) {
+    const [productId, variantId] = key.split('|');
+    return { productId, variantId };
+  }
+  return { productId: key, variantId: null };
+}
+
+// ============================================================================
+// INTERFACES - Updated with variant_id support
+// ============================================================================
 
 export interface PickingSession {
   id: string;
@@ -15,6 +47,7 @@ export interface PickingSession {
   store_id: string;
   created_at: string;
   updated_at: string;
+  last_activity_at?: string | null; // For staleness calculation
   picking_started_at: string | null;
   picking_completed_at: string | null;
   packing_started_at: string | null;
@@ -28,6 +61,7 @@ export interface PickingSessionItem {
   id: string;
   picking_session_id: string;
   product_id: string;
+  variant_id?: string | null; // NEW: variant support (Migration 108)
   total_quantity_needed: number;
   quantity_picked: number;
   created_at: string;
@@ -35,7 +69,19 @@ export interface PickingSessionItem {
   product_name?: string;
   product_image?: string;
   product_sku?: string;
+  variant_title?: string; // NEW: for display
+  units_per_pack?: number; // NEW: for bundle display
   shelf_location?: string;
+}
+
+export interface PackingProgressItem {
+  product_id: string;
+  variant_id?: string | null; // NEW: variant support (Migration 108)
+  product_name: string;
+  product_image: string;
+  quantity_needed: number;
+  quantity_packed: number;
+  unit_price?: number;
 }
 
 export interface OrderForPacking {
@@ -46,6 +92,7 @@ export interface OrderForPacking {
   customer_address?: string;
   address_reference?: string;
   neighborhood?: string;
+  shipping_city?: string; // City for carrier coverage
   delivery_notes?: string;
   delivery_link_token?: string;
   carrier_id?: string;
@@ -58,28 +105,25 @@ export interface OrderForPacking {
   financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
   printed?: boolean;
   printed_at?: string;
-  items: Array<{
-    product_id: string;
-    product_name: string;
-    product_image: string;
-    quantity_needed: number;
-    quantity_packed: number;
-    unit_price?: number;
-  }>;
+  created_at?: string;
+  items: PackingProgressItem[]; // Updated to use interface with variant_id
   is_complete: boolean;
+}
+
+export interface AvailableItem {
+  product_id: string;
+  variant_id?: string | null; // NEW: variant support (Migration 108)
+  product_name: string;
+  product_image: string;
+  total_picked: number;
+  total_packed: number;
+  remaining: number;
 }
 
 export interface PackingListResponse {
   session: PickingSession;
   orders: OrderForPacking[];
-  availableItems: Array<{
-    product_id: string;
-    product_name: string;
-    product_image: string;
-    total_picked: number;
-    total_packed: number;
-    remaining: number;
-  }>;
+  availableItems: AvailableItem[]; // Updated to use interface with variant_id
 }
 
 export interface ConfirmedOrder {
@@ -91,6 +135,10 @@ export interface ConfirmedOrder {
   carrier_name?: string;
   total_items: number;
 }
+
+// ============================================================================
+// API FUNCTIONS
+// ============================================================================
 
 /**
  * Gets all confirmed orders ready for preparation
@@ -141,16 +189,26 @@ export async function getPickingList(sessionId: string): Promise<{
 }
 
 /**
- * Updates picking progress for a specific product
+ * Updates picking progress for a specific product (with variant support)
+ *
+ * @param sessionId - The picking session ID
+ * @param productId - The product ID
+ * @param quantityPicked - Number of units picked
+ * @param variantId - Optional variant ID for products with variants (Migration 108)
  */
 export async function updatePickingProgress(
   sessionId: string,
   productId: string,
-  quantityPicked: number
+  quantityPicked: number,
+  variantId?: string | null
 ): Promise<PickingSessionItem> {
   const response = await apiClient.post<PickingSessionItem>(
     `${BASE_URL}/sessions/${sessionId}/picking-progress`,
-    { productId, quantityPicked }
+    {
+      productId,
+      quantityPicked,
+      variantId: variantId || null // Explicitly send null if undefined
+    }
   );
   return response.data;
 }
@@ -176,16 +234,26 @@ export async function getPackingList(sessionId: string): Promise<PackingListResp
 }
 
 /**
- * Assigns one unit of a product to an order (packing)
+ * Assigns one unit of a product to an order (packing) - with variant support
+ *
+ * @param sessionId - The picking session ID
+ * @param orderId - The order ID to pack into
+ * @param productId - The product ID being packed
+ * @param variantId - Optional variant ID for products with variants (Migration 108)
  */
 export async function updatePackingProgress(
   sessionId: string,
   orderId: string,
-  productId: string
+  productId: string,
+  variantId?: string | null
 ): Promise<void> {
   await apiClient.post(
     `${BASE_URL}/sessions/${sessionId}/packing-progress`,
-    { orderId, productId }
+    {
+      orderId,
+      productId,
+      variantId: variantId || null // Explicitly send null if undefined
+    }
   );
 }
 
@@ -243,6 +311,7 @@ export async function getStaleSessions(): Promise<Array<{
   status: string;
   created_at: string;
   updated_at: string;
+  last_activity_at?: string;
   inactive_hours: number;
   staleness_level: 'OK' | 'WARNING' | 'CRITICAL';
 }>> {

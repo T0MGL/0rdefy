@@ -39,6 +39,9 @@ export interface ReturnSessionItem {
   session_id: string;
   order_id: string;
   product_id: string;
+  variant_id?: string | null;       // NEW: variant support (Migration 110)
+  variant_type?: string | null;     // 'bundle' | 'variation' | null
+  units_per_pack?: number;          // For bundles: physical units per pack
   quantity_expected: number;
   quantity_received: number;
   quantity_accepted: number;
@@ -241,7 +244,7 @@ export async function createReturnSession(
   while (hasMore) {
     const { data: pageData, error: lineItemsError } = await supabaseAdmin
       .from('order_line_items')
-      .select('order_id, product_id, quantity, unit_price')
+      .select('order_id, product_id, variant_id, variant_type, units_per_pack, quantity, unit_price')
       .in('order_id', orderIds)
       .not('product_id', 'is', null) // Only include items with valid product mapping
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -316,11 +319,14 @@ export async function createReturnSession(
     throw new Error(`Error al vincular pedidos: ${ordersLinkError.message}`);
   }
 
-  // Create return session items from order_line_items
+  // Create return session items from order_line_items (with variant support - Migration 110)
   const items = lineItems.map(lineItem => ({
     session_id: session.id,
     order_id: lineItem.order_id,
     product_id: lineItem.product_id,
+    variant_id: lineItem.variant_id || null,
+    variant_type: lineItem.variant_type || null,
+    units_per_pack: lineItem.units_per_pack || 1,
     quantity_expected: lineItem.quantity,
     unit_cost: lineItem.unit_price || 0,
   }));
@@ -366,12 +372,13 @@ export async function getReturnSession(sessionId: string): Promise<any> {
     throw new Error(`Error al obtener pedidos de la sesión: ${ordersError.message}`);
   }
 
-  // Get session items
+  // Get session items (with variant support - Migration 110)
   const { data: items, error: itemsError } = await supabaseAdmin
     .from('return_session_items')
     .select(`
       *,
-      product:products(id, name, sku, image_url, stock)
+      product:products(id, name, sku, image_url, stock),
+      variant:product_variants(id, variant_title, variant_type, uses_shared_stock, units_per_pack, stock)
     `)
     .eq('session_id', sessionId)
     .order('order_id');

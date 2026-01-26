@@ -164,13 +164,13 @@ router.get('/sessions/:sessionId/picking-list', validateUUIDParam('sessionId'), 
 /**
  * POST /api/warehouse/sessions/:sessionId/picking-progress
  * Updates picking progress for a specific product
- * Body: { productId: string, quantityPicked: number }
+ * Body: { productId: string, quantityPicked: number, variantId?: string }
  */
 router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
-    const { productId, quantityPicked } = req.body;
+    const { productId, quantityPicked, variantId } = req.body;  // NEW: variantId support
 
     if (!storeId) {
       return res.status(400).json({ error: 'Store ID is required' });
@@ -186,7 +186,8 @@ router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionI
       sessionId,
       productId,
       quantityPicked,
-      storeId
+      storeId,
+      variantId || null  // NEW: pass variantId to service
     );
 
     res.json(updated);
@@ -263,13 +264,13 @@ router.get('/sessions/:sessionId/packing-list', validateUUIDParam('sessionId'), 
 /**
  * POST /api/warehouse/sessions/:sessionId/packing-progress
  * Assigns one unit of a product to an order (using atomic RPC with row locking)
- * Body: { orderId: string, productId: string }
+ * Body: { orderId: string, productId: string, variantId?: string }
  */
 router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionId'), requirePermission(Module.WAREHOUSE, Permission.EDIT), async (req, res) => {
   try {
     const storeId = req.storeId;
     const { sessionId } = req.params;
-    const { orderId, productId } = req.body;
+    const { orderId, productId, variantId } = req.body;  // NEW: variantId support
 
     if (!storeId) {
       return res.status(400).json({ error: 'Store ID is required' });
@@ -287,7 +288,8 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
       sessionId,
       orderId,
       productId,
-      storeId
+      storeId,
+      variantId || null  // NEW: pass variantId to service
     );
 
     res.json(updated);

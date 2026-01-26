@@ -1088,6 +1088,16 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
     });
   }, [orders, chipFilters, carrierFilter, scheduledFilter, debouncedSearch]);
 
+  // Export filename: StoreName DD.MM.YYYY
+  const exportFilename = useMemo(() => {
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const safeName = (currentStore?.name || 'Pedidos').replace(/[<>:"/\\|?*]/g, '').trim();
+    return `${safeName} ${dd}.${mm}.${yyyy}`;
+  }, [currentStore?.name]);
+
   // Selection handlers
   const handleToggleSelectAll = useCallback(() => {
     if (selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length) {
@@ -1428,9 +1438,9 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
 
           <ExportButton
             data={filteredOrders}
-            filename="pedidos"
+            filename={exportFilename}
             columns={ordersExportColumns}
-            title="Reporte de Pedidos - Ordefy"
+            title={`Reporte de Pedidos - ${currentStore?.name || 'Ordefy'}`}
             variant="outline"
           />
           <Button
@@ -1439,6 +1449,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
               setDialogOpen(true);
             }}
             className="gap-2"
+            data-tour-target="new-order-button"
           >
             <Plus size={18} />
             Nuevo Pedido
@@ -1553,7 +1564,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
         viewMode === 'calendar' ? (
           <OrdersCalendar />
         ) : (
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden" data-tour-target="orders-table">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-muted/50">

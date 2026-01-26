@@ -258,18 +258,23 @@ export function Header() {
   return (
     <header className="h-16 border-b border-border bg-card sticky top-0 z-40 shadow-sm">
       <div className="h-full px-6 flex items-center justify-between">
-        {/* Welcome Message - Hidden on very small screens */}
-        <div className="hidden sm:block">
+        {/* Welcome Message - Hidden on mobile (we have bottom nav) */}
+        <div className="hidden lg:block">
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-card-foreground truncate max-w-[200px] md:max-w-none">
             Hola, {user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuario'}! 👋
           </h1>
         </div>
 
+        {/* Mobile: Show store name for context */}
+        <div className="lg:hidden">
+          <StoreSwitcher />
+        </div>
+
         {/* Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Global View Toggle - Only shows on Dashboard for users with 2+ stores */}
+          {/* Global View Toggle - Only shows on Dashboard for users with 2+ stores (desktop only) */}
           {showGlobalViewToggle && (
-            <div className="hidden md:block">
+            <div className="hidden lg:block">
               <GlobalViewToggle
                 enabled={globalViewEnabled}
                 onToggle={setGlobalViewEnabled}
@@ -277,13 +282,13 @@ export function Header() {
             </div>
           )}
 
-          {/* Store Switcher - Hidden on small mobile */}
-          <div className="hidden sm:block">
+          {/* Store Switcher - Only on desktop (shown on left for mobile) */}
+          <div className="hidden lg:block">
             <StoreSwitcher />
           </div>
 
-          {/* Global Search - Hidden on mobile */}
-          <div className="hidden md:block">
+          {/* Global Search - Hidden on mobile (use bottom nav "Más" sheet instead) */}
+          <div className="hidden lg:block">
             <GlobalSearch />
           </div>
 

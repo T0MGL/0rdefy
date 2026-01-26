@@ -96,6 +96,7 @@ interface PendingOrder {
   payment_method: string;
   is_cod: boolean;
   delivered_at: string;
+  carrier_fee: number;
 }
 
 interface OrderReconciliation {
@@ -251,39 +252,40 @@ export function PendingReconciliationView() {
     let notDelivered = 0;
     let codExpected = 0;
     let missingReasons = 0;
+    let deliveredCarrierFees = 0;
+    let notDeliveredCarrierFees = 0;
 
     orders.forEach(order => {
       const state = reconciliationState.get(order.id);
       const isDelivered = state?.delivered ?? true;
+      const fee = order.carrier_fee || 0;
 
       if (isDelivered) {
         delivered++;
+        deliveredCarrierFees += fee;
         if (order.is_cod) {
           codExpected += order.cod_amount;
         }
       } else {
         notDelivered++;
+        notDeliveredCarrierFees += fee;
         if (!state?.failure_reason) {
           missingReasons++;
         }
       }
     });
 
-    return { delivered, notDelivered, codExpected, missingReasons, total: orders.length };
+    return { delivered, notDelivered, codExpected, missingReasons, total: orders.length, deliveredCarrierFees, notDeliveredCarrierFees };
   }, [orders, reconciliationState]);
 
-  // Calculate financial summary (PREVIEW - actual calculation done on backend with real zone rates)
+  // Calculate financial summary using real per-order carrier fees from backend
   const financialSummary = useMemo(() => {
     if (!selectedGroup) return null;
 
-    // NOTE: This is an ESTIMATE for preview purposes only
-    // The actual carrier fees are calculated on the backend using real zone rates
-    // We use 25,000 Gs as a typical average rate for Paraguay
-    const carrierFeePerDelivery = 25000; // Estimate - real rates vary by zone
     const failedFeePercent = selectedGroup.failed_attempt_fee_percent / 100;
 
-    const totalCarrierFees = stats.delivered * carrierFeePerDelivery;
-    const failedAttemptFees = stats.notDelivered * carrierFeePerDelivery * failedFeePercent;
+    const totalCarrierFees = stats.deliveredCarrierFees;
+    const failedAttemptFees = stats.notDeliveredCarrierFees * failedFeePercent;
     const codCollected = totalAmountCollected || 0;
     const netReceivable = codCollected - totalCarrierFees - failedAttemptFees;
 
@@ -297,7 +299,6 @@ export function PendingReconciliationView() {
       netReceivable,
       discrepancy,
       hasDiscrepancy,
-      carrierFeePerDelivery,
     };
   }, [selectedGroup, stats, totalAmountCollected]);
 
@@ -855,11 +856,7 @@ export function PendingReconciliationView() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 Resumen Financiero
-                <Badge variant="outline" className="text-xs font-normal">Estimado</Badge>
               </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Las tarifas finales se calculan con las tarifas reales por zona
-              </p>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2 text-sm">
@@ -888,7 +885,7 @@ export function PendingReconciliationView() {
                 )}
                 <Separator />
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Tarifas entregas ({stats.delivered} x {formatCurrency(financialSummary.carrierFeePerDelivery)})</span>
+                  <span>Tarifas entregas ({stats.delivered} pedidos)</span>
                   <span>-{formatCurrency(financialSummary.totalCarrierFees)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">

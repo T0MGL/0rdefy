@@ -250,21 +250,21 @@ export default function WarehouseNew() {
 
   // ==================== PICKING ACTIONS ====================
 
-  const handleUpdatePickingQuantity = useCallback(async (productId: string, quantity: number) => {
+  const handleUpdatePickingQuantity = useCallback(async (productId: string, quantity: number, variantId?: string | null) => {
     if (!session) return;
 
-    // Optimistic update
+    // Optimistic update - match by product_id AND variant_id (Migration 108)
     const previousList = [...pickingList];
     setPickingList(prev =>
       prev.map(item =>
-        item.product_id === productId
+        item.product_id === productId && (item.variant_id || null) === (variantId || null)
           ? { ...item, quantity_picked: quantity }
           : item
       )
     );
 
     try {
-      await warehouseService.updatePickingProgress(session.id, productId, quantity);
+      await warehouseService.updatePickingProgress(session.id, productId, quantity, variantId);
     } catch (error: any) {
       logger.error('Error updating picking progress:', error);
       // Revert on error
@@ -321,7 +321,7 @@ export default function WarehouseNew() {
 
   // ==================== PACKING ACTIONS ====================
 
-  const handlePackItem = useCallback(async (orderId: string, productId: string) => {
+  const handlePackItem = useCallback(async (orderId: string, productId: string, variantId?: string | null) => {
     if (!session || !packingData) return;
 
     // Optimistic update
@@ -333,7 +333,10 @@ export default function WarehouseNew() {
       const updatedOrders = prev.orders.map(order => {
         if (order.id === orderId) {
           const updatedItems = order.items.map(item => {
-            if (item.product_id === productId && item.quantity_packed < item.quantity_needed) {
+            // VARIANT FIX: Match by product_id AND variant_id (Migration 108)
+            if (item.product_id === productId &&
+                (item.variant_id || null) === (variantId || null) &&
+                item.quantity_packed < item.quantity_needed) {
               return { ...item, quantity_packed: item.quantity_packed + 1 };
             }
             return item;
@@ -346,7 +349,9 @@ export default function WarehouseNew() {
       });
 
       const updatedAvailableItems = prev.availableItems.map(item => {
-        if (item.product_id === productId) {
+        // VARIANT FIX: Match by product_id AND variant_id (Migration 108)
+        if (item.product_id === productId &&
+            (item.variant_id || null) === (variantId || null)) {
           return {
             ...item,
             total_packed: item.total_packed + 1,
@@ -364,7 +369,7 @@ export default function WarehouseNew() {
     });
 
     try {
-      await warehouseService.updatePackingProgress(session.id, orderId, productId);
+      await warehouseService.updatePackingProgress(session.id, orderId, productId, variantId);
       // Reload to sync with server
       await loadPackingList(session.id);
     } catch (error: any) {

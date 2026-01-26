@@ -30,6 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import * as warehouseService from '@/services/warehouse.service';
+import { getProductVariantKey, parseProductVariantKey } from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
 
 import { printLabelPDF, printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
@@ -44,6 +45,19 @@ import { showErrorToast } from '@/utils/errorMessages';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 
 type View = 'dashboard' | 'picking' | 'packing';
+
+// TIMEOUT FIX: Helper function to add timeout to promises
+const withTimeout = <T,>(promise: Promise<T>, ms: number, operation: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout: ${operation} tardó más de ${ms / 1000}s`)), ms)
+    )
+  ]);
+};
+
+// Default timeout for warehouse operations (30 seconds)
+const OPERATION_TIMEOUT = 30000;
 
 export default function Warehouse() {
   const { toast } = useToast();
@@ -132,14 +146,21 @@ export default function Warehouse() {
     if (!currentSession) return;
     setLoading(true);
     try {
-      const data = await warehouseService.getPickingList(currentSession.id);
+      // TIMEOUT FIX: Add timeout to prevent hanging requests
+      const data = await withTimeout(
+        warehouseService.getPickingList(currentSession.id),
+        OPERATION_TIMEOUT,
+        'cargar lista de picking'
+      );
       setPickingList(data.items);
       setSessionOrders(data.orders);
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error loading picking list:', error);
       toast({
         title: 'Error',
-        description: 'No se pudo cargar la lista de picking',
+        description: error.message?.includes('Timeout')
+          ? 'La operación tardó demasiado. Por favor, intenta de nuevo.'
+          : 'No se pudo cargar la lista de picking',
         variant: 'destructive',
       });
     } finally {
@@ -151,13 +172,20 @@ export default function Warehouse() {
     if (!currentSession) return;
     setLoading(true);
     try {
-      const data = await warehouseService.getPackingList(currentSession.id);
+      // TIMEOUT FIX: Add timeout to prevent hanging requests
+      const data = await withTimeout(
+        warehouseService.getPackingList(currentSession.id),
+        OPERATION_TIMEOUT,
+        'cargar lista de empaque'
+      );
       setPackingData(data);
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error loading packing list:', error);
       toast({
         title: 'Error',
-        description: 'No se pudo cargar la lista de empaque',
+        description: error.message?.includes('Timeout')
+          ? 'La operación tardó demasiado. Por favor, intenta de nuevo.'
+          : 'No se pudo cargar la lista de empaque',
         variant: 'destructive',
       });
     } finally {
@@ -257,21 +285,40 @@ export default function Warehouse() {
     }
   }
 
-  async function handleUpdatePickingProgress(productId: string, newQuantity: number) {
+  /**
+   * Update picking progress for a product (with variant support)
+   * FIX: Now accepts and passes variantId (Migration 108)
+   */
+  async function handleUpdatePickingProgress(
+    productId: string,
+    newQuantity: number,
+    variantId?: string | null
+  ) {
     if (!currentSession) return;
 
-    // Optimistic update - update UI immediately
-    const previousPickingList = [...pickingList];
+    // Use composite key for matching items with variants
+    const itemKey = getProductVariantKey(productId, variantId);
+
+    // Deep clone to prevent concurrent update corruption
+    const previousPickingList = pickingList.map(item => ({ ...item }));
+
+    // Optimistic update using composite key match
     setPickingList(prev =>
-      prev.map(item =>
-        item.product_id === productId
+      prev.map(item => {
+        const currentKey = getProductVariantKey(item.product_id, item.variant_id);
+        return currentKey === itemKey
           ? { ...item, quantity_picked: newQuantity }
-          : item
-      )
+          : item;
+      })
     );
 
     try {
-      await warehouseService.updatePickingProgress(currentSession.id, productId, newQuantity);
+      await warehouseService.updatePickingProgress(
+        currentSession.id,
+        productId,
+        newQuantity,
+        variantId  // Pass variantId to backend
+      );
     } catch (error: any) {
       logger.error('Error updating picking progress:', error);
       // Revert optimistic update on error
@@ -322,20 +369,37 @@ export default function Warehouse() {
     }
   }
 
-  async function handlePackItem(orderId: string, productId: string) {
+  /**
+   * Pack a single item into an order (with variant support)
+   * FIX: Now accepts and passes variantId (Migration 108)
+   * FIX: Uses structuredClone for better performance
+   * FIX: Optimistic update uses composite key for variant matching
+   */
+  async function handlePackItem(
+    orderId: string,
+    productId: string,
+    variantId?: string | null
+  ) {
     if (!currentSession || packingInProgress) return;
 
     setPackingInProgress(true);
 
-    // Optimistic update - update UI immediately
-    const previousPackingData = packingData ? { ...packingData } : null;
+    // Use composite key for matching items with variants
+    const itemKey = getProductVariantKey(productId, variantId);
+
+    // PERFORMANCE FIX: Use structuredClone instead of JSON.parse(JSON.stringify())
+    // structuredClone is faster and handles more data types correctly
+    const previousPackingData = packingData
+      ? structuredClone(packingData)
+      : null;
 
     if (packingData) {
-      // Update local state optimistically
+      // Optimistic update using composite key match for variants
       const updatedOrders = packingData.orders.map(order => {
         if (order.id === orderId) {
           const updatedItems = order.items.map(item => {
-            if (item.product_id === productId && item.quantity_packed < item.quantity_needed) {
+            const currentKey = getProductVariantKey(item.product_id, item.variant_id);
+            if (currentKey === itemKey && item.quantity_packed < item.quantity_needed) {
               return { ...item, quantity_packed: item.quantity_packed + 1 };
             }
             return item;
@@ -348,7 +412,8 @@ export default function Warehouse() {
       });
 
       const updatedAvailableItems = packingData.availableItems.map(item => {
-        if (item.product_id === productId) {
+        const currentKey = getProductVariantKey(item.product_id, item.variant_id);
+        if (currentKey === itemKey) {
           return {
             ...item,
             total_packed: item.total_packed + 1,
@@ -363,16 +428,21 @@ export default function Warehouse() {
         orders: updatedOrders,
         availableItems: updatedAvailableItems
       });
-
-      // Clear selection immediately for better UX
-      setSelectedItem(null);
     }
 
     try {
-      await warehouseService.updatePackingProgress(currentSession.id, orderId, productId);
+      await warehouseService.updatePackingProgress(
+        currentSession.id,
+        orderId,
+        productId,
+        variantId  // Pass variantId to backend
+      );
 
-      // Reload to ensure sync with server (but UI already updated)
-      await loadPackingList();
+      // PERFORMANCE FIX: Skip reload - trust optimistic update
+      // Only reload on error or when explicitly needed
+      // This reduces unnecessary API calls and prevents UI flicker
+
+      setSelectedItem(null);
     } catch (error: any) {
       logger.error('Error packing item:', error);
 
@@ -380,6 +450,11 @@ export default function Warehouse() {
       if (previousPackingData) {
         setPackingData(previousPackingData);
       }
+
+      // Reload from server to ensure consistency after error
+      await loadPackingList();
+
+      setSelectedItem(null);
 
       showErrorToast(toast, error, {
         module: 'warehouse',
@@ -437,11 +512,33 @@ export default function Warehouse() {
     }
   }
 
-  // Calculate session age for staleness indicators
+  /**
+   * Calculate session age for staleness indicators
+   * FIX: Uses last_activity_at for inactivity measurement (not updated_at)
+   * This correctly shows how long since last user interaction, not last any update
+   */
   function getSessionAge(session: PickingSession): { hours: number; level: 'OK' | 'WARNING' | 'CRITICAL' } {
-    const createdAt = new Date(session.updated_at || session.created_at);
+    // Priority: last_activity_at > updated_at > created_at
+    // last_activity_at specifically tracks user interactions
+    const activityTimestamp = session.last_activity_at || session.updated_at || session.created_at;
+    const lastActivity = new Date(activityTimestamp);
     const now = new Date();
-    const hours = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+
+    // Validate the date before calculating
+    if (isNaN(lastActivity.getTime())) {
+      // Invalid date, use created_at as fallback
+      const fallbackDate = new Date(session.created_at);
+      const hours = isNaN(fallbackDate.getTime())
+        ? 0
+        : (now.getTime() - fallbackDate.getTime()) / (1000 * 60 * 60);
+
+      return {
+        hours: Math.round(hours * 10) / 10,
+        level: hours > 48 ? 'CRITICAL' : hours > 24 ? 'WARNING' : 'OK'
+      };
+    }
+
+    const hours = (now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60);
 
     return {
       hours: Math.round(hours * 10) / 10,
@@ -555,9 +652,31 @@ export default function Warehouse() {
 
     try {
       setIsPrinting(true);
+
+      // Filter orders that have delivery tokens
       const ordersToPrint = packingData.orders.filter(o =>
         selectedOrdersForPrint.has(o.id) && o.delivery_link_token
       );
+
+      // UX FIX: Notify user if some orders were skipped due to missing tokens
+      const skippedCount = selectedOrdersForPrint.size - ordersToPrint.length;
+      if (skippedCount > 0) {
+        toast({
+          title: 'Aviso',
+          description: `${skippedCount} pedido(s) sin token de entrega fueron omitidos de la impresión.`,
+          variant: 'default',
+        });
+      }
+
+      if (ordersToPrint.length === 0) {
+        toast({
+          title: 'Error',
+          description: 'Ninguno de los pedidos seleccionados tiene token de entrega válido.',
+          variant: 'destructive',
+        });
+        setIsPrinting(false);
+        return;
+      }
 
       const labelsData = ordersToPrint.map(order => ({
         storeName: currentStore?.name || 'ORDEFY',
@@ -798,7 +917,7 @@ function DashboardView({
       {/* 3-Column Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Column 1: Active Sessions */}
-        <Card className="p-6">
+        <Card className="p-6" data-tour-target="warehouse-sessions">
           <div className="flex items-center gap-2 mb-4">
             <Layers className="h-5 w-5 text-primary" />
             <h2 className="text-lg font-semibold">Sesiones Activas</h2>
@@ -998,6 +1117,7 @@ function DashboardView({
                 disabled={selectedOrders.size === 0 || loading}
                 className="w-full"
                 size="lg"
+                data-tour-target="create-session-button"
               >
                 <PackageCheck className="h-4 w-4 mr-2" />
                 Iniciar Preparación ({selectedOrders.size})
@@ -1116,7 +1236,8 @@ interface PickingViewProps {
   }>;
   progress: number;
   onBack: () => void;
-  onUpdateProgress: (productId: string, newQuantity: number) => void;
+  /** Updated to include variantId for variant support (Migration 108) */
+  onUpdateProgress: (productId: string, newQuantity: number, variantId?: string | null) => void;
   onFinish: () => void;
   loading: boolean;
 }
@@ -1305,7 +1426,7 @@ function PickingView({
                     variant="default"
                     size="lg"
                     className="w-full h-12 text-base font-semibold"
-                    onClick={() => onUpdateProgress(item.product_id, item.total_quantity_needed)}
+                    onClick={() => onUpdateProgress(item.product_id, item.total_quantity_needed, item.variant_id)}
                   >
                     <Check className="h-5 w-5 mr-2" />
                     Completar Todo
@@ -1316,7 +1437,7 @@ function PickingView({
                     <Button
                       variant="outline"
                       size="lg"
-                      onClick={() => onUpdateProgress(item.product_id, Math.max(0, item.quantity_picked - 1))}
+                      onClick={() => onUpdateProgress(item.product_id, Math.max(0, item.quantity_picked - 1), item.variant_id)}
                       disabled={item.quantity_picked === 0}
                       className="flex-1 h-10"
                     >
@@ -1326,7 +1447,7 @@ function PickingView({
                     <Button
                       variant="outline"
                       size="lg"
-                      onClick={() => onUpdateProgress(item.product_id, Math.min(item.total_quantity_needed, item.quantity_picked + 1))}
+                      onClick={() => onUpdateProgress(item.product_id, Math.min(item.total_quantity_needed, item.quantity_picked + 1), item.variant_id)}
                       disabled={item.quantity_picked >= item.total_quantity_needed}
                       className="flex-1 h-10"
                     >
@@ -1367,7 +1488,8 @@ interface PackingViewProps {
   packingInProgress: boolean;
   onBack: () => void;
   onSelectItem: (productId: string | null) => void;
-  onPackItem: (orderId: string, productId: string) => void;
+  /** Updated to include variantId for variant support (Migration 108) */
+  onPackItem: (orderId: string, productId: string, variantId?: string | null) => void;
   onPrintLabel: (order: OrderForPacking) => void;
   onCompleteSession: () => void;
   selectedOrdersForPrint: Set<string>;
@@ -1396,7 +1518,9 @@ function PackingView({
 
   // Calculate if all orders are complete
   const allOrdersComplete = orders.every(order => order.is_complete);
-  const allItemsRemaining = availableItems.every(item => item.remaining === 0);
+  // FIX: Guard against vacuous truth - empty array .every() returns true
+  const allItemsRemaining = availableItems.length > 0
+    && availableItems.every(item => item.remaining === 0);
 
   // Calculate ready to print orders (complete and have token)
   const readyToPrintOrders = orders.filter(
@@ -1501,19 +1625,23 @@ function PackingView({
           </div>
           <div className="space-y-3">
             {availableItems.map(item => {
-              const isSelected = selectedItem === item.product_id;
+              // FIX: Use composite key for proper variant selection (Migration 108)
+              const itemKey = item.variant_id
+                ? `${item.product_id}|${item.variant_id}`
+                : item.product_id;
+              const isSelected = selectedItem === itemKey;
               const hasRemaining = item.remaining > 0;
 
               return (
                 <Card
-                  key={item.product_id}
+                  key={itemKey}
                   className={`p-3 transition-all ${!hasRemaining || packingInProgress
                     ? 'opacity-40 cursor-not-allowed bg-muted/50'
                     : isSelected
                       ? 'border-primary border-2 ring-2 ring-primary/20 bg-primary/10 cursor-pointer shadow-md'
                       : 'hover:shadow-md hover:border-primary/50 cursor-pointer bg-card'
                     }`}
-                  onClick={() => hasRemaining && !packingInProgress && onSelectItem(isSelected ? null : item.product_id)}
+                  onClick={() => hasRemaining && !packingInProgress && onSelectItem(isSelected ? null : itemKey)}
                 >
                   <div className="flex gap-3">
                     {/* Selection Indicator */}
@@ -1576,16 +1704,32 @@ function PackingView({
           </div>
           <div className="space-y-4">
             {orders.map(order => {
-              const needsSelectedItem = selectedItem
-                ? order.items.some(
-                  item =>
-                    item.product_id === selectedItem &&
-                    item.quantity_packed < item.quantity_needed
-                )
+              // FIX: Use parseProductVariantKey for proper null handling (Migration 108)
+              // selectedItem can be "product_id" or "product_id|variant_id"
+              const { productId: selectedProductId, variantId: selectedVariantId } = selectedItem
+                ? parseProductVariantKey(selectedItem)
+                : { productId: null, variantId: null };
+
+              const needsSelectedItem = selectedProductId
+                ? order.items.some(item => {
+                    const matchesProduct = item.product_id === selectedProductId;
+                    // When selectedVariantId is null, match items WITHOUT variants only
+                    // When selectedVariantId is a string, match exact variant
+                    const matchesVariant = selectedVariantId !== null
+                      ? (item.variant_id || null) === selectedVariantId
+                      : (item.variant_id || null) === null;
+                    return matchesProduct && matchesVariant && item.quantity_packed < item.quantity_needed;
+                  })
                 : false;
 
-              const selectedItemInOrder = selectedItem
-                ? order.items.find(item => item.product_id === selectedItem)
+              const selectedItemInOrder = selectedProductId
+                ? order.items.find(item => {
+                    const matchesProduct = item.product_id === selectedProductId;
+                    const matchesVariant = selectedVariantId !== null
+                      ? (item.variant_id || null) === selectedVariantId
+                      : (item.variant_id || null) === null;
+                    return matchesProduct && matchesVariant;
+                  })
                 : null;
 
               const canSelectForPrint = order.is_complete && order.delivery_link_token && !order.printed;
@@ -1602,7 +1746,8 @@ function PackingView({
                     }`}
                   onClick={() => {
                     if (needsSelectedItem && selectedItemInOrder && !packingInProgress) {
-                      onPackItem(order.id, selectedItem);
+                      // FIX: Pass variant_id to properly handle variants (Migration 108)
+                      onPackItem(order.id, selectedItemInOrder.product_id, selectedItemInOrder.variant_id);
                     }
                   }}
                 >
@@ -1676,12 +1821,16 @@ function PackingView({
                   <div className="space-y-2">
                     {order.items.map(item => {
                       const itemComplete = item.quantity_packed >= item.quantity_needed;
+                      // FIX: Use composite key for highlight matching (Migration 108)
+                      const orderItemKey = item.variant_id
+                        ? `${item.product_id}|${item.variant_id}`
+                        : item.product_id;
                       const isHighlighted =
-                        selectedItem === item.product_id && !itemComplete;
+                        selectedItem === orderItemKey && !itemComplete;
 
                       return (
                         <div
-                          key={item.product_id}
+                          key={orderItemKey}
                           className={`flex items-center gap-3 p-2 rounded-lg transition-all ${isHighlighted
                             ? 'bg-primary/15 border-2 border-primary/50 shadow-sm'
                             : itemComplete

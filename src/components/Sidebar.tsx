@@ -48,6 +48,7 @@ interface MenuItem {
   label: string;
   icon: any;
   module?: Module; // Required module for permission check
+  tourTarget?: string; // Optional tour target for spotlight highlighting
 }
 
 interface MenuSection {
@@ -61,7 +62,7 @@ const menuSections: MenuSection[] = [
     label: 'Dashboards',
     icon: LayoutDashboard,
     items: [
-      { path: '/', label: 'Dashboard General', icon: Activity, module: Module.DASHBOARD },
+      { path: '/', label: 'Dashboard General', icon: Activity, module: Module.DASHBOARD, tourTarget: 'sidebar-dashboard' },
       { path: '/dashboard-logistics', label: 'Dashboard Logístico', icon: PackageCheck, module: Module.WAREHOUSE },
       { path: '/logistics', label: 'Costos de Envío', icon: BarChart3, module: Module.ANALYTICS },
     ],
@@ -70,31 +71,31 @@ const menuSections: MenuSection[] = [
     label: 'Ventas',
     icon: ShoppingBag,
     items: [
-      { path: '/orders', label: 'Pedidos', icon: ShoppingCart, module: Module.ORDERS },
-      { path: '/returns', label: 'Devoluciones', icon: RotateCcw, module: Module.RETURNS },
+      { path: '/orders', label: 'Pedidos', icon: ShoppingCart, module: Module.ORDERS, tourTarget: 'sidebar-orders' },
+      { path: '/returns', label: 'Devoluciones', icon: RotateCcw, module: Module.RETURNS, tourTarget: 'sidebar-returns' },
       { path: '/incidents', label: 'Incidencias', icon: AlertCircle, module: Module.ORDERS },
-      { path: '/customers', label: 'Clientes', icon: UserCircle, module: Module.CUSTOMERS },
-      { path: '/ads', label: 'Anuncios', icon: Megaphone, module: Module.CAMPAIGNS },
+      { path: '/customers', label: 'Clientes', icon: UserCircle, module: Module.CUSTOMERS, tourTarget: 'sidebar-customers' },
+      { path: '/ads', label: 'Anuncios', icon: Megaphone, module: Module.CAMPAIGNS, tourTarget: 'sidebar-ads' },
     ],
   },
   {
     label: 'Logística',
     icon: Truck,
     items: [
-      { path: '/warehouse', label: 'Almacén', icon: Warehouse, module: Module.WAREHOUSE },
+      { path: '/warehouse', label: 'Almacén', icon: Warehouse, module: Module.WAREHOUSE, tourTarget: 'sidebar-warehouse' },
       { path: '/shipping', label: 'Despacho', icon: Send, module: Module.WAREHOUSE },
-      { path: '/merchandise', label: 'Mercadería', icon: PackageOpen, module: Module.MERCHANDISE },
-      { path: '/carriers', label: 'Transportadoras', icon: Truck, module: Module.CARRIERS },
-      { path: '/settlements', label: 'Conciliaciones', icon: DollarSign, module: Module.CARRIERS },
+      { path: '/merchandise', label: 'Mercadería', icon: PackageOpen, module: Module.MERCHANDISE, tourTarget: 'sidebar-merchandise' },
+      { path: '/carriers', label: 'Transportadoras', icon: Truck, module: Module.CARRIERS, tourTarget: 'sidebar-carriers' },
+      { path: '/settlements', label: 'Conciliaciones', icon: DollarSign, module: Module.CARRIERS, tourTarget: 'sidebar-settlements' },
     ],
   },
   {
     label: 'Inventario',
     icon: Store,
     items: [
-      { path: '/products', label: 'Productos', icon: Package, module: Module.PRODUCTS },
+      { path: '/products', label: 'Productos', icon: Package, module: Module.PRODUCTS, tourTarget: 'sidebar-products' },
       { path: '/inventory', label: 'Movimientos', icon: ClipboardList, module: Module.PRODUCTS },
-      { path: '/suppliers', label: 'Proveedores', icon: Users, module: Module.SUPPLIERS },
+      { path: '/suppliers', label: 'Proveedores', icon: Users, module: Module.SUPPLIERS, tourTarget: 'sidebar-suppliers' },
     ],
   },
   {
@@ -102,7 +103,7 @@ const menuSections: MenuSection[] = [
     icon: Settings2,
     items: [
       { path: '/additional-values', label: 'Valores Adicionales', icon: PlusCircle, module: Module.ANALYTICS },
-      { path: '/integrations', label: 'Integraciones', icon: Link2, module: Module.INTEGRATIONS },
+      { path: '/integrations', label: 'Integraciones', icon: Link2, module: Module.INTEGRATIONS, tourTarget: 'sidebar-integrations' },
       { path: '/support', label: 'Soporte', icon: HelpCircle }, // No module required - always visible
     ],
   },
@@ -320,6 +321,7 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
                       )
                     }
                     title={item.label}
+                    {...(item.tourTarget && { 'data-tour-target': item.tourTarget })}
                   >
                     <Icon size={18} className="flex-shrink-0" />
                   </NavLink>
@@ -411,6 +413,7 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
                                       : 'text-sidebar-foreground/80 hover:text-sidebar-foreground'
                                   )
                                 }
+                                {...(item.tourTarget && { 'data-tour-target': item.tourTarget })}
                               >
                                 <Icon size={16} className="flex-shrink-0" />
                                 <span className="text-sm whitespace-nowrap">{item.label}</span>

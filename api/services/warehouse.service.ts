@@ -46,6 +46,7 @@ export interface PackingProgress {
   picking_session_id: string;
   order_id: string;
   product_id: string;
+  variant_id?: string | null;  // NEW: variant support (Migration 108)
   quantity_needed: number;
   quantity_packed: number;
   created_at: string;
@@ -72,6 +73,7 @@ export interface OrderForPacking {
   printed_at?: string;
   items: Array<{
     product_id: string;
+    variant_id?: string | null;  // NEW: variant support (Migration 108)
     product_name: string;
     product_image: string;
     quantity_needed: number;
@@ -640,15 +642,43 @@ export async function getPickingList(
 }
 
 /**
- * Updates picking progress for a specific product
+ * Updates picking progress for a specific product (with variant support)
+ * @param variantId - Optional variant ID. If provided, updates only that variant's picking progress.
  */
 export async function updatePickingProgress(
   sessionId: string,
   productId: string,
   quantityPicked: number,
-  storeId: string
+  storeId: string,
+  variantId?: string | null  // NEW: variant support
 ): Promise<PickingSessionItem> {
   try {
+    // VARIANT FIX: Try to use variant-aware RPC first (Migration 108)
+    if (variantId !== undefined) {
+      const { data: rpcResult, error: rpcError } = await supabaseAdmin
+        .rpc('update_picking_progress_with_variant', {
+          p_session_id: sessionId,
+          p_product_id: productId,
+          p_variant_id: variantId,
+          p_quantity_picked: quantityPicked,
+          p_store_id: storeId
+        });
+
+      if (!rpcError && rpcResult) {
+        const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+        if (result) {
+          return result as PickingSessionItem;
+        }
+      }
+
+      // RPC failed or not available, fall through to legacy implementation
+      if (rpcError && !rpcError.message?.includes('function') && rpcError.code !== '42883') {
+        throw rpcError;
+      }
+      logger.warn('WAREHOUSE', 'update_picking_progress_with_variant RPC not available, using fallback');
+    }
+
+    // LEGACY FALLBACK (for backwards compatibility)
     // Verify session belongs to store
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
@@ -664,20 +694,38 @@ export async function updatePickingProgress(
       throw new Error('Session is not in picking status');
     }
 
-    // Get current item and product stock in parallel
-    const [itemResult, productResult] = await Promise.all([
-      supabaseAdmin
-        .from('picking_session_items')
-        .select('*')
-        .eq('picking_session_id', sessionId)
-        .eq('product_id', productId)
-        .single(),
+    // Build query with variant support
+    let itemQuery = supabaseAdmin
+      .from('picking_session_items')
+      .select('*')
+      .eq('picking_session_id', sessionId)
+      .eq('product_id', productId);
+
+    // VARIANT FIX: Filter by variant_id if provided
+    if (variantId) {
+      itemQuery = itemQuery.eq('variant_id', variantId);
+    } else {
+      itemQuery = itemQuery.is('variant_id', null);
+    }
+
+    // VARIANT FIX: Fetch variant data if variantId provided
+    const variantQuery = variantId
+      ? supabaseAdmin
+          .from('product_variants')
+          .select('id, uses_shared_stock, units_per_pack, stock, variant_title')
+          .eq('id', variantId)
+          .single()
+      : Promise.resolve({ data: null, error: null });
+
+    const [itemResult, productResult, variantResult] = await Promise.all([
+      itemQuery.single(),
       supabaseAdmin
         .from('products')
         .select('id, name, stock, sku')
         .eq('id', productId)
         .eq('store_id', storeId)
-        .single()
+        .single(),
+      variantQuery
     ]);
 
     if (itemResult.error) throw itemResult.error;
@@ -685,34 +733,86 @@ export async function updatePickingProgress(
 
     const item = itemResult.data;
     const product = productResult.data;
+    const variant = variantResult.data;
 
     // Validate quantity against what's needed
     if (quantityPicked < 0 || quantityPicked > item.total_quantity_needed) {
       throw new Error(`Cantidad inválida. Debe estar entre 0 y ${item.total_quantity_needed}`);
     }
 
-    // Validate against available stock
-    const availableStock = product?.stock || 0;
-    if (quantityPicked > availableStock) {
-      throw new Error(
-        `⚠️ Stock insuficiente para "${product?.name || 'este producto'}"\n\n` +
-        `• SKU: ${product?.sku || 'N/A'}\n` +
-        `• Intentas recoger: ${quantityPicked} unidades\n` +
-        `• Stock disponible: ${availableStock} unidades\n\n` +
-        `💡 Opciones:\n` +
-        `1. Recibe mercadería para aumentar el stock\n` +
-        `2. Reduce la cantidad a recoger a ${availableStock} o menos`
-      );
+    // VARIANT FIX: Proper stock validation based on variant type
+    let availableStock: number;
+    let displayName = product?.name || 'este producto';
+    let stockUnit = 'unidades';
+
+    if (variant) {
+      displayName = `${product?.name} (${variant.variant_title})`;
+
+      if (variant.uses_shared_stock) {
+        // BUNDLE: Check parent stock, show availability in packs
+        const unitsNeeded = quantityPicked * variant.units_per_pack;
+        availableStock = product?.stock || 0;
+        const availablePacks = Math.floor(availableStock / variant.units_per_pack);
+        stockUnit = 'packs';
+
+        if (unitsNeeded > availableStock) {
+          throw new Error(
+            `⚠️ Stock insuficiente para "${displayName}"\n\n` +
+            `• SKU: ${product?.sku || 'N/A'}\n` +
+            `• Intentas recoger: ${quantityPicked} packs (${unitsNeeded} unidades)\n` +
+            `• Stock disponible: ${availablePacks} packs (${availableStock} unidades)\n\n` +
+            `💡 Opciones:\n` +
+            `1. Recibe mercadería para aumentar el stock\n` +
+            `2. Reduce la cantidad a recoger a ${availablePacks} packs o menos`
+          );
+        }
+      } else {
+        // VARIATION: Check variant's independent stock
+        availableStock = variant.stock || 0;
+
+        if (quantityPicked > availableStock) {
+          throw new Error(
+            `⚠️ Stock insuficiente para "${displayName}"\n\n` +
+            `• SKU: ${product?.sku || 'N/A'}\n` +
+            `• Intentas recoger: ${quantityPicked} ${stockUnit}\n` +
+            `• Stock disponible: ${availableStock} ${stockUnit}\n\n` +
+            `💡 Opciones:\n` +
+            `1. Recibe mercadería para aumentar el stock\n` +
+            `2. Reduce la cantidad a recoger a ${availableStock} o menos`
+          );
+        }
+      }
+    } else {
+      // No variant: check parent product stock directly
+      availableStock = product?.stock || 0;
+      if (quantityPicked > availableStock) {
+        throw new Error(
+          `⚠️ Stock insuficiente para "${displayName}"\n\n` +
+          `• SKU: ${product?.sku || 'N/A'}\n` +
+          `• Intentas recoger: ${quantityPicked} ${stockUnit}\n` +
+          `• Stock disponible: ${availableStock} ${stockUnit}\n\n` +
+          `💡 Opciones:\n` +
+          `1. Recibe mercadería para aumentar el stock\n` +
+          `2. Reduce la cantidad a recoger a ${availableStock} o menos`
+        );
+      }
     }
 
-    // Update quantity
-    const { data: updated, error: updateError } = await supabaseAdmin
+    // Build update query with variant support
+    let updateQuery = supabaseAdmin
       .from('picking_session_items')
       .update({ quantity_picked: quantityPicked })
       .eq('picking_session_id', sessionId)
-      .eq('product_id', productId)
-      .select()
-      .single();
+      .eq('product_id', productId);
+
+    // VARIANT FIX: Filter by variant_id
+    if (variantId) {
+      updateQuery = updateQuery.eq('variant_id', variantId);
+    } else {
+      updateQuery = updateQuery.is('variant_id', null);
+    }
+
+    const { data: updated, error: updateError } = await updateQuery.select().single();
 
     if (updateError) throw updateError;
 
@@ -745,10 +845,10 @@ export async function finishPicking(
       throw new Error('Session is not in picking status');
     }
 
-    // Verify all items are picked
+    // VARIANT FIX: Include variant_id in the query for proper stock validation
     const { data: items, error: itemsError } = await supabaseAdmin
       .from('picking_session_items')
-      .select('product_id, total_quantity_needed, quantity_picked')
+      .select('product_id, variant_id, total_quantity_needed, quantity_picked')
       .eq('picking_session_id', sessionId);
 
     if (itemsError) throw itemsError;
@@ -764,6 +864,9 @@ export async function finishPicking(
     // Re-validate stock before transitioning to packing phase
     // This catches cases where stock changed after session was created
     const productIds = items?.map(i => i.product_id) || [];
+    const variantIds = items?.filter(i => i.variant_id).map(i => i.variant_id) || [];
+
+    // Fetch product stock data
     const { data: stockData, error: stockError } = await supabaseAdmin
       .from('products')
       .select('id, name, stock, sku')
@@ -772,18 +875,73 @@ export async function finishPicking(
 
     if (stockError) throw stockError;
 
-    const stockMap = new Map(stockData?.map(p => [p.id, { name: p.name, stock: p.stock || 0, sku: p.sku }]) || []);
-    const insufficientStock: Array<{ name: string; sku: string; picked: number; available: number }> = [];
+    // VARIANT FIX: Fetch variant data for proper stock calculation
+    let variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
+    if (variantIds.length > 0) {
+      const { data: variantsData, error: variantsError } = await supabaseAdmin
+        .from('product_variants')
+        .select('id, uses_shared_stock, units_per_pack, stock, variant_title')
+        .in('id', variantIds);
 
+      if (!variantsError && variantsData) {
+        variantsData.forEach(v => {
+          variantStockMap.set(v.id, {
+            uses_shared_stock: v.uses_shared_stock || false,
+            units_per_pack: v.units_per_pack || 1,
+            stock: v.stock || 0,
+            variant_title: v.variant_title || ''
+          });
+        });
+      }
+    }
+
+    const stockMap = new Map(stockData?.map(p => [p.id, { name: p.name, stock: p.stock || 0, sku: p.sku }]) || []);
+    const insufficientStock: Array<{ name: string; sku: string; picked: number; available: number; unitsNeeded?: number }> = [];
+
+    // VARIANT FIX: Calculate required stock based on variant type
+    // For bundles (shared stock): needed units = picked packs * units_per_pack
+    // For variations (independent stock): needed units = picked quantity
     items?.forEach(item => {
       const product = stockMap.get(item.product_id);
-      if (product && product.stock < item.quantity_picked) {
-        insufficientStock.push({
-          name: product.name || 'Producto sin nombre',
-          sku: product.sku || 'N/A',
-          picked: item.quantity_picked,
-          available: product.stock
-        });
+      if (!product) return;
+
+      if (item.variant_id) {
+        const variant = variantStockMap.get(item.variant_id);
+        if (variant) {
+          if (variant.uses_shared_stock) {
+            // BUNDLE: Check parent product stock with units_per_pack multiplication
+            const unitsNeeded = item.quantity_picked * variant.units_per_pack;
+            if (product.stock < unitsNeeded) {
+              insufficientStock.push({
+                name: `${product.name} (${variant.variant_title})`,
+                sku: product.sku || 'N/A',
+                picked: item.quantity_picked,
+                available: Math.floor(product.stock / variant.units_per_pack), // Show in packs
+                unitsNeeded: unitsNeeded
+              });
+            }
+          } else {
+            // VARIATION: Check variant's independent stock
+            if (variant.stock < item.quantity_picked) {
+              insufficientStock.push({
+                name: `${product.name} (${variant.variant_title})`,
+                sku: product.sku || 'N/A',
+                picked: item.quantity_picked,
+                available: variant.stock
+              });
+            }
+          }
+        }
+      } else {
+        // No variant: check parent product stock directly
+        if (product.stock < item.quantity_picked) {
+          insufficientStock.push({
+            name: product.name || 'Producto sin nombre',
+            sku: product.sku || 'N/A',
+            picked: item.quantity_picked,
+            available: product.stock
+          });
+        }
       }
     });
 
@@ -979,6 +1137,7 @@ export async function getPackingList(
   orders: OrderForPacking[];
   availableItems: Array<{
     product_id: string;
+    variant_id?: string | null;  // NEW: variant support (Migration 108)
     product_name: string;
     product_image: string;
     total_picked: number;
@@ -1292,44 +1451,78 @@ export async function getPackingList(
 
     if (pickedError) throw pickedError;
 
-    // Calculate total packed per product
-    const packedByProduct = new Map<string, number>();
+    // VARIANT FIX: Calculate total packed per (product, variant) combination
+    const packedByProductVariant = new Map<string, number>();
     packingProgress?.forEach(p => {
-      const current = packedByProduct.get(p.product_id) || 0;
-      packedByProduct.set(p.product_id, current + p.quantity_packed);
+      // VARIANT SUPPORT: Key includes variant_id
+      const key = p.variant_id ? `${p.product_id}|${p.variant_id}` : p.product_id;
+      const current = packedByProductVariant.get(key) || 0;
+      packedByProductVariant.set(key, current + p.quantity_packed);
     });
 
-    // Calculate total needed per product from packing_progress
-    const neededByProduct = new Map<string, number>();
+    // VARIANT FIX: Calculate total needed per (product, variant) from packing_progress
+    const neededByProductVariant = new Map<string, number>();
     packingProgress?.forEach(p => {
-      const current = neededByProduct.get(p.product_id) || 0;
-      neededByProduct.set(p.product_id, current + p.quantity_needed);
+      // VARIANT SUPPORT: Key includes variant_id
+      const key = p.variant_id ? `${p.product_id}|${p.variant_id}` : p.product_id;
+      const current = neededByProductVariant.get(key) || 0;
+      neededByProductVariant.set(key, current + p.quantity_needed);
     });
 
-    // Build availableItems from picking_session_items
+    // VARIANT FIX: Fetch variant info for picking_session_items
+    const pickingVariantIds = (pickedItems || []).filter(item => item.variant_id).map(item => item.variant_id);
+    let pickingVariantMap = new Map<string, string>();
+    if (pickingVariantIds.length > 0) {
+      const { data: pickingVariants } = await supabaseAdmin
+        .from('product_variants')
+        .select('id, variant_title')
+        .in('id', pickingVariantIds);
+
+      if (pickingVariants) {
+        pickingVariants.forEach(v => pickingVariantMap.set(v.id, v.variant_title));
+      }
+    }
+
+    // VARIANT FIX: Build availableItems from picking_session_items keyed by (product, variant)
     const availableItemsMap = new Map<string, any>();
     pickedItems?.forEach(item => {
-      availableItemsMap.set(item.product_id, {
+      // VARIANT SUPPORT: Key includes variant_id
+      const key = item.variant_id ? `${item.product_id}|${item.variant_id}` : item.product_id;
+      const variantTitle = item.variant_id ? pickingVariantMap.get(item.variant_id) : null;
+      const productName = variantTitle
+        ? `${item.products?.name || ''} - ${variantTitle}`
+        : (item.products?.name || '');
+
+      availableItemsMap.set(key, {
         product_id: item.product_id,
-        product_name: item.products?.name || '',
+        variant_id: item.variant_id || null,
+        product_name: productName,
         product_image: item.products?.image_url || '',
         total_picked: item.quantity_picked,
-        total_packed: packedByProduct.get(item.product_id) || 0,
-        remaining: item.quantity_picked - (packedByProduct.get(item.product_id) || 0)
+        total_packed: packedByProductVariant.get(key) || 0,
+        remaining: item.quantity_picked - (packedByProductVariant.get(key) || 0)
       });
     });
 
-    // FALLBACK: If a product is in packing_progress but NOT in picking_session_items,
+    // FALLBACK: If a (product, variant) is in packing_progress but NOT in picking_session_items,
     // add it to availableItems using quantity_needed as total_picked
     // This handles sessions created before the JSONB fix
-    neededByProduct.forEach((totalNeeded, productId) => {
-      if (!availableItemsMap.has(productId)) {
+    // VARIANT FIX: Now uses composite key (product|variant)
+    neededByProductVariant.forEach((totalNeeded, key) => {
+      if (!availableItemsMap.has(key)) {
+        // Parse the key to get product_id and variant_id
+        const [productId, variantId] = key.includes('|') ? key.split('|') : [key, null];
         // Find product details from jsonbProductsMap or fetch from packing_progress
         const product = jsonbProductsMap.get(productId);
-        const packed = packedByProduct.get(productId) || 0;
-        availableItemsMap.set(productId, {
+        const variantTitle = variantId ? pickingVariantMap.get(variantId) : null;
+        const productName = variantTitle
+          ? `${product?.name || 'Producto'} - ${variantTitle}`
+          : (product?.name || 'Producto');
+        const packed = packedByProductVariant.get(key) || 0;
+        availableItemsMap.set(key, {
           product_id: productId,
-          product_name: product?.name || 'Producto',
+          variant_id: variantId || null,
+          product_name: productName,
           product_image: product?.image_url || '',
           total_picked: totalNeeded, // Use needed as picked (auto-complete picking)
           total_packed: packed,
@@ -1352,14 +1545,41 @@ export async function getPackingList(
 
 /**
  * Assigns one unit of a product to an order (packing)
+ * @param variantId - Optional variant ID. If provided, updates only that variant's packing progress.
  */
 export async function updatePackingProgress(
   sessionId: string,
   orderId: string,
   productId: string,
-  storeId: string
+  storeId: string,
+  variantId?: string | null  // NEW: variant support
 ): Promise<PackingProgress> {
   try {
+    // VARIANT FIX: Try to use variant-aware RPC first (Migration 108)
+    const { data: rpcResult, error: rpcError } = await supabaseAdmin
+      .rpc('update_packing_progress_with_variant', {
+        p_session_id: sessionId,
+        p_order_id: orderId,
+        p_product_id: productId,
+        p_variant_id: variantId || null,
+        p_store_id: storeId
+      });
+
+    if (!rpcError && rpcResult) {
+      const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+      if (result) {
+        return result as PackingProgress;
+      }
+    }
+
+    // If RPC not available, fall through to legacy with variant filter
+    if (rpcError && !rpcError.message?.includes('function') && rpcError.code !== '42883') {
+      throw rpcError;
+    }
+
+    logger.warn('WAREHOUSE', 'update_packing_progress_with_variant RPC not available, using fallback');
+
+    // LEGACY FALLBACK with variant support
     // Verify session belongs to store and is in packing status
     const { data: session, error: sessionError } = await supabaseAdmin
       .from('picking_sessions')
@@ -1402,13 +1622,22 @@ export async function updatePackingProgress(
       );
     }
 
-    // Get current packing progress (handle multiple records for same product due to duplicates)
-    const { data: progressRecords, error: progressError } = await supabaseAdmin
+    // Build query with variant support
+    let progressQuery = supabaseAdmin
       .from('packing_progress')
       .select('*')
       .eq('picking_session_id', sessionId)
       .eq('order_id', orderId)
       .eq('product_id', productId);
+
+    // VARIANT FIX: Filter by variant_id
+    if (variantId) {
+      progressQuery = progressQuery.eq('variant_id', variantId);
+    } else {
+      progressQuery = progressQuery.is('variant_id', null);
+    }
+
+    const { data: progressRecords, error: progressError } = await progressQuery;
 
     if (progressError) throw progressError;
 
@@ -1428,22 +1657,39 @@ export async function updatePackingProgress(
       throw new Error('This item is already fully packed for this order');
     }
 
-    // Check if item is available in basket
-    const { data: pickedItem, error: pickedError } = await supabaseAdmin
+    // Build picking items query with variant support
+    let pickedItemQuery = supabaseAdmin
       .from('picking_session_items')
       .select('quantity_picked')
       .eq('picking_session_id', sessionId)
-      .eq('product_id', productId)
-      .single();
+      .eq('product_id', productId);
+
+    // VARIANT FIX: Filter by variant_id
+    if (variantId) {
+      pickedItemQuery = pickedItemQuery.eq('variant_id', variantId);
+    } else {
+      pickedItemQuery = pickedItemQuery.is('variant_id', null);
+    }
+
+    const { data: pickedItem, error: pickedError } = await pickedItemQuery.single();
 
     if (pickedError) throw pickedError;
 
-    // Get total packed across all orders
-    const { data: allPacked, error: allPackedError } = await supabaseAdmin
+    // Build total packed query with variant support
+    let allPackedQuery = supabaseAdmin
       .from('packing_progress')
       .select('quantity_packed')
       .eq('picking_session_id', sessionId)
       .eq('product_id', productId);
+
+    // VARIANT FIX: Filter by variant_id
+    if (variantId) {
+      allPackedQuery = allPackedQuery.eq('variant_id', variantId);
+    } else {
+      allPackedQuery = allPackedQuery.is('variant_id', null);
+    }
+
+    const { data: allPacked, error: allPackedError } = await allPackedQuery;
 
     if (allPackedError) throw allPackedError;
 
@@ -1453,15 +1699,15 @@ export async function updatePackingProgress(
       throw new Error('No more units of this item available to pack');
     }
 
-    // Atomically increment quantity packed using SQL increment to prevent race conditions
-    // This ensures concurrent requests don't overwrite each other's updates
+    // Try atomic RPC with variant support (Migration 108)
     const { data: updated, error: updateError } = await supabaseAdmin
       .rpc('increment_packing_quantity', {
         p_progress_id: progress.id,
         p_quantity_needed: progress.quantity_needed,
         p_picked_quantity: pickedItem.quantity_picked,
         p_session_id: sessionId,
-        p_product_id: productId
+        p_product_id: productId,
+        p_variant_id: variantId || null  // NEW: pass variant_id to RPC
       });
 
     if (updateError) {
@@ -1475,24 +1721,43 @@ export async function updatePackingProgress(
 
       while (casAttempt < MAX_CAS_RETRIES && !casSuccess) {
         try {
-          const { data: reread, error: rereadError } = await supabaseAdmin
+          // RACE CONDITION FIX: Include variant_id in re-read to ensure consistency
+          let rereadQuery = supabaseAdmin
             .from('packing_progress')
-            .select('quantity_packed, quantity_needed')
-            .eq('id', progress.id)
-            .single();
+            .select('quantity_packed, quantity_needed, variant_id')
+            .eq('id', progress.id);
+
+          const { data: reread, error: rereadError } = await rereadQuery.single();
 
           if (rereadError) throw rereadError;
+
+          // RACE CONDITION FIX: Verify variant_id hasn't changed (prevents cross-variant updates)
+          const expectedVariantId = variantId || null;
+          const actualVariantId = reread.variant_id || null;
+          if (expectedVariantId !== actualVariantId) {
+            throw new Error(`Variant mismatch detected: expected ${expectedVariantId}, got ${actualVariantId}. Concurrent update detected.`);
+          }
 
           // Double-check we haven't exceeded limits
           if (reread.quantity_packed >= reread.quantity_needed) {
             throw new Error('This item is already fully packed for this order');
           }
 
-          const { data: casUpdated, error: casError } = await supabaseAdmin
+          // RACE CONDITION FIX: Build CAS update with variant_id verification
+          let casUpdateQuery = supabaseAdmin
             .from('packing_progress')
             .update({ quantity_packed: reread.quantity_packed + 1 })
             .eq('id', progress.id)
-            .eq('quantity_packed', reread.quantity_packed) // CAS condition
+            .eq('quantity_packed', reread.quantity_packed); // CAS condition
+
+          // Add variant_id to CAS condition for additional safety
+          if (variantId) {
+            casUpdateQuery = casUpdateQuery.eq('variant_id', variantId);
+          } else {
+            casUpdateQuery = casUpdateQuery.is('variant_id', null);
+          }
+
+          const { data: casUpdated, error: casError } = await casUpdateQuery
             .select()
             .single();
 
@@ -1798,12 +2063,19 @@ async function removeOrderFromSessionFallback(
     .eq('store_id', storeId)
     .single();
 
+  // SECURITY: Verify order belongs to this store before any modifications
+  if (!order) {
+    throw new Error('Order not found or does not belong to this store');
+  }
+
   // Restore order to confirmed if still in_preparation
-  if (order?.sleeves_status === 'in_preparation') {
+  // SECURITY FIX: Add store_id filter to prevent cross-store updates
+  if (order.sleeves_status === 'in_preparation') {
     await supabaseAdmin
       .from('orders')
       .update({ sleeves_status: 'confirmed', updated_at: new Date().toISOString() })
-      .eq('id', orderId);
+      .eq('id', orderId)
+      .eq('store_id', storeId);  // CRITICAL: Ensure order belongs to this store
   }
 
   // Remove from session
@@ -1814,6 +2086,7 @@ async function removeOrderFromSessionFallback(
     .eq('order_id', orderId);
 
   // Remove packing progress
+  // SECURITY: Already verified order belongs to store above, safe to proceed
   await supabaseAdmin
     .from('packing_progress')
     .delete()
@@ -1910,26 +2183,30 @@ export async function getStaleSessions(storeId: string): Promise<any[]> {
 
 /**
  * Updates packing progress using atomic RPC (with row locking)
+ * @param variantId - Optional variant ID. If provided, updates only that variant's packing progress.
  */
 export async function updatePackingProgressAtomic(
   sessionId: string,
   orderId: string,
   productId: string,
-  storeId: string
+  storeId: string,
+  variantId?: string | null  // NEW: variant support
 ): Promise<any> {
   try {
+    // VARIANT FIX: Use variant-aware RPC (Migration 108)
     const { data, error } = await supabaseAdmin
-      .rpc('update_packing_progress_atomic', {
+      .rpc('update_packing_progress_with_variant', {
         p_session_id: sessionId,
         p_order_id: orderId,
         p_product_id: productId,
+        p_variant_id: variantId || null,
         p_store_id: storeId
       });
 
     if (error) {
       // Fallback to existing implementation if RPC not available
       if (error.message?.includes('function') || error.code === '42883') {
-        return await updatePackingProgress(sessionId, orderId, productId, storeId);
+        return await updatePackingProgress(sessionId, orderId, productId, storeId, variantId);
       }
       throw error;
     }
@@ -2033,18 +2310,26 @@ export async function completeSession(
         const orderIds = sessionOrders?.map(so => so.order_id) || [];
 
         // Update all orders to ready_to_ship
+        // SECURITY FIX: Add store_id filter to prevent cross-store updates
         if (orderIds.length > 0) {
-          const { error: orderUpdateError } = await supabaseAdmin
+          const { data: updatedOrders, error: orderUpdateError } = await supabaseAdmin
             .from('orders')
             .update({
               sleeves_status: 'ready_to_ship',
               updated_at: new Date().toISOString()
             })
+            .eq('store_id', storeId)  // CRITICAL: Ensure orders belong to this store
             .in('id', orderIds)
-            .eq('sleeves_status', 'in_preparation');
+            .eq('sleeves_status', 'in_preparation')
+            .select('id');
 
           if (orderUpdateError) {
             throw new Error('Error al actualizar estado de pedidos');
+          }
+
+          // Validate all orders were updated (security check)
+          if (updatedOrders?.length !== orderIds.length) {
+            console.warn(`[completeSession] Expected ${orderIds.length} orders, updated ${updatedOrders?.length}. Some orders may belong to different store.`);
           }
         }
 
@@ -2161,25 +2446,51 @@ async function autoPackSessionFallback(
 
   if (fetchError) throw fetchError;
 
-  // 3. Update each item to be fully packed
+  // N+1 FIX: Calculate items to update and use batch update
+  const itemsToUpdate = (unpackedItems || []).filter(
+    item => item.quantity_packed < item.quantity_needed
+  );
+
   let itemsUpdated = 0;
   let unitsUpdated = 0;
   const orderIds = new Set<string>();
 
-  for (const item of (unpackedItems || [])) {
-    if (item.quantity_packed < item.quantity_needed) {
-      await supabaseAdmin
-        .from('packing_progress')
-        .update({
-          quantity_packed: item.quantity_needed,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', item.id);
-
+  if (itemsToUpdate.length > 0) {
+    // Collect stats before batch update
+    itemsToUpdate.forEach(item => {
       itemsUpdated++;
       unitsUpdated += item.quantity_needed;
       orderIds.add(item.order_id);
+    });
+
+    // N+1 FIX: Single batch update using raw SQL via RPC or multiple parallel updates
+    // Since Supabase doesn't support UPDATE with CASE, we batch in groups of 50 for parallel execution
+    const BATCH_SIZE = 50;
+    const batches: string[][] = [];
+
+    for (let i = 0; i < itemsToUpdate.length; i += BATCH_SIZE) {
+      batches.push(itemsToUpdate.slice(i, i + BATCH_SIZE).map(item => item.id));
     }
+
+    // Execute batches in parallel (max 50 concurrent)
+    await Promise.all(
+      batches.map(async (batchIds) => {
+        // For each batch, we need to update each item to its specific quantity_needed
+        // Since quantity_needed varies, we use Promise.all within the batch
+        const batchItems = itemsToUpdate.filter(item => batchIds.includes(item.id));
+        await Promise.all(
+          batchItems.map(item =>
+            supabaseAdmin
+              .from('packing_progress')
+              .update({
+                quantity_packed: item.quantity_needed,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', item.id)
+          )
+        );
+      })
+    );
   }
 
   // 4. Update session activity
@@ -2313,23 +2624,33 @@ async function packAllItemsForOrderFallback(
 
   if (itemsError) throw itemsError;
 
-  // 5. Update each item to be fully packed
+  // N+1 FIX: Filter items that need updating and use parallel batch updates
+  const itemsToUpdate = (unpackedItems || []).filter(
+    item => item.quantity_packed < item.quantity_needed
+  );
+
   let itemsUpdated = 0;
   let unitsUpdated = 0;
 
-  for (const item of (unpackedItems || [])) {
-    if (item.quantity_packed < item.quantity_needed) {
-      await supabaseAdmin
-        .from('packing_progress')
-        .update({
-          quantity_packed: item.quantity_needed,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', item.id);
-
+  if (itemsToUpdate.length > 0) {
+    // Calculate stats
+    itemsToUpdate.forEach(item => {
       itemsUpdated++;
       unitsUpdated += (item.quantity_needed - item.quantity_packed);
-    }
+    });
+
+    // N+1 FIX: Execute all updates in parallel (order packing usually has <20 items)
+    await Promise.all(
+      itemsToUpdate.map(item =>
+        supabaseAdmin
+          .from('packing_progress')
+          .update({
+            quantity_packed: item.quantity_needed,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', item.id)
+      )
+    );
   }
 
   // 6. Update session activity

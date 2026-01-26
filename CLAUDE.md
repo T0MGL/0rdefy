@@ -243,7 +243,7 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
 
 **Features:** Batch processing, auto-generated codes (PREP-DDMMYYYY-NNN format, e.g., PREP-12012026-001), progress tracking, order transitions (confirmed → in_preparation → ready_to_ship), touch-optimized, automatic stock management, **concurrent packing protection** (race-condition safe)
 
-**Tables:** picking_sessions (with last_activity_at, abandoned_at columns), picking_session_orders, picking_session_items, packing_progress
+**Tables:** picking_sessions (with last_activity_at, abandoned_at columns), picking_session_orders, picking_session_items (with variant_id), packing_progress (with variant_id - Migration 108)
 
 **Session Management (Migration 058):**
 - **Session Abandonment:** `POST /api/warehouse/sessions/:id/abandon` restores orders to confirmed
@@ -333,6 +333,20 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
   - Empty sessions automatically abandoned
   - Stock deduction still works correctly (via migration 098)
   - Atomic RPCs with fallback support
+- ✅ **NEW: Critical Variant & Stock Fixes (migration 107):**
+  - Stock trigger now handles 'delivered' status (supports direct delivery workflow)
+  - Properly captures `units_per_pack` when deducting shared stock for bundles
+  - Backfills existing order_line_items with correct `units_per_pack` values
+  - New monitoring view `v_orders_stock_status` for debugging
+  - Helper function `get_orders_missing_stock_deduction()` for diagnostics
+- ✅ **NEW: Complete Warehouse Variant Support (migration 108):**
+  - Added `variant_id` column to `packing_progress` table
+  - Variant-aware UNIQUE constraints using COALESCE for NULL safety
+  - New RPCs: `update_packing_progress_with_variant`, `update_picking_progress_with_variant`
+  - Updated `increment_packing_quantity` RPC with variant_id parameter
+  - API endpoints now accept `variantId` in request body
+  - Monitoring view `v_warehouse_variant_status` for debugging variant issues
+  - Service layer with automatic RPC fallback for backwards compatibility
 
 ### Merchandise (Inbound Shipments)
 **Files:** `src/pages/Merchandise.tsx`, `api/routes/merchandise.ts`, `db/migrations/011_merchandise_system.sql`, `db/migrations/062_merchandise_system_production_fixes.sql`
@@ -428,7 +442,7 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
 ```
 
 ### Returns System (Batch Returns Processing)
-**Files:** `src/pages/Returns.tsx`, `api/routes/returns.ts`, `api/services/returns.service.ts`, `db/migrations/022_returns_system.sql`
+**Files:** `src/pages/Returns.tsx`, `api/routes/returns.ts`, `api/services/returns.service.ts`, `db/migrations/022_returns_system.sql`, `db/migrations/110_returns_variant_support.sql`
 
 **Workflow:**
 1. Select eligible orders (delivered, shipped, or cancelled)
@@ -440,18 +454,22 @@ const isVariation = (v: ProductVariant): v is VariationVariant => v.variant_type
 - Batch processing of multiple returns in single session
 - Item-level acceptance/rejection with reasons (damaged, defective, incomplete, wrong_item, other)
 - Automatic inventory restoration for accepted items
+- **Variant-aware stock restoration** (Migration 110): bundles restore `qty * units_per_pack` to parent, variations restore to variant's own stock
 - Audit trail in `inventory_movements` table
 - Session progress tracking
 - Rejection notes for quality control
 - **Order uniqueness constraint** - An order can only be in ONE active return session (in_progress/completed)
 - **Auto-cleanup on cancel** - Cancelled sessions release orders for re-processing
 
-**Tables:** return_sessions, return_session_orders, return_session_items
-**Functions:** generate_return_session_code, complete_return_session, prevent_duplicate_return_orders, cleanup_cancelled_return_session_orders
+**Tables:** return_sessions, return_session_orders, return_session_items (with variant_id, variant_type, units_per_pack - Migration 110)
+**Functions:** generate_return_session_code, complete_return_session (variant-aware - Migration 110), prevent_duplicate_return_orders, cleanup_cancelled_return_session_orders
 **Triggers:** trigger_prevent_duplicate_return_orders, trigger_cleanup_cancelled_returns
+**Views:** v_returns_variant_status (Migration 110)
 
 **Integration with Inventory:**
 - Accepted items → stock incremented + logged as 'return_accepted'
+- **Bundle returns** → `quantity * units_per_pack` physical units restored to parent product via `restore_shared_stock_for_variant()`
+- **Variation returns** → quantity restored to variant's own independent stock via `restore_shared_stock_for_variant()`
 - Rejected items → no stock change + logged as 'return_rejected' with reason
 - Order status updated to 'returned' on session completion
 
@@ -1030,6 +1048,126 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 - Orders/Products/Customers/Warehouse: FirstTimeWelcomeBanner at page top
 - Empty states: EnhancedEmptyState with contextual tips
 
+### Demo Tour System (Interactive Onboarding) - NEW: Jan 2026
+**Files:** `src/components/demo-tour/DemoTourProvider.tsx`, `src/components/demo-tour/DemoTourOverlay.tsx`, `src/components/demo-tour/DemoTourTooltip.tsx`, `src/components/demo-tour/DemoTourProgress.tsx`, `src/components/demo-tour/tourTargets.ts`
+
+**Features:**
+- Interactive guided tour with spotlight highlighting of UI elements
+- Role-based tour paths: owner/admin (manual/shopify), logistics, confirmador, inventario, contador
+- SVG mask-based spotlight with animated glow border
+- Lazy-loaded interactive step components for hands-on learning
+- Tour persistence in localStorage (can resume after page refresh)
+- Keyboard navigation (Enter, Arrow keys)
+- Demo data creation and cleanup
+
+**Tour Modes:**
+| Role | Tour Path | Steps | Interactive |
+|------|-----------|-------|-------------|
+| Owner/Admin | Manual | 12 steps | Create carrier, product, order, picking, packing, dispatch |
+| Owner/Admin | Shopify | 7 steps | Connect Shopify, import data, view orders |
+| Logistics | Collaborator | 6 steps | Warehouse, picking, packing, returns |
+| Confirmador | Collaborator | 6 steps | Orders, confirmation, WhatsApp, customers |
+| Inventario | Collaborator | 5 steps | Products, merchandise, suppliers |
+| Contador | Collaborator | 5 steps | Dashboard, orders (view), campaigns |
+
+**Spotlight System:**
+- `data-tour-target` attributes on UI elements for targeting
+- Automatic element tracking with retry logic (max 30 retries)
+- Scroll into view for off-screen elements
+- Click blockers prevent interaction outside spotlight
+- Graceful fallback to full dark overlay when element not found
+
+**Tour Targets (tourTargets.ts):**
+```typescript
+TOUR_TARGETS = {
+  SIDEBAR_ORDERS: '[data-tour-target="sidebar-orders"]',
+  SIDEBAR_WAREHOUSE: '[data-tour-target="sidebar-warehouse"]',
+  // ... all sidebar items
+  NEW_ORDER_BUTTON: '[data-tour-target="new-order-button"]',
+  ORDERS_TABLE: '[data-tour-target="orders-table"]',
+  // ... page elements
+}
+```
+
+**Components:**
+- `DemoTourProvider` - Tour state management (context)
+- `DemoTourOverlay` - Dark overlay with SVG mask spotlight cutout
+- `DemoTourTooltip` - Tooltip/modal content with navigation
+- `DemoTourProgress` - Progress bar at top during tour
+- `DemoTour` - Main entry component (lazy loaded)
+
+**Interactive Step Components:**
+- `CarrierStep` - Create demo carrier with zones
+- `ProductStep` - Create demo product
+- `OrderStep` - Create demo order
+- `ConfirmStep` - Confirm and send WhatsApp
+- `WarehouseStep` - Picking and packing demo
+- `LabelStep` - Print shipping label
+- `DispatchStep` - Create dispatch session
+- `MerchandiseStep` - Receive merchandise
+- `ShopifyStep` - Connect Shopify
+- `CompletionStep` - Tour completion
+
+**Storage Keys:**
+- `ordefy_demo_tour_completed` - Tour completion status
+- `ordefy_demo_tour_step` - Current step index
+- `ordefy_demo_tour_path` - Selected tour path (shopify/manual/collaborator)
+- `ordefy_demo_tour_data` - Demo data (carrier, product, order IDs)
+- `ordefy_demo_tour_pending` - Trigger to auto-start tour
+
+**Triggering Tour:**
+```typescript
+import { setTourPending } from '@/components/demo-tour';
+setTourPending(); // Triggers tour on next page load
+```
+
+### Mobile Bottom Navigation System - NEW: Jan 2026
+**Files:** `src/components/MobileBottomNav.tsx`, `src/App.tsx`, `src/components/Header.tsx`
+
+**Purpose:** Provide seamless mobile navigation experience with role-based intelligent tabs. Replaces desktop sidebar on mobile devices (< lg breakpoint).
+
+**Architecture:**
+- **Desktop (lg+):** Traditional sidebar navigation (hover-expandable)
+- **Mobile (< lg):** Bottom tab navigation with "Más" sheet for full menu
+
+**Role-Based Tab Configuration:**
+| Role | Tab 1 | Tab 2 | Tab 3 | Tab 4 |
+|------|-------|-------|-------|-------|
+| **Owner/Admin** | Dashboard | Pedidos | Almacén | Más |
+| **Logistics** | Almacén | Pedidos | Devoluciones | Más |
+| **Confirmador** | Pedidos | Clientes | Dashboard | Más |
+| **Contador** | Dashboard | Pedidos | Anuncios | Más |
+| **Inventario** | Productos | Mercadería | Proveedores | Más |
+
+**Features:**
+- Glassmorphism design with backdrop blur
+- iOS safe area support (`env(safe-area-inset-bottom)`)
+- Touch feedback animations (active:scale-95)
+- Framer Motion spring animations for active states
+- Sheet component for "Más" menu with drag handle
+- Plan-locked items show upgrade modal
+- Permission-filtered navigation items
+- Automatic active state detection
+
+**Components:**
+- `MobileBottomNav` - Main bottom navigation bar (hidden on lg+)
+- "Más" Sheet - Bottom sheet with full navigation (70vh height)
+
+**Layout Changes:**
+- `AppLayout` wraps sidebar in `hidden lg:block`
+- Main content has `pb-24 lg:pb-6` for bottom nav spacing
+- Header shows StoreSwitcher on left for mobile context
+
+**CSS Classes:**
+```css
+/* Bottom nav container */
+.bg-card/95 backdrop-blur-lg border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)]
+
+/* Touch feedback */
+.active:scale-95 transition-transform
+.active:scale-[0.98] /* Sheet items */
+```
+
 ## Database Schema
 
 **Master Migration:** `000_MASTER_MIGRATION.sql` (idempotent, all-in-one)
@@ -1155,6 +1293,7 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - ✅ **NEW: Onboarding & Activation System** (setup checklist, first-time tooltips, contextual empty states)
 - ✅ **NEW: Product System Production Fixes** (validation, safe deletion, sync monitoring)
 - ✅ **NEW: Pickup Orders / Retiro en Local** (confirm orders without carrier, zero shipping cost, excluded from dispatch)
+- ✅ **NEW: Mobile Bottom Navigation** (role-based intelligent tabs, glassmorphism design, seamless UX)
 
 **Coming Soon:**
 - 2FA authentication
@@ -1234,3 +1373,6 @@ Period-over-period comparisons: Current 7 days vs previous 7 days
 - 100: **NEW:** Delivery-based reconciliation system (simpler UX - groups by delivered_at instead of dispatch session, unified #XXXX order identifiers, 2-step reconciliation flow)
 - 102: **NEW:** Orphan session auto-cleanup (trigger removes orders from picking sessions when status changes outside warehouse flow, handles shipped/delivered/cancelled, auto-abandons empty sessions, stock deduction unaffected)
 - 103: **NEW:** Onboarding seamless UX fixes (optimized N+1 queries to single query, get_batch_tip_states for prefetching, DB as single source of truth, moduleVisitCounts and firstActionsCompleted in API response, performance indexes)
+- 107: **NEW:** Critical variant and stock fixes (stock trigger now handles 'delivered' status for direct delivery workflow, captures units_per_pack in order_line_items, backfills existing data, v_orders_stock_status monitoring view)
+- 108: **NEW:** Complete warehouse variant support (packing_progress.variant_id column, variant-aware UNIQUE constraints using COALESCE, variant-aware RPCs: update_packing_progress_with_variant, update_picking_progress_with_variant, increment_packing_quantity with variant_id, v_warehouse_variant_status monitoring view)
+- 110: **NEW:** Returns variant & bundle support (variant_id/variant_type/units_per_pack columns on return_session_items, variant-aware complete_return_session() using restore_shared_stock_for_variant(), v_returns_variant_status monitoring view, backfill from order_line_items)

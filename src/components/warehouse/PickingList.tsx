@@ -1,6 +1,7 @@
 /**
  * PickingList Component
  * New picking interface with order-first approach and direct controls
+ * UPDATED: Jan 2026 - Full variant support (Migration 108)
  */
 
 import { useState, useMemo, useCallback } from 'react';
@@ -29,6 +30,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type { PickingSessionItem } from '@/services/warehouse.service';
+import { getProductVariantKey } from '@/services/warehouse.service';
 
 interface PickingListProps {
   items: PickingSessionItem[];
@@ -37,7 +39,7 @@ interface PickingListProps {
     order_number: string;
     customer_name: string;
   }>;
-  onUpdateQuantity: (productId: string, quantity: number) => Promise<void>;
+  onUpdateQuantity: (productId: string, quantity: number, variantId?: string | null) => Promise<void>;
   onFinishPicking: () => Promise<void>;
   loading?: boolean;
 }
@@ -68,19 +70,20 @@ export function PickingList({
 
   const allPicked = progress.itemsComplete === progress.totalItems && items.length > 0;
 
-  // Handle quantity update with loading state
-  const handleUpdateQuantity = useCallback(async (productId: string, quantity: number) => {
-    setUpdatingProduct(productId);
+  // Handle quantity update with loading state - now passes variantId (Migration 108)
+  const handleUpdateQuantity = useCallback(async (productId: string, quantity: number, variantId?: string | null) => {
+    const compositeKey = getProductVariantKey(productId, variantId);
+    setUpdatingProduct(compositeKey);
     try {
-      await onUpdateQuantity(productId, quantity);
+      await onUpdateQuantity(productId, quantity, variantId);
     } finally {
       setUpdatingProduct(null);
     }
   }, [onUpdateQuantity]);
 
-  // Complete all for a product
+  // Complete all for a product - passes variantId (Migration 108)
   const handleCompleteProduct = useCallback(async (item: PickingSessionItem) => {
-    await handleUpdateQuantity(item.product_id, item.total_quantity_needed);
+    await handleUpdateQuantity(item.product_id, item.total_quantity_needed, item.variant_id);
   }, [handleUpdateQuantity]);
 
   return (
@@ -157,7 +160,9 @@ export function PickingList({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {items.map(item => {
           const isComplete = item.quantity_picked >= item.total_quantity_needed;
-          const isUpdating = updatingProduct === item.product_id;
+          // VARIANT FIX: Use composite key for loading state (Migration 108)
+          const itemKey = getProductVariantKey(item.product_id, item.variant_id);
+          const isUpdating = updatingProduct === itemKey;
 
           return (
             <Card
@@ -186,6 +191,11 @@ export function PickingList({
                   <h3 className="font-semibold text-sm line-clamp-2 mb-1">
                     {item.product_name}
                   </h3>
+                  {item.variant_title && (
+                    <Badge variant="outline" className="text-xs mb-1">
+                      {item.variant_title}
+                    </Badge>
+                  )}
                   {item.product_sku && (
                     <p className="text-xs text-muted-foreground">
                       SKU: {item.product_sku}
@@ -252,7 +262,8 @@ export function PickingList({
                       size="lg"
                       onClick={() => handleUpdateQuantity(
                         item.product_id,
-                        Math.max(0, item.quantity_picked - 1)
+                        Math.max(0, item.quantity_picked - 1),
+                        item.variant_id
                       )}
                       disabled={item.quantity_picked === 0 || isUpdating}
                       className="flex-1 h-10"
@@ -265,7 +276,8 @@ export function PickingList({
                       size="lg"
                       onClick={() => handleUpdateQuantity(
                         item.product_id,
-                        Math.min(item.total_quantity_needed, item.quantity_picked + 1)
+                        Math.min(item.total_quantity_needed, item.quantity_picked + 1),
+                        item.variant_id
                       )}
                       disabled={item.quantity_picked >= item.total_quantity_needed || isUpdating}
                       className="flex-1 h-10"
