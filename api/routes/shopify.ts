@@ -567,6 +567,13 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
     if (lockResult.is_duplicate) {
       logger.warn('SHOPIFY', `Duplicate webhook (atomic check): ${idempotencyKey}`);
       await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
+
+      // FIX: Retry n8n if the order was saved but n8n failed (fire-and-forget)
+      const webhookServiceRetry = new ShopifyWebhookService(supabaseAdmin);
+      webhookServiceRetry.retryN8nIfNeeded(orderId, req.body, storeId!).catch(e =>
+        logger.error('SHOPIFY', 'n8n retry on duplicate webhook failed:', e)
+      );
+
       return res.status(200).json({
         success: true,
         message: 'Already processed',

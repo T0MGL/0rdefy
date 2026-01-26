@@ -152,24 +152,13 @@ export class ShopifyImportService {
     let hasMore = true;
     let pageInfo: string | undefined;
     let processedCount = 0;
+    let failedCount = 0; // FIX: Local counter instead of stale job.failed_items
     const importedProducts: Array<{ id: string; stock: number; name: string; cost: number }> = [];
 
-    // Get total count estimate
-    let totalEstimate = 0;
-    try {
-      logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Getting product count estimate...`);
-      const { products: sampleProducts } = await this.shopifyClient.getProducts({ limit: 1 });
-      if (sampleProducts.length > 0) {
-        totalEstimate = sampleProducts[0].id;
-        logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Estimated total products: ~${totalEstimate}`);
-      }
-    } catch (error) {
-      logger.warn('SERVICE', '⚠️  [SHOPIFY-IMPORT] Could not estimate product count:', error);
-    }
-
-    if (totalEstimate > 0) {
-      await this.updateJobProgress(job.id, { total_items: totalEstimate });
-    }
+    // FIX: Previously used sampleProducts[0].id (Shopify product ID, e.g. 7894561230) as count
+    // which caused wildly incorrect progress percentages. Shopify GraphQL doesn't expose a count
+    // query, so we track progress by processed items only (total_items stays 0 = unknown).
+    logger.info('SERVICE', `📊 [SHOPIFY-IMPORT] Product count unknown - will track by processed items`);
 
     logger.info('SERVICE', `🔄 [SHOPIFY-IMPORT] Starting product pagination loop...`);
     let pageCount = 0;
@@ -206,10 +195,11 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
+            failedCount++;
             logger.error('SERVICE', `Error al importar producto ${shopifyProduct.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
-              failed_items: (job.failed_items || 0) + 1
+              failed_items: failedCount
             });
           }
         }
@@ -284,6 +274,7 @@ export class ShopifyImportService {
     let hasMore = true;
     let pageInfo: string | undefined;
     let processedCount = 0;
+    let failedCount = 0; // FIX: Local counter instead of stale job.failed_items
     let pageCount = 0;
 
     while (hasMore) {
@@ -314,10 +305,11 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
+            failedCount++;
             logger.error('SERVICE', `Error al importar cliente ${shopifyCustomer.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
-              failed_items: (job.failed_items || 0) + 1
+              failed_items: failedCount
             });
           }
         }
@@ -357,6 +349,7 @@ export class ShopifyImportService {
     let hasMore = true;
     let pageInfo: string | undefined;
     let processedCount = 0;
+    let failedCount = 0; // FIX: Local counter instead of stale job.failed_items
 
     // For historical orders, get count first
     let totalCount = 0;
@@ -392,10 +385,11 @@ export class ShopifyImportService {
               success_items: processedCount
             });
           } catch (error: any) {
+            failedCount++;
             logger.error('SERVICE', `Error al importar pedido ${shopifyOrder.id}:`, error);
             await this.updateJobProgress(job.id, {
               processed_items: processedCount,
-              failed_items: (job.failed_items || 0) + 1
+              failed_items: failedCount
             });
           }
         }
@@ -438,16 +432,19 @@ export class ShopifyImportService {
     const variant = shopifyProduct.variants[0];
     if (!variant) return null;
 
-    const stock = variant.inventory_quantity || 0;
+    const rawStock = Number(variant.inventory_quantity);
+    const stock = Number.isFinite(rawStock) ? Math.max(rawStock, 0) : 0;
+
+    const rawPrice = parseFloat(variant.price);
 
     const productData = {
       store_id: this.integration.store_id,
-      shopify_product_id: shopifyProduct.id.toString(),
-      shopify_variant_id: variant.id.toString(),
-      name: shopifyProduct.title,
+      shopify_product_id: shopifyProduct.id?.toString() || '',
+      shopify_variant_id: variant.id?.toString() || '',
+      name: shopifyProduct.title || 'Sin nombre',
       description: shopifyProduct.body_html || '',
       sku: variant.sku || '',
-      price: parseFloat(variant.price),
+      price: Number.isFinite(rawPrice) ? rawPrice : 0,
       cost: 0, // Default cost, user can update later
       stock: stock,
       status: shopifyProduct.status === 'active' ? 'active' : 'inactive',
@@ -499,8 +496,8 @@ export class ShopifyImportService {
       country: shopifyCustomer.default_address?.country || '',
       notes: shopifyCustomer.note || '',
       tags: shopifyCustomer.tags,
-      total_orders: shopifyCustomer.orders_count,
-      total_spent: parseFloat(shopifyCustomer.total_spent),
+      total_orders: shopifyCustomer.orders_count || 0,
+      total_spent: Number.isFinite(parseFloat(shopifyCustomer.total_spent)) ? parseFloat(shopifyCustomer.total_spent) : 0,
       shopify_data: shopifyCustomer,
       last_synced_at: new Date().toISOString(),
       sync_status: 'synced'
@@ -580,12 +577,12 @@ export class ShopifyImportService {
       // Line items (keep JSONB for backwards compatibility)
       line_items: shopifyOrder.line_items,
 
-      // Pricing
-      total_price: parseFloat(shopifyOrder.total_price),
-      subtotal_price: parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price),
-      total_tax: parseFloat(shopifyOrder.total_tax || '0'),
-      total_discounts: parseFloat(shopifyOrder.total_discounts || '0'),
-      total_shipping: parseFloat(shopifyOrder.total_shipping || '0'),
+      // Pricing - FIX: Number.isFinite guards against NaN propagation
+      total_price: Number.isFinite(parseFloat(shopifyOrder.total_price)) ? parseFloat(shopifyOrder.total_price) : 0,
+      subtotal_price: Number.isFinite(parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price)) ? parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price) : 0,
+      total_tax: Number.isFinite(parseFloat(shopifyOrder.total_tax || '0')) ? parseFloat(shopifyOrder.total_tax || '0') : 0,
+      total_discounts: Number.isFinite(parseFloat(shopifyOrder.total_discounts || '0')) ? parseFloat(shopifyOrder.total_discounts || '0') : 0,
+      total_shipping: Number.isFinite(parseFloat(shopifyOrder.total_shipping || '0')) ? parseFloat(shopifyOrder.total_shipping || '0') : 0,
       currency: shopifyOrder.currency || 'USD',
 
       // Status
@@ -624,117 +621,234 @@ export class ShopifyImportService {
   }
 
   // Crear line items normalizados para un pedido
+  // REWRITTEN: Batch queries instead of N+1, variant support, numeric safety
   private async createLineItemsForOrder(
     orderId: string,
     storeId: string,
     lineItems: any[]
   ): Promise<void> {
     try {
+      // FIX: Check for empty line items BEFORE deleting existing ones
+      if (!lineItems || lineItems.length === 0) {
+        logger.info('SERVICE', `[IMPORT] No line items for order ${orderId}, skipping`);
+        return;
+      }
+
       // Delete existing line items for this order (in case of update)
       await this.supabaseAdmin
         .from('order_line_items')
         .delete()
         .eq('order_id', orderId);
 
-      // Process each line item
-      for (const item of lineItems) {
-        // Extract Shopify IDs
+      // PERF FIX: Extract unique IDs for batch queries (replaces N+1 pattern)
+      const variantIds = [...new Set(
+        lineItems.map(i => i.variant_id?.toString()).filter((id): id is string => !!id)
+      )];
+      const productIds = [...new Set(
+        lineItems.map(i => i.product_id?.toString()).filter((id): id is string => !!id)
+      )];
+      const skus = [...new Set(
+        lineItems.map(i => i.sku?.toUpperCase()).filter((sku): sku is string => !!sku)
+      )];
+
+      const BATCH_SIZE = 80;
+
+      // Batch fetch products by variant_id, product_id, and SKU (3 queries max instead of 3×N)
+      type ProductMatch = { id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null };
+      const productsMap = new Map<string, ProductMatch>();
+
+      if (variantIds.length > 0) {
+        for (let i = 0; i < variantIds.length; i += BATCH_SIZE) {
+          const batch = variantIds.slice(i, i + BATCH_SIZE);
+          const { data } = await this.supabaseAdmin
+            .from('products')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .eq('store_id', storeId)
+            .in('shopify_variant_id', batch);
+          data?.forEach(p => productsMap.set(p.id, p));
+        }
+      }
+
+      if (productIds.length > 0) {
+        for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
+          const batch = productIds.slice(i, i + BATCH_SIZE);
+          const { data } = await this.supabaseAdmin
+            .from('products')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .eq('store_id', storeId)
+            .in('shopify_product_id', batch);
+          data?.forEach(p => productsMap.set(p.id, p));
+        }
+      }
+
+      if (skus.length > 0) {
+        for (let i = 0; i < skus.length; i += BATCH_SIZE) {
+          const batch = skus.slice(i, i + BATCH_SIZE);
+          const { data } = await this.supabaseAdmin
+            .from('products')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .eq('store_id', storeId)
+            .in('sku', batch);
+          data?.forEach(p => productsMap.set(p.id, p));
+        }
+      }
+
+      const products = Array.from(productsMap.values());
+
+      // Also fetch from product_variants table (supports multi-variant products)
+      type VariantMatch = { variant_id: string; product_id: string; image_url: string | null; variant_type: string | null; uses_shared_stock: boolean | null };
+      const variantByShopifyId = new Map<string, VariantMatch>();
+      const variantBySku = new Map<string, VariantMatch>();
+
+      if (variantIds.length > 0) {
+        for (let i = 0; i < variantIds.length; i += BATCH_SIZE) {
+          const batch = variantIds.slice(i, i + BATCH_SIZE);
+          const { data } = await this.supabaseAdmin
+            .from('product_variants')
+            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .eq('store_id', storeId)
+            .eq('is_active', true)
+            .in('shopify_variant_id', batch);
+          data?.forEach(v => {
+            const match: VariantMatch = {
+              variant_id: v.id,
+              product_id: v.product_id,
+              image_url: v.image_url,
+              variant_type: v.variant_type || (v.uses_shared_stock ? 'bundle' : 'variation'),
+              uses_shared_stock: v.uses_shared_stock
+            };
+            if (v.shopify_variant_id) variantByShopifyId.set(v.shopify_variant_id, match);
+            if (v.sku) variantBySku.set(v.sku.toUpperCase(), match);
+          });
+        }
+      }
+
+      if (skus.length > 0) {
+        for (let i = 0; i < skus.length; i += BATCH_SIZE) {
+          const batch = skus.slice(i, i + BATCH_SIZE);
+          const { data } = await this.supabaseAdmin
+            .from('product_variants')
+            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .eq('store_id', storeId)
+            .eq('is_active', true)
+            .in('sku', batch);
+          data?.forEach(v => {
+            const match: VariantMatch = {
+              variant_id: v.id,
+              product_id: v.product_id,
+              image_url: v.image_url,
+              variant_type: v.variant_type || (v.uses_shared_stock ? 'bundle' : 'variation'),
+              uses_shared_stock: v.uses_shared_stock
+            };
+            if (v.shopify_variant_id) variantByShopifyId.set(v.shopify_variant_id, match);
+            if (v.sku) variantBySku.set(v.sku.toUpperCase(), match);
+          });
+        }
+      }
+
+      // Build product lookup maps for O(1) access
+      const byVariant = new Map<string, { id: string; image_url: string | null }>();
+      const byProduct = new Map<string, { id: string; image_url: string | null }>();
+      const bySku = new Map<string, { id: string; image_url: string | null }>();
+
+      for (const p of products) {
+        if (p.shopify_variant_id) byVariant.set(p.shopify_variant_id, { id: p.id, image_url: p.image_url });
+        if (p.shopify_product_id) byProduct.set(p.shopify_product_id, { id: p.id, image_url: p.image_url });
+        if (p.sku) bySku.set(p.sku.toUpperCase(), { id: p.id, image_url: p.image_url });
+      }
+
+      // Build all line items for batch insert
+      const lineItemsToInsert = lineItems.map(item => {
         const shopifyProductId = item.product_id?.toString() || null;
         const shopifyVariantId = item.variant_id?.toString() || null;
         const shopifyLineItemId = item.id?.toString() || null;
         const sku = item.sku || '';
 
-        // Try to find matching local product
+        // Find matching product/variant using Maps (O(1) lookup with fallback chain)
         let productId: string | null = null;
+        let variantId: string | null = null;
+        let imageUrl: string | null = null;
+        let variantType: string | null = null;
 
-        // First try by variant ID (most specific)
-        if (shopifyVariantId) {
-          const { data: productByVariant } = await this.supabaseAdmin
-            .from('products')
-            .select('id')
-            .eq('store_id', storeId)
-            .eq('shopify_variant_id', shopifyVariantId)
-            .maybeSingle();
+        // Priority: product_variants by shopify_variant_id > SKU > products by variant_id > product_id > SKU
+        const variantMatchById = shopifyVariantId ? variantByShopifyId.get(shopifyVariantId) : null;
+        const variantMatchBySku = sku ? variantBySku.get(sku.toUpperCase()) : null;
 
-          if (productByVariant) {
-            productId = productByVariant.id;
+        if (variantMatchById) {
+          variantId = variantMatchById.variant_id;
+          productId = variantMatchById.product_id;
+          imageUrl = variantMatchById.image_url;
+          variantType = variantMatchById.variant_type;
+        } else if (variantMatchBySku) {
+          variantId = variantMatchBySku.variant_id;
+          productId = variantMatchBySku.product_id;
+          imageUrl = variantMatchBySku.image_url;
+          variantType = variantMatchBySku.variant_type;
+        } else {
+          // Fallback to products table
+          const matchByVariant = shopifyVariantId ? byVariant.get(shopifyVariantId) : null;
+          const matchByProduct = shopifyProductId ? byProduct.get(shopifyProductId) : null;
+          const matchBySku = sku ? bySku.get(sku.toUpperCase()) : null;
+          const match = matchByVariant || matchByProduct || matchBySku;
+          if (match) {
+            productId = match.id;
+            imageUrl = match.image_url;
           }
         }
 
-        // If not found, try by product ID
         if (!productId && shopifyProductId) {
-          const { data: productByProductId } = await this.supabaseAdmin
-            .from('products')
-            .select('id')
-            .eq('store_id', storeId)
-            .eq('shopify_product_id', shopifyProductId)
-            .maybeSingle();
-
-          if (productByProductId) {
-            productId = productByProductId.id;
-          }
-        }
-
-        // If still not found, try by SKU
-        if (!productId && sku) {
-          const { data: productBySku } = await this.supabaseAdmin
-            .from('products')
-            .select('id')
-            .eq('store_id', storeId)
-            .eq('sku', sku)
-            .maybeSingle();
-
-          if (productBySku) {
-            productId = productBySku.id;
-          }
-        }
-
-        // Log if product not found
-        if (!productId && shopifyProductId) {
-          logger.warn('SERVICE', 
+          logger.warn('SERVICE',
             `⚠️  [IMPORT] Product not found for line item: ` +
             `Shopify Product ID ${shopifyProductId}, Variant ID ${shopifyVariantId}, SKU "${sku}". ` +
             `Line item will be created without product mapping.`
           );
         }
 
-        // Calculate prices
-        const quantity = parseInt(item.quantity, 10) || 1;
-        const unitPrice = parseFloat(item.price) || 0;
+        // Calculate prices - FIX: Use Number.isFinite to prevent 0||1=1 and NaN propagation
+        const rawQuantity = parseInt(item.quantity, 10);
+        const quantity = Number.isFinite(rawQuantity) ? Math.max(rawQuantity, 0) : 1;
+        const rawPrice = parseFloat(item.price);
+        const unitPrice = Number.isFinite(rawPrice) ? rawPrice : 0;
         const totalPrice = quantity * unitPrice;
-        const discountAmount = parseFloat(item.total_discount) || 0;
+        const rawDiscount = parseFloat(item.total_discount);
+        const discountAmount = Number.isFinite(rawDiscount) ? rawDiscount : 0;
         const taxAmount = item.tax_lines && item.tax_lines.length > 0
-          ? parseFloat(item.tax_lines[0].price) || 0
+          ? (Number.isFinite(parseFloat(item.tax_lines[0].price)) ? parseFloat(item.tax_lines[0].price) : 0)
           : 0;
 
-        // Insert line item
-        const { error: insertError } = await this.supabaseAdmin
-          .from('order_line_items')
-          .insert({
-            order_id: orderId,
-            product_id: productId,
-            shopify_product_id: shopifyProductId,
-            shopify_variant_id: shopifyVariantId,
-            shopify_line_item_id: shopifyLineItemId,
-            product_name: item.name || item.title || 'Unknown Product',
-            variant_title: item.variant_title || null,
-            sku: sku,
-            quantity: quantity,
-            unit_price: unitPrice,
-            total_price: totalPrice,
-            discount_amount: discountAmount,
-            tax_amount: taxAmount,
-            properties: item.properties || null,
-            shopify_data: item
-          });
+        return {
+          order_id: orderId,
+          product_id: productId,
+          variant_id: variantId,
+          variant_type: variantType,
+          shopify_product_id: shopifyProductId,
+          shopify_variant_id: shopifyVariantId,
+          shopify_line_item_id: shopifyLineItemId,
+          product_name: item.name || item.title || 'Unknown Product',
+          variant_title: item.variant_title || null,
+          sku: sku,
+          quantity: quantity,
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          discount_amount: discountAmount,
+          tax_amount: taxAmount,
+          properties: item.properties || null,
+          shopify_data: item,
+          image_url: imageUrl
+        };
+      });
 
-        if (insertError) {
-          logger.error('SERVICE', `Error inserting line item:`, insertError);
-          throw new Error(`Error al insertar línea de pedido: ${insertError.message}`);
-        }
+      // Batch insert all line items in ONE query
+      const { error: insertError } = await this.supabaseAdmin
+        .from('order_line_items')
+        .insert(lineItemsToInsert);
+
+      if (insertError) {
+        logger.error('SERVICE', 'Error batch inserting line items', insertError);
+        throw new Error(`Error al insertar líneas de pedido: ${insertError.message}`);
       }
 
-      logger.info('SERVICE', `✅ [IMPORT] Created ${lineItems.length} normalized line items for order ${orderId}`);
+      logger.info('SERVICE', `✅ [IMPORT] Created ${lineItems.length} normalized line items for order ${orderId} (batch optimized)`);
 
     } catch (error: any) {
       logger.error('SERVICE', '[IMPORT] Error creating line items for order:', error);

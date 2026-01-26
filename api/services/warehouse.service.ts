@@ -644,13 +644,18 @@ export async function getPickingList(
     if (itemsError) throw itemsError;
 
     // Get product details separately
+    // FIX: Guard against empty productIds - PostgREST .in() with empty array causes parse errors
     const productIds = items?.map(item => item.product_id) || [];
-    const { data: products, error: productsError } = await supabaseAdmin
-      .from('products')
-      .select('id, name, image_url, sku')
-      .in('id', productIds);
+    let products: any[] = [];
+    if (productIds.length > 0) {
+      const { data, error: productsError } = await supabaseAdmin
+        .from('products')
+        .select('id, name, image_url, sku')
+        .in('id', productIds);
 
-    if (productsError) throw productsError;
+      if (productsError) throw productsError;
+      products = data || [];
+    }
 
     // Get variant details if any items have variant_id
     const variantIds = (items || []).filter(item => item.variant_id).map(item => item.variant_id);
@@ -948,13 +953,18 @@ export async function finishPicking(
     const variantIds = items?.filter(i => i.variant_id).map(i => i.variant_id) || [];
 
     // Fetch product stock data
-    const { data: stockData, error: stockError } = await supabaseAdmin
-      .from('products')
-      .select('id, name, stock, sku')
-      .eq('store_id', storeId)
-      .in('id', productIds);
+    // FIX: Guard against empty productIds - PostgREST .in() with empty array causes parse errors
+    let stockData: any[] = [];
+    if (productIds.length > 0) {
+      const { data, error: stockError } = await supabaseAdmin
+        .from('products')
+        .select('id, name, stock, sku')
+        .eq('store_id', storeId)
+        .in('id', productIds);
 
-    if (stockError) throw stockError;
+      if (stockError) throw stockError;
+      stockData = data || [];
+    }
 
     // VARIANT FIX: Fetch variant data for proper stock calculation
     let variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
@@ -1165,6 +1175,15 @@ export async function finishPicking(
     }
 
     if (packingRecords.length > 0) {
+      // FIX: Delete existing packing records before inserting (handles retry scenario).
+      // If a previous finishPicking attempt partially inserted records but failed before
+      // updating the session status, the session is still in 'picking' status and will
+      // be retried. The old partial records would cause a UNIQUE constraint violation.
+      await supabaseAdmin
+        .from('packing_progress')
+        .delete()
+        .eq('picking_session_id', sessionId);
+
       const { error: packingError } = await supabaseAdmin
         .from('packing_progress')
         .insert(packingRecords);
@@ -1271,7 +1290,10 @@ export async function getPackingList(
     if (progressError) throw progressError;
 
     // Get carrier details for orders (do this in a separate query for simplicity)
-    const orderIds = sessionOrders?.map((so: any) => so.orders.id) || [];
+    // FIX: Null-safe access to so.orders (can be null if order was deleted while in session)
+    const orderIds = sessionOrders
+      ?.filter((so: any) => so.orders?.id)
+      .map((so: any) => so.orders.id) || [];
 
     // Extract unique carrier IDs from orders to avoid N+1 query
     const carrierIds = [...new Set(
@@ -1280,12 +1302,16 @@ export async function getPackingList(
         .filter(Boolean)
     )] || [];
 
-    const { data: carriersData } = await supabaseAdmin
-      .from('carriers')
-      .select('id, name')
-      .in('id', carrierIds);
+    // FIX: Guard against empty carrierIds - PostgREST .in() with empty array can cause parse errors
+    let carrierMap = new Map<string, string>();
+    if (carrierIds.length > 0) {
+      const { data: carriersData } = await supabaseAdmin
+        .from('carriers')
+        .select('id, name')
+        .in('id', carrierIds);
 
-    const carrierMap = new Map(carriersData?.map(c => [c.id, c.name]) || []);
+      carrierMap = new Map(carriersData?.map(c => [c.id, c.name]) || []);
+    }
 
     // Get ALL order line items (not just packing_progress)
     // This ensures we show ALL products in the order, even if not yet packed
@@ -1365,7 +1391,8 @@ export async function getPackingList(
     });
 
     // Format orders with their items
-    const orders: OrderForPacking[] = sessionOrders?.map((so: any) => {
+    // FIX: Filter out null orders (can happen if order was deleted while in session)
+    const orders: OrderForPacking[] = sessionOrders?.filter((so: any) => so.orders?.id).map((so: any) => {
       const order = so.orders;
 
       // Get line items from normalized table (Shopify) or JSONB fallback (manual orders)

@@ -1094,16 +1094,18 @@ export class ShopifyWebhookService {
     lineItems: any[]
   ): Promise<void> {
     try {
+      // FIX: Check for empty line items BEFORE deleting existing ones
+      // Previously deleted first then checked, causing data loss when webhooks arrive with empty arrays
+      if (!lineItems || lineItems.length === 0) {
+        logger.info('SHOPIFY_WEBHOOK', `No line items to create for order ${orderId}, skipping delete+recreate`);
+        return;
+      }
+
       // Delete existing line items for this order (in case of update)
       await this.supabaseAdmin
         .from('order_line_items')
         .delete()
         .eq('order_id', orderId);
-
-      if (lineItems.length === 0) {
-        logger.info('SHOPIFY_WEBHOOK', `No line items to create for order ${orderId}`);
-        return;
-      }
 
       // Extract unique IDs from all line items for batch query
       const variantIds = [...new Set(
@@ -1122,36 +1124,64 @@ export class ShopifyWebhookService {
           .filter((sku): sku is string => !!sku)
       )];
 
-      // Build OR conditions for batch query
-      const orConditions: string[] = [];
+      // BATCH FIX: Split into separate queries per filter type to avoid PostgREST URL length limit
+      // With 200+ line items, a single .or() query can exceed the ~8KB URL limit
+      type ProductMatch = { id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null };
+      const productsMap = new Map<string, ProductMatch>();
+      const BATCH_SIZE = 80; // Safe batch size for .in() queries
+
+      // Query 1: By shopify_variant_id (most specific)
       if (variantIds.length > 0) {
-        orConditions.push(`shopify_variant_id.in.(${variantIds.join(',')})`);
-      }
-      if (productIds.length > 0) {
-        orConditions.push(`shopify_product_id.in.(${productIds.join(',')})`);
-      }
-      if (skus.length > 0) {
-        // SKUs need to be quoted for the query
-        const quotedSkus = skus.map(sku => `"${sku.replace(/"/g, '\\"')}"`).join(',');
-        orConditions.push(`sku.in.(${quotedSkus})`);
-      }
-
-      // Batch fetch all potentially matching products in ONE query
-      let products: Array<{ id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null }> = [];
-
-      if (orConditions.length > 0) {
-        const { data, error } = await this.supabaseAdmin
-          .from('products')
-          .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
-          .eq('store_id', storeId)
-          .or(orConditions.join(','));
-
-        if (error) {
-          logger.error('SHOPIFY_WEBHOOK', 'Error batch fetching products', error);
-        } else {
-          products = data || [];
+        for (let i = 0; i < variantIds.length; i += BATCH_SIZE) {
+          const batch = variantIds.slice(i, i + BATCH_SIZE);
+          const { data, error } = await this.supabaseAdmin
+            .from('products')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .eq('store_id', storeId)
+            .in('shopify_variant_id', batch);
+          if (error) {
+            logger.error('SHOPIFY_WEBHOOK', 'Error fetching products by variant_id', error);
+          } else if (data) {
+            data.forEach(p => productsMap.set(p.id, p));
+          }
         }
       }
+
+      // Query 2: By shopify_product_id
+      if (productIds.length > 0) {
+        for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
+          const batch = productIds.slice(i, i + BATCH_SIZE);
+          const { data, error } = await this.supabaseAdmin
+            .from('products')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .eq('store_id', storeId)
+            .in('shopify_product_id', batch);
+          if (error) {
+            logger.error('SHOPIFY_WEBHOOK', 'Error fetching products by product_id', error);
+          } else if (data) {
+            data.forEach(p => productsMap.set(p.id, p));
+          }
+        }
+      }
+
+      // Query 3: By SKU (case-insensitive via uppercased values)
+      if (skus.length > 0) {
+        for (let i = 0; i < skus.length; i += BATCH_SIZE) {
+          const batch = skus.slice(i, i + BATCH_SIZE);
+          const { data, error } = await this.supabaseAdmin
+            .from('products')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .eq('store_id', storeId)
+            .in('sku', batch);
+          if (error) {
+            logger.error('SHOPIFY_WEBHOOK', 'Error fetching products by SKU', error);
+          } else if (data) {
+            data.forEach(p => productsMap.set(p.id, p));
+          }
+        }
+      }
+
+      const products = Array.from(productsMap.values());
 
       // Also fetch from product_variants table for multi-variant products
       // This enables proper stock tracking per variant
@@ -1160,33 +1190,51 @@ export class ShopifyWebhookService {
         product_id: string;
         shopify_variant_id: string | null;
         sku: string | null;
-        image_url: string | null
+        image_url: string | null;
+        variant_type: string | null;
+        uses_shared_stock: boolean | null;
       }> = [];
 
-      // Build OR conditions for variants table
-      const variantOrConditions: string[] = [];
+      // BATCH FIX: Split variant queries to avoid PostgREST URL length limit
+      const variantsMap = new Map<string, typeof variants[0]>();
+
       if (variantIds.length > 0) {
-        variantOrConditions.push(`shopify_variant_id.in.(${variantIds.join(',')})`);
-      }
-      if (skus.length > 0) {
-        const quotedSkus = skus.map(sku => `"${sku.replace(/"/g, '\\"')}"`).join(',');
-        variantOrConditions.push(`sku.in.(${quotedSkus})`);
-      }
+        for (let i = 0; i < variantIds.length; i += BATCH_SIZE) {
+          const batch = variantIds.slice(i, i + BATCH_SIZE);
+          const { data: variantData, error: variantError } = await this.supabaseAdmin
+            .from('product_variants')
+            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .eq('store_id', storeId)
+            .eq('is_active', true)
+            .in('shopify_variant_id', batch);
 
-      if (variantOrConditions.length > 0) {
-        const { data: variantData, error: variantError } = await this.supabaseAdmin
-          .from('product_variants')
-          .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
-          .eq('store_id', storeId)
-          .eq('is_active', true)
-          .or(variantOrConditions.join(','));
-
-        if (variantError) {
-          logger.warn('SHOPIFY_WEBHOOK', 'Error fetching product_variants (table may not exist yet)', variantError.message);
-        } else {
-          variants = variantData || [];
+          if (variantError) {
+            logger.warn('SHOPIFY_WEBHOOK', 'Error fetching product_variants by variant_id', variantError.message);
+          } else if (variantData) {
+            variantData.forEach(v => variantsMap.set(v.id, v));
+          }
         }
       }
+
+      if (skus.length > 0) {
+        for (let i = 0; i < skus.length; i += BATCH_SIZE) {
+          const batch = skus.slice(i, i + BATCH_SIZE);
+          const { data: variantData, error: variantError } = await this.supabaseAdmin
+            .from('product_variants')
+            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .eq('store_id', storeId)
+            .eq('is_active', true)
+            .in('sku', batch);
+
+          if (variantError) {
+            logger.warn('SHOPIFY_WEBHOOK', 'Error fetching product_variants by SKU', variantError.message);
+          } else if (variantData) {
+            variantData.forEach(v => variantsMap.set(v.id, v));
+          }
+        }
+      }
+
+      variants = Array.from(variantsMap.values());
 
       // Build Maps for O(1) lookup
       // Products: priority: variant_id > product_id > SKU
@@ -1299,13 +1347,16 @@ export class ShopifyWebhookService {
           );
         }
 
-        // Calculate prices
-        const quantity = parseInt(item.quantity, 10) || 1;
-        const unitPrice = parseFloat(item.price) || 0;
+        // Calculate prices - FIX: Use Number.isFinite to prevent 0||1=1 and NaN propagation
+        const rawQuantity = parseInt(item.quantity, 10);
+        const quantity = Number.isFinite(rawQuantity) ? Math.max(rawQuantity, 0) : 1;
+        const rawPrice = parseFloat(item.price);
+        const unitPrice = Number.isFinite(rawPrice) ? rawPrice : 0;
         const totalPrice = quantity * unitPrice;
-        const discountAmount = parseFloat(item.total_discount) || 0;
+        const rawDiscount = parseFloat(item.total_discount);
+        const discountAmount = Number.isFinite(rawDiscount) ? rawDiscount : 0;
         const taxAmount = item.tax_lines && item.tax_lines.length > 0
-          ? parseFloat(item.tax_lines[0].price) || 0
+          ? (Number.isFinite(parseFloat(item.tax_lines[0].price)) ? parseFloat(item.tax_lines[0].price) : 0)
           : 0;
 
         return {
@@ -1619,6 +1670,29 @@ export class ShopifyWebhookService {
     if (financialStatus === 'paid' && !fulfillmentStatus) return 'confirmed';
     if (financialStatus === 'paid' && fulfillmentStatus === 'partial') return 'in_transit';
     return 'pending';
+  }
+
+  // FIX: Retry n8n for orders where the webhook was processed but n8n failed.
+  // Called from the route handler when a duplicate webhook is detected.
+  async retryN8nIfNeeded(shopifyOrderId: string, shopifyOrder: any, storeId: string): Promise<void> {
+    try {
+      if (!this.n8nWebhookUrl) return;
+
+      // Check if the order exists and n8n was NOT sent
+      const { data: order } = await this.supabaseAdmin
+        .from('orders')
+        .select('id, n8n_sent')
+        .eq('shopify_order_id', shopifyOrderId)
+        .eq('store_id', storeId)
+        .single();
+
+      if (!order || order.n8n_sent) return;
+
+      logger.info('SHOPIFY_WEBHOOK', `Retrying n8n for order ${order.id} (shopify: ${shopifyOrderId}) on duplicate webhook`);
+      await this.sendOrderToN8n(order.id, shopifyOrder, storeId);
+    } catch (error: any) {
+      logger.error('SHOPIFY_WEBHOOK', `n8n retry failed for shopify order ${shopifyOrderId}:`, error.message);
+    }
   }
 
   // Enviar pedido a n8n para confirmación automática

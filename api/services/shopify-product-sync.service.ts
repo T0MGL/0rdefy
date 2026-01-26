@@ -51,9 +51,9 @@ export class ShopifyProductSyncService {
 
       // Actualizar variante principal con precio y stock
       const variantData: any = {
-        price: product.price.toString(),
+        price: (product.price ?? 0).toString(),
         sku: product.sku,
-        inventory_quantity: product.stock
+        inventory_quantity: product.stock ?? 0
       };
 
       // Actualizar producto en Shopify
@@ -65,13 +65,18 @@ export class ShopifyProductSyncService {
       // Actualizar inventario si hay variant_id
       if (product.shopify_variant_id) {
         const shopifyProduct = await this.shopifyClient.getProduct(product.shopify_product_id);
-        const variant = shopifyProduct.variants.find(v => v.id.toString() === product.shopify_variant_id);
+        // FIX: Null-safe access to variants array - Shopify API can return undefined/null variants
+        const variant = shopifyProduct?.variants?.find(
+          (v: any) => v?.id?.toString() === product.shopify_variant_id
+        );
 
         if (variant && variant.inventory_item_id) {
           await this.shopifyClient.updateInventory(
             variant.inventory_item_id.toString(),
-            product.stock
+            product.stock ?? 0
           );
+        } else if (!variant) {
+          logger.warn('BACKEND', `Variant ${product.shopify_variant_id} not found in Shopify product ${product.shopify_product_id}. Skipping inventory update.`);
         }
       }
 
