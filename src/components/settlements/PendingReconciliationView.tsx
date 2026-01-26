@@ -98,6 +98,8 @@ interface PendingOrder {
   is_cod: boolean;
   delivered_at: string;
   carrier_fee: number;
+  fee_source: 'coverage' | 'zone' | 'default';
+  normalized_city: string;
 }
 
 /** Get display label for prepaid method */
@@ -763,19 +765,20 @@ export function PendingReconciliationView() {
                   <TableHead>Cliente</TableHead>
                   <TableHead className="hidden md:table-cell">Ciudad</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
+                  <TableHead className="text-right hidden sm:table-cell">Tarifa</TableHead>
                   <TableHead className="w-48">Motivo (si no entregado)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                     </TableCell>
                   </TableRow>
                 ) : filteredOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No se encontraron pedidos
                     </TableCell>
                   </TableRow>
@@ -816,6 +819,11 @@ export function PendingReconciliationView() {
                               {getPrepaidMethodLabel(order.payment_method, order.prepaid_method)}
                             </Badge>
                           )}
+                        </TableCell>
+                        <TableCell className="text-right hidden sm:table-cell">
+                          <span className="text-sm font-mono text-muted-foreground" title={`Ciudad normalizada: "${order.normalized_city}" | Fuente: ${order.fee_source}`}>
+                            {formatCurrency(order.carrier_fee)}
+                          </span>
                         </TableCell>
                         <TableCell>
                           {!isDelivered && (
