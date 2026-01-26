@@ -56,8 +56,9 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number, operation: string): Pr
   ]);
 };
 
-// Default timeout for warehouse operations (30 seconds)
-const OPERATION_TIMEOUT = 30000;
+// Default timeout for warehouse operations (90 seconds)
+// Large sessions (200+ orders) need more time for batched queries
+const OPERATION_TIMEOUT = 90000;
 
 export default function Warehouse() {
   const { toast } = useToast();

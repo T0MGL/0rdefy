@@ -23,6 +23,15 @@ import {
 import { isValidUUID } from '../utils/sanitize';
 import { logger } from '../utils/logger';
 
+/**
+ * Normalize city text for comparison: remove accents, lowercase, trim.
+ * Matches the behavior of DB function normalize_location_text().
+ */
+function normalizeCityText(text: string | null | undefined): string {
+  if (!text) return '';
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
 // ============================================================
 // TYPES
 // ============================================================
@@ -444,7 +453,7 @@ export async function createDispatchSession(
   const coverageMap = new Map<string, number>();
   (coverage || []).forEach(c => {
     if (c.city && c.rate != null) {
-      coverageMap.set(c.city.toLowerCase().trim(), c.rate);
+      coverageMap.set(normalizeCityText(c.city), c.rate);
     }
   });
 
@@ -560,14 +569,15 @@ export async function createDispatchSession(
 
   const sessionOrders = orders.map(order => {
     // FIX: Try new city-based coverage system first, then fall back to zone system
-    const shippingCity = (order.shipping_city || '').toLowerCase().trim();
+    // Use normalizeCityText to strip accents for consistent matching
+    const normalizedCity = order.shipping_city_normalized || normalizeCityText(order.shipping_city);
     const deliveryZone = (order.delivery_zone || '').toLowerCase().trim();
 
     // Priority: 1) shipping_city in coverage, 2) delivery_zone in zones, 3) fallback zones, 4) 0
     let rate: number | undefined;
 
-    if (shippingCity && coverageMap.has(shippingCity)) {
-      rate = coverageMap.get(shippingCity);
+    if (normalizedCity && coverageMap.has(normalizedCity)) {
+      rate = coverageMap.get(normalizedCity);
     } else if (deliveryZone && zoneMap.has(deliveryZone)) {
       rate = zoneMap.get(deliveryZone);
     } else {
@@ -2043,7 +2053,7 @@ async function processManualReconciliationLegacy(
   const coverageMap = new Map<string, number>();
   (coverage || []).forEach(c => {
     if (c.city && c.rate != null) {
-      coverageMap.set(c.city.toLowerCase().trim(), c.rate);
+      coverageMap.set(normalizeCityText(c.city), c.rate);
     }
   });
 
@@ -2153,13 +2163,14 @@ async function processManualReconciliationLegacy(
     const isCod = isCodPayment(dbOrder.payment_method);
 
     // FIX: Try new city-based coverage system first, then fall back to zone system
-    const shippingCity = (dbOrder.shipping_city || '').toLowerCase().trim();
+    // Use normalizeCityText to strip accents for consistent matching
+    const normalizedCity = dbOrder.shipping_city_normalized || normalizeCityText(dbOrder.shipping_city);
     const deliveryZone = (dbOrder.delivery_zone || '').toLowerCase().trim();
 
     // Priority: 1) shipping_city in coverage, 2) delivery_zone in zones, 3) default
     let carrierFee = defaultRate;
-    if (shippingCity && coverageMap.has(shippingCity)) {
-      carrierFee = coverageMap.get(shippingCity)!;
+    if (normalizedCity && coverageMap.has(normalizedCity)) {
+      carrierFee = coverageMap.get(normalizedCity)!;
     } else if (deliveryZone && zoneMap.has(deliveryZone)) {
       carrierFee = zoneMap.get(deliveryZone)!;
     }
@@ -2980,6 +2991,7 @@ export interface PendingReconciliationOrder {
   total_price: number;
   cod_amount: number;
   payment_method: string;
+  prepaid_method: string | null;
   is_cod: boolean;
   delivered_at: string;
   carrier_fee: number;
@@ -3141,8 +3153,10 @@ async function getPendingReconciliationOrdersFallback(
       shipping_address,
       delivery_zone,
       shipping_city,
+      shipping_city_normalized,
       total_price,
       payment_method,
+      prepaid_method,
       delivered_at
     `)
     .eq('store_id', storeId)
@@ -3166,6 +3180,7 @@ async function getPendingReconciliationOrdersFallback(
     .eq('store_id', storeId);
 
   // Fetch city-based coverage rates (new system - migration 090)
+  // IMPORTANT: Normalize city names to remove accents for consistent matching
   const { data: coverage } = await supabaseAdmin
     .from('carrier_coverage')
     .select('city, rate')
@@ -3175,7 +3190,7 @@ async function getPendingReconciliationOrdersFallback(
   const coverageRates = new Map<string, number>();
   (coverage || []).forEach(c => {
     if (c.city && c.rate != null) {
-      coverageRates.set(c.city.toLowerCase().trim(), c.rate);
+      coverageRates.set(normalizeCityText(c.city), c.rate);
     }
   });
 
@@ -3196,12 +3211,13 @@ async function getPendingReconciliationOrdersFallback(
     }
 
     // Calculate carrier fee using city-based coverage first, then zone fallback
-    const shippingCity = (order.shipping_city || '').toLowerCase().trim();
+    // Use shipping_city_normalized (accent-free) for matching, fallback to normalizing shipping_city
+    const normalizedCity = order.shipping_city_normalized || normalizeCityText(order.shipping_city);
     const deliveryZone = (order.delivery_zone || '').toLowerCase().trim();
 
     let carrierFee = defaultRate;
-    if (shippingCity && coverageRates.has(shippingCity)) {
-      carrierFee = coverageRates.get(shippingCity)!;
+    if (normalizedCity && coverageRates.has(normalizedCity)) {
+      carrierFee = coverageRates.get(normalizedCity)!;
     } else if (deliveryZone && zoneRates.has(deliveryZone)) {
       carrierFee = zoneRates.get(deliveryZone)!;
     }
@@ -3218,6 +3234,7 @@ async function getPendingReconciliationOrdersFallback(
       total_price: order.total_price || 0,
       cod_amount: isCod ? (order.total_price || 0) : 0,
       payment_method: order.payment_method || '',
+      prepaid_method: order.prepaid_method || null,
       is_cod: isCod,
       delivered_at: order.delivered_at,
       carrier_fee: carrierFee
@@ -3314,7 +3331,7 @@ async function processDeliveryReconciliationFallback(
   const orderIds = params.orders.map(o => o.order_id);
   const { data: existingOrders, error: fetchError } = await supabaseAdmin
     .from('orders')
-    .select('id, total_price, payment_method, delivery_zone, shipping_city, reconciled_at, store_id')
+    .select('id, total_price, payment_method, delivery_zone, shipping_city, shipping_city_normalized, reconciled_at, store_id')
     .in('id', orderIds)
     .eq('store_id', storeId);
 
@@ -3367,10 +3384,11 @@ async function processDeliveryReconciliationFallback(
     .eq('is_active', true);
 
   // Build coverage map from new system (city -> rate)
+  // IMPORTANT: Normalize city names to remove accents for consistent matching
   const coverageRates = new Map<string, number>();
   (coverage || []).forEach(c => {
     if (c.city && c.rate != null) {
-      coverageRates.set(c.city.toLowerCase().trim(), c.rate);
+      coverageRates.set(normalizeCityText(c.city), c.rate);
     }
   });
 
@@ -3396,12 +3414,13 @@ async function processDeliveryReconciliationFallback(
     totalOrders++;
 
     // FIX: Try new city-based coverage system first, then fall back to zone system
-    const shippingCity = (order.shipping_city || '').toLowerCase().trim();
+    // Use shipping_city_normalized (accent-free) for matching, fallback to normalizing shipping_city
+    const normalizedCity = order.shipping_city_normalized || normalizeCityText(order.shipping_city);
     const deliveryZone = (order.delivery_zone || '').toLowerCase().trim();
 
     let zoneRate = defaultRate;
-    if (shippingCity && coverageRates.has(shippingCity)) {
-      zoneRate = coverageRates.get(shippingCity)!;
+    if (normalizedCity && coverageRates.has(normalizedCity)) {
+      zoneRate = coverageRates.get(normalizedCity)!;
     } else if (deliveryZone && zoneRates.has(deliveryZone)) {
       zoneRate = zoneRates.get(deliveryZone)!;
     }

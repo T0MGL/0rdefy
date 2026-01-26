@@ -94,6 +94,15 @@ router.post('/sessions', requirePermission(Module.WAREHOUSE, Permission.CREATE),
       return noOrdersSelected(res);
     }
 
+    // Limit max orders per session to prevent excessive query times
+    const MAX_ORDERS_PER_SESSION = 500;
+    if (orderIds.length > MAX_ORDERS_PER_SESSION) {
+      return res.status(400).json({
+        error: 'Demasiados pedidos seleccionados',
+        details: `Máximo ${MAX_ORDERS_PER_SESSION} pedidos por sesión. Seleccionaste ${orderIds.length}. Divide en múltiples sesiones.`
+      });
+    }
+
     const session = await warehouseService.createSession(
       storeId,
       orderIds,

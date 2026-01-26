@@ -94,9 +94,32 @@ interface PendingOrder {
   total_price: number;
   cod_amount: number;
   payment_method: string;
+  prepaid_method: string | null;
   is_cod: boolean;
   delivered_at: string;
   carrier_fee: number;
+}
+
+/** Get display label for prepaid method */
+function getPrepaidMethodLabel(paymentMethod: string, prepaidMethod: string | null): string {
+  // If COD was marked as prepaid, use prepaid_method
+  if (prepaidMethod) {
+    const method = prepaidMethod.toLowerCase().trim();
+    if (method === 'transfer' || method === 'transferencia') return 'Transferencia';
+    if (method === 'qr') return 'QR';
+    if (method === 'card' || method === 'tarjeta') return 'Tarjeta';
+    return prepaidMethod.charAt(0).toUpperCase() + prepaidMethod.slice(1);
+  }
+  // Otherwise use payment_method
+  const normalized = (paymentMethod || '').toLowerCase().trim();
+  if (normalized === 'transferencia' || normalized === 'transfer') return 'Transferencia';
+  if (normalized === 'qr') return 'QR';
+  if (normalized === 'tarjeta' || normalized === 'card') return 'Tarjeta';
+  if (normalized === 'online') return 'Online';
+  if (normalized === 'paypal') return 'PayPal';
+  if (normalized === 'stripe') return 'Stripe';
+  if (normalized === 'mercadopago') return 'MercadoPago';
+  return 'Prepago';
 }
 
 interface OrderReconciliation {
@@ -251,6 +274,8 @@ export function PendingReconciliationView() {
     let delivered = 0;
     let notDelivered = 0;
     let codExpected = 0;
+    let prepaidCount = 0;
+    let prepaidValue = 0;
     let missingReasons = 0;
     let deliveredCarrierFees = 0;
     let notDeliveredCarrierFees = 0;
@@ -265,6 +290,9 @@ export function PendingReconciliationView() {
         deliveredCarrierFees += fee;
         if (order.is_cod) {
           codExpected += order.cod_amount;
+        } else {
+          prepaidCount++;
+          prepaidValue += order.total_price || 0;
         }
       } else {
         notDelivered++;
@@ -275,7 +303,7 @@ export function PendingReconciliationView() {
       }
     });
 
-    return { delivered, notDelivered, codExpected, missingReasons, total: orders.length, deliveredCarrierFees, notDeliveredCarrierFees };
+    return { delivered, notDelivered, codExpected, prepaidCount, prepaidValue, missingReasons, total: orders.length, deliveredCarrierFees, notDeliveredCarrierFees };
   }, [orders, reconciliationState]);
 
   // Calculate financial summary using real per-order carrier fees from backend
@@ -686,7 +714,16 @@ export function PendingReconciliationView() {
           <Separator orientation="vertical" className="h-4" />
           <div className="flex items-center gap-2">
             <DollarSign className="h-4 w-4 text-amber-600" />
-            <span className="text-sm font-medium">COD esperado: {formatCurrency(stats.codExpected)}</span>
+            <span className="text-sm font-medium">
+              {stats.codExpected > 0 && stats.prepaidCount > 0
+                ? `COD: ${formatCurrency(stats.codExpected)} · ${stats.prepaidCount} prepago`
+                : stats.codExpected > 0
+                  ? `COD: ${formatCurrency(stats.codExpected)}`
+                  : stats.prepaidCount > 0
+                    ? `${stats.prepaidCount} prepago`
+                    : 'Sin monto a cobrar'
+              }
+            </span>
           </div>
 
           {stats.missingReasons > 0 && (
@@ -775,7 +812,9 @@ export function PendingReconciliationView() {
                               {formatCurrency(order.cod_amount)}
                             </span>
                           ) : (
-                            <Badge variant="secondary">Prepago</Badge>
+                            <Badge variant="secondary" className="font-medium">
+                              {getPrepaidMethodLabel(order.payment_method, order.prepaid_method)}
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell>
@@ -825,7 +864,9 @@ export function PendingReconciliationView() {
                 />
               </div>
               <div className="text-right">
-                <p className="text-sm text-muted-foreground">COD esperado</p>
+                <p className="text-sm text-muted-foreground">
+                  {stats.codExpected > 0 ? 'COD esperado' : 'Todo prepago'}
+                </p>
                 <p className="text-lg font-semibold">{formatCurrency(stats.codExpected)}</p>
               </div>
             </div>
@@ -860,38 +901,67 @@ export function PendingReconciliationView() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2 text-sm">
+                {/* Delivery counts */}
                 <div className="flex justify-between">
                   <span>Entregados ({stats.delivered})</span>
-                  <span className="text-green-600">+{formatCurrency(stats.codExpected)}</span>
+                  {stats.codExpected > 0 && stats.prepaidCount > 0 ? (
+                    <span className="text-green-600">+{formatCurrency(stats.codExpected)} COD</span>
+                  ) : stats.codExpected > 0 ? (
+                    <span className="text-green-600">+{formatCurrency(stats.codExpected)}</span>
+                  ) : (
+                    <span className="text-muted-foreground">{stats.prepaidCount} prepago</span>
+                  )}
                 </div>
-                <div className="flex justify-between">
-                  <span>Fallidos ({stats.notDelivered})</span>
-                  <span className="text-muted-foreground">0 Gs</span>
-                </div>
-                <Separator />
-                <div className="flex justify-between">
-                  <span>COD Esperado</span>
-                  <span>{formatCurrency(stats.codExpected)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>COD Cobrado</span>
-                  <span>{formatCurrency(financialSummary.codCollected)}</span>
-                </div>
-                {financialSummary.hasDiscrepancy && (
-                  <div className={`flex justify-between ${financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    <span>Diferencia</span>
-                    <span>{financialSummary.discrepancy > 0 ? '+' : ''}{formatCurrency(financialSummary.discrepancy)}</span>
+                {stats.notDelivered > 0 && (
+                  <div className="flex justify-between">
+                    <span>Fallidos ({stats.notDelivered})</span>
+                    <span className="text-muted-foreground">0 Gs</span>
                   </div>
                 )}
                 <Separator />
+
+                {/* COD section - only when there are COD orders */}
+                {stats.codExpected > 0 && (
+                  <>
+                    <div className="flex justify-between">
+                      <span>COD Esperado</span>
+                      <span>{formatCurrency(stats.codExpected)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>COD Cobrado</span>
+                      <span>{formatCurrency(financialSummary.codCollected)}</span>
+                    </div>
+                    {financialSummary.hasDiscrepancy && (
+                      <div className={`flex justify-between ${financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        <span>Diferencia</span>
+                        <span>{financialSummary.discrepancy > 0 ? '+' : ''}{formatCurrency(financialSummary.discrepancy)}</span>
+                      </div>
+                    )}
+                    <Separator />
+                  </>
+                )}
+
+                {/* Prepaid info - only when there are prepaid orders */}
+                {stats.prepaidCount > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Prepago ({stats.prepaidCount} pedidos)</span>
+                    <span>{formatCurrency(stats.prepaidValue)}</span>
+                  </div>
+                )}
+
+                {/* Carrier fees */}
                 <div className="flex justify-between text-muted-foreground">
                   <span>Tarifas entregas ({stats.delivered} pedidos)</span>
                   <span>-{formatCurrency(financialSummary.totalCarrierFees)}</span>
                 </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Tarifas fallidos ({stats.notDelivered} x {selectedGroup?.failed_attempt_fee_percent}%)</span>
-                  <span>-{formatCurrency(financialSummary.failedAttemptFees)}</span>
-                </div>
+                {stats.notDelivered > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Tarifas fallidos ({stats.notDelivered} x {selectedGroup?.failed_attempt_fee_percent}%)</span>
+                    <span>-{formatCurrency(financialSummary.failedAttemptFees)}</span>
+                  </div>
+                )}
+
+                {/* Net receivable */}
                 <Separator />
                 <div className={`flex justify-between text-lg font-bold ${financialSummary.netReceivable >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   <span>NETO A RECIBIR</span>

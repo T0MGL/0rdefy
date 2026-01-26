@@ -7,6 +7,94 @@
 import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 
+// ============================================================================
+// BATCHED QUERY UTILITY
+// PostgREST passes .in() filter values as URL query params. With 200+ UUIDs
+// (36 chars each), the URL exceeds the ~8KB limit causing silent failures.
+// This utility chunks large arrays into batches of 100 and merges results.
+// ============================================================================
+const IN_BATCH_SIZE = 100;
+
+async function batchedSelect<T = any>(
+  table: string,
+  selectFields: string,
+  filterColumn: string,
+  filterValues: string[],
+  additionalFilters?: (query: any) => any
+): Promise<T[]> {
+  if (filterValues.length === 0) return [];
+  if (filterValues.length <= IN_BATCH_SIZE) {
+    let query = supabaseAdmin.from(table).select(selectFields).in(filterColumn, filterValues);
+    if (additionalFilters) query = additionalFilters(query);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []) as T[];
+  }
+
+  const results: T[] = [];
+  for (let i = 0; i < filterValues.length; i += IN_BATCH_SIZE) {
+    const batch = filterValues.slice(i, i + IN_BATCH_SIZE);
+    let query = supabaseAdmin.from(table).select(selectFields).in(filterColumn, batch);
+    if (additionalFilters) query = additionalFilters(query);
+    const { data, error } = await query;
+    if (error) throw error;
+    if (data) results.push(...(data as T[]));
+  }
+  return results;
+}
+
+async function batchedUpdate(
+  table: string,
+  updateData: Record<string, any>,
+  filterColumn: string,
+  filterValues: string[],
+  additionalFilters?: (query: any) => any
+): Promise<void> {
+  if (filterValues.length === 0) return;
+  for (let i = 0; i < filterValues.length; i += IN_BATCH_SIZE) {
+    const batch = filterValues.slice(i, i + IN_BATCH_SIZE);
+    let query = supabaseAdmin.from(table).update(updateData).in(filterColumn, batch);
+    if (additionalFilters) query = additionalFilters(query);
+    const { error } = await query;
+    if (error) throw error;
+  }
+}
+
+async function batchedSelectWithRange<T = any>(
+  table: string,
+  selectFields: string,
+  filterColumn: string,
+  filterValues: string[]
+): Promise<T[]> {
+  if (filterValues.length === 0) return [];
+
+  const results: T[] = [];
+  for (let i = 0; i < filterValues.length; i += IN_BATCH_SIZE) {
+    const batch = filterValues.slice(i, i + IN_BATCH_SIZE);
+    const PAGE_SIZE = 1000;
+    let page = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabaseAdmin
+        .from(table)
+        .select(selectFields)
+        .in(filterColumn, batch)
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        results.push(...(data as T[]));
+        hasMore = data.length === PAGE_SIZE;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
+  }
+  return results;
+}
+
 export interface PickingSession {
   id: string;
   code: string;
@@ -143,13 +231,15 @@ export async function createSession(
     // LEGACY FALLBACK (only if RPC doesn't exist)
     if (!session) {
       // 1. Validate that all orders exist and are confirmed
-      const { data: orders, error: ordersError } = await supabaseAdmin
-        .from('orders')
-        .select('id, sleeves_status')
-        .eq('store_id', storeId)
-        .in('id', orderIds);
+      // BATCH FIX: Use batched query to avoid PostgREST URL length limit with 200+ orders
+      const orders = await batchedSelect(
+        'orders',
+        'id, sleeves_status',
+        'id',
+        orderIds,
+        (q: any) => q.eq('store_id', storeId)
+      );
 
-      if (ordersError) throw ordersError;
       if (!orders || orders.length === 0) {
         throw new Error('No se encontraron pedidos válidos');
       }
@@ -242,12 +332,15 @@ export async function createSession(
       }
 
       // 5. Update orders status to in_preparation
-      const { error: updateError } = await supabaseAdmin
-        .from('orders')
-        .update({ sleeves_status: 'in_preparation' })
-        .in('id', orderIds);
-
-      if (updateError) {
+      // BATCH FIX: Use batched update for large order sets
+      try {
+        await batchedUpdate(
+          'orders',
+          { sleeves_status: 'in_preparation' },
+          'id',
+          orderIds
+        );
+      } catch (updateError) {
         // CRITICAL: Rollback session and links if update fails
         await supabaseAdmin
           .from('picking_session_orders')
@@ -264,29 +357,13 @@ export async function createSession(
     // 6. Fetch line items - support both Shopify (order_line_items) and manual (JSONB line_items)
 
     // First, try to get from normalized order_line_items table (Shopify orders)
-    // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
-    let normalizedLineItems: any[] = [];
-    const PAGE_SIZE = 1000; // Safe limit per page
-    let page = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data: pageData, error: normalizedError } = await supabaseAdmin
-        .from('order_line_items')
-        .select('order_id, product_id, variant_id, quantity, shopify_product_id, shopify_variant_id, product_name, variant_title, units_per_pack')
-        .in('order_id', orderIds)
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-      if (normalizedError) throw normalizedError;
-
-      if (pageData && pageData.length > 0) {
-        normalizedLineItems.push(...pageData);
-        hasMore = pageData.length === PAGE_SIZE;
-        page++;
-      } else {
-        hasMore = false;
-      }
-    }
+    // BATCH FIX: Use batchedSelectWithRange to handle 200+ order IDs without exceeding URL limits
+    const normalizedLineItems = await batchedSelectWithRange(
+      'order_line_items',
+      'order_id, product_id, variant_id, quantity, shopify_product_id, shopify_variant_id, product_name, variant_title, units_per_pack',
+      'order_id',
+      orderIds
+    );
 
     // Check if we have normalized line items (Shopify orders)
     // VARIANT SUPPORT: Aggregate by (product_id, variant_id) composite key
@@ -344,12 +421,13 @@ export async function createSession(
     } else {
       // No normalized line items - must be manual orders
       // Fetch orders with JSONB line_items
-      const { data: ordersWithLineItems, error: ordersError } = await supabaseAdmin
-        .from('orders')
-        .select('id, line_items')
-        .in('id', orderIds);
-
-      if (ordersError) throw ordersError;
+      // BATCH FIX: Use batched query for large order sets
+      const ordersWithLineItems = await batchedSelect(
+        'orders',
+        'id, line_items',
+        'id',
+        orderIds
+      );
 
       // Parse JSONB line_items and aggregate quantities by (product_id, variant_id)
       ordersWithLineItems?.forEach(order => {
@@ -395,14 +473,15 @@ export async function createSession(
 
     // STOCK VALIDATION: Check if there's enough stock for all products
     // SECURITY: Filter by store_id to prevent cross-store product access
+    // BATCH FIX: Use batched query for large product sets
     const productIds = Array.from(uniqueProductIds);
-    const { data: stockData, error: stockError } = await supabaseAdmin
-      .from('products')
-      .select('id, name, stock, sku')
-      .eq('store_id', storeId)
-      .in('id', productIds);
-
-    if (stockError) throw stockError;
+    const stockData = await batchedSelect(
+      'products',
+      'id, name, stock, sku',
+      'id',
+      productIds,
+      (q: any) => q.eq('store_id', storeId)
+    );
 
     // Also fetch variant info for stock validation (shared stock calculation)
     const variantIds = Array.from(productQuantities.values())
@@ -411,10 +490,12 @@ export async function createSession(
 
     let variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
     if (variantIds.length > 0) {
-      const { data: variantsData } = await supabaseAdmin
-        .from('product_variants')
-        .select('id, uses_shared_stock, units_per_pack, stock, variant_title')
-        .in('id', variantIds);
+      const variantsData = await batchedSelect(
+        'product_variants',
+        'id, uses_shared_stock, units_per_pack, stock, variant_title',
+        'id',
+        variantIds
+      );
 
       if (variantsData) {
         variantsData.forEach(v => {
@@ -987,29 +1068,13 @@ export async function finishPicking(
     }> = [];
 
     // First, try to get from normalized order_line_items table (Shopify orders)
-    // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
-    let normalizedLineItems: any[] = [];
-    const PAGE_SIZE = 1000;
-    let page = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data: pageData, error: normalizedError } = await supabaseAdmin
-        .from('order_line_items')
-        .select('order_id, product_id, variant_id, quantity')
-        .in('order_id', orderIdsInSession)
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-      if (normalizedError) throw normalizedError;
-
-      if (pageData && pageData.length > 0) {
-        normalizedLineItems.push(...pageData);
-        hasMore = pageData.length === PAGE_SIZE;
-        page++;
-      } else {
-        hasMore = false;
-      }
-    }
+    // BATCH FIX: Use batchedSelectWithRange to handle large order sets
+    const normalizedLineItems = await batchedSelectWithRange(
+      'order_line_items',
+      'order_id, product_id, variant_id, quantity',
+      'order_id',
+      orderIdsInSession
+    );
 
     if (normalizedLineItems && normalizedLineItems.length > 0) {
       // Aggregate quantities by (order_id, product_id, variant_id)
@@ -1050,12 +1115,13 @@ export async function finishPicking(
       });
     } else {
       // No normalized line items - must be manual orders
-      const { data: ordersWithItems, error: orderItemsError } = await supabaseAdmin
-        .from('orders')
-        .select('id, line_items')
-        .in('id', orderIdsInSession);
-
-      if (orderItemsError) throw orderItemsError;
+      // BATCH FIX: Use batched query for large order sets
+      const ordersWithItems = await batchedSelect(
+        'orders',
+        'id, line_items',
+        'id',
+        orderIdsInSession
+      );
 
       // Aggregate quantities by (order_id, product_id, variant_id)
       const aggregatedManualItems = new Map<string, { order_id: string; product_id: string; variant_id: string | null; quantity: number }>();
@@ -1223,50 +1289,22 @@ export async function getPackingList(
 
     // Get ALL order line items (not just packing_progress)
     // This ensures we show ALL products in the order, even if not yet packed
-    // First try normalized order_line_items (Shopify orders)
-    // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
-    let orderLineItems: any[] = [];
-    const PAGE_SIZE = 1000;
-    let page = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data: pageData, error: lineItemsError } = await supabaseAdmin
-        .from('order_line_items')
-        .select(`
-          order_id,
-          product_id,
-          variant_id,
-          product_name,
-          variant_title,
-          quantity,
-          products (
-            id,
-            name,
-            image_url
-          )
-        `)
-        .in('order_id', orderIds)
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-      if (lineItemsError) throw lineItemsError;
-
-      if (pageData && pageData.length > 0) {
-        orderLineItems.push(...pageData);
-        hasMore = pageData.length === PAGE_SIZE;
-        page++;
-      } else {
-        hasMore = false;
-      }
-    }
+    // BATCH FIX: Use batchedSelectWithRange to handle 200+ order IDs without exceeding URL limits
+    const orderLineItems = await batchedSelectWithRange(
+      'order_line_items',
+      `order_id, product_id, variant_id, product_name, variant_title, quantity, products (id, name, image_url)`,
+      'order_id',
+      orderIds
+    );
 
     // Also fetch JSONB line_items for manual orders (fallback)
-    const { data: ordersWithJsonbItems, error: jsonbError } = await supabaseAdmin
-      .from('orders')
-      .select('id, line_items')
-      .in('id', orderIds);
-
-    if (jsonbError) throw jsonbError;
+    // BATCH FIX: Use batched query for large order sets
+    const ordersWithJsonbItems = await batchedSelect(
+      'orders',
+      'id, line_items',
+      'id',
+      orderIds
+    );
 
     // Create a map of JSONB line items by order_id for fallback
     const jsonbLineItemsMap = new Map<string, any[]>();
@@ -1286,12 +1324,15 @@ export async function getPackingList(
 
     const jsonbProductsMap = new Map<string, any>();
     if (jsonbProductIds.size > 0) {
-      const { data: jsonbProducts } = await supabaseAdmin
-        .from('products')
-        .select('id, name, image_url')
-        .in('id', Array.from(jsonbProductIds));
+      // BATCH FIX: Use batched query for large product sets
+      const jsonbProducts = await batchedSelect(
+        'products',
+        'id, name, image_url',
+        'id',
+        Array.from(jsonbProductIds)
+      );
 
-      jsonbProducts?.forEach((p: any) => {
+      jsonbProducts.forEach((p: any) => {
         jsonbProductsMap.set(p.id, p);
       });
     }
@@ -1311,12 +1352,24 @@ export async function getPackingList(
       });
     });
 
+    // PERF FIX: Pre-group normalized line items by order_id for O(1) lookup
+    // Previously used .filter() per order which was O(orders × lineItems)
+    const normalizedItemsByOrderId = new Map<string, any[]>();
+    orderLineItems?.forEach((li: any) => {
+      const existing = normalizedItemsByOrderId.get(li.order_id);
+      if (existing) {
+        existing.push(li);
+      } else {
+        normalizedItemsByOrderId.set(li.order_id, [li]);
+      }
+    });
+
     // Format orders with their items
     const orders: OrderForPacking[] = sessionOrders?.map((so: any) => {
       const order = so.orders;
 
       // Get line items from normalized table (Shopify) or JSONB fallback (manual orders)
-      const normalizedItems = orderLineItems?.filter((li: any) => li.order_id === order.id) || [];
+      const normalizedItems = normalizedItemsByOrderId.get(order.id) || [];
       const jsonbItems = jsonbLineItemsMap.get(order.id) || [];
 
       // Use normalized items if available, otherwise fallback to JSONB
@@ -1956,17 +2009,21 @@ async function abandonSessionFallback(
   const orderIds = sessionOrders?.map(so => so.order_id) || [];
 
   // Restore orders to confirmed
+  // BATCH FIX: Use batched update for large order sets
   let ordersRestored = 0;
   if (orderIds.length > 0) {
-    const { data: updated } = await supabaseAdmin
-      .from('orders')
-      .update({ sleeves_status: 'confirmed', updated_at: new Date().toISOString() })
-      .eq('store_id', storeId)
-      .eq('sleeves_status', 'in_preparation')
-      .in('id', orderIds)
-      .select();
+    for (let i = 0; i < orderIds.length; i += IN_BATCH_SIZE) {
+      const batch = orderIds.slice(i, i + IN_BATCH_SIZE);
+      const { data: updated } = await supabaseAdmin
+        .from('orders')
+        .update({ sleeves_status: 'confirmed', updated_at: new Date().toISOString() })
+        .eq('store_id', storeId)
+        .eq('sleeves_status', 'in_preparation')
+        .in('id', batch)
+        .select();
 
-    ordersRestored = updated?.length || 0;
+      ordersRestored += updated?.length || 0;
+    }
   }
 
   // Mark session as completed (abandoned)
@@ -2311,25 +2368,31 @@ export async function completeSession(
 
         // Update all orders to ready_to_ship
         // SECURITY FIX: Add store_id filter to prevent cross-store updates
+        // BATCH FIX: Use batched update for large order sets
         if (orderIds.length > 0) {
-          const { data: updatedOrders, error: orderUpdateError } = await supabaseAdmin
-            .from('orders')
-            .update({
-              sleeves_status: 'ready_to_ship',
-              updated_at: new Date().toISOString()
-            })
-            .eq('store_id', storeId)  // CRITICAL: Ensure orders belong to this store
-            .in('id', orderIds)
-            .eq('sleeves_status', 'in_preparation')
-            .select('id');
+          let totalUpdated = 0;
+          for (let i = 0; i < orderIds.length; i += IN_BATCH_SIZE) {
+            const batch = orderIds.slice(i, i + IN_BATCH_SIZE);
+            const { data: updatedOrders, error: orderUpdateError } = await supabaseAdmin
+              .from('orders')
+              .update({
+                sleeves_status: 'ready_to_ship',
+                updated_at: new Date().toISOString()
+              })
+              .eq('store_id', storeId)  // CRITICAL: Ensure orders belong to this store
+              .in('id', batch)
+              .eq('sleeves_status', 'in_preparation')
+              .select('id');
 
-          if (orderUpdateError) {
-            throw new Error('Error al actualizar estado de pedidos');
+            if (orderUpdateError) {
+              throw new Error('Error al actualizar estado de pedidos');
+            }
+            totalUpdated += updatedOrders?.length || 0;
           }
 
           // Validate all orders were updated (security check)
-          if (updatedOrders?.length !== orderIds.length) {
-            console.warn(`[completeSession] Expected ${orderIds.length} orders, updated ${updatedOrders?.length}. Some orders may belong to different store.`);
+          if (totalUpdated !== orderIds.length) {
+            console.warn(`[completeSession] Expected ${orderIds.length} orders, updated ${totalUpdated}. Some orders may belong to different store.`);
           }
         }
 
