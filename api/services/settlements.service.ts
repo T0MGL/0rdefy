@@ -3180,7 +3180,7 @@ async function getPendingReconciliationOrdersFallback(
   });
 
   const zoneRates = new Map(zones?.map(z => [z.zone_name?.toLowerCase(), z.rate || 0]) || []);
-  const defaultRate = zones?.[0]?.rate || 25000;
+  const defaultRate = zones?.[0]?.rate || 0;
 
   return orders.map((order: any) => {
     const isCod = isCodPayment(order.payment_method);
@@ -3284,8 +3284,11 @@ export async function processDeliveryReconciliation(
     logger.info('SETTLEMENTS', 'Using fallback processing for reconciliation');
     return await processDeliveryReconciliationFallback(storeId, userId, params);
   } catch (err: any) {
-    logger.error('SETTLEMENTS', 'Error in processDeliveryReconciliation', err);
-    throw new Error('Error al procesar la conciliación');
+    logger.error('SETTLEMENTS', 'Error in processDeliveryReconciliation', {
+      message: err.message,
+      stack: err.stack
+    });
+    throw err;
   }
 }
 
@@ -3311,7 +3314,7 @@ async function processDeliveryReconciliationFallback(
   const orderIds = params.orders.map(o => o.order_id);
   const { data: existingOrders, error: fetchError } = await supabaseAdmin
     .from('orders')
-    .select('id, total_price, payment_method, delivery_zone, reconciled_at, store_id')
+    .select('id, total_price, payment_method, delivery_zone, shipping_city, reconciled_at, store_id')
     .in('id', orderIds)
     .eq('store_id', storeId);
 
@@ -3372,7 +3375,7 @@ async function processDeliveryReconciliationFallback(
   });
 
   const zoneRates = new Map(zones?.map(z => [z.zone_name?.toLowerCase(), z.rate || 0]) || []);
-  const defaultRate = zones?.[0]?.rate || 25000;
+  const defaultRate = zones?.[0]?.rate || 0;
 
   // STEP 4: Calculate totals (all in memory first, before any updates)
   let totalOrders = 0;

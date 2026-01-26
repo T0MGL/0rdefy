@@ -624,9 +624,10 @@ ordersRouter.use(requireModule(Module.ORDERS));
 // Using req.storeId from middleware
 
 // Helper function to map database status to frontend status
-function mapStatus(dbStatus: string): 'pending' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident' {
-    const statusMap: Record<string, 'pending' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident'> = {
+function mapStatus(dbStatus: string): 'pending' | 'contacted' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident' {
+    const statusMap: Record<string, 'pending' | 'contacted' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident'> = {
         'pending': 'pending',
+        'contacted': 'contacted',
         'confirmed': 'confirmed',
         'in_preparation': 'in_preparation',
         'ready_to_ship': 'ready_to_ship',

@@ -568,10 +568,21 @@ export default function Orders() {
       productList = `${order.product}${order.quantity > 1 ? ` – ${order.quantity} unidades` : ''}`;
     }
 
-    // Build address - check if it's a Google Maps link
-    const address = order.address || 'No especificada';
-    const isGoogleMapsLink = address.includes('maps.google.com') || address.includes('goo.gl/maps');
-    const locationText = isGoogleMapsLink ? address : `{${address}}`;
+    // Build address section - prioritize google_maps_link, then check if address is a Maps link
+    const address = order.address || '';
+    const googleMapsLink = order.google_maps_link || '';
+    const isAddressAMapsLink = address.includes('maps.google.com') || address.includes('goo.gl/maps') || address.includes('maps.app.goo.gl');
+
+    let locationSection: string;
+    if (googleMapsLink) {
+      locationSection = address ? `📍 Envío: ${address}\n${googleMapsLink}` : `📍 Envío: ${googleMapsLink}`;
+    } else if (isAddressAMapsLink) {
+      locationSection = `📍 Envío: ${address}`;
+    } else if (address) {
+      locationSection = `📍 Envío: ${address}\n\n📌 Para coordinar la entrega, por favor envianos tu ubicación exacta (pin de Google Maps) por este chat.`;
+    } else {
+      locationSection = `📍 Envío: No especificada\n\n📌 Por favor envianos tu dirección y ubicación exacta (pin de Google Maps) para coordinar la entrega.`;
+    }
 
     const message = `Hola *${order.customer}* 👋
 
@@ -580,7 +591,7 @@ Tu pedido en *${storeName}* ya está reservado por unas horas ⏳
 🛍 Producto:
 ${productList}
 
-📍 Envío: ${locationText}
+${locationSection}
 
 💰 Total a pagar:
 ${formatCurrency(order.total ?? 0)}
@@ -589,6 +600,40 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
 👉 *SI*`;
 
     // Clean phone number and create WhatsApp link
+    const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+    const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
+
+    return `https://api.whatsapp.com/send?phone=${whatsappNumber}&text=${encodeURIComponent(message)}`;
+  }, [currentStore]);
+
+  // Follow-up message for re-send on contacted orders that haven't responded
+  const generateWhatsAppFollowUpLink = useCallback((order: Order) => {
+    const storeName = currentStore?.name || 'Nuestra Tienda';
+    const lineItems = order.order_line_items || [];
+
+    let productSummary = '';
+    if (lineItems.length > 0) {
+      productSummary = lineItems.map(item => {
+        const productName = item.product_name || item.title;
+        return `${productName}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`;
+      }).join(', ');
+    } else if (order.product) {
+      productSummary = `${order.product}${order.quantity > 1 ? ` (x${order.quantity})` : ''}`;
+    }
+
+    const message = `Hola *${order.customer}* 👋
+
+Te escribimos nuevamente de *${storeName}*. Te habíamos contactado por tu pedido y queremos saber si seguís interesado/a.
+
+🛍 ${productSummary}
+💰 Total: ${formatCurrency(order.total ?? 0)}
+
+Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
+
+¿Podés respondernos *SI* para confirmar o *NO* si preferís cancelar?
+
+¡Gracias! 🙌`;
+
     const cleanPhone = order.phone.replace(/\s+/g, '').replace(/[^0-9+]/g, '');
     const whatsappNumber = cleanPhone.startsWith('+') ? cleanPhone.substring(1) : cleanPhone;
 
@@ -1883,7 +1928,7 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
                                     size="sm"
                                     variant="outline"
                                     className="h-7 px-2 text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:border-amber-400 dark:hover:border-amber-700 hover:shadow-sm transition-all duration-200"
-                                    onClick={() => window.open(generateWhatsAppConfirmationLink(order), '_blank')}
+                                    onClick={() => window.open(generateWhatsAppFollowUpLink(order), '_blank')}
                                   >
                                     <MessageSquare size={14} className="mr-1" />
                                     Re-enviar

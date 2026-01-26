@@ -728,14 +728,24 @@ settlementsRouter.post('/reconcile-delivery', requirePermission(Module.CARRIERS,
     });
 
     // Return specific error message for known errors
-    if (error.message?.includes('Carrier not found')) {
+    const msg = error.message || '';
+    if (msg.includes('Carrier not found') || msg.includes('Transportadora no encontrada')) {
       return res.status(404).json({ error: 'Transportadora no encontrada' });
     }
-    if (error.message?.includes('already reconciled')) {
-      return res.status(409).json({ error: 'Algunas ordenes ya fueron conciliadas' });
+    if (msg.includes('already reconciled') || msg.includes('ya fueron conciliados')) {
+      return res.status(409).json({ error: msg });
+    }
+    if (msg.includes('no encontrados') || msg.includes('not found')) {
+      return res.status(404).json({ error: msg });
+    }
+    if (msg.includes('No hay pedidos') || msg.includes('No valid orders')) {
+      return res.status(400).json({ error: msg });
+    }
+    if (msg.includes('código duplicado') || msg.includes('unique_store_date_carrier')) {
+      return res.status(409).json({ error: 'Ya existe una liquidación para esta transportadora en esta fecha. Contacte soporte si necesita crear otra.' });
     }
 
-    res.status(500).json({ error: 'Error al procesar la conciliacion' });
+    res.status(500).json({ error: msg || 'Error al procesar la conciliacion' });
   }
 });
 
