@@ -128,7 +128,8 @@ router.post('/sessions', requirePermission(Module.WAREHOUSE, Permission.CREATE),
       errorMessage.includes('Invalid order') ||
       errorMessage.includes('Invalid product') ||
       errorMessage.includes('No valid products') ||
-      errorMessage.includes('no existen');
+      errorMessage.includes('no existen') ||
+      errorMessage.includes('sesión activa');
 
     if (isValidationError) {
       return res.status(400).json({

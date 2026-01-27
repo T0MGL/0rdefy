@@ -371,10 +371,11 @@ export function formatError(
   }
 
   // Extract message from backend error
+  // Priority: details (specific) > message > error (generic label) > client message
   const backendMessage =
+    error?.response?.data?.details ||
     error?.response?.data?.message ||
     error?.response?.data?.error ||
-    error?.response?.data?.details ||
     error?.message;
 
   // Detect specific backend error patterns and provide appropriate titles

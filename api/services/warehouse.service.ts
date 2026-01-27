@@ -193,171 +193,13 @@ export async function createSession(
       );
     }
 
-    // CRITICAL FIX (Bug #2): Use atomic RPC for session creation
-    // This ensures all-or-nothing execution: session + orders + status update
-    const { data: result, error: rpcError } = await supabaseAdmin
-      .rpc('create_picking_session_atomic', {
-        p_store_id: storeId,
-        p_order_ids: orderIds,
-        p_user_id: userId
-      })
-      .single();
+    // ========================================================================
+    // PRE-VALIDATION: Validate line items, product mapping, and stock
+    // BEFORE creating the session. This prevents orphaned sessions when
+    // validation fails after the atomic RPC has already committed.
+    // ========================================================================
 
-    // Handle RPC errors
-    if (rpcError) {
-      // Check if function doesn't exist (old database version)
-      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
-        logger.warn('WAREHOUSE', 'Atomic RPC not available, falling back to legacy non-atomic creation');
-        // Fallback to legacy implementation (below)
-      } else {
-        throw rpcError;
-      }
-    }
-
-    // If RPC succeeded, extract session data
-    let session: any = null;
-    if (result && result.success) {
-      session = {
-        id: result.session_id,
-        code: result.session_code,
-        status: result.session_status,
-        user_id: userId,
-        store_id: storeId
-      };
-    } else if (result && !result.success) {
-      throw new Error(result.error_message || 'Error al crear sesión de picking');
-    }
-
-    // LEGACY FALLBACK (only if RPC doesn't exist)
-    if (!session) {
-      // 1. Validate that all orders exist and are confirmed
-      // BATCH FIX: Use batched query to avoid PostgREST URL length limit with 200+ orders
-      const orders = await batchedSelect(
-        'orders',
-        'id, sleeves_status',
-        'id',
-        orderIds,
-        (q: any) => q.eq('store_id', storeId)
-      );
-
-      if (!orders || orders.length === 0) {
-        throw new Error('No se encontraron pedidos válidos');
-      }
-
-      const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
-      if (nonConfirmedOrders.length > 0) {
-        // Group orders by status for better error message
-        const statusCounts = nonConfirmedOrders.reduce((acc: Record<string, number>, o: any) => {
-          const status = o.sleeves_status || 'sin_estado';
-          acc[status] = (acc[status] || 0) + 1;
-          return acc;
-        }, {});
-
-        const statusSummary = Object.entries(statusCounts)
-          .map(([status, count]) => `${count} en "${status}"`)
-          .join(', ');
-
-        throw new Error(
-          `⚠️ No se puede crear la sesión de preparación\n\n` +
-          `${nonConfirmedOrders.length} pedido(s) no están en estado "confirmado":\n` +
-          `${statusSummary}\n\n` +
-          `💡 Solo los pedidos confirmados pueden agregarse a una sesión de preparación.\n` +
-          `Si los pedidos están en estado "contacted", debes confirmarlos primero.`
-        );
-      }
-
-      // 2. Generate unique session code
-      let sessionCode: string;
-      const { data: codeData, error: codeError } = await supabaseAdmin
-        .rpc('generate_session_code');
-
-      if (codeError) {
-        // Fallback: Generate code locally if RPC doesn't exist (migration 081 not applied)
-        if (codeError.message?.includes('function') || codeError.code === '42883') {
-          logger.warn('WAREHOUSE', 'generate_session_code RPC not available, using local generation');
-          const now = new Date();
-          const datePart = now.toLocaleDateString('es-PY', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-          }).replace(/\//g, '');
-          // Get count of sessions for today
-          const { count } = await supabaseAdmin
-            .from('picking_sessions')
-            .select('*', { count: 'exact', head: true })
-            .eq('store_id', storeId)
-            .gte('created_at', now.toISOString().split('T')[0]);
-          const sequenceNum = (count || 0) + 1;
-          sessionCode = `PREP-${datePart}-${String(sequenceNum).padStart(3, '0')}`;
-        } else {
-          throw codeError;
-        }
-      } else {
-        sessionCode = codeData;
-      }
-
-      // 3. Create picking session
-      const { data: sessionData, error: sessionError } = await supabaseAdmin
-        .from('picking_sessions')
-        .insert({
-          code: sessionCode,
-          status: 'picking',
-          user_id: userId,
-          store_id: storeId,
-          picking_started_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (sessionError) throw sessionError;
-      session = sessionData;
-
-      // 4. Link orders to session
-      const sessionOrders = orderIds.map(orderId => ({
-        picking_session_id: session.id,
-        order_id: orderId
-      }));
-
-      const { error: linkError } = await supabaseAdmin
-        .from('picking_session_orders')
-        .insert(sessionOrders);
-
-      if (linkError) {
-        // CRITICAL: Rollback session creation if link fails
-        await supabaseAdmin
-          .from('picking_sessions')
-          .delete()
-          .eq('id', session.id);
-        throw linkError;
-      }
-
-      // 5. Update orders status to in_preparation
-      // BATCH FIX: Use batched update for large order sets
-      try {
-        await batchedUpdate(
-          'orders',
-          { sleeves_status: 'in_preparation' },
-          'id',
-          orderIds
-        );
-      } catch (updateError) {
-        // CRITICAL: Rollback session and links if update fails
-        await supabaseAdmin
-          .from('picking_session_orders')
-          .delete()
-          .eq('picking_session_id', session.id);
-        await supabaseAdmin
-          .from('picking_sessions')
-          .delete()
-          .eq('id', session.id);
-        throw updateError;
-      }
-    }
-
-    // 6. Fetch line items - support both Shopify (order_line_items) and manual (JSONB line_items)
-
-    // First, try to get from normalized order_line_items table (Shopify orders)
-    // BATCH FIX: Use batchedSelectWithRange to handle 200+ order IDs without exceeding URL limits
+    // Fetch line items - support both Shopify (order_line_items) and manual (JSONB line_items)
     const normalizedLineItems = await batchedSelectWithRange(
       'order_line_items',
       'order_id, product_id, variant_id, quantity, shopify_product_id, shopify_variant_id, product_name, variant_title, units_per_pack',
@@ -365,9 +207,7 @@ export async function createSession(
       orderIds
     );
 
-    // Check if we have normalized line items (Shopify orders)
     // VARIANT SUPPORT: Aggregate by (product_id, variant_id) composite key
-    // Key format: "product_id" or "product_id|variant_id" if variant exists
     const productQuantities = new Map<string, {
       product_id: string;
       variant_id: string | null;
@@ -420,8 +260,6 @@ export async function createSession(
       });
     } else {
       // No normalized line items - must be manual orders
-      // Fetch orders with JSONB line_items
-      // BATCH FIX: Use batched query for large order sets
       const ordersWithLineItems = await batchedSelect(
         'orders',
         'id, line_items',
@@ -429,7 +267,6 @@ export async function createSession(
         orderIds
       );
 
-      // Parse JSONB line_items and aggregate quantities by (product_id, variant_id)
       ordersWithLineItems?.forEach(order => {
         if (Array.isArray(order.line_items)) {
           order.line_items.forEach((item: any) => {
@@ -456,8 +293,7 @@ export async function createSession(
       });
     }
 
-    // Validate all product IDs are UUIDs (reuse uuidRegex from line 81)
-    // Extract unique product IDs from the composite keys
+    // Validate all product IDs are UUIDs
     const uniqueProductIds = new Set<string>();
     productQuantities.forEach((data) => {
       uniqueProductIds.add(data.product_id);
@@ -471,9 +307,7 @@ export async function createSession(
       );
     }
 
-    // STOCK VALIDATION: Check if there's enough stock for all products
-    // SECURITY: Filter by store_id to prevent cross-store product access
-    // BATCH FIX: Use batched query for large product sets
+    // STOCK VALIDATION: Check BEFORE creating session to prevent orphaned sessions
     const productIds = Array.from(uniqueProductIds);
     const stockData = await batchedSelect(
       'products',
@@ -512,8 +346,7 @@ export async function createSession(
     const stockMap = new Map(stockData?.map(p => [p.id, { name: p.name, stock: p.stock || 0, sku: p.sku }]) || []);
     const insufficientStock: Array<{ name: string; sku: string; needed: number; available: number }> = [];
 
-    // For shared stock variants, we need to aggregate total units needed per parent product
-    const sharedStockNeeded = new Map<string, number>(); // product_id -> total units needed
+    const sharedStockNeeded = new Map<string, number>();
 
     productQuantities.forEach((data, key) => {
       const product = stockMap.get(data.product_id);
@@ -522,12 +355,10 @@ export async function createSession(
       if (data.variant_id) {
         const variant = variantStockMap.get(data.variant_id);
         if (variant?.uses_shared_stock) {
-          // Shared stock: accumulate units needed from parent
           const unitsNeeded = data.quantity * (variant.units_per_pack || 1);
           const currentNeeded = sharedStockNeeded.get(data.product_id) || 0;
           sharedStockNeeded.set(data.product_id, currentNeeded + unitsNeeded);
         } else if (variant) {
-          // Independent variant stock
           if (variant.stock < data.quantity) {
             insufficientStock.push({
               name: `${product.name} - ${variant.variant_title}`,
@@ -538,7 +369,6 @@ export async function createSession(
           }
         }
       } else {
-        // No variant - check product stock directly
         if (product.stock < data.quantity) {
           insufficientStock.push({
             name: product.name || 'Producto sin nombre',
@@ -550,7 +380,6 @@ export async function createSession(
       }
     });
 
-    // Validate shared stock requirements
     sharedStockNeeded.forEach((unitsNeeded, productId) => {
       const product = stockMap.get(productId);
       if (product && product.stock < unitsNeeded) {
@@ -568,7 +397,6 @@ export async function createSession(
         .map(p => `• ${p.name} (SKU: ${p.sku}) - Necesario: ${p.needed}, Disponible: ${p.available}`)
         .join('\n');
 
-
       throw new Error(
         `⚠️ Stock insuficiente para crear la sesión de preparación\n\n` +
         `Los siguientes productos no tienen suficiente inventario:\n\n` +
@@ -580,6 +408,168 @@ export async function createSession(
       );
     }
 
+    if (productQuantities.size === 0) {
+      throw new Error('No valid products found in the selected orders');
+    }
+
+    // ========================================================================
+    // SESSION CREATION: All validations passed, now create the session
+    // ========================================================================
+
+    // CRITICAL FIX (Bug #2): Use atomic RPC for session creation
+    // This ensures all-or-nothing execution: session + orders + status update
+    const { data: result, error: rpcError } = await supabaseAdmin
+      .rpc('create_picking_session_atomic', {
+        p_store_id: storeId,
+        p_order_ids: orderIds,
+        p_user_id: userId
+      })
+      .single();
+
+    // Handle RPC errors
+    if (rpcError) {
+      // Check if function doesn't exist (old database version)
+      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+        logger.warn('WAREHOUSE', 'Atomic RPC not available, falling back to legacy non-atomic creation');
+        // Fallback to legacy implementation (below)
+      } else {
+        throw rpcError;
+      }
+    }
+
+    // If RPC succeeded, extract session data
+    let session: any = null;
+    if (result && result.success) {
+      session = {
+        id: result.session_id,
+        code: result.session_code,
+        status: result.session_status,
+        user_id: userId,
+        store_id: storeId
+      };
+    } else if (result && !result.success) {
+      throw new Error(result.error_message || 'Error al crear sesión de picking');
+    }
+
+    // LEGACY FALLBACK (only if RPC doesn't exist)
+    if (!session) {
+      // 1. Validate that all orders exist and are confirmed
+      const orders = await batchedSelect(
+        'orders',
+        'id, sleeves_status',
+        'id',
+        orderIds,
+        (q: any) => q.eq('store_id', storeId)
+      );
+
+      if (!orders || orders.length === 0) {
+        throw new Error('No se encontraron pedidos válidos');
+      }
+
+      const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
+      if (nonConfirmedOrders.length > 0) {
+        const statusCounts = nonConfirmedOrders.reduce((acc: Record<string, number>, o: any) => {
+          const status = o.sleeves_status || 'sin_estado';
+          acc[status] = (acc[status] || 0) + 1;
+          return acc;
+        }, {});
+
+        const statusSummary = Object.entries(statusCounts)
+          .map(([status, count]) => `${count} en "${status}"`)
+          .join(', ');
+
+        throw new Error(
+          `⚠️ No se puede crear la sesión de preparación\n\n` +
+          `${nonConfirmedOrders.length} pedido(s) no están en estado "confirmado":\n` +
+          `${statusSummary}\n\n` +
+          `💡 Solo los pedidos confirmados pueden agregarse a una sesión de preparación.\n` +
+          `Si los pedidos están en estado "contacted", debes confirmarlos primero.`
+        );
+      }
+
+      // 2. Generate unique session code
+      let sessionCode: string;
+      const { data: codeData, error: codeError } = await supabaseAdmin
+        .rpc('generate_session_code');
+
+      if (codeError) {
+        if (codeError.message?.includes('function') || codeError.code === '42883') {
+          logger.warn('WAREHOUSE', 'generate_session_code RPC not available, using local generation');
+          const now = new Date();
+          const datePart = now.toLocaleDateString('es-PY', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          }).replace(/\//g, '');
+          const { count } = await supabaseAdmin
+            .from('picking_sessions')
+            .select('*', { count: 'exact', head: true })
+            .eq('store_id', storeId)
+            .gte('created_at', now.toISOString().split('T')[0]);
+          const sequenceNum = (count || 0) + 1;
+          sessionCode = `PREP-${datePart}-${String(sequenceNum).padStart(3, '0')}`;
+        } else {
+          throw codeError;
+        }
+      } else {
+        sessionCode = codeData;
+      }
+
+      // 3. Create picking session
+      const { data: sessionData, error: sessionError } = await supabaseAdmin
+        .from('picking_sessions')
+        .insert({
+          code: sessionCode,
+          status: 'picking',
+          user_id: userId,
+          store_id: storeId,
+          picking_started_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (sessionError) throw sessionError;
+      session = sessionData;
+
+      // 4. Link orders to session
+      const sessionOrders = orderIds.map(orderId => ({
+        picking_session_id: session.id,
+        order_id: orderId
+      }));
+
+      const { error: linkError } = await supabaseAdmin
+        .from('picking_session_orders')
+        .insert(sessionOrders);
+
+      if (linkError) {
+        await supabaseAdmin
+          .from('picking_sessions')
+          .delete()
+          .eq('id', session.id);
+        throw linkError;
+      }
+
+      // 5. Update orders status to in_preparation
+      try {
+        await batchedUpdate(
+          'orders',
+          { sleeves_status: 'in_preparation' },
+          'id',
+          orderIds
+        );
+      } catch (updateError) {
+        await supabaseAdmin
+          .from('picking_session_orders')
+          .delete()
+          .eq('picking_session_id', session.id);
+        await supabaseAdmin
+          .from('picking_sessions')
+          .delete()
+          .eq('id', session.id);
+        throw updateError;
+      }
+    }
+
     // Insert aggregated picking list with variant support
     const pickingItems = Array.from(productQuantities.entries()).map(([key, data]) => ({
       picking_session_id: session.id,
@@ -588,10 +578,6 @@ export async function createSession(
       total_quantity_needed: data.quantity,
       quantity_picked: 0
     }));
-
-    if (pickingItems.length === 0) {
-      throw new Error('No valid products found in the selected orders');
-    }
 
     const { error: pickingItemsError } = await supabaseAdmin
       .from('picking_session_items')
