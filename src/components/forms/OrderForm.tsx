@@ -144,7 +144,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   const extractCountryCode = (phone: string): { countryCode: string; phoneNumber: string } => {
     if (!phone) return { countryCode: '+595', phoneNumber: '' };
 
-    const countryCodes = ['+595', '+54', '+55', '+598', '+56', '+51', '+57', '+52', '+34', '+1'];
+    const countryCodes = ['+595', '+54', '+55', '+598', '+56', '+51', '+57', '+52', '+34', '+33', '+1'];
     for (const code of countryCodes) {
       if (phone.startsWith(code)) {
         return {
@@ -567,6 +567,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                     <SelectItem value="+57">🇨🇴 +57</SelectItem>
                     <SelectItem value="+52">🇲🇽 +52</SelectItem>
                     <SelectItem value="+34">🇪🇸 +34</SelectItem>
+                    <SelectItem value="+33">🇫🇷 +33</SelectItem>
                     <SelectItem value="+1">🇺🇸 +1</SelectItem>
                   </SelectContent>
                 </Select>

@@ -32,6 +32,7 @@ const COUNTRY_CODES: CountryCode[] = [
   { code: '+57', length: 3 },  // Colombia
   { code: '+52', length: 3 },  // México
   { code: '+34', length: 3 },  // España
+  { code: '+33', length: 3 },  // Francia
   { code: '+1', length: 2 },   // USA/Canadá
 ];
 
