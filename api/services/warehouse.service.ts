@@ -1301,16 +1301,17 @@ export async function getPackingList(
 
     // Get ALL order line items (not just packing_progress)
     // This ensures we show ALL products in the order, even if not yet packed
-    // BATCH FIX: Use batchedSelectWithRange to handle 200+ order IDs without exceeding URL limits
+    // FIX: Don't use embedded join `products (...)` because it fails when product_id
+    // contains invalid UUIDs (e.g., Shopify numeric IDs that weren't mapped properly).
+    // Instead, fetch products separately with UUID validation.
     const orderLineItems = await batchedSelectWithRange(
       'order_line_items',
-      `order_id, product_id, variant_id, product_name, variant_title, quantity, products (id, name, image_url)`,
+      `order_id, product_id, variant_id, product_name, variant_title, quantity`,
       'order_id',
       orderIds
     );
 
     // Also fetch JSONB line_items for manual orders (fallback)
-    // BATCH FIX: Use batched query for large order sets
     const ordersWithJsonbItems = await batchedSelect(
       'orders',
       'id, line_items',
@@ -1326,26 +1327,38 @@ export async function getPackingList(
       }
     });
 
-    // Fetch product details for JSONB line items (if any)
-    const jsonbProductIds = new Set<string>();
+    // Collect ALL product IDs (from normalized + JSONB) and filter to valid UUIDs only
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const allProductIds = new Set<string>();
+
+    // From normalized line items
+    orderLineItems?.forEach((li: any) => {
+      if (li.product_id && uuidRegex.test(li.product_id)) {
+        allProductIds.add(li.product_id);
+      }
+    });
+
+    // From JSONB line items
     jsonbLineItemsMap.forEach((items) => {
       items.forEach((item: any) => {
-        if (item.product_id) jsonbProductIds.add(item.product_id);
+        if (item.product_id && uuidRegex.test(item.product_id)) {
+          allProductIds.add(item.product_id);
+        }
       });
     });
 
-    const jsonbProductsMap = new Map<string, any>();
-    if (jsonbProductIds.size > 0) {
-      // BATCH FIX: Use batched query for large product sets
-      const jsonbProducts = await batchedSelect(
+    // Fetch product details for ALL valid product IDs
+    const productsMap = new Map<string, any>();
+    if (allProductIds.size > 0) {
+      const products = await batchedSelect(
         'products',
         'id, name, image_url',
         'id',
-        Array.from(jsonbProductIds)
+        Array.from(allProductIds)
       );
 
-      jsonbProducts.forEach((p: any) => {
-        jsonbProductsMap.set(p.id, p);
+      products?.forEach((p: any) => {
+        productsMap.set(p.id, p);
       });
     }
 
@@ -1410,26 +1423,15 @@ export async function getPackingList(
           : `${order.id}-${productId}`;
         const progress = packingProgressMap.get(progressKey);
 
-        let productName: string;
-        let productImage: string;
-        let itemQuantity: number;
-
-        if (useNormalized) {
-          const baseName = lineItem.products?.name || lineItem.product_name;
-          productName = lineItem.variant_title
-            ? `${baseName} - ${lineItem.variant_title}`
-            : baseName;
-          productImage = lineItem.products?.image_url || '';
-          itemQuantity = parseInt(lineItem.quantity, 10) || 0;
-        } else {
-          const product = jsonbProductsMap.get(productId);
-          const baseName = product?.name || lineItem.product_name || lineItem.name || 'Producto';
-          productName = lineItem.variant_title
-            ? `${baseName} - ${lineItem.variant_title}`
-            : baseName;
-          productImage = product?.image_url || lineItem.image_url || '';
-          itemQuantity = parseInt(lineItem.quantity, 10) || 0;
-        }
+        // FIX: Use productsMap for both normalized and JSONB line items
+        // This ensures we handle invalid UUIDs gracefully (productsMap only has valid products)
+        const product = productsMap.get(productId);
+        const baseName = product?.name || lineItem.product_name || lineItem.name || 'Producto';
+        const productName = lineItem.variant_title
+          ? `${baseName} - ${lineItem.variant_title}`
+          : baseName;
+        const productImage = product?.image_url || lineItem.image_url || '';
+        const itemQuantity = parseInt(lineItem.quantity, 10) || 0;
 
         // Composite key for aggregation includes variant_id
         const aggregationKey = variantId ? `${productId}-${variantId}` : productId;
@@ -1460,7 +1462,7 @@ export async function getPackingList(
         const existing = aggregatedItemsMap.get(aggregationKey);
         if (!existing) {
           // This is an orphaned packing_progress record - include it so UI shows correct state
-          const orphanProduct = jsonbProductsMap.get(p.product_id);
+          const orphanProduct = productsMap.get(p.product_id);
           aggregatedItemsMap.set(aggregationKey, {
             product_id: p.product_id,
             variant_id: p.variant_id || null,
@@ -1578,8 +1580,8 @@ export async function getPackingList(
       if (!availableItemsMap.has(key)) {
         // Parse the key to get product_id and variant_id
         const [productId, variantId] = key.includes('|') ? key.split('|') : [key, null];
-        // Find product details from jsonbProductsMap or fetch from packing_progress
-        const product = jsonbProductsMap.get(productId);
+        // Find product details from productsMap or fetch from packing_progress
+        const product = productsMap.get(productId);
         const variantTitle = variantId ? pickingVariantMap.get(variantId) : null;
         const productName = variantTitle
           ? `${product?.name || 'Producto'} - ${variantTitle}`
