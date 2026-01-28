@@ -396,7 +396,7 @@ export default function WarehouseNew() {
       logger.error('Error packing all items for order:', error);
       throw error;
     }
-  }, [session, loadPackingList]);
+  }, [session, packingData, loadPackingList]);
 
   // NEW: Auto-pack entire session with a single click
   const handleAutoPackSession = useCallback(async () => {

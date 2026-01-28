@@ -233,10 +233,21 @@ export function PackingOneByOne({
     setPackingProduct('all');
     try {
       await onPackAllItems(currentOrder.id);
+      toast({
+        title: 'Pedido empacado',
+        description: `Todos los productos del pedido #${currentOrder.order_number} han sido empacados`,
+      });
+    } catch (error: any) {
+      logger.error('Error packing all items:', error);
+      toast({
+        title: 'Error al empacar',
+        description: error?.message || 'No se pudieron empacar los productos. Intenta de nuevo.',
+        variant: 'destructive',
+      });
     } finally {
       setPackingProduct(null);
     }
-  }, [currentOrder, onPackAllItems]);
+  }, [currentOrder, onPackAllItems, toast]);
 
   // Handle auto-packing entire session
   const handleAutoPackSession = useCallback(async () => {
