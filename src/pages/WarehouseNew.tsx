@@ -390,8 +390,10 @@ export default function WarehouseNew() {
     // Use the new atomic RPC to pack all items for a single order
     try {
       await warehouseService.packAllItemsForOrder(session.id, orderId);
-      // Reload data after operation
-      await loadPackingList(session.id);
+      // Reload data in background - don't block UI
+      loadPackingList(session.id).catch(err => {
+        logger.error('Error reloading packing list:', err);
+      });
     } catch (error) {
       logger.error('Error packing all items for order:', error);
       throw error;

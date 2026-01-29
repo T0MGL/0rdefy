@@ -230,33 +230,35 @@ export function PackingOneByOne({
   const handlePackAll = useCallback(async () => {
     if (!currentOrder) return;
 
+    // Pre-calculate navigation BEFORE async call (avoid stale closure)
+    const currentIdx = orders.findIndex(o => o.id === currentOrder.id);
+    const hasMoreOrders = currentIdx < orders.length - 1;
+    const nextIncompleteIdx = orders.findIndex((o, idx) => idx > currentIdx && !o.is_complete);
+    const orderNumber = currentOrder.order_number;
+
     setPackingProduct('all');
     try {
-      await onPackAllItems(currentOrder.id);
+      // Fire and forget - don't wait for full reload
+      const packPromise = onPackAllItems(currentOrder.id);
 
-      // Calculate if there are more orders to pack
-      const currentIdx = orders.findIndex(o => o.id === currentOrder.id);
-      const hasMoreOrders = currentIdx < orders.length - 1;
-      const nextIncompleteIdx = orders.findIndex((o, idx) => idx > currentIdx && !o.is_complete);
+      // Immediately advance to next order (optimistic navigation)
+      if (hasMoreOrders) {
+        if (nextIncompleteIdx !== -1) {
+          onGoToOrder(nextIncompleteIdx);
+        } else {
+          onNextOrder();
+        }
+      }
 
+      // Show quick toast
       toast({
-        title: '✅ Pedido empacado',
-        description: hasMoreOrders
-          ? `#${currentOrder.order_number} listo. Avanzando al siguiente...`
-          : `#${currentOrder.order_number} listo. ¡Último pedido!`,
+        title: '✅ Empacado',
+        description: `#${orderNumber} → siguiente`,
+        duration: 1500,
       });
 
-      // Auto-advance to next incomplete order, or next order if all complete
-      if (hasMoreOrders) {
-        // Small delay for visual feedback before advancing
-        setTimeout(() => {
-          if (nextIncompleteIdx !== -1) {
-            onGoToOrder(nextIncompleteIdx);
-          } else {
-            onNextOrder();
-          }
-        }, 300);
-      }
+      // Wait for API to complete (data will refresh in background)
+      await packPromise;
     } catch (error: any) {
       logger.error('Error packing all items:', error);
       toast({
