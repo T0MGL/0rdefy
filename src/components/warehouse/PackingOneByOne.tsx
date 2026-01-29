@@ -427,7 +427,7 @@ export function PackingOneByOne({
                 <div>
                   <div className="flex items-center gap-3 mb-2">
                     <h2 className="text-3xl font-bold text-primary">
-                      #{currentOrder.order_number}
+                      {currentOrder.order_number?.startsWith('#') ? currentOrder.order_number : `#${currentOrder.order_number}`}
                     </h2>
                     {orderComplete && (
                       <Badge className="bg-primary text-primary-foreground">
@@ -463,8 +463,8 @@ export function PackingOneByOne({
                   </div>
                 </div>
 
-                {/* COD Badge */}
-                {currentOrder.cod_amount && currentOrder.cod_amount > 0 && (
+                {/* COD Badge - only show if positive (avoid JS 0 && x = 0 gotcha) */}
+                {currentOrder.cod_amount > 0 && (
                   <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-base px-3 py-1">
                     COD: {new Intl.NumberFormat('es-PY').format(currentOrder.cod_amount)} Gs
                   </Badge>
