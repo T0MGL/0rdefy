@@ -3271,6 +3271,7 @@ export interface ProcessDeliveryReconciliationParams {
     order_id: string;
     delivered: boolean;
     failure_reason?: string;
+    override_prepaid?: boolean; // User override: treat COD as prepaid for this reconciliation
   }>;
 }
 
@@ -3448,9 +3449,13 @@ async function processDeliveryReconciliationFallback(
       delivered: orderData.delivered
     });
 
-    // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
-    // This handles the case where customer paid via transfer/QR before delivery
-    const isCod = !order.prepaid_method && isCodPayment(order.payment_method);
+    // IMPORTANT: Determine if this is COD for reconciliation calculation
+    // Order is COD only if:
+    // 1. prepaid_method is NOT set (customer didn't pay before delivery)
+    // 2. payment_method is a COD type (efectivo, cash, etc.)
+    // 3. User did NOT override to mark as prepaid during reconciliation
+    const baseCod = !order.prepaid_method && isCodPayment(order.payment_method);
+    const isCod = baseCod && !orderData.override_prepaid;
 
     if (orderData.delivered) {
       totalDelivered++;

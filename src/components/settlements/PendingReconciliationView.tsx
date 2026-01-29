@@ -127,6 +127,7 @@ function getPrepaidMethodLabel(paymentMethod: string, prepaidMethod: string | nu
 interface OrderReconciliation {
   delivered: boolean;
   failure_reason?: string;
+  override_prepaid?: boolean; // Override COD to prepaid during reconciliation
 }
 
 type WorkflowStep = 'selection' | 'reconciliation' | 'confirm' | 'payment' | 'complete';
@@ -286,11 +287,13 @@ export function PendingReconciliationView() {
       const state = reconciliationState.get(order.id);
       const isDelivered = state?.delivered ?? true;
       const fee = order.carrier_fee || 0;
+      // Allow user to override COD to prepaid during reconciliation
+      const effectiveIsCod = state?.override_prepaid ? false : order.is_cod;
 
       if (isDelivered) {
         delivered++;
         deliveredCarrierFees += fee;
-        if (order.is_cod) {
+        if (effectiveIsCod) {
           codExpected += order.cod_amount;
         } else {
           prepaidCount++;
@@ -383,6 +386,8 @@ export function PendingReconciliationView() {
           order_id: order.id,
           delivered: state?.delivered ?? true,
           failure_reason: state?.failure_reason,
+          // Override: if user marked COD order as "Ya pagó", treat as prepaid for calculation
+          override_prepaid: state?.override_prepaid ?? false,
         };
       });
 
@@ -811,9 +816,30 @@ export function PendingReconciliationView() {
                         </TableCell>
                         <TableCell className="text-right">
                           {order.is_cod ? (
-                            <span className="font-semibold text-green-600">
-                              {formatCurrency(order.cod_amount)}
-                            </span>
+                            <div className="flex items-center justify-end gap-2">
+                              <span className={`font-semibold ${state?.override_prepaid ? 'line-through text-muted-foreground' : 'text-green-600'}`}>
+                                {formatCurrency(order.cod_amount)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReconciliationState(prev => {
+                                    const newState = new Map(prev);
+                                    const current = newState.get(order.id) || { delivered: true };
+                                    newState.set(order.id, { ...current, override_prepaid: !current.override_prepaid });
+                                    return newState;
+                                  });
+                                }}
+                                className={`text-xs px-2 py-0.5 rounded border ${
+                                  state?.override_prepaid
+                                    ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300'
+                                    : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                                }`}
+                                title={state?.override_prepaid ? 'Click para marcar como COD' : 'Click si el cliente ya pagó por transferencia/QR'}
+                              >
+                                {state?.override_prepaid ? '✓ Pagó' : 'Ya pagó?'}
+                              </button>
+                            </div>
                           ) : (
                             <Badge variant="secondary" className="font-medium">
                               {getPrepaidMethodLabel(order.payment_method, order.prepaid_method)}
@@ -868,6 +894,7 @@ export function PendingReconciliationView() {
                   placeholder="0"
                   value={totalAmountCollected ?? ''}
                   onChange={(e) => setTotalAmountCollected(e.target.value ? Number(e.target.value) : null)}
+                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
                   className="mt-1 text-lg font-mono"
                 />
               </div>

@@ -314,67 +314,71 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                 const isPrepaid = !!prepaidMethod;
                 const isOnlineGateway = ['shopify_payments', 'paypal', 'mercadopago', 'stripe'].includes(paymentGateway);
 
-                // Determinar tipo de pago y estado real
+                // Determinar tipo de pago y estado real (SEPARADOS)
                 let paymentType: 'online' | 'cod' | 'prepaid' | 'pending';
-                let derivedStatus: 'paid' | 'pending' | 'collected' | 'failed';
                 let statusLabel: string;
                 let statusClass: string;
-                let typeLabel: string;
+                let typeLabel: string;   // CÓMO pagó (método)
+                let typeClass: string;   // Color del método
 
                 if (isPaidOnline || (isOnlineGateway && codAmount === 0)) {
                   paymentType = 'online';
-                  derivedStatus = 'paid';
-                  statusLabel = 'Pagado Online';
-                  statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
-                  typeLabel = paymentGateway === 'shopify_payments' ? 'Shopify Payments' :
+                  // Tipo: el método específico de pago
+                  typeLabel = paymentGateway === 'shopify_payments' ? 'Tarjeta (Shopify)' :
                               paymentGateway === 'paypal' ? 'PayPal' :
                               paymentGateway === 'mercadopago' ? 'MercadoPago' :
-                              paymentGateway === 'stripe' ? 'Stripe' : 'Pago Online';
+                              paymentGateway === 'stripe' ? 'Tarjeta (Stripe)' : 'Tarjeta Online';
+                  typeClass = 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-700';
+                  // Estado: simplemente "Pagado"
+                  statusLabel = 'Pagado';
+                  statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
                 } else if (isPrepaid) {
                   paymentType = 'prepaid';
-                  derivedStatus = 'paid';
-                  statusLabel = 'Prepago';
-                  statusClass = 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-700';
+                  // Tipo: cómo pagó por adelantado
                   typeLabel = prepaidMethod === 'transfer' ? 'Transferencia' :
-                              prepaidMethod === 'qr' ? 'QR' :
-                              prepaidMethod === 'cash' ? 'Efectivo (adelantado)' :
+                              prepaidMethod === 'transferencia' ? 'Transferencia' :
+                              prepaidMethod === 'qr' ? 'Pago QR' :
+                              prepaidMethod === 'cash' ? 'Efectivo' :
                               prepaidMethod || 'Prepago';
+                  typeClass = 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-700';
+                  // Estado: pagado por adelantado
+                  statusLabel = 'Pagado (Adelantado)';
+                  statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
                 } else if (codAmount > 0 || paymentGateway === 'cash_on_delivery' || paymentGateway === 'manual') {
                   paymentType = 'cod';
-                  // Para COD, usar payment_status si existe, sino derivar del estado del pedido
+                  // Tipo: siempre efectivo contra entrega
+                  typeLabel = 'Efectivo (COD)';
+                  typeClass = 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700';
+                  // Estado: depende de si ya se cobró o no
                   if (paymentStatus === 'collected') {
-                    derivedStatus = 'collected';
                     statusLabel = 'Cobrado';
                     statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
                   } else if (paymentStatus === 'failed') {
-                    derivedStatus = 'failed';
                     statusLabel = 'Cobro Fallido';
                     statusClass = 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-300 dark:border-red-700';
                   } else {
-                    derivedStatus = 'pending';
                     statusLabel = 'Por Cobrar';
                     statusClass = 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700';
                   }
-                  typeLabel = 'Contra Entrega (COD)';
                 } else {
                   paymentType = 'pending';
-                  derivedStatus = 'pending';
-                  statusLabel = 'Sin definir';
+                  typeLabel = paymentGateway || 'Sin definir';
+                  typeClass = 'bg-gray-50 dark:bg-gray-950/30 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-700';
+                  statusLabel = 'Pendiente';
                   statusClass = 'bg-gray-50 dark:bg-gray-950/30 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-700';
-                  typeLabel = paymentGateway || 'Pendiente';
                 }
 
                 return (
                   <>
-                    {/* Tipo de pago con badge más prominente */}
+                    {/* Tipo de pago: CÓMO pagó (método) */}
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Tipo de Pago:</span>
-                      <Badge variant="outline" className={`text-xs ${statusClass}`}>
+                      <span className="text-sm text-muted-foreground">Método:</span>
+                      <Badge variant="outline" className={`text-xs ${typeClass}`}>
                         {typeLabel}
                       </Badge>
                     </div>
 
-                    {/* Estado de pago derivado correctamente */}
+                    {/* Estado de pago: SI pagó o no */}
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">Estado:</span>
                       <Badge variant="outline" className={statusClass}>

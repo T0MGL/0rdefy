@@ -697,6 +697,22 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 // ================================================================
+// CRASH HANDLERS - Prevent silent crashes
+// ================================================================
+
+process.on('uncaughtException', (error) => {
+    logger.error('BACKEND', '💀 FATAL: Uncaught exception:', error);
+    // Give time for logs to flush, then exit
+    setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('BACKEND', '💀 FATAL: Unhandled rejection:', reason);
+    // Give time for logs to flush, then exit
+    setTimeout(() => process.exit(1), 1000);
+});
+
+// ================================================================
 // SERVER STARTUP
 // ================================================================
 

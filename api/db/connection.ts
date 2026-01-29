@@ -87,19 +87,26 @@ export const supabaseAdmin: SupabaseClient = createClient(
 
 console.log('✅ Supabase admin client (SERVICE_ROLE) initialized:', SUPABASE_URL);
 
-// Test Supabase connection
-(async () => {
+// Test Supabase connection (exported for controlled initialization)
+export async function testSupabaseConnection(): Promise<boolean> {
     try {
         const { data, error } = await supabase.from('stores').select('count').limit(1);
         if (error) {
             console.warn('⚠️  Supabase connection test warning:', error.message);
-        } else {
-            console.log('✅ Supabase connection test successful');
+            return false;
         }
+        console.log('✅ Supabase connection test successful');
+        return true;
     } catch (err) {
         console.error('❌ Supabase connection test failed:', err);
+        return false;
     }
-})();
+}
+
+// Run test but catch any unhandled rejection
+testSupabaseConnection().catch((err) => {
+    console.error('❌ Supabase connection test crashed:', err);
+});
 
 // ================================================================
 // HELPER FUNCTIONS

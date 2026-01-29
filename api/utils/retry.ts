@@ -396,13 +396,14 @@ class BoundedCircuitBreakerCache {
     }
 
     /**
-     * Stop cleanup interval (for graceful shutdown)
+     * Stop cleanup interval and clear cache (for graceful shutdown)
      */
     destroy(): void {
         if (this.cleanupInterval) {
             clearInterval(this.cleanupInterval);
             this.cleanupInterval = null;
         }
+        this.cache.clear();
     }
 }
 

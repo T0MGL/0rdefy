@@ -253,6 +253,10 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
             // The payment already went directly to the store
             updateData.amount_collected = 0;
             updateData.has_amount_discrepancy = false;
+            // IMPORTANT: Set prepaid_method so reconciliation knows this is NOT COD
+            // This handles the case where order was created as COD but customer paid via transfer/QR
+            updateData.prepaid_method = payment_method; // 'transferencia', 'qr', 'tarjeta', etc.
+            updateData.prepaid_at = new Date().toISOString();
         }
 
         const { data, error } = await supabaseAdmin
