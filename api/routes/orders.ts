@@ -624,10 +624,11 @@ ordersRouter.use(requireModule(Module.ORDERS));
 // Using req.storeId from middleware
 
 // Helper function to map database status to frontend status
-function mapStatus(dbStatus: string): 'pending' | 'contacted' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident' {
-    const statusMap: Record<string, 'pending' | 'contacted' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident'> = {
+function mapStatus(dbStatus: string): 'pending' | 'contacted' | 'awaiting_carrier' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident' {
+    const statusMap: Record<string, 'pending' | 'contacted' | 'awaiting_carrier' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident'> = {
         'pending': 'pending',
         'contacted': 'contacted',
+        'awaiting_carrier': 'awaiting_carrier',
         'confirmed': 'confirmed',
         'in_preparation': 'in_preparation',
         'ready_to_ship': 'ready_to_ship',
@@ -1795,7 +1796,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             force = false // Allow forcing certain transitions (for admin override)
         } = req.body;
 
-        const validStatuses = ['pending', 'contacted', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped', 'incident'];
+        const validStatuses = ['pending', 'contacted', 'awaiting_carrier', 'confirmed', 'in_preparation', 'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected', 'returned', 'shipped', 'incident'];
         if (!validStatuses.includes(sleeves_status)) {
             return res.status(400).json({
                 error: 'Invalid status',
@@ -2657,6 +2658,10 @@ ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Respon
 // ================================================================
 // Uses atomic RPC (confirm_order_atomic) to prevent inconsistent states
 // All critical operations happen in a single database transaction
+//
+// SEPARATE CONFIRMATION FLOW (stores.separate_confirmation_flow = true):
+// When enabled, confirmadores confirm WITHOUT assigning carrier.
+// The order goes to 'awaiting_carrier' status, and admin assigns carrier later.
 ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
@@ -2672,14 +2677,212 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             google_maps_link,
             delivery_zone,
             shipping_cost,
+            shipping_city,
             discount_amount,
             mark_as_prepaid = false,  // NEW: Mark COD order as prepaid (transfer before shipping)
             prepaid_method = 'transfer',  // NEW: Method used for prepayment
-            delivery_preferences = null   // NEW: Delivery scheduling preferences (date, time slot, notes)
+            delivery_preferences = null,   // NEW: Delivery scheduling preferences (date, time slot, notes)
+            force_without_carrier = false  // NEW: Force separate flow even if courier_id provided
         } = req.body;
 
         // courier_id can be null for pickup orders (retiro en local)
-        const isPickupOrder = !courier_id;
+        const isPickupOrder = !courier_id && !force_without_carrier;
+
+        // ================================================================
+        // CHECK FOR SEPARATE CONFIRMATION FLOW
+        // ================================================================
+        // If store has separate_confirmation_flow enabled AND user is confirmador
+        // AND no carrier is provided (not pickup), use the separate flow
+        const { data: storeConfig } = await supabaseAdmin
+            .from('stores')
+            .select('separate_confirmation_flow')
+            .eq('id', req.storeId)
+            .single();
+
+        const separateFlowEnabled = storeConfig?.separate_confirmation_flow === true;
+        const userRole = (req as any).userRole || 'owner'; // From permission middleware
+        const isConfirmador = userRole === 'confirmador';
+
+        // Use separate flow if:
+        // 1. Store has it enabled AND
+        // 2. User is confirmador (not admin/owner) AND
+        // 3. No courier_id provided AND
+        // 4. Not a pickup order
+        const useSeparateFlow = separateFlowEnabled && isConfirmador && !courier_id && !isPickupOrder;
+
+        if (useSeparateFlow) {
+            // ================================================================
+            // SEPARATE FLOW: Confirm without carrier (Step 1)
+            // ================================================================
+            const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('confirm_order_without_carrier', {
+                p_order_id: id,
+                p_store_id: req.storeId,
+                p_confirmed_by: req.userId || 'confirmador',
+                p_address: address || null,
+                p_google_maps_link: google_maps_link || null,
+                p_discount_amount: discount_amount !== undefined ? Number(discount_amount) : null,
+                p_mark_as_prepaid: mark_as_prepaid === true,
+                p_prepaid_method: mark_as_prepaid ? (prepaid_method || 'transfer') : null
+            });
+
+            if (rpcError) {
+                const errorMessage = rpcError.message || '';
+
+                if (errorMessage.includes('ORDER_NOT_FOUND')) {
+                    return res.status(404).json({
+                        error: 'Order not found',
+                        message: 'El pedido no existe o no pertenece a esta tienda',
+                        code: 'ORDER_NOT_FOUND'
+                    });
+                }
+
+                if (errorMessage.includes('INVALID_STATUS')) {
+                    return res.status(400).json({
+                        error: 'Invalid order status',
+                        message: 'Solo se pueden confirmar pedidos pendientes o contactados.',
+                        code: 'INVALID_STATUS'
+                    });
+                }
+
+                if (errorMessage.includes('FEATURE_DISABLED')) {
+                    return res.status(400).json({
+                        error: 'Feature disabled',
+                        message: 'El flujo de confirmación separado no está habilitado para esta tienda.',
+                        code: 'FEATURE_DISABLED'
+                    });
+                }
+
+                return res.status(500).json({
+                    error: 'Confirmation failed',
+                    message: 'Error al confirmar el pedido.',
+                    details: errorMessage
+                });
+            }
+
+            const result = rpcResult as {
+                success: boolean;
+                order_id: string;
+                new_status: string;
+                confirmed_by: string;
+                confirmed_at: string;
+                was_marked_prepaid: boolean;
+                new_total_price: number;
+                new_cod_amount: number;
+                discount_applied: boolean;
+                discount_amount: number;
+            };
+
+            // Save delivery preferences if provided (non-blocking)
+            if (delivery_preferences && typeof delivery_preferences === 'object') {
+                try {
+                    await supabaseAdmin
+                        .from('orders')
+                        .update({ delivery_preferences })
+                        .eq('id', id);
+                } catch (prefError) {
+                    // Continue without preferences
+                }
+            }
+
+            // Handle upsell in separate flow (non-blocking)
+            // Upsell is added to order even before carrier assignment
+            if (upsell_added && upsell_product_id) {
+                try {
+                    // Fetch the upsell product
+                    const { data: upsellProduct } = await supabaseAdmin
+                        .from('products')
+                        .select('id, name, price, sku, image_url')
+                        .eq('id', upsell_product_id)
+                        .eq('store_id', req.storeId)
+                        .single();
+
+                    if (upsellProduct) {
+                        // Get current order line_items
+                        const { data: currentOrder } = await supabaseAdmin
+                            .from('orders')
+                            .select('line_items, total_price, subtotal_price')
+                            .eq('id', id)
+                            .single();
+
+                        const currentLineItems = currentOrder?.line_items || [];
+                        const upsellQty = upsell_quantity || 1;
+                        const upsellPrice = Number(upsellProduct.price) || 0;
+
+                        // Create upsell line item
+                        const upsellLineItem = {
+                            id: `upsell-${Date.now()}`,
+                            product_id: upsellProduct.id,
+                            title: upsellProduct.name,
+                            name: upsellProduct.name,
+                            quantity: upsellQty,
+                            price: upsellPrice.toString(),
+                            sku: upsellProduct.sku || '',
+                            variant_title: 'Upsell',
+                            is_upsell: true
+                        };
+
+                        // Update order with upsell
+                        const newTotal = Number(currentOrder?.total_price || 0) + (upsellPrice * upsellQty);
+                        await supabaseAdmin
+                            .from('orders')
+                            .update({
+                                line_items: [...currentLineItems, upsellLineItem],
+                                total_price: newTotal,
+                                subtotal_price: newTotal,
+                                upsell_added: true,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('id', id);
+
+                        // Also add to normalized order_line_items table
+                        await supabaseAdmin
+                            .from('order_line_items')
+                            .insert({
+                                order_id: id,
+                                product_id: upsellProduct.id,
+                                product_name: upsellProduct.name,
+                                variant_title: 'Upsell',
+                                sku: upsellProduct.sku || null,
+                                quantity: upsellQty,
+                                price: upsellPrice,
+                                image_url: upsellProduct.image_url,
+                                is_upsell: true
+                            });
+                    }
+                } catch (upsellError) {
+                    // Log but don't fail - upsell is non-critical
+                    console.error('Error adding upsell in separate flow:', upsellError);
+                }
+            }
+
+            // Fetch the updated order for response
+            const { data: updatedOrder } = await supabaseAdmin
+                .from('orders')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            return res.json({
+                message: 'Pedido confirmado. Pendiente de asignación de transportadora.',
+                data: {
+                    ...updatedOrder,
+                    awaiting_carrier: true,
+                    was_marked_prepaid: result.was_marked_prepaid,
+                    delivery_preferences: delivery_preferences || null
+                },
+                meta: {
+                    separate_flow: true,
+                    new_status: 'awaiting_carrier',
+                    discount_applied: result.discount_applied,
+                    discount_amount: result.discount_amount,
+                    final_total: result.new_total_price,
+                    final_cod_amount: result.new_cod_amount,
+                    was_marked_prepaid: result.was_marked_prepaid,
+                    has_delivery_preferences: !!delivery_preferences,
+                    upsell_added: upsell_added && !!upsell_product_id
+                }
+            });
+        }
 
         // ================================================================
         // ATOMIC CONFIRMATION via RPC
@@ -2879,6 +3082,214 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
         });
     }
 });
+
+
+// ================================================================
+// POST /api/orders/:id/assign-carrier - Assign carrier to awaiting_carrier order
+// ================================================================
+// Step 2 of separate confirmation flow.
+// Only owner/admin can assign carriers to orders in awaiting_carrier status.
+ordersRouter.post('/:id/assign-carrier', validateUUIDParam('id'), requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const {
+            courier_id,
+            delivery_zone,
+            shipping_city,
+            shipping_cost
+        } = req.body;
+
+        // Validate courier_id is required
+        if (!courier_id) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: 'courier_id es requerido',
+                code: 'MISSING_COURIER_ID'
+            });
+        }
+
+        // Verify user role - only owner/admin can assign carriers
+        const userRole = (req as any).userRole || 'owner';
+        if (!['owner', 'admin'].includes(userRole)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                message: 'Solo el dueño o administrador puede asignar transportadoras en el flujo separado',
+                code: 'INSUFFICIENT_PERMISSIONS'
+            });
+        }
+
+        // Call the RPC to assign carrier
+        const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('assign_carrier_to_order', {
+            p_order_id: id,
+            p_store_id: req.storeId,
+            p_assigned_by: req.userId || 'admin',
+            p_courier_id: courier_id,
+            p_delivery_zone: delivery_zone || null,
+            p_shipping_city: shipping_city || null,
+            p_shipping_cost: shipping_cost !== undefined ? Number(shipping_cost) : null
+        });
+
+        if (rpcError) {
+            const errorMessage = rpcError.message || '';
+
+            if (errorMessage.includes('ORDER_NOT_FOUND')) {
+                return res.status(404).json({
+                    error: 'Order not found',
+                    message: 'El pedido no existe o no pertenece a esta tienda',
+                    code: 'ORDER_NOT_FOUND'
+                });
+            }
+
+            if (errorMessage.includes('INVALID_STATUS')) {
+                return res.status(400).json({
+                    error: 'Invalid order status',
+                    message: 'Solo se pueden asignar transportadoras a pedidos en estado "pendiente de carrier".',
+                    code: 'INVALID_STATUS'
+                });
+            }
+
+            if (errorMessage.includes('CARRIER_NOT_FOUND')) {
+                return res.status(404).json({
+                    error: 'Carrier not found',
+                    message: 'La transportadora no existe o está inactiva',
+                    code: 'CARRIER_NOT_FOUND'
+                });
+            }
+
+            return res.status(500).json({
+                error: 'Assignment failed',
+                message: 'Error al asignar transportadora.',
+                details: errorMessage
+            });
+        }
+
+        const result = rpcResult as {
+            success: boolean;
+            order_id: string;
+            new_status: string;
+            carrier_id: string;
+            carrier_name: string;
+            carrier_assigned_by: string;
+            carrier_assigned_at: string;
+            shipping_cost: number;
+            delivery_zone: string;
+            shipping_city: string;
+        };
+
+        // Fetch the updated order for response
+        const { data: updatedOrder } = await supabaseAdmin
+            .from('orders')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        // Generate QR code if needed
+        let qrCodeDataUrl = updatedOrder?.qr_code_url;
+        if (updatedOrder?.delivery_link_token && !qrCodeDataUrl) {
+            try {
+                qrCodeDataUrl = await generateDeliveryQRCode(updatedOrder.delivery_link_token);
+                await supabaseAdmin
+                    .from('orders')
+                    .update({ qr_code_url: qrCodeDataUrl })
+                    .eq('id', id);
+            } catch (qrError) {
+                // Continue without QR code
+            }
+        }
+
+        res.json({
+            message: 'Transportadora asignada exitosamente',
+            data: {
+                ...updatedOrder,
+                delivery_link: `${process.env.FRONTEND_URL || 'http://localhost:8080'}/delivery/${updatedOrder?.delivery_link_token}`,
+                qr_code_url: qrCodeDataUrl,
+                carrier_name: result.carrier_name,
+                carrier_assigned_at: result.carrier_assigned_at,
+                carrier_assigned_by: result.carrier_assigned_by
+            },
+            meta: {
+                previous_status: 'awaiting_carrier',
+                new_status: 'confirmed',
+                carrier_id: result.carrier_id,
+                carrier_name: result.carrier_name,
+                shipping_cost: result.shipping_cost
+            }
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            error: 'Error al asignar transportadora',
+            message: error.message
+        });
+    }
+});
+
+
+// ================================================================
+// GET /api/orders/awaiting-carrier/count - Get count of orders awaiting carrier
+// ================================================================
+// Returns the count of orders in awaiting_carrier status for notifications/badges
+ordersRouter.get('/awaiting-carrier/count', requirePermission(Module.ORDERS, Permission.VIEW), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { data: countData, error } = await supabaseAdmin.rpc('get_awaiting_carrier_count', {
+            p_store_id: req.storeId
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        const counts = countData?.[0] || { total_count: 0, critical_count: 0, warning_count: 0 };
+
+        res.json({
+            success: true,
+            data: {
+                total: Number(counts.total_count) || 0,
+                critical: Number(counts.critical_count) || 0,
+                warning: Number(counts.warning_count) || 0
+            }
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            error: 'Error al obtener conteo',
+            message: error.message
+        });
+    }
+});
+
+
+// ================================================================
+// GET /api/orders/awaiting-carrier - List orders awaiting carrier assignment
+// ================================================================
+// Returns orders in awaiting_carrier status with urgency indicators
+ordersRouter.get('/awaiting-carrier', requirePermission(Module.ORDERS, Permission.VIEW), async (req: PermissionRequest, res: Response) => {
+    try {
+        const { data: orders, error } = await supabaseAdmin
+            .from('v_orders_awaiting_carrier')
+            .select('*')
+            .eq('store_id', req.storeId)
+            .order('confirmed_at', { ascending: true });
+
+        if (error) {
+            throw error;
+        }
+
+        res.json({
+            success: true,
+            data: orders || [],
+            meta: {
+                total: orders?.length || 0,
+                critical: orders?.filter(o => o.urgency_level === 'CRITICAL').length || 0,
+                warning: orders?.filter(o => o.urgency_level === 'WARNING').length || 0
+            }
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            error: 'Error al obtener pedidos',
+            message: error.message
+        });
+    }
+});
+
 
 // ================================================================
 // PATCH /api/orders/:id/internal-notes - Update internal admin notes

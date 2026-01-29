@@ -7,6 +7,7 @@ import { OrdersCalendar } from '@/components/OrdersCalendar';
 import { OrderForm } from '@/components/forms/OrderForm';
 import { ExportButton } from '@/components/ExportButton';
 import { OrderConfirmationDialog } from '@/components/OrderConfirmationDialog';
+import { CarrierAssignmentDialog } from '@/components/CarrierAssignmentDialog';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
@@ -61,6 +62,7 @@ import {
 const statusColors = {
   pending: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800',
   contacted: 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800',
+  awaiting_carrier: 'bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800',
   confirmed: 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800',
   in_preparation: 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800',
   ready_to_ship: 'bg-cyan-50 dark:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-800',
@@ -75,6 +77,7 @@ const statusColors = {
 const statusLabels: Record<string, string> = {
   pending: 'Pendiente',
   contacted: 'Contactado',
+  awaiting_carrier: 'Esperando Asignación',
   confirmed: 'Confirmado',
   in_preparation: 'En Preparación',
   ready_to_ship: 'Preparado',
@@ -237,6 +240,9 @@ export default function Orders() {
   const [orderToEdit, setOrderToEdit] = useState<Order | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [orderToConfirm, setOrderToConfirm] = useState<Order | null>(null);
+  // Carrier assignment dialog (for awaiting_carrier orders)
+  const [carrierAssignmentDialogOpen, setCarrierAssignmentDialogOpen] = useState(false);
+  const [orderToAssignCarrier, setOrderToAssignCarrier] = useState<Order | null>(null);
   // Selection state
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -369,6 +375,9 @@ export default function Orders() {
       switch (filter) {
         case 'pending':
           setChipFilters({ status: 'pending' });
+          break;
+        case 'awaiting_carrier':
+          setChipFilters({ status: 'awaiting_carrier' });
           break;
         case 'confirmed':
           setChipFilters({ status: 'confirmed' });
@@ -1962,6 +1971,40 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             </Button>
                           </div>
                         )}
+                        {order.status === 'awaiting_carrier' && (
+                          <div className="flex gap-1 justify-center flex-wrap">
+                            {(userRole === 'owner' || userRole === 'admin') ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/30 hover:border-orange-400 dark:hover:border-orange-700 hover:shadow-sm transition-all duration-200"
+                                  onClick={() => {
+                                    setOrderToAssignCarrier(order);
+                                    setCarrierAssignmentDialogOpen(true);
+                                  }}
+                                >
+                                  <Truck size={14} className="mr-1" />
+                                  Asignar Repartidor
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 hover:shadow-sm transition-all duration-200"
+                                  onClick={() => handleReject(order.id)}
+                                >
+                                  <XCircle size={14} className="mr-1" />
+                                  Rechazar
+                                </Button>
+                              </>
+                            ) : (
+                              <Badge variant="outline" className={`${statusColors.awaiting_carrier} font-medium`}>
+                                <Truck size={14} className="mr-1" />
+                                Esperando Asignación
+                              </Badge>
+                            )}
+                          </div>
+                        )}
                         {order.status === 'confirmed' && hasWarehouseFeature && (
                           <div className="flex gap-1 justify-center">
                             <Button
@@ -2380,6 +2423,31 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
           } catch (error) {
             logger.error('Error refreshing orders:', error);
             // Keep optimistic update even if refresh fails
+          }
+        }}
+      />
+
+      {/* Carrier Assignment Dialog (for awaiting_carrier orders) */}
+      <CarrierAssignmentDialog
+        open={carrierAssignmentDialogOpen}
+        onOpenChange={setCarrierAssignmentDialogOpen}
+        order={orderToAssignCarrier}
+        onAssigned={async () => {
+          // Optimistic update - mark order as confirmed immediately
+          if (orderToAssignCarrier) {
+            setOrders(prev => prev.map(o =>
+              o.id === orderToAssignCarrier.id
+                ? { ...o, status: 'confirmed' }
+                : o
+            ));
+          }
+
+          // Refresh orders list after assignment to get full updated data
+          try {
+            const response = await ordersService.getAll();
+            setOrders(response.data || []);
+          } catch (error) {
+            logger.error('Error refreshing orders:', error);
           }
         }}
       />

@@ -173,6 +173,7 @@ interface Store {
   currency: string;
   role: string;
   timezone?: string;
+  separate_confirmation_flow?: boolean;
 }
 
 interface User {

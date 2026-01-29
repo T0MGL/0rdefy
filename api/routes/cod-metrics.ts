@@ -55,8 +55,9 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     // Calculate confirmation rate
+    // Include awaiting_carrier as it represents a confirmed sale (just pending carrier assignment)
     const confirmedOrders = orders?.filter(o =>
-      ['confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'delivered'].includes(o.sleeves_status)
+      ['awaiting_carrier', 'confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'delivered'].includes(o.sleeves_status)
     ).length || 0;
     const totalOrders = orders?.length || 0;
     const confirmation_rate = totalOrders > 0

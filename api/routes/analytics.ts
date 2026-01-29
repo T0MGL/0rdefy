@@ -1145,13 +1145,21 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
             .filter(o => o.sleeves_status === 'confirmed')
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
+        // Orders awaiting carrier assignment (separate confirmation flow)
+        // These are confirmed sales pending carrier assignment
+        const awaitingCarrierRevenue = active
+            .filter(o => o.sleeves_status === 'awaiting_carrier')
+            .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
+
         // Apply probability weights based on status
         // Ready to ship: 90% probability (very likely to be delivered)
         // In preparation: 80% probability (likely to be delivered)
         // Confirmed: 70% probability (fairly likely to be delivered)
+        // Awaiting carrier: 65% probability (confirmed but needs carrier assignment)
         const expectedFromReadyToShip = readyToShipRevenue * 0.90 * historicalDeliveryRate;
         const expectedFromInPreparation = inPreparationRevenue * 0.80 * historicalDeliveryRate;
         const expectedFromConfirmed = confirmedRevenue * 0.70 * historicalDeliveryRate;
+        const expectedFromAwaitingCarrier = awaitingCarrierRevenue * 0.65 * historicalDeliveryRate;
 
         // ===== TOTAL PROJECTIONS =====
         // Conservative projection (only high-probability sources)
@@ -1160,8 +1168,8 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
         // Moderate projection (includes in_preparation)
         const moderateProjection = conservativeProjection + expectedFromInPreparation;
 
-        // Optimistic projection (includes everything)
-        const optimisticProjection = moderateProjection + expectedFromConfirmed;
+        // Optimistic projection (includes everything - confirmed + awaiting_carrier)
+        const optimisticProjection = moderateProjection + expectedFromConfirmed + expectedFromAwaitingCarrier;
 
         // ===== DAILY AVERAGE (for future projections) =====
         // Calculate average daily revenue from delivered orders in last 30 days
@@ -1205,6 +1213,11 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
                         total: Math.round(confirmedRevenue),
                         expected: Math.round(expectedFromConfirmed),
                         probability: 70,
+                    },
+                    awaitingCarrier: {
+                        total: Math.round(awaitingCarrierRevenue),
+                        expected: Math.round(expectedFromAwaitingCarrier),
+                        probability: 65,
                     },
                 },
 

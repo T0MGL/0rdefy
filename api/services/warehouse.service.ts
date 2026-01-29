@@ -147,6 +147,7 @@ export interface OrderForPacking {
   customer_name: string;
   customer_phone: string;
   customer_address?: string;
+  shipping_city?: string; // City for carrier coverage
   address_reference?: string;
   neighborhood?: string;
   delivery_notes?: string;
@@ -154,11 +155,14 @@ export interface OrderForPacking {
   carrier_id?: string;
   carrier_name?: string;
   cod_amount?: number;
+  total_price?: number;
+  total_discounts?: number;
   payment_method?: string;
   payment_gateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
   printed?: boolean;
   printed_at?: string;
+  created_at?: string;
   items: Array<{
     product_id: string;
     variant_id?: string | null;  // NEW: variant support (Migration 108)
@@ -1237,11 +1241,13 @@ export async function getPackingList(
         orders (
           id,
           shopify_order_number,
+          shopify_order_name,
           shopify_order_id,
           customer_first_name,
           customer_last_name,
           customer_phone,
           customer_address,
+          shipping_city,
           address_reference,
           neighborhood,
           delivery_notes,
@@ -1254,7 +1260,8 @@ export async function getPackingList(
           payment_gateway,
           financial_status,
           printed,
-          printed_at
+          printed_at,
+          created_at
         )
       `)
       .eq('picking_session_id', sessionId);
@@ -1482,10 +1489,11 @@ export async function getPackingList(
 
       return {
         id: order.id,
-        order_number: order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
+        order_number: order.shopify_order_name || order.shopify_order_number || `ORD-${order.id.slice(0, 8)}`,
         customer_name: `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
         customer_phone: order.customer_phone,
         customer_address: order.customer_address,
+        shipping_city: order.shipping_city,
         address_reference: order.address_reference,
         neighborhood: order.neighborhood,
         delivery_notes: order.delivery_notes,
@@ -1500,6 +1508,7 @@ export async function getPackingList(
         financial_status: order.financial_status,
         printed: order.printed,
         printed_at: order.printed_at,
+        created_at: order.created_at,
         items,
         is_complete
       };
@@ -1926,7 +1935,7 @@ export async function getConfirmedOrders(storeId: string) {
         customer_phone,
         created_at,
         line_items,
-        carriers!courier_id (name)
+        carriers:courier_id (name)
       `)
       .eq('store_id', storeId)
       .eq('sleeves_status', 'confirmed')

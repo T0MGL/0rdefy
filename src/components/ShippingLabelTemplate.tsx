@@ -305,16 +305,29 @@ export function ShippingLabelTemplate({ order, className = '' }: ShippingLabelPr
         .courier-info, .cod-info {
             display: flex;
             flex-direction: column;
+            min-width: 0; /* Allow flex shrink */
         }
-        
+
+        .courier-info {
+            flex: 1;
+            max-width: 60%;
+        }
+
         .label {
             font-size: 0.6em;
             color: #666;
         }
-        
+
         .value {
             font-size: 0.9em;
             font-weight: 600;
+        }
+
+        .courier-info .value {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
         }
         
         .value.money {

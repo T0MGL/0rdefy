@@ -57,6 +57,13 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
           isPermanent: true,
         },
         {
+          id: 'awaiting-carrier',
+          name: 'Esperando Asignación',
+          icon: '🚛',
+          filters: { status: 'awaiting_carrier' },
+          isPermanent: true,
+        },
+        {
           id: 'confirmed',
           name: 'Confirmados',
           icon: '✅',

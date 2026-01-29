@@ -81,6 +81,14 @@ export function OrderConfirmationDialog({
   const { currentStore } = useAuth();
   const { hasFeature } = useSubscription();
 
+  // Separate Confirmation Flow Detection
+  // When enabled, confirmadores only confirm the sale without assigning carrier
+  // Admin/Owner will assign carrier later from Orders page
+  const separateFlowEnabled = currentStore?.separate_confirmation_flow === true;
+  const userRole = currentStore?.role || 'owner';
+  const isConfirmador = userRole === 'confirmador';
+  const useSeparateConfirmationFlow = separateFlowEnabled && isConfirmador;
+
   // In Free plan (no warehouse), show print option directly after confirmation
   // In paid plans with warehouse, they'll print from warehouse/dispatch flow
   const showPrintAfterConfirm = !hasFeature('warehouse');
@@ -486,32 +494,36 @@ export function OrderConfirmationDialog({
   const handleConfirm = async () => {
     if (!order) return;
 
-    // Validation: Either pickup OR carrier required
-    if (!isPickup) {
-      if (!courierId) {
-        toast({
-          title: 'Repartidor requerido',
-          description: 'Debes seleccionar un repartidor o marcar "Retiro en local"',
-          variant: 'destructive',
-        });
-        return;
-      }
+    // Skip carrier validation when using separate confirmation flow
+    // Confirmadores only confirm the sale, admin assigns carrier later
+    if (!useSeparateConfirmationFlow) {
+      // Validation: Either pickup OR carrier required
+      if (!isPickup) {
+        if (!courierId) {
+          toast({
+            title: 'Repartidor requerido',
+            description: 'Debes seleccionar un repartidor o marcar "Retiro en local"',
+            variant: 'destructive',
+          });
+          return;
+        }
 
-      // For coverage system, require city; for legacy system, require zone
-      if (useCoverageSystem && !selectedCity) {
-        toast({
-          title: 'Ciudad requerida',
-          description: 'Debes seleccionar la ciudad de entrega',
-          variant: 'destructive',
-        });
-        return;
-      } else if (!useCoverageSystem && !selectedZone) {
-        toast({
-          title: 'Zona requerida',
-          description: 'Debes seleccionar una zona de entrega',
-          variant: 'destructive',
-        });
-        return;
+        // For coverage system, require city; for legacy system, require zone
+        if (useCoverageSystem && !selectedCity) {
+          toast({
+            title: 'Ciudad requerida',
+            description: 'Debes seleccionar la ciudad de entrega',
+            variant: 'destructive',
+          });
+          return;
+        } else if (!useCoverageSystem && !selectedZone) {
+          toast({
+            title: 'Zona requerida',
+            description: 'Debes seleccionar una zona de entrega',
+            variant: 'destructive',
+          });
+          return;
+        }
       }
     }
 
@@ -606,14 +618,16 @@ export function OrderConfirmationDialog({
       // Dismiss loading toast
       loadingToast.dismiss();
 
-      // Show success toast
+      // Show success toast - different message for separate flow
       toast({
-        title: '¡Pedido confirmado!',
-        description: markAsPrepaid
-          ? 'Pedido marcado como PAGADO. La etiqueta mostrará "PAGADO".'
-          : isPickup
-            ? 'El pedido está listo para retiro en local (sin envío).'
-            : 'El pedido ha sido asignado al repartidor exitosamente.',
+        title: useSeparateConfirmationFlow ? '¡Venta confirmada!' : '¡Pedido confirmado!',
+        description: useSeparateConfirmationFlow
+          ? 'La venta ha sido confirmada. El administrador asignará el repartidor.'
+          : markAsPrepaid
+            ? 'Pedido marcado como PAGADO. La etiqueta mostrará "PAGADO".'
+            : isPickup
+              ? 'El pedido está listo para retiro en local (sin envío).'
+              : 'El pedido ha sido asignado al repartidor exitosamente.',
         duration: 5000,
       });
 
@@ -831,6 +845,25 @@ export function OrderConfirmationDialog({
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Separate Confirmation Flow Alert - Only for confirmadores when enabled */}
+              {useSeparateConfirmationFlow && (
+                <div className="p-4 rounded-lg border-2 border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                      <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-blue-900 dark:text-blue-100">
+                        Confirmación de venta
+                      </p>
+                      <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                        Solo confirma que el cliente aceptó el pedido. El administrador asignará el repartidor y zona de entrega posteriormente.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1096,62 +1129,64 @@ export function OrderConfirmationDialog({
                 </div>
               )}
 
-              {/* Pickup Option (Retiro en Local) */}
-              <div className="space-y-3">
-                <div className={cn(
-                  "flex items-center justify-between space-x-2 p-4 rounded-lg border-2 transition-all",
-                  isPickup
-                    ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                    : "border-muted bg-muted/30 hover:border-muted-foreground/20"
-                )}>
-                  <Label htmlFor="pickup" className="flex items-start gap-3 cursor-pointer flex-1">
-                    <Store className={cn(
-                      "h-5 w-5 mt-0.5 flex-shrink-0",
-                      isPickup ? "text-emerald-600" : "text-muted-foreground"
-                    )} />
-                    <div className="space-y-1">
-                      <span className={cn(
-                        "font-medium",
-                        isPickup && "text-emerald-700 dark:text-emerald-300"
-                      )}>
-                        Retiro en local
-                      </span>
-                      <p className="font-normal text-xs text-muted-foreground">
-                        El cliente retira en la tienda. Sin costo de envío.
+              {/* Pickup Option (Retiro en Local) - Only show when NOT in separate flow */}
+              {!useSeparateConfirmationFlow && (
+                <div className="space-y-3">
+                  <div className={cn(
+                    "flex items-center justify-between space-x-2 p-4 rounded-lg border-2 transition-all",
+                    isPickup
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                      : "border-muted bg-muted/30 hover:border-muted-foreground/20"
+                  )}>
+                    <Label htmlFor="pickup" className="flex items-start gap-3 cursor-pointer flex-1">
+                      <Store className={cn(
+                        "h-5 w-5 mt-0.5 flex-shrink-0",
+                        isPickup ? "text-emerald-600" : "text-muted-foreground"
+                      )} />
+                      <div className="space-y-1">
+                        <span className={cn(
+                          "font-medium",
+                          isPickup && "text-emerald-700 dark:text-emerald-300"
+                        )}>
+                          Retiro en local
+                        </span>
+                        <p className="font-normal text-xs text-muted-foreground">
+                          El cliente retira en la tienda. Sin costo de envío.
+                        </p>
+                      </div>
+                    </Label>
+                    <Switch
+                      id="pickup"
+                      checked={isPickup}
+                      onCheckedChange={(checked) => {
+                        setIsPickup(checked);
+                        if (checked) {
+                          setCourierId('');
+                          setSelectedZone('');
+                          setShippingCost(0);
+                          setCarrierZones([]);
+                          setHasPrefilledShippingData(false);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {isPickup && (
+                    <div className="p-3 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
+                      <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium flex items-center gap-2">
+                        <Check className="h-4 w-4" />
+                        Sin costo de envío - {formatCurrency(0)}
+                      </p>
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
+                        El pedido no aparecerá en despachos ni liquidaciones de repartidores.
                       </p>
                     </div>
-                  </Label>
-                  <Switch
-                    id="pickup"
-                    checked={isPickup}
-                    onCheckedChange={(checked) => {
-                      setIsPickup(checked);
-                      if (checked) {
-                        setCourierId('');
-                        setSelectedZone('');
-                        setShippingCost(0);
-                        setCarrierZones([]);
-                        setHasPrefilledShippingData(false);
-                      }
-                    }}
-                  />
+                  )}
                 </div>
+              )}
 
-                {isPickup && (
-                  <div className="p-3 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
-                    <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium flex items-center gap-2">
-                      <Check className="h-4 w-4" />
-                      Sin costo de envío - {formatCurrency(0)}
-                    </p>
-                    <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
-                      El pedido no aparecerá en despachos ni liquidaciones de repartidores.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* City & Carrier Selection - Only show if NOT pickup */}
-              {!isPickup && useCoverageSystem && (
+              {/* City & Carrier Selection - Only show if NOT pickup AND NOT separate flow */}
+              {!isPickup && !useSeparateConfirmationFlow && useCoverageSystem && (
                 <>
                   {/* Show pre-filled shipping data indicator */}
                   {hasPrefilledShippingData && selectedCity && courierId && (
@@ -1349,7 +1384,7 @@ export function OrderConfirmationDialog({
               )}
 
               {/* Legacy Courier Selection (when coverage system is disabled) */}
-              {!isPickup && !useCoverageSystem && (
+              {!isPickup && !useSeparateConfirmationFlow && !useCoverageSystem && (
                 <div className="space-y-2">
                   <Label htmlFor="courier">
                     Repartidor <span className="text-red-500">*</span>
@@ -1394,8 +1429,8 @@ export function OrderConfirmationDialog({
                 </div>
               )}
 
-              {/* Zone Selection - Only show in LEGACY mode when carrier is selected and NOT pickup */}
-              {!isPickup && !useCoverageSystem && courierId && (
+              {/* Zone Selection - Only show in LEGACY mode when carrier is selected and NOT pickup and NOT separate flow */}
+              {!isPickup && !useSeparateConfirmationFlow && !useCoverageSystem && courierId && (
                 <div className="space-y-2">
                   <Label htmlFor="zone">
                     Zona de Entrega <span className="text-red-500">*</span>
@@ -1524,17 +1559,25 @@ export function OrderConfirmationDialog({
                 </Button>
                 <Button
                   onClick={handleConfirm}
-                  disabled={loading || (!isPickup && (
+                  disabled={loading || (!useSeparateConfirmationFlow && !isPickup && (
                     !courierId ||
                     (useCoverageSystem && !selectedCity) ||
                     (!useCoverageSystem && !selectedZone)
                   ))}
-                  className={isPickup ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+                  className={cn(
+                    isPickup && "bg-emerald-600 hover:bg-emerald-700",
+                    useSeparateConfirmationFlow && "bg-blue-600 hover:bg-blue-700"
+                  )}
                 >
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Confirmando...
+                      {useSeparateConfirmationFlow ? 'Confirmando venta...' : 'Confirmando...'}
+                    </>
+                  ) : useSeparateConfirmationFlow ? (
+                    <>
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Confirmar Venta
                     </>
                   ) : isPickup ? (
                     <>

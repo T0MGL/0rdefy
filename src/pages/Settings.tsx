@@ -134,12 +134,15 @@ export default function Settings() {
 
   const [storeTimezone, setStoreTimezone] = useState(currentStore?.timezone || 'America/Asuncion');
   const [storeCurrency, setStoreCurrency] = useState(currentStore?.currency || 'PYG');
+  const [separateConfirmationFlow, setSeparateConfirmationFlow] = useState(currentStore?.separate_confirmation_flow || false);
+  const [updatingSeparateFlow, setUpdatingSeparateFlow] = useState(false);
 
-  // Update timezone and currency when currentStore changes
+  // Update timezone, currency, and separate flow when currentStore changes
   useEffect(() => {
     if (currentStore) {
       setStoreTimezone(currentStore.timezone || 'America/Asuncion');
       setStoreCurrency(currentStore.currency || 'PYG');
+      setSeparateConfirmationFlow(currentStore.separate_confirmation_flow || false);
     }
   }, [currentStore]);
 
@@ -383,6 +386,45 @@ export default function Settings() {
         description: "No se pudo actualizar la moneda",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleSeparateFlowChange = async (enabled: boolean) => {
+    try {
+      setUpdatingSeparateFlow(true);
+      await apiClient.put(`/auth/stores/${currentStore?.id}/preferences`, {
+        separate_confirmation_flow: enabled
+      });
+      setSeparateConfirmationFlow(enabled);
+
+      // Update the currentStore in localStorage
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        const userData = JSON.parse(savedUser);
+        userData.stores = userData.stores.map((s: any) =>
+          s.id === currentStore?.id ? { ...s, separate_confirmation_flow: enabled } : s
+        );
+        localStorage.setItem('user', JSON.stringify(userData));
+      }
+
+      toast({
+        title: enabled ? "Flujo separado activado" : "Flujo separado desactivado",
+        description: enabled
+          ? "Los confirmadores ahora confirmarán sin asignar transportadora. El admin deberá asignarla después."
+          : "Los confirmadores ahora asignarán transportadora al confirmar.",
+      });
+    } catch (error: any) {
+      logger.error('Error updating separate flow:', error);
+
+      const errorMessage = error.response?.data?.error || "No se pudo actualizar la preferencia";
+
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingSeparateFlow(false);
     }
   };
 
@@ -876,6 +918,52 @@ export default function Settings() {
               </div>
             </div>
           </Card>
+
+          {/* Workflow Preferences - Only visible for plans with multiple users */}
+          {hasTeamManagement && isOwner && (
+            <Card className="p-6 bg-gradient-to-br from-purple-50/50 to-transparent dark:from-purple-950/20 dark:to-transparent">
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                <Users size={20} />
+                Flujo de Trabajo
+              </h2>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between py-4">
+                  <div className="space-y-1.5 flex-1 mr-4">
+                    <Label htmlFor="separate-flow" className="text-base font-medium cursor-pointer">
+                      Separar confirmación de asignación de transportadora
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Cuando está activado, los confirmadores solo confirman la venta.
+                      El administrador asigna la transportadora después en un paso separado.
+                    </p>
+                  </div>
+                  <Switch
+                    id="separate-flow"
+                    checked={separateConfirmationFlow}
+                    onCheckedChange={handleSeparateFlowChange}
+                    disabled={updatingSeparateFlow}
+                  />
+                </div>
+
+                {separateConfirmationFlow && (
+                  <div className="rounded-lg bg-purple-50 dark:bg-purple-950/30 p-4 border border-purple-200 dark:border-purple-800">
+                    <div className="flex gap-2">
+                      <AlertCircle className="h-5 w-5 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-medium text-purple-800 dark:text-purple-300">Flujo activo</p>
+                        <p className="text-purple-700 dark:text-purple-400 mt-1">
+                          Los pedidos confirmados por confirmadores quedarán en estado
+                          <span className="font-medium"> "Pendiente de Carrier"</span> hasta que
+                          un administrador asigne la transportadora.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Team Tab - Only visible for Starter+ plans */}

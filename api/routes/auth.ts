@@ -379,7 +379,8 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
                     name,
                     country,
                     currency,
-                    timezone
+                    timezone,
+                    separate_confirmation_flow
                 )
             `)
             .eq('user_id', user.id)
@@ -395,6 +396,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
             country: us.stores.country,
             currency: us.stores.currency,
             timezone: us.stores.timezone,
+            separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
             role: us.role
         })) || [];
 
@@ -737,7 +739,9 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
                     id,
                     name,
                     country,
-                    currency
+                    currency,
+                    timezone,
+                    separate_confirmation_flow
                 )
             `)
             .eq('user_id', req.userId);
@@ -747,6 +751,8 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
             name: us.stores.name,
             country: us.stores.country,
             currency: us.stores.currency,
+            timezone: us.stores.timezone,
+            separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
             role: us.role
         })) || [];
 
@@ -1009,6 +1015,7 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
                     country,
                     currency,
                     timezone,
+                    separate_confirmation_flow,
                     tax_rate,
                     admin_fee
                 )
@@ -1030,6 +1037,7 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
             country: us.stores.country,
             currency: us.stores.currency,
             timezone: us.stores.timezone,
+            separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
             tax_rate: us.stores.tax_rate,
             admin_fee: us.stores.admin_fee,
             role: us.role
@@ -1193,6 +1201,179 @@ authRouter.put('/stores/:storeId/currency', verifyToken, async (req: AuthRequest
         });
     } catch (error: any) {
         log.error('Unexpected error updating currency', error);
+        return res.status(500).json({
+            success: false,
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
+        });
+    }
+});
+
+
+/**
+ * PUT /api/auth/stores/:storeId/preferences
+ * Update store workflow preferences (separate_confirmation_flow, etc.)
+ */
+authRouter.put('/stores/:storeId/preferences', verifyToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const { storeId } = req.params;
+        const { separate_confirmation_flow } = req.body;
+
+        log.info('Store preferences update request', { storeId, separate_confirmation_flow });
+
+        // Validate input type
+        if (separate_confirmation_flow !== undefined && typeof separate_confirmation_flow !== 'boolean') {
+            log.warn('Invalid separate_confirmation_flow type');
+            return res.status(400).json({
+                success: false,
+                error: 'separate_confirmation_flow debe ser booleano',
+                code: 'INVALID_TYPE'
+            });
+        }
+
+        // Verify user has access to this store AND is owner
+        const { data: userStore, error: accessError } = await supabaseAdmin
+            .from('user_stores')
+            .select('role')
+            .eq('user_id', req.userId)
+            .eq('store_id', storeId)
+            .single();
+
+        if (accessError || !userStore) {
+            log.security('Unauthorized preferences update attempt', { userId: req.userId, storeId });
+            return res.status(403).json({
+                success: false,
+                error: 'No tienes acceso a esta tienda',
+                code: 'STORE_ACCESS_DENIED'
+            });
+        }
+
+        // Only owners can change workflow preferences
+        if (userStore.role !== 'owner') {
+            log.security('Non-owner tried to update preferences', { userId: req.userId, storeId, role: userStore.role });
+            return res.status(403).json({
+                success: false,
+                error: 'Solo el dueño puede cambiar las preferencias de flujo de trabajo',
+                code: 'OWNER_ONLY'
+            });
+        }
+
+        // If enabling separate_confirmation_flow, verify plan allows multiple users
+        if (separate_confirmation_flow === true) {
+            // Get store's subscription plan
+            const { data: subscription } = await supabaseAdmin
+                .from('subscriptions')
+                .select('plan')
+                .eq('store_id', storeId)
+                .single();
+
+            const plan = subscription?.plan || 'free';
+
+            // Get plan limits
+            const { data: planLimits } = await supabaseAdmin
+                .from('plan_limits')
+                .select('max_users')
+                .eq('plan', plan)
+                .single();
+
+            const maxUsers = planLimits?.max_users || 1;
+
+            if (maxUsers <= 1) {
+                log.warn('Tried to enable separate flow on single-user plan', { storeId, plan, maxUsers });
+                return res.status(400).json({
+                    success: false,
+                    error: 'Esta funcionalidad requiere un plan con múltiples usuarios (Starter o superior)',
+                    code: 'PLAN_UPGRADE_REQUIRED'
+                });
+            }
+        }
+
+        // Update store preference
+        const { data: updatedStore, error: updateError } = await supabaseAdmin
+            .from('stores')
+            .update({
+                separate_confirmation_flow: separate_confirmation_flow ?? false,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', storeId)
+            .select('id, name, separate_confirmation_flow')
+            .single();
+
+        if (updateError) {
+            log.error('Error updating store preferences', updateError);
+            return res.status(500).json({
+                success: false,
+                error: 'Error al actualizar preferencias',
+                code: 'UPDATE_FAILED'
+            });
+        }
+
+        log.info('Store preferences updated', { storeId, separate_confirmation_flow: updatedStore.separate_confirmation_flow });
+
+        res.json({
+            success: true,
+            data: {
+                separate_confirmation_flow: updatedStore.separate_confirmation_flow
+            }
+        });
+    } catch (error: any) {
+        log.error('Unexpected error updating store preferences', error);
+        return res.status(500).json({
+            success: false,
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
+        });
+    }
+});
+
+
+/**
+ * GET /api/auth/stores/:storeId/preferences
+ * Get store workflow preferences
+ */
+authRouter.get('/stores/:storeId/preferences', verifyToken, async (req: AuthRequest, res: Response) => {
+    try {
+        const { storeId } = req.params;
+
+        // Verify user has access to this store
+        const { data: userStore, error: accessError } = await supabaseAdmin
+            .from('user_stores')
+            .select('role')
+            .eq('user_id', req.userId)
+            .eq('store_id', storeId)
+            .single();
+
+        if (accessError || !userStore) {
+            return res.status(403).json({
+                success: false,
+                error: 'No tienes acceso a esta tienda',
+                code: 'STORE_ACCESS_DENIED'
+            });
+        }
+
+        // Get store preferences
+        const { data: store, error: storeError } = await supabaseAdmin
+            .from('stores')
+            .select('id, name, separate_confirmation_flow')
+            .eq('id', storeId)
+            .single();
+
+        if (storeError || !store) {
+            return res.status(404).json({
+                success: false,
+                error: 'Tienda no encontrada',
+                code: 'STORE_NOT_FOUND'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                separate_confirmation_flow: store.separate_confirmation_flow ?? false
+            }
+        });
+    } catch (error: any) {
+        log.error('Error getting store preferences', error);
         return res.status(500).json({
             success: false,
             error: 'An error occurred',

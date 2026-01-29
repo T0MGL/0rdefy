@@ -350,11 +350,26 @@ function drawLabel(
     pdf.setTextColor(0, 0, 0);
   }
 
-  // Carrier info
-  pdf.setFontSize(11);
+  // Carrier info - display on multiple lines
+  pdf.setFontSize(10);
   pdf.setFont('helvetica', 'bold');
-  const carrierText = `DELIVERY: ${data.carrierName || 'PROPIO'}`;
-  pdf.text(carrierText, paymentBoxX + paymentBoxWidth / 2, actionZoneY + 1.45, { align: 'center' });
+  const carrierName = stripEmojis(data.carrierName || 'PROPIO').toUpperCase();
+
+  // Split carrier name into words for multi-line display
+  const carrierWords = carrierName.split(' ');
+  const carrierCenterX = paymentBoxX + paymentBoxWidth / 2;
+
+  // "DELIVERY" label on first line
+  pdf.text('DELIVERY', carrierCenterX, actionZoneY + 1.25, { align: 'center' });
+
+  // Carrier name words on subsequent lines
+  let carrierY = actionZoneY + 1.4;
+  carrierWords.forEach((word) => {
+    if (word.trim()) {
+      pdf.text(word, carrierCenterX, carrierY, { align: 'center' });
+      carrierY += 0.13;
+    }
+  });
 
   // Action zone separator
   pdf.setLineWidth(0.02);

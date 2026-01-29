@@ -195,6 +195,34 @@ export function generateNotifications(
         });
       }
 
+      // Medium priority: Orders awaiting carrier assignment (separate confirmation flow)
+      // These are sales confirmed by confirmadores but need carrier assignment by admin
+      const awaitingCarrier = orders.filter(o => {
+        try {
+          return o.status === 'awaiting_carrier';
+        } catch {
+          return false;
+        }
+      });
+
+      if (awaitingCarrier.length > 0 && !dismissedIds.has('notif-orders-awaiting-carrier')) {
+        notifications.push({
+          id: 'notif-orders-awaiting-carrier',
+          type: 'order',
+          category: 'action_required',
+          priority: 'medium',
+          message: `${awaitingCarrier.length} pedido${awaitingCarrier.length > 1 ? 's esperan' : ' espera'} asignación de repartidor`,
+          actionLabel: 'Asignar repartidores',
+          actionUrl: '/orders?filter=awaiting_carrier',
+          timestamp: getNow().toISOString(),
+          read: false,
+          metadata: {
+            count: awaitingCarrier.length,
+            itemIds: awaitingCarrier.map(o => o.id),
+          },
+        });
+      }
+
       // Informational: Deliveries scheduled for tomorrow - Plan ahead
       try {
         const tomorrow = new Date();

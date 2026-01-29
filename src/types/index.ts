@@ -76,7 +76,7 @@ export interface Order {
   product: string;
   quantity: number;
   total: number;
-  status: 'pending' | 'contacted' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident';
+  status: 'pending' | 'contacted' | 'awaiting_carrier' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident';
   payment_status?: 'pending' | 'collected' | 'failed';
   carrier: string;
   carrier_id?: string;

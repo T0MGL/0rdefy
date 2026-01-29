@@ -66,7 +66,7 @@ export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShip
         cod_amount,
         line_items,
         created_at,
-        carriers!courier_id (
+        carriers:courier_id (
           id,
           name
         )
@@ -260,7 +260,7 @@ export async function exportOrdersExcel(
       financial_status,
       total_price,
       cod_amount,
-      carriers!courier_id (
+      carriers:courier_id (
         id,
         name,
         delivery_fee

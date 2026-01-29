@@ -3226,7 +3226,7 @@ async function getPendingReconciliationOrdersFallback(
       shipping_city: order.shipping_city,
       shipping_city_normalized: order.shipping_city_normalized,
       normalizedCity,
-      deliveryZone,
+      normalizedZone,
       feeSource,
       carrierFee,
       coverageKeys: Array.from(coverageRates.keys()).join(', ')
