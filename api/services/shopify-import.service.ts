@@ -535,6 +535,18 @@ export class ShopifyImportService {
     const primaryPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shippingAddr?.phone || '';
     const backupPhone = billingAddr?.phone && billingAddr.phone !== primaryPhone ? billingAddr.phone : '';
 
+    // Extract payment gateway information (same logic as webhook service)
+    const paymentGateway = shopifyOrder.payment_gateway_names?.[0] ||
+                          (shopifyOrder as any).gateway ||
+                          (shopifyOrder.financial_status === 'pending' ? 'pending' : 'unknown');
+
+    // Calculate cod_amount based on payment status
+    const totalPrice = Number.isFinite(parseFloat(shopifyOrder.total_price)) ? parseFloat(shopifyOrder.total_price) : 0;
+    const financialStatus = (shopifyOrder.financial_status || 'pending').toLowerCase();
+    const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+    // cod_amount = 0 if already paid online, otherwise full total_price
+    const codAmount = isPaidOnline ? 0 : totalPrice;
+
     const orderData = {
       store_id: this.integration.store_id,
       shopify_order_id: shopifyOrder.id.toString(),
@@ -585,9 +597,16 @@ export class ShopifyImportService {
       total_shipping: Number.isFinite(parseFloat(shopifyOrder.total_shipping || '0')) ? parseFloat(shopifyOrder.total_shipping || '0') : 0,
       currency: shopifyOrder.currency || 'USD',
 
+      // Payment - CRITICAL for shipping labels and COD tracking
+      payment_gateway: paymentGateway,
+      payment_method: this.mapPaymentGatewayToMethod(paymentGateway),
+      cod_amount: codAmount,
+
       // Status
-      financial_status: shopifyOrder.financial_status || 'pending',
+      financial_status: financialStatus,
       fulfillment_status: shopifyOrder.fulfillment_status,
+      // SYNC: payment_status derived from financial_status
+      payment_status: isPaidOnline ? 'collected' : 'pending',
 
       // Metadata
       tags: shopifyOrder.tags,
@@ -1037,5 +1056,21 @@ export class ShopifyImportService {
       total_progress: Math.round(totalProgress),
       last_sync_at: this.integration.last_sync_at
     };
+  }
+
+  // Map Shopify payment gateway to local payment method
+  private mapPaymentGatewayToMethod(gateway: string): string {
+    const gatewayMap: Record<string, string> = {
+      'shopify_payments': 'online',
+      'manual': 'cash',
+      'cash_on_delivery': 'cash_on_delivery',
+      'paypal': 'online',
+      'stripe': 'online',
+      'mercadopago': 'online',
+      'pending': 'pending',
+      'unknown': 'online'
+    };
+
+    return gatewayMap[gateway.toLowerCase()] || 'online';
   }
 }

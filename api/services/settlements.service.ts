@@ -598,8 +598,8 @@ export async function createDispatchSession(
     const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
 
     // Use centralized payment utilities for COD determination
-    // BUT: if financial_status is 'paid', it's NOT COD regardless of payment_method
-    const isCod = !isPaidOnline && isCodPayment(order.payment_method);
+    // NOT COD if: financial_status is 'paid' (Shopify prepaid) OR prepaid_method is set (marked as prepaid in Ordefy)
+    const isCod = !isPaidOnline && !order.prepaid_method && isCodPayment(order.payment_method);
     const normalizedMethod = normalizePaymentMethod(order.payment_method);
 
     if (isCod) {
@@ -1733,6 +1733,7 @@ export async function getShippedOrdersGrouped(
         delivery_zone,
         total_price,
         payment_method,
+        prepaid_method,
         payment_status,
         courier_id,
         shipped_at,
@@ -1796,7 +1797,8 @@ export async function getShippedOrdersGrouped(
 
       const groupKey = `${order.courier_id}_${dispatchDate}`;
       const carrierData = carrierMap.get(order.courier_id) || { name: 'Sin courier', failed_attempt_fee_percent: 50 };
-      const isCod = isCodPayment(order.payment_method);
+      // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
+      const isCod = !order.prepaid_method && isCodPayment(order.payment_method);
       const codAmount = isCod ? (order.total_price || 0) : 0;
 
       // Determine display order number:
@@ -2163,7 +2165,8 @@ async function processManualReconciliationLegacy(
       continue;
     }
 
-    const isCod = isCodPayment(dbOrder.payment_method);
+    // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
+    const isCod = !dbOrder.prepaid_method && isCodPayment(dbOrder.payment_method);
 
     // Calculate fee: coverage (city) → zone (delivery_zone) → zone (shipping_city) → default
     const normalizedCity = dbOrder.shipping_city_normalized || normalizeCityText(dbOrder.shipping_city);
@@ -3045,7 +3048,8 @@ async function getPendingReconciliationFallback(storeId: string): Promise<Delive
       delivered_at,
       courier_id,
       total_price,
-      payment_method
+      payment_method,
+      prepaid_method
     `)
     .eq('store_id', storeId)
     .eq('sleeves_status', 'delivered')
@@ -3073,7 +3077,9 @@ async function getPendingReconciliationFallback(storeId: string): Promise<Delive
     const deliveryDate = new Date(order.delivered_at).toISOString().split('T')[0];
     const groupKey = `${order.courier_id}_${deliveryDate}`;
     const carrier = carrierMap.get(order.courier_id);
-    const isCod = isCodPayment(order.payment_method);
+    // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
+    // This handles the case where customer paid via transfer/QR before delivery
+    const isCod = !order.prepaid_method && isCodPayment(order.payment_method);
 
     if (groupMap.has(groupKey)) {
       const group = groupMap.get(groupKey)!;
@@ -3192,7 +3198,9 @@ async function getPendingReconciliationOrdersFallback(
   const defaultRate = zones?.[0]?.rate || 0;
 
   return orders.map((order: any) => {
-    const isCod = isCodPayment(order.payment_method);
+    // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
+    // This handles the case where customer paid via transfer/QR before delivery
+    const isCod = !order.prepaid_method && isCodPayment(order.payment_method);
 
     // Unified display order number - always #XXXX format
     let displayOrderNumber: string;
@@ -3330,7 +3338,7 @@ async function processDeliveryReconciliationFallback(
   const orderIds = params.orders.map(o => o.order_id);
   const { data: existingOrders, error: fetchError } = await supabaseAdmin
     .from('orders')
-    .select('id, total_price, payment_method, delivery_zone, shipping_city, shipping_city_normalized, reconciled_at, store_id')
+    .select('id, total_price, payment_method, prepaid_method, delivery_zone, shipping_city, shipping_city_normalized, reconciled_at, store_id')
     .in('id', orderIds)
     .eq('store_id', storeId);
 
@@ -3440,7 +3448,9 @@ async function processDeliveryReconciliationFallback(
       delivered: orderData.delivered
     });
 
-    const isCod = isCodPayment(order.payment_method);
+    // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
+    // This handles the case where customer paid via transfer/QR before delivery
+    const isCod = !order.prepaid_method && isCodPayment(order.payment_method);
 
     if (orderData.delivered) {
       totalDelivered++;

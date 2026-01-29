@@ -145,3 +145,52 @@ export function validateAmountCollected(
 
   return { isValid: true };
 }
+
+/**
+ * Determines if an order is truly COD, considering both payment_method AND prepaid_method
+ *
+ * IMPORTANT: This is the authoritative function for COD detection.
+ * Use this instead of isCodPayment() when you have access to prepaid_method.
+ *
+ * An order is COD only if:
+ * 1. prepaid_method is null/undefined (not marked as prepaid)
+ * 2. payment_method is a COD type (efectivo, cash, etc.)
+ *
+ * @param paymentMethod - The original payment method from the order
+ * @param prepaidMethod - The prepaid_method field (set when order marked as prepaid before delivery)
+ * @returns true if courier should collect cash, false if already paid
+ *
+ * @example
+ * isOrderCod('efectivo', null)          // true - normal COD
+ * isOrderCod('efectivo', 'transferencia') // false - was COD, now prepaid
+ * isOrderCod('tarjeta', null)           // false - always prepaid
+ */
+export function isOrderCod(
+  paymentMethod: string | null | undefined,
+  prepaidMethod: string | null | undefined
+): boolean {
+  // If prepaid_method is set, the order was marked as prepaid
+  // This happens when customer pays via transfer/QR before delivery
+  if (prepaidMethod) {
+    return false;
+  }
+
+  // Otherwise, check the original payment method
+  return isCodPayment(paymentMethod);
+}
+
+/**
+ * Gets the amount that should be collected by courier, considering prepaid_method
+ *
+ * @param paymentMethod - The original payment method
+ * @param prepaidMethod - The prepaid_method field
+ * @param totalPrice - The total price of the order
+ * @returns The amount courier should collect (0 if prepaid)
+ */
+export function getAmountToCollectWithPrepaid(
+  paymentMethod: string | null | undefined,
+  prepaidMethod: string | null | undefined,
+  totalPrice: number
+): number {
+  return isOrderCod(paymentMethod, prepaidMethod) ? totalPrice : 0;
+}

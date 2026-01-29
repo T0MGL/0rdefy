@@ -2671,6 +2671,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             upsell_quantity = 1,
             upsell_product_name,
             courier_id,
+            is_pickup = false,  // Explicit pickup flag from frontend
             address,
             latitude,
             longitude,
@@ -2685,8 +2686,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             force_without_carrier = false  // NEW: Force separate flow even if courier_id provided
         } = req.body;
 
-        // courier_id can be null for pickup orders (retiro en local)
-        const isPickupOrder = !courier_id && !force_without_carrier;
+        // Use explicit is_pickup flag from frontend (not inferred from !courier_id)
+        // This is critical for separate confirmation flow where confirmadores don't select carriers
+        const isPickupOrder = is_pickup === true;
 
         // ================================================================
         // CHECK FOR SEPARATE CONFIRMATION FLOW

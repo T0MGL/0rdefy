@@ -1633,6 +1633,10 @@ export class ShopifyWebhookService {
       financial_status: financialStatus,
       fulfillment_status: shopifyOrder.fulfillment_status,
       cancel_reason: shopifyOrder.cancel_reason || null,
+      // SYNC: payment_status derived from financial_status
+      // - 'collected' if paid online (financial_status = paid/authorized)
+      // - 'pending' if COD (needs to be collected at delivery)
+      payment_status: isPaidOnline ? 'collected' : 'pending',
 
       // Metadata
       order_status_url: shopifyOrder.order_status_url,

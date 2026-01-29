@@ -257,6 +257,7 @@ export async function exportOrdersExcel(
       customer_address,
       customer_city,
       payment_method,
+      prepaid_method,
       financial_status,
       total_price,
       cod_amount,
@@ -292,8 +293,8 @@ export async function exportOrdersExcel(
     const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
 
     // Use centralized payment utilities, but financial_status overrides
-    // If Shopify says it's paid, it's NOT COD regardless of payment_method
-    const isCod = !isPaidOnline && isCodPayment(order.payment_method);
+    // NOT COD if: financial_status is 'paid' (Shopify) OR prepaid_method is set (Ordefy mark as prepaid)
+    const isCod = !isPaidOnline && !order.prepaid_method && isCodPayment(order.payment_method);
 
     let paymentType: string;
     let amountToCollect: number;

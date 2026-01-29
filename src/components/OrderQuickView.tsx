@@ -299,34 +299,114 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                 <span className="text-sm text-muted-foreground">Total del Pedido:</span>
                 <span className="text-lg font-bold">{formatCurrency(order.total ?? 0)}</span>
               </div>
-              {order.payment_gateway && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Gateway:</span>
-                  <Badge variant="outline" className="text-xs">
-                    {order.payment_gateway === 'shopify_payments' ? 'Shopify Payments' :
-                     order.payment_gateway === 'manual' ? 'Manual' :
-                     order.payment_gateway === 'cash_on_delivery' ? 'Contra Entrega' :
-                     order.payment_gateway === 'paypal' ? 'PayPal' :
-                     order.payment_gateway === 'mercadopago' ? 'MercadoPago' :
-                     order.payment_gateway}
-                  </Badge>
-                </div>
-              )}
-              {order.payment_method && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Método de Pago:</span>
-                  <span className="text-sm font-medium capitalize">{order.payment_method}</span>
-                </div>
-              )}
-              {order.cod_amount && order.cod_amount > 0 && (
-                <div className="flex justify-between items-center pt-2 border-t border-border">
-                  <span className="text-sm text-muted-foreground">Monto a Cobrar (COD):</span>
-                  <span className="text-lg font-bold text-green-600 dark:text-green-400">
-                    {formatCurrency(order.cod_amount)}
-                  </span>
-                </div>
-              )}
-              {order.has_amount_discrepancy && order.amount_collected !== undefined && (
+
+              {/* Estado de Pago - DERIVADO correctamente de múltiples fuentes */}
+              {(() => {
+                // Derivar estado de pago real basado en todas las fuentes disponibles
+                const financialStatus = (order as any).financial_status?.toLowerCase();
+                const paymentStatus = order.payment_status;
+                const prepaidMethod = (order as any).prepaid_method;
+                const codAmount = order.cod_amount ?? 0;
+                const paymentGateway = order.payment_gateway?.toLowerCase() || '';
+
+                // Determinar si está pagado online
+                const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
+                const isPrepaid = !!prepaidMethod;
+                const isOnlineGateway = ['shopify_payments', 'paypal', 'mercadopago', 'stripe'].includes(paymentGateway);
+
+                // Determinar tipo de pago y estado real
+                let paymentType: 'online' | 'cod' | 'prepaid' | 'pending';
+                let derivedStatus: 'paid' | 'pending' | 'collected' | 'failed';
+                let statusLabel: string;
+                let statusClass: string;
+                let typeLabel: string;
+
+                if (isPaidOnline || (isOnlineGateway && codAmount === 0)) {
+                  paymentType = 'online';
+                  derivedStatus = 'paid';
+                  statusLabel = 'Pagado Online';
+                  statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
+                  typeLabel = paymentGateway === 'shopify_payments' ? 'Shopify Payments' :
+                              paymentGateway === 'paypal' ? 'PayPal' :
+                              paymentGateway === 'mercadopago' ? 'MercadoPago' :
+                              paymentGateway === 'stripe' ? 'Stripe' : 'Pago Online';
+                } else if (isPrepaid) {
+                  paymentType = 'prepaid';
+                  derivedStatus = 'paid';
+                  statusLabel = 'Prepago';
+                  statusClass = 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-700';
+                  typeLabel = prepaidMethod === 'transfer' ? 'Transferencia' :
+                              prepaidMethod === 'qr' ? 'QR' :
+                              prepaidMethod === 'cash' ? 'Efectivo (adelantado)' :
+                              prepaidMethod || 'Prepago';
+                } else if (codAmount > 0 || paymentGateway === 'cash_on_delivery' || paymentGateway === 'manual') {
+                  paymentType = 'cod';
+                  // Para COD, usar payment_status si existe, sino derivar del estado del pedido
+                  if (paymentStatus === 'collected') {
+                    derivedStatus = 'collected';
+                    statusLabel = 'Cobrado';
+                    statusClass = 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
+                  } else if (paymentStatus === 'failed') {
+                    derivedStatus = 'failed';
+                    statusLabel = 'Cobro Fallido';
+                    statusClass = 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-300 dark:border-red-700';
+                  } else {
+                    derivedStatus = 'pending';
+                    statusLabel = 'Por Cobrar';
+                    statusClass = 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700';
+                  }
+                  typeLabel = 'Contra Entrega (COD)';
+                } else {
+                  paymentType = 'pending';
+                  derivedStatus = 'pending';
+                  statusLabel = 'Sin definir';
+                  statusClass = 'bg-gray-50 dark:bg-gray-950/30 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-700';
+                  typeLabel = paymentGateway || 'Pendiente';
+                }
+
+                return (
+                  <>
+                    {/* Tipo de pago con badge más prominente */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Tipo de Pago:</span>
+                      <Badge variant="outline" className={`text-xs ${statusClass}`}>
+                        {typeLabel}
+                      </Badge>
+                    </div>
+
+                    {/* Estado de pago derivado correctamente */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Estado:</span>
+                      <Badge variant="outline" className={statusClass}>
+                        {statusLabel}
+                      </Badge>
+                    </div>
+
+                    {/* Monto a cobrar - solo para COD pendiente */}
+                    {paymentType === 'cod' && derivedStatus === 'pending' && codAmount > 0 && (
+                      <div className="flex justify-between items-center pt-2 border-t border-border">
+                        <span className="text-sm text-muted-foreground">Monto a Cobrar:</span>
+                        <span className="text-lg font-bold text-amber-600 dark:text-amber-400">
+                          {formatCurrency(codAmount)}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Monto cobrado - para COD ya cobrado */}
+                    {paymentType === 'cod' && derivedStatus === 'collected' && (
+                      <div className="flex justify-between items-center pt-2 border-t border-border">
+                        <span className="text-sm text-muted-foreground">Monto Cobrado:</span>
+                        <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                          {formatCurrency((order as any).amount_collected ?? codAmount ?? order.total ?? 0)}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Discrepancia de monto - siempre mostrar si existe */}
+              {order.has_amount_discrepancy && (order as any).amount_collected !== undefined && (
                 <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
                   <div className="flex items-center gap-2 mb-2">
                     <svg className="h-4 w-4 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -341,29 +421,15 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Cobrado:</span>
-                      <span className="font-semibold text-orange-700 dark:text-orange-400">{formatCurrency(order.amount_collected)}</span>
+                      <span className="font-semibold text-orange-700 dark:text-orange-400">{formatCurrency((order as any).amount_collected)}</span>
                     </div>
                     <div className="flex justify-between pt-1 border-t border-orange-200 dark:border-orange-700">
                       <span className="text-muted-foreground">Diferencia:</span>
-                      <span className={`font-bold ${order.amount_collected - (order.cod_amount ?? order.total ?? 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {order.amount_collected - (order.cod_amount ?? order.total ?? 0) > 0 ? '+' : ''}{formatCurrency(order.amount_collected - (order.cod_amount ?? order.total ?? 0))}
+                      <span className={`font-bold ${(order as any).amount_collected - (order.cod_amount ?? order.total ?? 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {(order as any).amount_collected - (order.cod_amount ?? order.total ?? 0) > 0 ? '+' : ''}{formatCurrency((order as any).amount_collected - (order.cod_amount ?? order.total ?? 0))}
                       </span>
                     </div>
                   </div>
-                </div>
-              )}
-              {order.payment_status && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Estado de Pago:</span>
-                  <Badge variant="outline" className={
-                    order.payment_status === 'collected' ? 'bg-green-50 text-green-700 border-green-300' :
-                    order.payment_status === 'failed' ? 'bg-red-50 text-red-700 border-red-300' :
-                    'bg-yellow-50 text-yellow-700 border-yellow-300'
-                  }>
-                    {order.payment_status === 'collected' ? 'Cobrado' :
-                     order.payment_status === 'failed' ? 'Fallido' :
-                     'Pendiente'}
-                  </Badge>
                 </div>
               )}
             </div>

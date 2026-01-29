@@ -555,6 +555,7 @@ export function OrderConfirmationDialog({
 
       const payload: any = {
         courier_id: isPickup ? null : courierId,
+        is_pickup: isPickup,  // Explicit pickup flag (required for backend logic)
         upsell_added: upsellAdded,
         // Use city-based zone if coverage system is active
         delivery_zone: isPickup ? null : (useCoverageSystem && selectedCity ? selectedCity.zone_code : (zoneData?.zone_name || '')),
