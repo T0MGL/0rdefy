@@ -233,10 +233,30 @@ export function PackingOneByOne({
     setPackingProduct('all');
     try {
       await onPackAllItems(currentOrder.id);
+
+      // Calculate if there are more orders to pack
+      const currentIdx = orders.findIndex(o => o.id === currentOrder.id);
+      const hasMoreOrders = currentIdx < orders.length - 1;
+      const nextIncompleteIdx = orders.findIndex((o, idx) => idx > currentIdx && !o.is_complete);
+
       toast({
-        title: 'Pedido empacado',
-        description: `Todos los productos del pedido #${currentOrder.order_number} han sido empacados`,
+        title: '✅ Pedido empacado',
+        description: hasMoreOrders
+          ? `#${currentOrder.order_number} listo. Avanzando al siguiente...`
+          : `#${currentOrder.order_number} listo. ¡Último pedido!`,
       });
+
+      // Auto-advance to next incomplete order, or next order if all complete
+      if (hasMoreOrders) {
+        // Small delay for visual feedback before advancing
+        setTimeout(() => {
+          if (nextIncompleteIdx !== -1) {
+            onGoToOrder(nextIncompleteIdx);
+          } else {
+            onNextOrder();
+          }
+        }, 300);
+      }
     } catch (error: any) {
       logger.error('Error packing all items:', error);
       toast({
@@ -247,7 +267,7 @@ export function PackingOneByOne({
     } finally {
       setPackingProduct(null);
     }
-  }, [currentOrder, onPackAllItems, toast]);
+  }, [currentOrder, orders, onPackAllItems, onNextOrder, onGoToOrder, toast]);
 
   // Handle auto-packing entire session
   const handleAutoPackSession = useCallback(async () => {
@@ -447,6 +467,62 @@ export function PackingOneByOne({
                     COD: {new Intl.NumberFormat('es-PY').format(currentOrder.cod_amount)} Gs
                   </Badge>
                 )}
+
+                {/* Order Position */}
+                <div className="text-2xl font-bold text-muted-foreground">
+                  {safeOrderIndex + 1}
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Product Summary - for fast visual scanning */}
+            <div className="px-6 py-3 bg-muted/20 border-b">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4 text-primary" />
+                    <span className="font-semibold text-sm">
+                      {currentOrder.items.length} {currentOrder.items.length === 1 ? 'producto' : 'productos'}
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground">•</span>
+                  <span className="text-sm text-muted-foreground">
+                    {currentOrder.items.reduce((sum, i) => sum + i.quantity_needed, 0)} unidades total
+                  </span>
+                </div>
+                {orderComplete && (
+                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
+                    Listo para etiqueta
+                  </Badge>
+                )}
+              </div>
+
+              {/* Compact product list for quick scanning */}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {currentOrder.items.map((item: PackingProgressItem) => {
+                  const itemKey = getProductVariantKey(item.product_id, item.variant_id);
+                  const itemComplete = item.quantity_packed >= item.quantity_needed;
+                  // Get short product name (first 25 chars)
+                  const shortName = item.product_name.length > 25
+                    ? item.product_name.substring(0, 25) + '...'
+                    : item.product_name;
+
+                  return (
+                    <Badge
+                      key={itemKey}
+                      variant={itemComplete ? 'default' : 'outline'}
+                      className={cn(
+                        'text-xs font-normal',
+                        itemComplete
+                          ? 'bg-primary/80 text-primary-foreground'
+                          : 'bg-background'
+                      )}
+                    >
+                      {item.quantity_needed}x {shortName}
+                      {item.variant_title && ` (${item.variant_title})`}
+                    </Badge>
+                  );
+                })}
               </div>
             </div>
 
