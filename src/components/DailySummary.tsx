@@ -32,9 +32,9 @@ export function DailySummary() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check if user has analytics permission
-  const { permissions } = useAuth();
-  const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
+  // Check if user has analytics permission (wait for auth to load)
+  const { permissions, loading: authLoading } = useAuth();
+  const hasAnalyticsAccess = !authLoading && permissions.canAccessModule(Module.ANALYTICS);
 
   // Use global date range context
   const { selectedRange, getDateRange } = useDateRange();
@@ -65,6 +65,11 @@ export function DailySummary() {
   };
 
   useEffect(() => {
+    // Wait for auth to load before fetching data
+    if (authLoading) {
+      return;
+    }
+
     const loadData = async () => {
       setIsLoading(true);
       try {
@@ -118,9 +123,9 @@ export function DailySummary() {
       }
     };
     loadData();
-  }, [dateRange, hasAnalyticsAccess]);
+  }, [dateRange, hasAnalyticsAccess, authLoading]);
 
-  if (isLoading || !overview) {
+  if (authLoading || isLoading || !overview) {
     return (
       <Card className="p-6 bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
         <div className="space-y-4">
@@ -170,17 +175,17 @@ export function DailySummary() {
   const metrics = [
     {
       label: getMetricLabel('Pedidos Nuevos'),
-      value: overview.totalOrders,
-      change: overview.changes?.totalOrders !== null ? overview.changes?.totalOrders : null,
+      value: overview?.totalOrders ?? 0,
+      change: overview?.changes?.totalOrders != null ? overview.changes.totalOrders : null,
       icon: ShoppingBag,
-      trend: overview.changes?.totalOrders !== null ? (overview.changes.totalOrders >= 0 ? 'up' as const : 'down' as const) : undefined,
+      trend: overview?.changes?.totalOrders != null ? (overview.changes.totalOrders >= 0 ? 'up' as const : 'down' as const) : undefined,
     },
     {
       label: getMetricLabel('Ventas del Período'),
-      value: formatCurrency(overview.revenue),
-      change: overview.changes?.revenue !== null ? overview.changes?.revenue : null,
+      value: formatCurrency(overview?.revenue ?? 0),
+      change: overview?.changes?.revenue != null ? overview.changes.revenue : null,
       icon: DollarSign,
-      trend: overview.changes?.revenue !== null ? (overview.changes.revenue >= 0 ? 'up' as const : 'down' as const) : undefined,
+      trend: overview?.changes?.revenue != null ? (overview.changes.revenue >= 0 ? 'up' as const : 'down' as const) : undefined,
     },
     {
       label: 'Pendientes Confirmar',
@@ -264,7 +269,7 @@ export function DailySummary() {
                 )}
                 <li className="flex items-start gap-2">
                   <CheckCircle size={16} className="text-green-600 mt-0.5" />
-                  <span>Tasa de entrega: {overview.deliveryRate}%</span>
+                  <span>Tasa de entrega: {overview?.deliveryRate ?? 0}%</span>
                 </li>
               </ul>
             </div>
@@ -274,11 +279,11 @@ export function DailySummary() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Margen de Beneficio</span>
-                    <span className="font-semibold">{overview.profitMargin}%</span>
+                    <span className="font-semibold">{overview?.profitMargin ?? 0}%</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Beneficio Neto</span>
-                    <span className="font-semibold">{formatCurrency(overview.netProfit)}</span>
+                    <span className="font-semibold">{formatCurrency(overview?.netProfit ?? 0)}</span>
                   </div>
                 </div>
               </div>

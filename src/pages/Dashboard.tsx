@@ -53,12 +53,12 @@ export default function Dashboard() {
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
   // Global View state from context (toggle is in Header, only shown on Dashboard)
-  const { stores, permissions } = useAuth();
+  const { stores, permissions, loading: authLoading } = useAuth();
   const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
 
-  // Check if user has analytics permission
-  const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
+  // Check if user has analytics permission (wait for auth to load)
+  const hasAnalyticsAccess = !authLoading && permissions.canAccessModule(Module.ANALYTICS);
 
   // Check if user has multiple stores (2 or more)
   const hasMultipleStores = (stores?.length || 0) >= 2;
@@ -186,6 +186,21 @@ export default function Dashboard() {
     if (!dashboardOverview) return null;
     return calculateRevenueProjection(dashboardOverview);
   }, [dashboardOverview]);
+
+  // Wait for auth to load before determining which dashboard to show
+  if (authLoading) {
+    return (
+      <div className="space-y-6">
+        <DailySummary />
+        <QuickActions />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // Simplified dashboard for roles without analytics access (e.g., confirmador)
   if (!hasAnalyticsAccess) {
