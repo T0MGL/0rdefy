@@ -94,22 +94,49 @@ export const ordersService = {
       const variantTitle = (order as any).variant_title || null;
       const unitsPerPack = (order as any).units_per_pack || 1;
 
+      // Upsell support
+      const upsellProductId = (order as any).upsell_product_id || null;
+      const upsellProductName = (order as any).upsell_product_name || null;
+      const upsellProductPrice = (order as any).upsell_product_price || 0;
+      const upsellQuantity = (order as any).upsell_quantity || 1;
+
+      // Calculate main product price (total minus upsell if present)
+      const upsellTotal = upsellProductId ? upsellProductPrice * upsellQuantity : 0;
+      const mainProductTotal = order.total - upsellTotal;
+      const mainProductPrice = order.quantity > 0 ? mainProductTotal / order.quantity : mainProductTotal;
+
+      // Build line items array
+      const lineItems: any[] = [{
+        product_id: order.product_id,
+        variant_id: variantId, // Migration 097
+        product_name: order.product,
+        variant_title: variantTitle, // Migration 097
+        sku: (order as any).product_sku || null, // Migration 098: SKU for fallback mapping
+        quantity: order.quantity || 1,
+        price: mainProductPrice,
+        units_per_pack: unitsPerPack, // Migration 097
+      }];
+
+      // Add upsell as second line item if present
+      if (upsellProductId && upsellProductName) {
+        lineItems.push({
+          product_id: upsellProductId,
+          product_name: upsellProductName,
+          variant_title: 'Upsell',
+          quantity: upsellQuantity,
+          price: upsellProductPrice,
+          is_upsell: true,
+        });
+        logger.log('📦 [ORDERS SERVICE] Added upsell line item:', upsellProductName, 'x', upsellQuantity);
+      }
+
       const backendOrder: any = {
         customer_first_name: firstName || 'Cliente',
         customer_last_name: lastName || '',
         customer_phone: order.phone,
         customer_email: '',
         customer_address: order.address || '',
-        line_items: [{
-          product_id: order.product_id,
-          variant_id: variantId, // Migration 097
-          product_name: order.product,
-          variant_title: variantTitle, // Migration 097
-          sku: (order as any).product_sku || null, // Migration 098: SKU for fallback mapping
-          quantity: order.quantity || 1,
-          price: order.quantity > 0 ? order.total / order.quantity : order.total,
-          units_per_pack: unitsPerPack, // Migration 097
-        }],
+        line_items: lineItems,
         total_price: order.total,
         subtotal_price: order.total,
         total_tax: 0,
@@ -128,6 +155,8 @@ export const ordersService = {
         is_pickup: (order as any).is_pickup || false,
         // Internal admin notes
         internal_notes: (order as any).internal_notes || null,
+        // Upsell flag
+        upsell_added: !!upsellProductId,
       };
 
       logger.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);

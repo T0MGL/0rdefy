@@ -1057,7 +1057,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             delivery_zone,
             is_pickup,
             // Internal admin notes
-            internal_notes
+            internal_notes,
+            // Upsell tracking
+            upsell_added
         } = req.body;
 
         // Validation
@@ -1194,7 +1196,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 delivery_zone: delivery_zone || null,
                 is_pickup: is_pickup || false,
                 // Internal admin notes (max 5000 chars)
-                internal_notes: internal_notes?.trim()?.substring(0, 5000) || null
+                internal_notes: internal_notes?.trim()?.substring(0, 5000) || null,
+                // Upsell tracking - true if line_items contains is_upsell item
+                upsell_added: upsell_added || (Array.isArray(line_items) && line_items.some((item: any) => item.is_upsell))
             }])
             .select()
             .single();
@@ -1291,7 +1295,8 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         unit_price: unitPrice,
                         total_price: safeNumber(item.quantity, 1) * unitPrice,
                         units_per_pack: unitsPerPack, // Migration 097: Snapshot for audit
-                        image_url: imageUrl
+                        image_url: imageUrl,
+                        is_upsell: item.is_upsell || false // Upsell tracking
                     });
                 }
 

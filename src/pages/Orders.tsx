@@ -745,6 +745,33 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         finalPrice: unitPrice
       });
 
+      // Fetch upsell product if provided
+      let upsellProduct = null;
+      let upsellTotal = 0;
+      if (data.upsellProductId) {
+        upsellProduct = await productsService.getById(data.upsellProductId);
+        if (!upsellProduct) {
+          toast({
+            title: '❌ Error',
+            description: 'Producto de upsell no encontrado',
+            variant: 'destructive',
+          });
+          return;
+        }
+        upsellTotal = (upsellProduct.price || 0) * (data.upsellQuantity || 1);
+        logger.log('📦 [ORDERS] Upsell product found:', upsellProduct.name, 'Total:', upsellTotal);
+      }
+
+      // Calculate total including upsell
+      const mainProductTotal = unitPrice * data.quantity;
+      const orderTotal = mainProductTotal + upsellTotal;
+
+      logger.log('💰 [ORDERS] Total calculation:', {
+        mainProductTotal,
+        upsellTotal,
+        orderTotal
+      });
+
       const newOrder = await ordersService.create({
         customer: data.customer,
         phone: data.phone,
@@ -753,7 +780,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         product_id: product.id,
         product_sku: product.sku || null, // Migration 098: SKU for fallback mapping
         quantity: data.quantity,
-        total: unitPrice * data.quantity,
+        total: orderTotal,
         status: 'pending',
         carrier: data.isPickup ? undefined : data.carrier,
         paymentMethod: data.paymentMethod,
@@ -773,6 +800,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         units_per_pack: data.unitsPerPack || 1,
         // Internal notes (admin only)
         internal_notes: data.internalNotes || null,
+        // Upsell support
+        upsell_product_id: data.upsellProductId || null,
+        upsell_product_name: upsellProduct?.name || null,
+        upsell_product_price: upsellProduct?.price || null,
+        upsell_quantity: data.upsellQuantity || 1,
       } as any);
 
       logger.log('✅ [ORDERS] Order created:', newOrder);
@@ -828,6 +860,17 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         }
       }
 
+      // Calculate total including upsell
+      const mainProductTotal = product.price * data.quantity;
+      const upsellTotal = upsellProduct ? (upsellProduct.price || 0) * (data.upsellQuantity || 1) : 0;
+      const orderTotal = mainProductTotal + upsellTotal;
+
+      logger.log('💰 [ORDERS] Update total calculation:', {
+        mainProductTotal,
+        upsellTotal,
+        orderTotal
+      });
+
       const updatedOrder = await ordersService.update(orderToEdit.id, {
         customer: data.customer,
         phone: data.phone,
@@ -836,7 +879,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         product: product.name,
         product_id: product.id, // ✅ Pass product_id
         quantity: data.quantity,
-        total: product.price * data.quantity,
+        total: orderTotal,
         carrier: data.carrier,
         paymentMethod: data.paymentMethod,
         // Shipping info
