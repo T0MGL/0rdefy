@@ -758,12 +758,15 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
           });
           return;
         }
-        upsellTotal = (upsellProduct.price || 0) * (data.upsellQuantity || 1);
-        logger.log('📦 [ORDERS] Upsell product found:', upsellProduct.name, 'Total:', upsellTotal);
+        // Ensure price is converted to number (may come as string from DB)
+        const upsellPrice = Number(upsellProduct.price) || 0;
+        const upsellQty = Number(data.upsellQuantity) || 1;
+        upsellTotal = upsellPrice * upsellQty;
+        logger.log('📦 [ORDERS] Upsell product found:', upsellProduct.name, 'Price:', upsellPrice, 'Qty:', upsellQty, 'Total:', upsellTotal);
       }
 
-      // Calculate total including upsell
-      const mainProductTotal = unitPrice * data.quantity;
+      // Calculate total including upsell (ensure all values are numbers)
+      const mainProductTotal = Number(unitPrice) * Number(data.quantity);
       const orderTotal = mainProductTotal + upsellTotal;
 
       logger.log('💰 [ORDERS] Total calculation:', {
@@ -860,13 +863,17 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         }
       }
 
-      // Calculate total including upsell
-      const mainProductTotal = product.price * data.quantity;
-      const upsellTotal = upsellProduct ? (upsellProduct.price || 0) * (data.upsellQuantity || 1) : 0;
+      // Calculate total including upsell (ensure all values are numbers)
+      const mainProductTotal = Number(product.price) * Number(data.quantity);
+      const upsellPrice = upsellProduct ? Number(upsellProduct.price) || 0 : 0;
+      const upsellQty = Number(data.upsellQuantity) || 1;
+      const upsellTotal = upsellProduct ? upsellPrice * upsellQty : 0;
       const orderTotal = mainProductTotal + upsellTotal;
 
       logger.log('💰 [ORDERS] Update total calculation:', {
         mainProductTotal,
+        upsellPrice,
+        upsellQty,
         upsellTotal,
         orderTotal
       });

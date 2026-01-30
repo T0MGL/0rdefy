@@ -94,16 +94,18 @@ export const ordersService = {
       const variantTitle = (order as any).variant_title || null;
       const unitsPerPack = (order as any).units_per_pack || 1;
 
-      // Upsell support
+      // Upsell support (ensure all values are numbers)
       const upsellProductId = (order as any).upsell_product_id || null;
       const upsellProductName = (order as any).upsell_product_name || null;
-      const upsellProductPrice = (order as any).upsell_product_price || 0;
-      const upsellQuantity = (order as any).upsell_quantity || 1;
+      const upsellProductPrice = Number((order as any).upsell_product_price) || 0;
+      const upsellQuantity = Number((order as any).upsell_quantity) || 1;
 
       // Calculate main product price (total minus upsell if present)
       const upsellTotal = upsellProductId ? upsellProductPrice * upsellQuantity : 0;
-      const mainProductTotal = order.total - upsellTotal;
-      const mainProductPrice = order.quantity > 0 ? mainProductTotal / order.quantity : mainProductTotal;
+      const orderTotal = Number(order.total) || 0;
+      const mainProductTotal = orderTotal - upsellTotal;
+      const orderQuantity = Number(order.quantity) || 1;
+      const mainProductPrice = orderQuantity > 0 ? mainProductTotal / orderQuantity : mainProductTotal;
 
       // Build line items array
       const lineItems: any[] = [{
@@ -112,7 +114,7 @@ export const ordersService = {
         product_name: order.product,
         variant_title: variantTitle, // Migration 097
         sku: (order as any).product_sku || null, // Migration 098: SKU for fallback mapping
-        quantity: order.quantity || 1,
+        quantity: orderQuantity,
         price: mainProductPrice,
         units_per_pack: unitsPerPack, // Migration 097
       }];
@@ -137,8 +139,8 @@ export const ordersService = {
         customer_email: '',
         customer_address: order.address || '',
         line_items: lineItems,
-        total_price: order.total,
-        subtotal_price: order.total,
+        total_price: orderTotal,
+        subtotal_price: orderTotal,
         total_tax: 0,
         total_shipping: (order as any).shipping_cost || 0,
         shipping_cost: (order as any).shipping_cost || 0,
