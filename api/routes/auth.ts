@@ -610,19 +610,31 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             });
         }
 
-        // Create default subscription for the store (free plan)
-        log.debug('Creating default subscription');
-        const { error: subscriptionError } = await supabaseAdmin
+        // Create default subscription for the user (free plan) if they don't have one
+        log.debug('Checking/creating default subscription for user');
+        const { data: existingSubscription } = await supabaseAdmin
             .from('subscriptions')
-            .insert({
-                store_id: store.id,
-                plan: 'free',
-                status: 'active'
-            });
+            .select('id')
+            .eq('user_id', req.userId)
+            .eq('is_primary', true)
+            .single();
 
-        if (subscriptionError) {
-            // Log but don't fail - subscription can be created later
-            log.warn('Could not create subscription', subscriptionError);
+        if (!existingSubscription) {
+            const { error: subscriptionError } = await supabaseAdmin
+                .from('subscriptions')
+                .insert({
+                    user_id: req.userId,
+                    plan: 'free',
+                    status: 'active',
+                    is_primary: true
+                });
+
+            if (subscriptionError) {
+                // Log but don't fail - subscription can be created later
+                log.warn('Could not create subscription', subscriptionError);
+            }
+        } else {
+            log.debug('User already has subscription, skipping creation');
         }
 
         log.info('Onboarding completed', { userId: req.userId, storeId: store.id });
@@ -1260,23 +1272,14 @@ authRouter.put('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
 
         // If enabling separate_confirmation_flow, verify plan allows multiple users
         if (separate_confirmation_flow === true) {
-            // Get store's subscription plan
-            const { data: subscription } = await supabaseAdmin
-                .from('subscriptions')
-                .select('plan')
-                .eq('store_id', storeId)
-                .single();
+            // Get store's subscription plan via owner (subscriptions are user-level now)
+            const { data: planData, error: planError } = await supabaseAdmin
+                .rpc('get_store_plan_via_owner', { p_store_id: storeId });
 
-            const plan = subscription?.plan || 'free';
+            const plan = planData?.[0]?.plan || 'free';
+            const maxUsers = planData?.[0]?.max_users || 1;
 
-            // Get plan limits
-            const { data: planLimits } = await supabaseAdmin
-                .from('plan_limits')
-                .select('max_users')
-                .eq('plan', plan)
-                .single();
-
-            const maxUsers = planLimits?.max_users || 1;
+            log.info('Plan check for separate_confirmation_flow', { storeId, plan, maxUsers, planError: planError?.message });
 
             if (maxUsers <= 1) {
                 log.warn('Tried to enable separate flow on single-user plan', { storeId, plan, maxUsers });
