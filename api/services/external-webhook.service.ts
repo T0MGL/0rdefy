@@ -160,7 +160,7 @@ export class ExternalWebhookService {
       customer: payload.customer,
       items: payload.items,
       total: payload.totals.total,
-      timestamp: Math.floor(Date.now() / 60000) // Agrupar por minuto
+      timestamp: Math.floor(Date.now() / 1000) // Agrupar por segundo (no minuto - evita deduplicación incorrecta)
     });
 
     return crypto.createHash('md5').update(uniqueData).digest('hex');

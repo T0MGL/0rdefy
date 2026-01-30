@@ -23,6 +23,7 @@ import {
 import { ordersService } from '@/services/orders.service';
 import { analyticsService } from '@/services/analytics.service';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useAuth, Module } from '@/contexts/AuthContext';
 import type { Order, DashboardOverview } from '@/types';
 
 export function DailySummary() {
@@ -30,6 +31,10 @@ export function DailySummary() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Check if user has analytics permission
+  const { permissions } = useAuth();
+  const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
 
   // Use global date range context
   const { selectedRange, getDateRange } = useDateRange();
@@ -68,20 +73,52 @@ export function DailySummary() {
           endDate: dateRange.endDate,
         };
 
-        const [ordersResponse, overviewData] = await Promise.all([
-          ordersService.getAll(dateParams),
-          analyticsService.getOverview(dateParams),
-        ]);
-        setOrders(ordersResponse.data || []);
-        setOverview(overviewData);
+        // Always load orders (all roles with Dashboard access can see orders)
+        const ordersResponse = await ordersService.getAll(dateParams);
+        const ordersData = ordersResponse.data || [];
+        setOrders(ordersData);
+
+        // Only load analytics if user has permission
+        if (hasAnalyticsAccess) {
+          const overviewData = await analyticsService.getOverview(dateParams);
+          setOverview(overviewData);
+        } else {
+          // Calculate basic metrics from orders for roles without analytics access
+          const totalRevenue = ordersData.reduce((sum: number, o: Order) => sum + (o.total_price || 0), 0);
+          const deliveredOrders = ordersData.filter((o: Order) => o.status === 'delivered');
+          const deliveryRate = ordersData.length > 0
+            ? Math.round((deliveredOrders.length / ordersData.length) * 100)
+            : 0;
+
+          // Create a simplified overview from orders data
+          const simplifiedOverview: DashboardOverview = {
+            totalOrders: ordersData.length,
+            revenue: totalRevenue,
+            deliveryRate,
+            profitMargin: 0, // Not available without analytics
+            netProfit: 0, // Not available without analytics
+            changes: null, // No comparison data available
+          } as DashboardOverview;
+
+          setOverview(simplifiedOverview);
+        }
       } catch (error) {
         logger.error('Error loading daily summary data:', error);
+        // Even on error, set a basic overview to prevent crash
+        setOverview({
+          totalOrders: orders.length,
+          revenue: 0,
+          deliveryRate: 0,
+          profitMargin: 0,
+          netProfit: 0,
+          changes: null,
+        } as DashboardOverview);
       } finally {
         setIsLoading(false);
       }
     };
     loadData();
-  }, [dateRange]);
+  }, [dateRange, hasAnalyticsAccess]);
 
   if (isLoading || !overview) {
     return (
@@ -231,19 +268,35 @@ export function DailySummary() {
                 </li>
               </ul>
             </div>
-            <div>
-              <h4 className="font-semibold mb-2">Estado General</h4>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Margen de Beneficio</span>
-                  <span className="font-semibold">{overview.profitMargin}%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Beneficio Neto</span>
-                  <span className="font-semibold">{formatCurrency(overview.netProfit)}</span>
+            {hasAnalyticsAccess ? (
+              <div>
+                <h4 className="font-semibold mb-2">Estado General</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Margen de Beneficio</span>
+                    <span className="font-semibold">{overview.profitMargin}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Beneficio Neto</span>
+                    <span className="font-semibold">{formatCurrency(overview.netProfit)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <h4 className="font-semibold mb-2">Estado de Pedidos</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">En preparación</span>
+                    <span className="font-semibold">{inPreparation.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total del período</span>
+                    <span className="font-semibold">{orders.length}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </CollapsibleContent>
       </Collapsible>

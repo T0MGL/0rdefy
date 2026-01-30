@@ -2550,34 +2550,28 @@ async function autoPackSessionFallback(
       orderIds.add(item.order_id);
     });
 
-    // N+1 FIX: Single batch update using raw SQL via RPC or multiple parallel updates
-    // Since Supabase doesn't support UPDATE with CASE, we batch in groups of 50 for parallel execution
+    // CONCURRENCY FIX: Process batches SEQUENTIALLY to limit max DB connections
+    // Each batch runs updates in parallel (max 50), but batches run one after another
+    // This prevents overwhelming the database with 500+ simultaneous connections
     const BATCH_SIZE = 50;
-    const batches: string[][] = [];
 
     for (let i = 0; i < itemsToUpdate.length; i += BATCH_SIZE) {
-      batches.push(itemsToUpdate.slice(i, i + BATCH_SIZE).map(item => item.id));
-    }
+      const batchItems = itemsToUpdate.slice(i, i + BATCH_SIZE);
+      const timestamp = new Date().toISOString();
 
-    // Execute batches in parallel (max 50 concurrent)
-    await Promise.all(
-      batches.map(async (batchIds) => {
-        // For each batch, we need to update each item to its specific quantity_needed
-        // Since quantity_needed varies, we use Promise.all within the batch
-        const batchItems = itemsToUpdate.filter(item => batchIds.includes(item.id));
-        await Promise.all(
-          batchItems.map(item =>
-            supabaseAdmin
-              .from('packing_progress')
-              .update({
-                quantity_packed: item.quantity_needed,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', item.id)
-          )
-        );
-      })
-    );
+      // Execute updates within this batch in parallel (max 50 concurrent)
+      await Promise.all(
+        batchItems.map(item =>
+          supabaseAdmin
+            .from('packing_progress')
+            .update({
+              quantity_packed: item.quantity_needed,
+              updated_at: timestamp
+            })
+            .eq('id', item.id)
+        )
+      );
+    }
   }
 
   // 4. Update session activity

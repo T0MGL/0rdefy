@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import storageService from '../services/storage.service';
+import { supabaseAdmin } from '../db/connection';
 
 const router = Router();
 
@@ -89,7 +90,6 @@ router.post(
       }
 
       // Update user's avatar_url in database
-      const { supabaseAdmin } = await import('../db/connection');
       await supabaseAdmin
         .from('users')
         .update({ avatar_url: result.url })
@@ -150,7 +150,6 @@ router.post(
       }
 
       // Update product's image_url in database
-      const { supabaseAdmin } = await import('../db/connection');
       await supabaseAdmin
         .from('products')
         .update({ image_url: result.url })
@@ -294,7 +293,6 @@ router.delete(
       await storageService.deleteProductImages(storeId, productId);
 
       // Clear image_url in database
-      const { supabaseAdmin } = await import('../db/connection');
       await supabaseAdmin
         .from('products')
         .update({ image_url: null })

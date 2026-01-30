@@ -11,7 +11,7 @@ import { RevenueIntelligence } from '@/components/RevenueIntelligence';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { UsageLimitsIndicator } from '@/components/UsageLimitsIndicator';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, Module } from '@/contexts/AuthContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { DashboardOverview, ChartData } from '@/types';
@@ -53,9 +53,12 @@ export default function Dashboard() {
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
   // Global View state from context (toggle is in Header, only shown on Dashboard)
-  const { stores } = useAuth();
+  const { stores, permissions } = useAuth();
   const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
+
+  // Check if user has analytics permission
+  const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
 
   // Check if user has multiple stores (2 or more)
   const hasMultipleStores = (stores?.length || 0) >= 2;
@@ -98,6 +101,12 @@ export default function Dashboard() {
   }, [getDateRange]);
 
   const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
+    // Skip loading analytics for users without analytics access
+    if (!hasAnalyticsAccess) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
       const dateParams = {
@@ -160,7 +169,7 @@ export default function Dashboard() {
         setIsLoading(false);
       }
     }
-  }, [dateRange, globalViewEnabled, hasMultipleStores, stores]);
+  }, [dateRange, globalViewEnabled, hasMultipleStores, stores, hasAnalyticsAccess]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -177,6 +186,25 @@ export default function Dashboard() {
     if (!dashboardOverview) return null;
     return calculateRevenueProjection(dashboardOverview);
   }, [dashboardOverview]);
+
+  // Simplified dashboard for roles without analytics access (e.g., confirmador)
+  if (!hasAnalyticsAccess) {
+    return (
+      <div className="space-y-6">
+        {/* Onboarding Checklist - Shows for new users */}
+        <OnboardingChecklist />
+
+        {/* Daily Summary - Already handles permissions internally */}
+        <DailySummary />
+
+        {/* Quick Actions */}
+        <QuickActions />
+
+        {/* Usage Limits Indicator - Shows when near/at limit */}
+        <UsageLimitsIndicator />
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

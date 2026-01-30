@@ -19,11 +19,47 @@
 -- - Positive balance = Courier owes store
 -- - Negative balance = Store owes courier
 --
+-- PRODUCTION HARDENING (v1.1):
+-- - Added SECURITY DEFINER to trigger functions
+-- - Made FK references conditional (dispatch_sessions, daily_settlements)
+-- - Added carrier_zones table existence check
+-- - Added service_role grants
+-- - Added advisory lock to payment code generator
+-- - Added error handling in trigger
+--
 -- Author: Claude
 -- Date: 2026-01-13
+-- Updated: 2026-01-30 (production hardening)
+--
+-- NOTE: Migration 119 fixes prepaid detection bug in create_delivery_movements()
 -- =============================================
 
 BEGIN;
+
+-- =============================================
+-- 0. DEPENDENCY CHECK
+-- =============================================
+-- Fail early with clear message if dependencies are missing
+
+DO $$
+BEGIN
+    -- Check carriers table exists (from migration 008b)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'carriers') THEN
+        RAISE EXCEPTION E'\n\n========================================\nDEPENDENCY MISSING: Table "carriers" not found.\nPlease run migration 008b_create_carriers.sql first.\n========================================\n';
+    END IF;
+
+    -- Check stores table exists
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stores') THEN
+        RAISE EXCEPTION E'\n\n========================================\nDEPENDENCY MISSING: Table "stores" not found.\nPlease run the base migrations (000_MASTER_MIGRATION.sql) first.\n========================================\n';
+    END IF;
+
+    -- Check orders table exists
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN
+        RAISE EXCEPTION E'\n\n========================================\nDEPENDENCY MISSING: Table "orders" not found.\nPlease run the base migrations first.\n========================================\n';
+    END IF;
+
+    RAISE NOTICE 'Dependency check passed: carriers, stores, orders tables exist';
+END $$;
 
 -- =============================================
 -- 1. ADD CARRIER CONFIGURATION FIELDS
@@ -89,10 +125,12 @@ CREATE TABLE IF NOT EXISTS carrier_account_movements (
     order_number VARCHAR(50),
 
     -- Reference to dispatch session (if from dispatch flow)
-    dispatch_session_id UUID REFERENCES dispatch_sessions(id) ON DELETE SET NULL,
+    -- FK added conditionally below if table exists
+    dispatch_session_id UUID,
 
     -- Reference to settlement (if part of formal settlement)
-    settlement_id UUID REFERENCES daily_settlements(id) ON DELETE SET NULL,
+    -- FK added conditionally below if table exists
+    settlement_id UUID,
 
     -- Reference to payment record (if this is a payment)
     payment_record_id UUID,  -- FK added after payment_records table created
@@ -111,6 +149,42 @@ CREATE TABLE IF NOT EXISTS carrier_account_movements (
     -- Prevent duplicate movements for same order
     CONSTRAINT unique_order_movement UNIQUE(order_id, movement_type)
 );
+
+-- Add FK to dispatch_sessions if table exists (from migration 045)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dispatch_sessions') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'fk_movements_dispatch_session'
+        ) THEN
+            ALTER TABLE carrier_account_movements
+            ADD CONSTRAINT fk_movements_dispatch_session
+            FOREIGN KEY (dispatch_session_id) REFERENCES dispatch_sessions(id) ON DELETE SET NULL;
+            RAISE NOTICE 'Added FK to dispatch_sessions';
+        END IF;
+    ELSE
+        RAISE NOTICE 'dispatch_sessions table not found, FK skipped (run migration 045 later)';
+    END IF;
+END $$;
+
+-- Add FK to daily_settlements if table exists (from migration 045)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'daily_settlements') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'fk_movements_settlement'
+        ) THEN
+            ALTER TABLE carrier_account_movements
+            ADD CONSTRAINT fk_movements_settlement
+            FOREIGN KEY (settlement_id) REFERENCES daily_settlements(id) ON DELETE SET NULL;
+            RAISE NOTICE 'Added FK to daily_settlements';
+        END IF;
+    ELSE
+        RAISE NOTICE 'daily_settlements table not found, FK skipped (run migration 045 later)';
+    END IF;
+END $$;
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_carrier_movements_store ON carrier_account_movements(store_id);
@@ -187,10 +261,19 @@ CREATE TABLE IF NOT EXISTS carrier_payment_records (
     CONSTRAINT unique_payment_code UNIQUE(store_id, payment_code)
 );
 
--- Now add FK from movements to payment_records
-ALTER TABLE carrier_account_movements
-ADD CONSTRAINT fk_movements_payment_record
-FOREIGN KEY (payment_record_id) REFERENCES carrier_payment_records(id) ON DELETE SET NULL;
+-- Now add FK from movements to payment_records (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_movements_payment_record'
+    ) THEN
+        ALTER TABLE carrier_account_movements
+        ADD CONSTRAINT fk_movements_payment_record
+        FOREIGN KEY (payment_record_id) REFERENCES carrier_payment_records(id) ON DELETE SET NULL;
+        RAISE NOTICE 'Added FK fk_movements_payment_record';
+    END IF;
+END $$;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_payment_records_store ON carrier_payment_records(store_id);
@@ -206,12 +289,21 @@ COMMENT ON TABLE carrier_payment_records IS
 -- =============================================
 
 CREATE OR REPLACE FUNCTION generate_payment_code(p_store_id UUID, p_date DATE DEFAULT CURRENT_DATE)
-RETURNS VARCHAR(30) AS $$
+RETURNS VARCHAR(30)
+LANGUAGE plpgsql
+AS $$
 DECLARE
     v_count INT;
     v_date_str VARCHAR(8);
+    v_lock_key BIGINT;
 BEGIN
     v_date_str := TO_CHAR(p_date, 'DDMMYYYY');
+
+    -- Generate lock key from store_id + date (prevents race conditions)
+    v_lock_key := abs(hashtext(p_store_id::text || p_date::text));
+
+    -- Acquire advisory lock for this store+date combination
+    PERFORM pg_advisory_xact_lock(v_lock_key);
 
     SELECT COUNT(*) + 1 INTO v_count
     FROM carrier_payment_records
@@ -220,10 +312,10 @@ BEGIN
 
     RETURN 'PAG-' || v_date_str || '-' || LPAD(v_count::TEXT, 3, '0');
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 COMMENT ON FUNCTION generate_payment_code(UUID, DATE) IS
-'Generates payment code in format PAG-DDMMYYYY-NNN';
+'Generates payment code in format PAG-DDMMYYYY-NNN (with advisory lock for race-condition safety)';
 
 -- =============================================
 -- 5. FUNCTION: Get Carrier Fee for Order
@@ -235,12 +327,54 @@ CREATE OR REPLACE FUNCTION get_carrier_fee_for_order(
     p_zone_name TEXT,
     p_city TEXT DEFAULT NULL
 )
-RETURNS DECIMAL(12,2) AS $$
+RETURNS DECIMAL(12,2)
+LANGUAGE plpgsql
+STABLE
+AS $$
 DECLARE
     v_rate DECIMAL(12,2);
     v_fallback_zones TEXT[] := ARRAY['default', 'otros', 'interior', 'general'];
     v_zone TEXT;
+    v_has_carrier_zones BOOLEAN;
+    v_has_carrier_coverage BOOLEAN;
 BEGIN
+    -- Check if carrier_zones table exists
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'carrier_zones'
+    ) INTO v_has_carrier_zones;
+
+    -- Check if carrier_coverage table exists (from migration 090)
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'carrier_coverage'
+    ) INTO v_has_carrier_coverage;
+
+    -- If neither table exists, return 0
+    IF NOT v_has_carrier_zones AND NOT v_has_carrier_coverage THEN
+        RAISE WARNING 'Neither carrier_zones nor carrier_coverage tables exist. Returning 0 fee.';
+        RETURN 0;
+    END IF;
+
+    -- Try carrier_coverage first (city-based rates from migration 090)
+    IF v_has_carrier_coverage THEN
+        SELECT rate INTO v_rate
+        FROM carrier_coverage
+        WHERE carrier_id = p_carrier_id
+          AND is_active = TRUE
+          AND LOWER(TRIM(city)) = LOWER(TRIM(COALESCE(p_city, '')))
+        LIMIT 1;
+
+        IF v_rate IS NOT NULL THEN
+            RETURN v_rate;
+        END IF;
+    END IF;
+
+    -- If carrier_zones doesn't exist, return 0 here
+    IF NOT v_has_carrier_zones THEN
+        RETURN 0;
+    END IF;
+
     -- Try exact zone match first
     SELECT rate INTO v_rate
     FROM carrier_zones
@@ -281,10 +415,11 @@ BEGIN
 
     RETURN COALESCE(v_rate, 0);
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 COMMENT ON FUNCTION get_carrier_fee_for_order(UUID, TEXT, TEXT) IS
-'Returns carrier fee for an order based on zone, with intelligent fallback';
+'Returns carrier fee for an order based on zone/city, with intelligent fallback.
+Checks carrier_coverage (migration 090) first, then carrier_zones (migration 045).';
 
 -- =============================================
 -- 6. FUNCTION: Create Movement for Delivered Order
@@ -302,7 +437,11 @@ RETURNS TABLE(
     fee_movement_id UUID,
     total_cod DECIMAL(12,2),
     total_fee DECIMAL(12,2)
-) AS $$
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_order RECORD;
     v_carrier RECORD;
@@ -405,7 +544,7 @@ BEGIN
 
     RETURN QUERY SELECT v_cod_movement_id, v_fee_movement_id, v_cod_amount, v_carrier_fee;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 COMMENT ON FUNCTION create_delivery_movements(UUID, DECIMAL, UUID, UUID) IS
 'Creates account movements when an order is delivered. Handles COD collection and delivery fees.';
@@ -419,7 +558,11 @@ CREATE OR REPLACE FUNCTION create_failed_delivery_movement(
     p_dispatch_session_id UUID DEFAULT NULL,
     p_created_by UUID DEFAULT NULL
 )
-RETURNS UUID AS $$
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_order RECORD;
     v_carrier RECORD;
@@ -484,7 +627,7 @@ BEGIN
 
     RETURN v_movement_id;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 COMMENT ON FUNCTION create_failed_delivery_movement(UUID, UUID, UUID) IS
 'Creates account movement for failed delivery attempt (50% fee if carrier charges for failures)';
@@ -493,9 +636,14 @@ COMMENT ON FUNCTION create_failed_delivery_movement(UUID, UUID, UUID) IS
 -- 8. TRIGGER: Auto-create movements on order delivery
 -- =============================================
 -- This handles the "direct marking" flow (QR, manual status change, etc.)
+-- SECURITY DEFINER is required to bypass RLS when trigger runs
 
 CREATE OR REPLACE FUNCTION trigger_create_delivery_movement()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_result RECORD;
 BEGIN
@@ -511,17 +659,27 @@ BEGIN
                 WHERE order_id = NEW.id
                   AND movement_type IN ('cod_collected', 'delivery_fee')
             ) THEN
-                -- Create movements
-                SELECT * INTO v_result
-                FROM create_delivery_movements(
-                    NEW.id,
-                    NEW.amount_collected,
-                    NULL,  -- No dispatch session
-                    NULL   -- No user context in trigger
-                );
+                -- Create movements with error handling
+                BEGIN
+                    SELECT * INTO v_result
+                    FROM create_delivery_movements(
+                        NEW.id,
+                        NEW.amount_collected,
+                        NULL,  -- No dispatch session
+                        NULL   -- No user context in trigger
+                    );
 
-                RAISE NOTICE 'Created delivery movements for order %: COD=%, Fee=%',
-                    NEW.order_number, v_result.total_cod, v_result.total_fee;
+                    IF v_result.cod_movement_id IS NOT NULL OR v_result.fee_movement_id IS NOT NULL THEN
+                        RAISE NOTICE '[M065] Created delivery movements for order %: COD=%, Fee=%',
+                            COALESCE(NEW.order_number, NEW.id::text),
+                            COALESCE(v_result.total_cod, 0),
+                            COALESCE(v_result.total_fee, 0);
+                    END IF;
+                EXCEPTION WHEN OTHERS THEN
+                    -- Log error but don't fail the transaction
+                    RAISE WARNING '[M065] Error creating delivery movements for order %: %',
+                        COALESCE(NEW.order_number, NEW.id::text), SQLERRM;
+                END;
             END IF;
         END IF;
     END IF;
@@ -536,13 +694,18 @@ BEGIN
             WHERE order_id = NEW.id
               AND movement_type = 'failed_attempt_fee'
         ) THEN
-            PERFORM create_failed_delivery_movement(NEW.id, NULL, NULL);
+            BEGIN
+                PERFORM create_failed_delivery_movement(NEW.id, NULL, NULL);
+            EXCEPTION WHEN OTHERS THEN
+                RAISE WARNING '[M065] Error creating failed delivery movement for order %: %',
+                    COALESCE(NEW.order_number, NEW.id::text), SQLERRM;
+            END;
         END IF;
     END IF;
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS trigger_order_delivery_movement ON orders;
 CREATE TRIGGER trigger_order_delivery_movement
@@ -614,30 +777,65 @@ COMMENT ON VIEW v_carrier_account_balance IS
 -- 10. VIEW: Unsettled Movements by Carrier
 -- =============================================
 -- Shows movements pending settlement/payment
+-- Created conditionally based on dispatch_sessions table existence
 
-CREATE OR REPLACE VIEW v_unsettled_carrier_movements AS
-SELECT
-    m.id,
-    m.store_id,
-    m.carrier_id,
-    c.name as carrier_name,
-    m.movement_type,
-    m.amount,
-    m.order_id,
-    m.order_number,
-    m.dispatch_session_id,
-    ds.session_code as dispatch_session_code,
-    m.description,
-    m.movement_date,
-    m.created_at,
-    -- Days since movement
-    CURRENT_DATE - m.movement_date as days_pending
-FROM carrier_account_movements m
-JOIN carriers c ON c.id = m.carrier_id
-LEFT JOIN dispatch_sessions ds ON ds.id = m.dispatch_session_id
-WHERE m.settlement_id IS NULL
-  AND m.payment_record_id IS NULL
-ORDER BY m.carrier_id, m.movement_date;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dispatch_sessions') THEN
+        -- Full version with dispatch session code
+        EXECUTE $view$
+            CREATE OR REPLACE VIEW v_unsettled_carrier_movements AS
+            SELECT
+                m.id,
+                m.store_id,
+                m.carrier_id,
+                c.name as carrier_name,
+                m.movement_type,
+                m.amount,
+                m.order_id,
+                m.order_number,
+                m.dispatch_session_id,
+                ds.session_code as dispatch_session_code,
+                m.description,
+                m.movement_date,
+                m.created_at,
+                CURRENT_DATE - m.movement_date as days_pending
+            FROM carrier_account_movements m
+            JOIN carriers c ON c.id = m.carrier_id
+            LEFT JOIN dispatch_sessions ds ON ds.id = m.dispatch_session_id
+            WHERE m.settlement_id IS NULL
+              AND m.payment_record_id IS NULL
+            ORDER BY m.carrier_id, m.movement_date
+        $view$;
+        RAISE NOTICE 'Created v_unsettled_carrier_movements with dispatch_sessions join';
+    ELSE
+        -- Simplified version without dispatch sessions
+        EXECUTE $view$
+            CREATE OR REPLACE VIEW v_unsettled_carrier_movements AS
+            SELECT
+                m.id,
+                m.store_id,
+                m.carrier_id,
+                c.name as carrier_name,
+                m.movement_type,
+                m.amount,
+                m.order_id,
+                m.order_number,
+                m.dispatch_session_id,
+                NULL::TEXT as dispatch_session_code,
+                m.description,
+                m.movement_date,
+                m.created_at,
+                CURRENT_DATE - m.movement_date as days_pending
+            FROM carrier_account_movements m
+            JOIN carriers c ON c.id = m.carrier_id
+            WHERE m.settlement_id IS NULL
+              AND m.payment_record_id IS NULL
+            ORDER BY m.carrier_id, m.movement_date
+        $view$;
+        RAISE NOTICE 'Created v_unsettled_carrier_movements without dispatch_sessions (table not found)';
+    END IF;
+END $$;
 
 COMMENT ON VIEW v_unsettled_carrier_movements IS
 'All carrier movements not yet included in a settlement or payment';
@@ -794,20 +992,22 @@ BEGIN
         WHERE id = ANY(p_movement_ids);
     END IF;
 
-    -- Update covered settlements
+    -- Update covered settlements (if table exists)
     IF p_settlement_ids IS NOT NULL AND array_length(p_settlement_ids, 1) > 0 THEN
-        UPDATE daily_settlements
-        SET status = 'paid',
-            payment_date = CURRENT_DATE,
-            payment_method = p_payment_method,
-            payment_reference = p_payment_reference,
-            amount_paid = amount_paid + p_amount
-        WHERE id = ANY(p_settlement_ids);
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'daily_settlements') THEN
+            UPDATE daily_settlements
+            SET status = 'paid',
+                payment_date = CURRENT_DATE,
+                payment_method = p_payment_method,
+                payment_reference = p_payment_reference,
+                amount_paid = amount_paid + p_amount
+            WHERE id = ANY(p_settlement_ids);
+        END IF;
     END IF;
 
     RETURN v_payment_id;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 COMMENT ON FUNCTION register_carrier_payment IS
 'Registers a payment to/from a carrier and updates related movements and settlements';
@@ -887,32 +1087,55 @@ CREATE POLICY "payment_records_store_access" ON carrier_payment_records
 -- 15. GRANTS
 -- =============================================
 
+-- Table grants
 GRANT ALL ON carrier_account_movements TO postgres;
 GRANT SELECT, INSERT, UPDATE, DELETE ON carrier_account_movements TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON carrier_account_movements TO service_role;
 
 GRANT ALL ON carrier_payment_records TO postgres;
 GRANT SELECT, INSERT, UPDATE, DELETE ON carrier_payment_records TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON carrier_payment_records TO service_role;
 
+-- View grants
 GRANT SELECT ON v_carrier_account_balance TO authenticated;
+GRANT SELECT ON v_carrier_account_balance TO service_role;
 GRANT SELECT ON v_unsettled_carrier_movements TO authenticated;
+GRANT SELECT ON v_unsettled_carrier_movements TO service_role;
 
-GRANT EXECUTE ON FUNCTION generate_payment_code TO authenticated;
-GRANT EXECUTE ON FUNCTION get_carrier_fee_for_order TO authenticated;
-GRANT EXECUTE ON FUNCTION create_delivery_movements TO authenticated;
-GRANT EXECUTE ON FUNCTION create_failed_delivery_movement TO authenticated;
-GRANT EXECUTE ON FUNCTION get_carrier_balance_summary TO authenticated;
-GRANT EXECUTE ON FUNCTION register_carrier_payment TO authenticated;
-GRANT EXECUTE ON FUNCTION backfill_carrier_movements TO authenticated;
+-- Function grants (both authenticated and service_role for backend access)
+GRANT EXECUTE ON FUNCTION generate_payment_code(UUID, DATE) TO authenticated;
+GRANT EXECUTE ON FUNCTION generate_payment_code(UUID, DATE) TO service_role;
+GRANT EXECUTE ON FUNCTION get_carrier_fee_for_order(UUID, TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_carrier_fee_for_order(UUID, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION create_delivery_movements(UUID, DECIMAL, UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION create_delivery_movements(UUID, DECIMAL, UUID, UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION create_failed_delivery_movement(UUID, UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION create_failed_delivery_movement(UUID, UUID, UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION get_carrier_balance_summary(UUID, DATE, DATE) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_carrier_balance_summary(UUID, DATE, DATE) TO service_role;
+GRANT EXECUTE ON FUNCTION register_carrier_payment(UUID, UUID, DECIMAL, VARCHAR, VARCHAR, VARCHAR, TEXT, UUID[], UUID[], UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION register_carrier_payment(UUID, UUID, DECIMAL, VARCHAR, VARCHAR, VARCHAR, TEXT, UUID[], UUID[], UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION backfill_carrier_movements(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION backfill_carrier_movements(UUID) TO service_role;
 
 -- =============================================
 -- VERIFICATION
 -- =============================================
 
 DO $$
+DECLARE
+    v_has_dispatch_sessions BOOLEAN;
+    v_has_daily_settlements BOOLEAN;
+    v_has_carrier_zones BOOLEAN;
 BEGIN
     RAISE NOTICE '========================================';
     RAISE NOTICE 'Migration 065 Verification';
     RAISE NOTICE '========================================';
+
+    -- Check dependency tables
+    SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'dispatch_sessions') INTO v_has_dispatch_sessions;
+    SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'daily_settlements') INTO v_has_daily_settlements;
+    SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'carrier_zones') INTO v_has_carrier_zones;
 
     -- Verify carrier columns
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'carriers' AND column_name = 'settlement_type') THEN
@@ -949,20 +1172,55 @@ BEGIN
         RAISE EXCEPTION 'FAILED: v_carrier_account_balance view not created';
     END IF;
 
+    -- Report optional dependencies
+    RAISE NOTICE '';
+    RAISE NOTICE 'Optional Dependencies:';
+    IF v_has_dispatch_sessions THEN
+        RAISE NOTICE '  OK: dispatch_sessions table found (FK enabled)';
+    ELSE
+        RAISE NOTICE '  WARN: dispatch_sessions not found (run migration 045)';
+    END IF;
+
+    IF v_has_daily_settlements THEN
+        RAISE NOTICE '  OK: daily_settlements table found (FK enabled)';
+    ELSE
+        RAISE NOTICE '  WARN: daily_settlements not found (run migration 045)';
+    END IF;
+
+    IF v_has_carrier_zones THEN
+        RAISE NOTICE '  OK: carrier_zones table found (fee calculation enabled)';
+    ELSE
+        RAISE NOTICE '  WARN: carrier_zones not found (fee calculation will return 0)';
+    END IF;
+
     RAISE NOTICE '========================================';
     RAISE NOTICE 'Migration 065 Complete!';
     RAISE NOTICE '========================================';
-    RAISE NOTICE 'New Features:';
-    RAISE NOTICE '1. Carrier configuration (settlement_type, charges_failed_attempts)';
-    RAISE NOTICE '2. carrier_account_movements table for ALL money flows';
-    RAISE NOTICE '3. carrier_payment_records table for payment tracking';
-    RAISE NOTICE '4. Auto-trigger for delivery movements (QR/direct marking)';
-    RAISE NOTICE '5. Balance views and summary functions';
-    RAISE NOTICE '6. Payment registration function';
-    RAISE NOTICE '========================================';
-    RAISE NOTICE 'IMPORTANT: Run backfill_carrier_movements() to populate';
-    RAISE NOTICE '           movements for existing delivered orders.';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Features Enabled:';
+    RAISE NOTICE '  1. Carrier configuration (settlement_type, charges_failed_attempts)';
+    RAISE NOTICE '  2. carrier_account_movements table for ALL money flows';
+    RAISE NOTICE '  3. carrier_payment_records table for payment tracking';
+    RAISE NOTICE '  4. Auto-trigger for delivery movements (QR/direct marking)';
+    RAISE NOTICE '  5. Balance views and summary functions';
+    RAISE NOTICE '  6. Payment registration function';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Production Hardening (v1.1):';
+    RAISE NOTICE '  - SECURITY DEFINER on trigger functions';
+    RAISE NOTICE '  - Error handling in triggers (won''t crash transactions)';
+    RAISE NOTICE '  - Advisory lock on payment code generation';
+    RAISE NOTICE '  - service_role grants for backend access';
+    RAISE NOTICE '  - Optional FK references (runs without migration 045)';
+    RAISE NOTICE '';
+    RAISE NOTICE 'NEXT STEPS:';
+    RAISE NOTICE '  1. Run migration 045 (dispatch & settlements) if not done';
+    RAISE NOTICE '  2. Run migration 077 (configurable failed attempt fee)';
+    RAISE NOTICE '  3. Run migration 119 (prepaid detection fix)';
+    RAISE NOTICE '  4. Run: SELECT * FROM backfill_carrier_movements();';
     RAISE NOTICE '========================================';
 END $$;
+
+-- Notify PostgREST to reload schema cache
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;

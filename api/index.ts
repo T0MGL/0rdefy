@@ -409,11 +409,20 @@ import crypto from 'crypto';
 
 app.get('/api/debug/hmac-diagnostic', async (req: Request, res: Response) => {
     try {
-        // Simple secret protection - check header
-        const debugSecret = req.get('X-Debug-Secret');
-        const expectedSecret = process.env.DEBUG_SECRET || 'ordefy-debug-2026';
+        // SECURITY: Require DEBUG_SECRET env var - no fallback (fail-closed)
+        const expectedSecret = process.env.DEBUG_SECRET;
+        if (!expectedSecret) {
+            return res.status(403).json({ error: 'Debug endpoint disabled (DEBUG_SECRET not configured)' });
+        }
 
-        if (debugSecret !== expectedSecret) {
+        // SECURITY: Use constant-time comparison to prevent timing attacks
+        const debugSecret = req.get('X-Debug-Secret') || '';
+        const secretBuffer = Buffer.from(debugSecret);
+        const expectedBuffer = Buffer.from(expectedSecret);
+
+        // Prevent length-based timing leak by comparing same-length buffers
+        if (secretBuffer.length !== expectedBuffer.length ||
+            !crypto.timingSafeEqual(secretBuffer, expectedBuffer)) {
             return res.status(401).json({ error: 'Invalid debug secret' });
         }
 

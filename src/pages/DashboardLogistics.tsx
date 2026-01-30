@@ -4,8 +4,10 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService, LogisticsMetrics, IncidentsMetrics } from '@/services/analytics.service';
 import { codMetricsService } from '@/services/cod-metrics.service';
+import { ordersService } from '@/services/orders.service';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useAuth, Module } from '@/contexts/AuthContext';
 import { DashboardOverview, ConfirmationMetrics } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { formatCurrency } from '@/utils/currency';
@@ -43,6 +45,8 @@ import {
 
 export default function DashboardLogistics() {
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
+  const { permissions } = useAuth();
+  const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
   const [isLoading, setIsLoading] = useState(true);
   const [showDetailedMetrics, setShowDetailedMetrics] = useState(false);
 
@@ -91,38 +95,95 @@ export default function DashboardLogistics() {
         endDate: dateRange.endDate,
       };
 
-      const [overview, confirmation, statusDist, codData, logisticsData, incidentsData] = await Promise.all([
-        analyticsService.getOverview(dateParams),
-        analyticsService.getConfirmationMetrics(dateParams),
-        analyticsService.getOrderStatusDistribution(dateParams),
-        codMetricsService.getMetrics({
-          start_date: dateParams.startDate,
-          end_date: dateParams.endDate,
-        }).catch(() => null),
-        analyticsService.getLogisticsMetrics(dateParams).catch(() => null),
-        analyticsService.getIncidentsMetrics(dateParams).catch(() => null),
-      ]);
+      if (hasAnalyticsAccess) {
+        // Full analytics data for users with analytics permission
+        const [overview, confirmation, statusDist, codData, logisticsData, incidentsData] = await Promise.all([
+          analyticsService.getOverview(dateParams),
+          analyticsService.getConfirmationMetrics(dateParams),
+          analyticsService.getOrderStatusDistribution(dateParams),
+          codMetricsService.getMetrics({
+            start_date: dateParams.startDate,
+            end_date: dateParams.endDate,
+          }).catch(() => null),
+          analyticsService.getLogisticsMetrics(dateParams).catch(() => null),
+          analyticsService.getIncidentsMetrics(dateParams).catch(() => null),
+        ]);
 
-      // Check if request was aborted before updating state
-      if (signal?.aborted) {
-        return;
+        // Check if request was aborted before updating state
+        if (signal?.aborted) {
+          return;
+        }
+
+        setDashboardOverview(overview);
+        setConfirmationMetrics(confirmation);
+        setCodMetrics(codData);
+        setLogisticsMetrics(logisticsData);
+        setIncidentsMetrics(incidentsData);
+
+        // Transform status distribution for pie chart
+        const transformedStatus = statusDist.map(item => ({
+          name: statusMap[item.status]?.name || item.status,
+          value: item.count,
+          percentage: item.percentage,
+          color: statusMap[item.status]?.color || 'hsl(0, 0%, 50%)',
+        }));
+
+        setOrderStatusData(transformedStatus);
+      } else {
+        // Calculate basic metrics from orders for users without analytics access
+        const ordersResponse = await ordersService.getAll(dateParams);
+        const orders = ordersResponse.data || [];
+
+        if (signal?.aborted) {
+          return;
+        }
+
+        // Calculate metrics from orders
+        const totalOrders = orders.length;
+        const deliveredOrders = orders.filter((o: any) => o.status === 'delivered').length;
+        const confirmedOrders = orders.filter((o: any) => ['confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'delivered'].includes(o.status)).length;
+        const pendingOrders = orders.filter((o: any) => o.status === 'pending').length;
+        const shippedOrders = orders.filter((o: any) => ['shipped', 'delivered'].includes(o.status)).length;
+        const deliveryRate = shippedOrders > 0 ? Math.round((deliveredOrders / shippedOrders) * 100) : 0;
+        const confirmationRate = totalOrders > 0 ? Math.round((confirmedOrders / totalOrders) * 100) : 0;
+
+        // Create basic overview
+        const basicOverview: DashboardOverview = {
+          totalOrders,
+          deliveryRate,
+          revenue: 0,
+          netProfit: 0,
+          profitMargin: 0,
+          changes: null,
+        } as DashboardOverview;
+
+        // Create basic confirmation metrics
+        const basicConfirmation: ConfirmationMetrics = {
+          confirmationRate,
+          totalPending: pendingOrders,
+          totalConfirmed: confirmedOrders,
+          avgConfirmationTime: 0,
+          changes: null,
+        } as ConfirmationMetrics;
+
+        setDashboardOverview(basicOverview);
+        setConfirmationMetrics(basicConfirmation);
+
+        // Calculate status distribution from orders
+        const statusCounts: { [key: string]: number } = {};
+        orders.forEach((o: any) => {
+          statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
+        });
+
+        const transformedStatus = Object.entries(statusCounts).map(([status, count]) => ({
+          name: statusMap[status]?.name || status,
+          value: count,
+          percentage: totalOrders > 0 ? Math.round((count / totalOrders) * 100) : 0,
+          color: statusMap[status]?.color || 'hsl(0, 0%, 50%)',
+        }));
+
+        setOrderStatusData(transformedStatus);
       }
-
-      setDashboardOverview(overview);
-      setConfirmationMetrics(confirmation);
-      setCodMetrics(codData);
-      setLogisticsMetrics(logisticsData);
-      setIncidentsMetrics(incidentsData);
-
-      // Transform status distribution for pie chart
-      const transformedStatus = statusDist.map(item => ({
-        name: statusMap[item.status]?.name || item.status,
-        value: item.count,
-        percentage: item.percentage,
-        color: statusMap[item.status]?.color || 'hsl(0, 0%, 50%)',
-      }));
-
-      setOrderStatusData(transformedStatus);
     } catch (error: any) {
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
         return;
@@ -133,7 +194,7 @@ export default function DashboardLogistics() {
         setIsLoading(false);
       }
     }
-  }, [statusMap, dateRange]);
+  }, [statusMap, dateRange, hasAnalyticsAccess]);
 
   useEffect(() => {
     if (!hasFeature('warehouse')) return;

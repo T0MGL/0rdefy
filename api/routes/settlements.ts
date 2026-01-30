@@ -1441,3 +1441,92 @@ settlementsRouter.delete('/:id', requirePermission(Module.CARRIERS, Permission.D
   }
 });
 
+
+// ================================================================
+// POST /api/settlements/backfill-movements - Fix incorrect carrier movements
+// CRITICAL: Migration 119 - Fixes prepaid detection bug in carrier_account_movements
+// ================================================================
+settlementsRouter.post('/backfill-movements', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+  try {
+    const { dry_run = true } = req.body;
+    const storeId = req.storeId;
+
+    logger.info('🔧 [SETTLEMENTS] Backfill movements requested', {
+      store_id: storeId,
+      dry_run
+    });
+
+    // Call the backfill RPC
+    const { data, error } = await supabaseAdmin.rpc('backfill_fix_prepaid_movements', {
+      p_store_id: storeId,
+      p_dry_run: dry_run
+    });
+
+    if (error) {
+      logger.error('❌ [SETTLEMENTS] Backfill error:', error);
+      return res.status(500).json({
+        error: 'Error ejecutando backfill',
+        details: error.message
+      });
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+
+    logger.info('✅ [SETTLEMENTS] Backfill completed', {
+      store_id: storeId,
+      dry_run,
+      result
+    });
+
+    res.json({
+      message: dry_run
+        ? 'Vista previa del backfill (no se aplicaron cambios)'
+        : 'Backfill completado exitosamente',
+      dry_run,
+      data: {
+        orders_checked: result?.orders_checked || 0,
+        movements_deleted: result?.movements_deleted || 0,
+        movements_fixed: result?.movements_fixed || 0,
+        orders_affected: result?.orders_affected || []
+      }
+    });
+  } catch (error: any) {
+    logger.error('💥 [SETTLEMENTS] Backfill exception:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+
+// ================================================================
+// GET /api/settlements/movement-health - Check carrier movement health
+// Migration 119: Monitoring endpoint for movement integrity
+// ================================================================
+settlementsRouter.get('/movement-health', requirePermission(Module.CARRIERS, Permission.VIEW), async (req: PermissionRequest, res: Response) => {
+  try {
+    const storeId = req.storeId;
+
+    const { data, error } = await supabaseAdmin
+      .from('v_carrier_movement_health')
+      .select('*')
+      .eq('store_id', storeId);
+
+    if (error) {
+      logger.error('❌ [SETTLEMENTS] Movement health error:', error);
+      return res.status(500).json({ error: 'Error obteniendo estado de movimientos' });
+    }
+
+    const hasProblems = (data || []).length > 0;
+
+    res.json({
+      status: hasProblems ? 'PROBLEMS_DETECTED' : 'HEALTHY',
+      message: hasProblems
+        ? `Se encontraron ${data.length} transportadoras con problemas de movimientos`
+        : 'Todos los movimientos están correctos',
+      carriers_with_problems: data || []
+    });
+  } catch (error: any) {
+    logger.error('💥 [SETTLEMENTS] Movement health exception:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+

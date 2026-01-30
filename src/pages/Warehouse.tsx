@@ -4,7 +4,8 @@
  * Optimized for manual input without barcode scanners
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Package, PackageCheck, PackageOpen, Printer, ArrowLeft, Check, Plus, Minus, Layers, Loader2, XCircle, AlertTriangle, Clock } from 'lucide-react';
@@ -64,8 +65,13 @@ export default function Warehouse() {
   const { toast } = useToast();
   const { currentStore } = useAuth();
   const { getDateRange } = useDateRange();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<View>('dashboard');
   const [currentSession, setCurrentSession] = useState<PickingSession | null>(null);
+
+  // Track URL session param processing
+  const lastProcessedSessionId = useRef<string | null>(null);
+  const sessionLoadingTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Dashboard state
   const [confirmedOrders, setConfirmedOrders] = useState<ConfirmedOrder[]>([]);
@@ -194,30 +200,115 @@ export default function Warehouse() {
     }
   }, [currentSession, toast]);
 
-  // Load dashboard data
+  // Load dashboard data when entering dashboard view
   useEffect(() => {
     if (view === 'dashboard') {
-      const abortController = new AbortController();
       loadDashboardData();
-      return () => abortController.abort();
     }
   }, [view, loadDashboardData]);
+
+  // Handle session param from URL (e.g., /warehouse?session=123)
+  // This is used when navigating from Orders page "Preparar" button
+  useEffect(() => {
+    const sessionId = searchParams.get('session');
+
+    // No session param in URL - nothing to do
+    if (!sessionId) {
+      return;
+    }
+
+    // Validate UUID format to prevent invalid lookups
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(sessionId)) {
+      logger.warn(`Invalid session ID format: ${sessionId}`);
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    // Already processed this exact session ID - skip
+    if (lastProcessedSessionId.current === sessionId) {
+      return;
+    }
+
+    // Sessions not loaded yet - wait (dashboard useEffect will load them)
+    if (activeSessions.length === 0 && !loading) {
+      // Set a timeout to prevent infinite waiting (10 seconds max)
+      if (!sessionLoadingTimeout.current) {
+        sessionLoadingTimeout.current = setTimeout(() => {
+          if (searchParams.get('session') === sessionId) {
+            logger.warn(`Timeout waiting for session ${sessionId}`);
+            lastProcessedSessionId.current = sessionId;
+            setSearchParams({}, { replace: true });
+            toast({
+              title: 'Error',
+              description: 'No se pudo cargar la sesión. Intenta de nuevo.',
+              variant: 'destructive',
+            });
+          }
+        }, 10000);
+      }
+      return;
+    }
+
+    // Clear any pending timeout since sessions are loaded
+    if (sessionLoadingTimeout.current) {
+      clearTimeout(sessionLoadingTimeout.current);
+      sessionLoadingTimeout.current = null;
+    }
+
+    // Find the session in active sessions
+    const targetSession = activeSessions.find(s => s.id === sessionId);
+
+    if (targetSession) {
+      lastProcessedSessionId.current = sessionId;
+      setSearchParams({}, { replace: true });
+
+      // Auto-open the session
+      setCurrentSession(targetSession);
+      if (targetSession.status === 'picking') {
+        setView('picking');
+      } else if (targetSession.status === 'packing') {
+        setView('packing');
+      }
+
+      toast({
+        title: '📦 Sesión abierta',
+        description: `Continuando con ${targetSession.code}`,
+      });
+    } else {
+      // Session not found - maybe it was completed or cancelled
+      lastProcessedSessionId.current = sessionId;
+      setSearchParams({}, { replace: true });
+
+      logger.warn(`Session ${sessionId} not found in active sessions`);
+      toast({
+        title: 'Sesión no encontrada',
+        description: 'La sesión ya fue completada o cancelada',
+        variant: 'destructive',
+      });
+    }
+  }, [searchParams, activeSessions, loading, setSearchParams, toast]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (sessionLoadingTimeout.current) {
+        clearTimeout(sessionLoadingTimeout.current);
+      }
+    };
+  }, []);
 
   // Load picking list when entering picking mode
   useEffect(() => {
     if (view === 'picking' && currentSession) {
-      const abortController = new AbortController();
       loadPickingList();
-      return () => abortController.abort();
     }
   }, [view, currentSession, loadPickingList]);
 
   // Load packing list when entering packing mode
   useEffect(() => {
     if (view === 'packing' && currentSession) {
-      const abortController = new AbortController();
       loadPackingList();
-      return () => abortController.abort();
     }
   }, [view, currentSession, loadPackingList]);
 
@@ -473,6 +564,8 @@ export default function Warehouse() {
     setPickingList([]);
     setPackingData(null);
     setSelectedItem(null);
+    // Reset session param tracking to allow processing new session links
+    lastProcessedSessionId.current = null;
   }
 
   async function handleAbandonSession(session: PickingSession) {
@@ -613,11 +706,15 @@ export default function Warehouse() {
   }, [currentStore, handleOrderPrinted, toast]);
 
   const handleBatchPrinted = useCallback(async () => {
+    const orderCount = selectedOrdersForPrint.size;
     try {
-      // Mark all selected orders as printed
-      for (const orderId of selectedOrdersForPrint) {
-        await ordersService.markAsPrinted(orderId);
-      }
+      // PERF FIX: Mark all orders as printed in parallel instead of sequentially
+      // This reduces time from ~5s (50 orders × 100ms) to ~200ms
+      await Promise.all(
+        [...selectedOrdersForPrint].map(orderId =>
+          ordersService.markAsPrinted(orderId)
+        )
+      );
 
       // Clear selection
       setSelectedOrdersForPrint(new Set());
@@ -627,7 +724,7 @@ export default function Warehouse() {
 
       toast({
         title: 'Etiquetas impresas',
-        description: `${selectedOrdersForPrint.size} etiquetas han sido impresas correctamente`,
+        description: `${orderCount} etiquetas han sido impresas correctamente`,
       });
     } catch (error) {
       logger.error('Error updating orders after batch print:', error);

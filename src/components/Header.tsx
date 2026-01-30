@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, Module } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useGlobalView } from '@/contexts/GlobalViewContext';
@@ -48,7 +48,8 @@ const dateRanges = [
 export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signOut, user, stores } = useAuth();
+  const { signOut, user, stores, permissions } = useAuth();
+  const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
   const { hasFeature } = useSubscription();
   const { selectedRange, setSelectedRange, customRange, setCustomRange } = useDateRange();
   const { globalViewEnabled, setGlobalViewEnabled } = useGlobalView();
@@ -87,6 +88,13 @@ export function Header() {
 
   // Load data for notifications and alerts - with abort support
   const loadData = useCallback(async (signal?: AbortSignal) => {
+    // Skip analytics loading for users without analytics access
+    if (!hasAnalyticsAccess) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+
     // Prevent concurrent requests
     if (isLoadingRef.current) {
       return;
@@ -138,7 +146,7 @@ export function Header() {
     } finally {
       isLoadingRef.current = false;
     }
-  }, [hasSmartAlerts]);
+  }, [hasSmartAlerts, hasAnalyticsAccess]);
 
   // Load data on mount and every 5 minutes with proper cleanup
   useEffect(() => {

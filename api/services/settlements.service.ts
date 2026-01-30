@@ -3184,6 +3184,7 @@ async function getPendingReconciliationOrdersFallback(
     .from('carrier_coverage')
     .select('city, rate')
     .eq('carrier_id', carrierId)
+    .eq('store_id', storeId) // Added for multi-tenant safety
     .eq('is_active', true);
 
   const coverageRates = new Map<string, number>();
@@ -3193,9 +3194,30 @@ async function getPendingReconciliationOrdersFallback(
     }
   });
 
+  // Debug: Log coverage keys for troubleshooting
+  logger.debug('SETTLEMENTS', 'Coverage rates loaded', {
+    carrierId,
+    storeId,
+    coverageCount: coverage?.length || 0,
+    coverageKeys: Array.from(coverageRates.keys()).slice(0, 10).join(', ')
+  });
+
   // IMPORTANT: Normalize zone names to strip accents (e.g., "Asunción" → "asuncion")
   const zoneRates = new Map(zones?.map(z => [normalizeCityText(z.zone_name), z.rate || 0]) || []);
-  const defaultRate = zones?.[0]?.rate || 0;
+
+  // Find default rate from fallback zones (priority: default > otros > interior > general > first zone)
+  const fallbackZoneNames = ['default', 'otros', 'interior', 'general'];
+  let defaultRate = 0;
+  for (const fallback of fallbackZoneNames) {
+    if (zoneRates.has(fallback)) {
+      defaultRate = zoneRates.get(fallback)!;
+      break;
+    }
+  }
+  // If no fallback zone found, use first zone's rate as default
+  if (defaultRate === 0 && zones && zones.length > 0) {
+    defaultRate = zones[0].rate || 0;
+  }
 
   return orders.map((order: any) => {
     // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
@@ -3389,6 +3411,7 @@ async function processDeliveryReconciliationFallback(
     .from('carrier_coverage')
     .select('city, rate')
     .eq('carrier_id', params.carrier_id)
+    .eq('store_id', storeId) // Added for multi-tenant safety
     .eq('is_active', true);
 
   // Build coverage map from new system (city -> rate)
@@ -3402,7 +3425,20 @@ async function processDeliveryReconciliationFallback(
 
   // IMPORTANT: Normalize zone names to strip accents (e.g., "Asunción" → "asuncion")
   const zoneRates = new Map(zones?.map(z => [normalizeCityText(z.zone_name), z.rate || 0]) || []);
-  const defaultRate = zones?.[0]?.rate || 0;
+
+  // Find default rate from fallback zones (priority: default > otros > interior > general > first zone)
+  const fallbackZoneNames2 = ['default', 'otros', 'interior', 'general'];
+  let defaultRate = 0;
+  for (const fallback of fallbackZoneNames2) {
+    if (zoneRates.has(fallback)) {
+      defaultRate = zoneRates.get(fallback)!;
+      break;
+    }
+  }
+  // If no fallback zone found, use first zone's rate as default
+  if (defaultRate === 0 && zones && zones.length > 0) {
+    defaultRate = zones[0].rate || 0;
+  }
 
   // STEP 4: Calculate totals (all in memory first, before any updates)
   let totalOrders = 0;
@@ -3414,7 +3450,17 @@ async function processDeliveryReconciliationFallback(
   let totalCarrierFees = 0;
   let failedAttemptFee = 0;
 
-  const orderUpdates: Array<{ id: string; reconciled_at: string }> = [];
+  // Extended order updates with movement data (for creating carrier_account_movements)
+  const orderUpdates: Array<{
+    id: string;
+    reconciled_at: string;
+    // Movement data
+    delivered: boolean;
+    is_cod: boolean;
+    carrier_fee: number;
+    amount_collected: number;
+    failure_reason?: string;
+  }> = [];
 
   for (const orderData of params.orders) {
     const order = orderMap.get(orderData.order_id);
@@ -3471,10 +3517,16 @@ async function processDeliveryReconciliationFallback(
       failedAttemptFee += zoneRate * failedFeePercent / 100;
     }
 
-    // Queue the update (don't execute yet)
+    // Queue the update with movement data (don't execute yet)
     orderUpdates.push({
       id: order.id,
-      reconciled_at: new Date().toISOString()
+      reconciled_at: new Date().toISOString(),
+      // Movement data for carrier_account_movements
+      delivered: orderData.delivered,
+      is_cod: isCod,
+      carrier_fee: zoneRate,
+      amount_collected: isCod ? (order.total_price || 0) : 0,
+      failure_reason: orderData.failure_reason
     });
   }
 
@@ -3571,6 +3623,8 @@ async function processDeliveryReconciliationFallback(
 
       // Continue with retry settlement
       return processOrderUpdatesAndReturn(
+        storeId,
+        userId,
         retrySettlement!,
         retryCode,
         totalOrders,
@@ -3581,6 +3635,7 @@ async function processDeliveryReconciliationFallback(
         totalCarrierFees,
         failedAttemptFee,
         netReceivable,
+        failedFeePercent,
         orderUpdates
       );
     }
@@ -3589,8 +3644,10 @@ async function processDeliveryReconciliationFallback(
     throw new Error('Error al crear la liquidación');
   }
 
-  // STEP 7: Update all orders as reconciled
+  // STEP 7: Update all orders as reconciled AND create carrier account movements
   return processOrderUpdatesAndReturn(
+    storeId,
+    userId,
     settlement,
     settlementCode,
     totalOrders,
@@ -3601,6 +3658,7 @@ async function processDeliveryReconciliationFallback(
     totalCarrierFees,
     failedAttemptFee,
     netReceivable,
+    failedFeePercent,
     orderUpdates
   );
 }
@@ -3609,8 +3667,12 @@ async function processDeliveryReconciliationFallback(
  * Helper to update orders and return result
  * CRITICAL: Only sets reconciled_at, does NOT change sleeves_status
  * This matches the RPC behavior for consistency
+ *
+ * UPDATED Migration 119: Now also creates carrier_account_movements
  */
 async function processOrderUpdatesAndReturn(
+  storeId: string,
+  userId: string,
   settlement: any,
   settlementCode: string,
   totalOrders: number,
@@ -3621,7 +3683,16 @@ async function processOrderUpdatesAndReturn(
   totalCarrierFees: number,
   failedAttemptFee: number,
   netReceivable: number,
-  orderUpdates: Array<{ id: string; reconciled_at: string }>
+  failedFeePercent: number,
+  orderUpdates: Array<{
+    id: string;
+    reconciled_at: string;
+    delivered: boolean;
+    is_cod: boolean;
+    carrier_fee: number;
+    amount_collected: number;
+    failure_reason?: string;
+  }>
 ): Promise<any> {
   // Update orders in batches of 50 for performance
   const batchSize = 50;
@@ -3643,6 +3714,54 @@ async function processOrderUpdatesAndReturn(
       // Don't throw - settlement already created, orders will be updated on next reconciliation attempt
       // This is a tradeoff: we prefer not to orphan the settlement record
     }
+  }
+
+  // CRITICAL FIX (Migration 119): Create carrier_account_movements
+  // This was the missing piece causing incorrect carrier balances
+  try {
+    // Prepare order data for RPC
+    const movementOrders = orderUpdates.map(o => ({
+      order_id: o.id,
+      delivered: o.delivered,
+      is_cod: o.is_cod,
+      carrier_fee: o.carrier_fee,
+      amount_collected: o.amount_collected,
+      failure_reason: o.failure_reason || null
+    }));
+
+    const { data: movementResult, error: movementError } = await supabaseAdmin.rpc(
+      'create_reconciliation_movements',
+      {
+        p_store_id: storeId,
+        p_settlement_id: settlement.id,
+        p_orders: movementOrders,
+        p_failed_fee_percent: failedFeePercent,
+        p_created_by: userId
+      }
+    );
+
+    if (movementError) {
+      // Log but don't fail - settlement is already created
+      logger.error('SETTLEMENTS', 'Error creating carrier movements (non-blocking)', {
+        settlement_id: settlement.id,
+        error: movementError.message
+      });
+    } else {
+      const result = Array.isArray(movementResult) ? movementResult[0] : movementResult;
+      logger.info('SETTLEMENTS', 'Carrier movements created successfully', {
+        settlement_id: settlement.id,
+        movements_created: result?.movements_created || 0,
+        cod_movements: result?.cod_movements || 0,
+        fee_movements: result?.fee_movements || 0,
+        failed_movements: result?.failed_movements || 0
+      });
+    }
+  } catch (movementErr: any) {
+    // Log but don't fail - settlement is already created
+    logger.error('SETTLEMENTS', 'Exception creating carrier movements (non-blocking)', {
+      settlement_id: settlement.id,
+      error: movementErr.message
+    });
   }
 
   logger.info('SETTLEMENTS', 'Fallback reconciliation completed', {
