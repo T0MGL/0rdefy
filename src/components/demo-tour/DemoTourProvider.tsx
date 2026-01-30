@@ -285,18 +285,20 @@ const logisticsTourSteps: DemoTourStep[] = [
 ];
 
 // Collaborator tour steps (confirmador)
+// Note: Confirmadores ONLY confirm orders - they do NOT assign carriers
+// The store has "Separar confirmación de asignación de transportadora" enabled
 const confirmadorTourSteps: DemoTourStep[] = [
   {
     id: 'welcome',
     title: '¡Bienvenido al Equipo!',
-    description: 'Como confirmador, tu rol es validar y confirmar pedidos entrantes. Te mostraremos las herramientas.',
+    description: 'Como confirmador, tu rol es validar datos del cliente y confirmar pedidos. La asignación de transportadora la hace un administrador.',
     placement: 'center',
     action: 'observe',
   },
   {
     id: 'orders',
     title: 'Panel de Pedidos',
-    description: 'Aquí verás todos los pedidos. Filtra por "Pendiente" para ver los que necesitan confirmación.',
+    description: 'Aquí verás todos los pedidos. Filtra por "Pendiente" para ver los que necesitan tu confirmación.',
     route: '/orders',
     target: TOUR_TARGETS.SIDEBAR_ORDERS,
     placement: 'right',
@@ -304,22 +306,22 @@ const confirmadorTourSteps: DemoTourStep[] = [
   },
   {
     id: 'confirm-flow',
-    title: 'Flujo de Confirmación',
-    description: 'Para confirmar un pedido: 1) Haz clic en el ojo (👁) para ver detalles, 2) Verifica datos del cliente, 3) Usa el botón "Confirmar" verde.',
+    title: 'Tu Rol: Validar y Confirmar',
+    description: 'Haz clic en el ojo (👁) para ver detalles del pedido. Verifica nombre, teléfono y dirección del cliente. Luego usa el botón "Confirmar". No necesitas asignar transportadora.',
     placement: 'center',
     action: 'observe',
   },
   {
     id: 'whatsapp',
-    title: 'Envío por WhatsApp',
-    description: 'Después de confirmar, usa el botón "Enviar" para notificar al cliente automáticamente por WhatsApp.',
+    title: 'Notificar al Cliente',
+    description: 'Después de confirmar, usa el botón de WhatsApp para notificar al cliente que su pedido fue recibido y está siendo procesado.',
     placement: 'center',
     action: 'observe',
   },
   {
     id: 'customers',
     title: 'Base de Clientes',
-    description: 'Consulta el historial de compras y datos de contacto de cada cliente.',
+    description: 'Consulta el historial de compras y datos de contacto de cada cliente si necesitas verificar información.',
     route: '/customers',
     target: TOUR_TARGETS.SIDEBAR_CUSTOMERS,
     placement: 'right',
@@ -328,7 +330,7 @@ const confirmadorTourSteps: DemoTourStep[] = [
   {
     id: 'completion',
     title: '¡Estás Listo!',
-    description: 'Ya conoces tu flujo de trabajo. ¡Éxitos confirmando pedidos!',
+    description: 'Recuerda: tu trabajo es validar datos y confirmar. Un administrador asignará la transportadora después. ¡Éxitos!',
     placement: 'center',
     action: 'observe',
   },
