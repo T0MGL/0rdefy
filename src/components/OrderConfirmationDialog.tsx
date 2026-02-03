@@ -84,8 +84,12 @@ export function OrderConfirmationDialog({
   // Separate Confirmation Flow Detection
   // When enabled, confirmadores only confirm the sale without assigning carrier
   // Admin/Owner will assign carrier later from Orders page
-  const separateFlowEnabled = currentStore?.separate_confirmation_flow === true;
-  const userRole = currentStore?.role || 'owner';
+  // IMPORTANT: We fetch BOTH settings AND role from API to ensure fresh data (not stale localStorage)
+  const [separateFlowEnabled, setSeparateFlowEnabled] = useState(false);
+  const [userRoleFromApi, setUserRoleFromApi] = useState<string | null>(null);
+  const [loadingSeparateFlow, setLoadingSeparateFlow] = useState(true);
+  // Use API role if available, otherwise fall back to cached value
+  const userRole = userRoleFromApi || currentStore?.role || 'owner';
   const isConfirmador = userRole === 'confirmador';
   const useSeparateConfirmationFlow = separateFlowEnabled && isConfirmador;
 
@@ -146,6 +150,66 @@ export function OrderConfirmationDialog({
 
   // Track if order already has complete shipping data (manual order with city+carrier)
   const [hasPrefilledShippingData, setHasPrefilledShippingData] = useState(false);
+
+  // Fetch fresh store settings when dialog opens (ensures separate_confirmation_flow is current)
+  // This prevents stale localStorage data from showing wrong UI to confirmadores
+  useEffect(() => {
+    const fetchStoreSettings = async () => {
+      if (!open) {
+        setLoadingSeparateFlow(true);
+        return;
+      }
+
+      try {
+        setLoadingSeparateFlow(true);
+        const token = localStorage.getItem('auth_token');
+        const storeId = localStorage.getItem('current_store_id');
+
+        if (!token || !storeId) {
+          setSeparateFlowEnabled(currentStore?.separate_confirmation_flow === true);
+          return;
+        }
+
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth/stores/${storeId}/preferences`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Store-ID': storeId,
+            },
+          }
+        );
+
+        if (response.ok) {
+          const { data } = await response.json();
+          setSeparateFlowEnabled(data?.separate_confirmation_flow === true);
+          // Also get fresh user role from API (prevents stale localStorage issues)
+          if (data?.user_role) {
+            setUserRoleFromApi(data.user_role);
+          }
+          logger.log('[OrderConfirmation] Fresh store settings loaded', {
+            separate_confirmation_flow: data?.separate_confirmation_flow,
+            user_role: data?.user_role,
+            isConfirmador: data?.user_role === 'confirmador',
+          });
+        } else {
+          // Fallback to cached values if API fails
+          setSeparateFlowEnabled(currentStore?.separate_confirmation_flow === true);
+          setUserRoleFromApi(null); // Will use cached currentStore.role
+        }
+      } catch (error) {
+        logger.error('Error fetching store settings:', error);
+        // Fallback to cached values
+        setSeparateFlowEnabled(currentStore?.separate_confirmation_flow === true);
+        setUserRoleFromApi(null); // Will use cached currentStore.role
+      } finally {
+        setLoadingSeparateFlow(false);
+      }
+    };
+
+    fetchStoreSettings();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-fetch when dialog opens or store changes
+  }, [open, currentStore?.separate_confirmation_flow, currentStore?.role]);
 
   // Fetch products when dialog opens
   useEffect(() => {
@@ -365,6 +429,8 @@ export function OrderConfirmationDialog({
       setDiscountAmount(0);
       setMarkAsPrepaid(false);
       setOpenCityCombobox(false);
+      // Reset API-fetched role (will be re-fetched by the settings useEffect)
+      setUserRoleFromApi(null);
 
       // Reset delivery preferences
       setDeliveryPreferences((order as any)?.delivery_preferences || null);
@@ -805,6 +871,12 @@ export function OrderConfirmationDialog({
                 </Button>
               </div>
             </>
+          ) : loadingSeparateFlow ? (
+            // Loading state while fetching store settings
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Cargando configuración...</span>
+            </div>
           ) : (
             // Form state - Original confirmation form
             <>

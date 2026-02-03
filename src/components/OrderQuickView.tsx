@@ -387,7 +387,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                     </div>
 
                     {/* Monto a cobrar - solo para COD pendiente */}
-                    {paymentType === 'cod' && derivedStatus === 'pending' && codAmount > 0 && (
+                    {paymentType === 'cod' && paymentStatus !== 'collected' && codAmount > 0 && (
                       <div className="flex justify-between items-center pt-2 border-t border-border">
                         <span className="text-sm text-muted-foreground">Monto a Cobrar:</span>
                         <span className="text-lg font-bold text-amber-600 dark:text-amber-400">
@@ -397,7 +397,7 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                     )}
 
                     {/* Monto cobrado - para COD ya cobrado */}
-                    {paymentType === 'cod' && derivedStatus === 'collected' && (
+                    {paymentType === 'cod' && paymentStatus === 'collected' && (
                       <div className="flex justify-between items-center pt-2 border-t border-border">
                         <span className="text-sm text-muted-foreground">Monto Cobrado:</span>
                         <span className="text-lg font-bold text-green-600 dark:text-green-400">

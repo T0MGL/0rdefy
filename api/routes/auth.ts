@@ -1372,7 +1372,9 @@ authRouter.get('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
         res.json({
             success: true,
             data: {
-                separate_confirmation_flow: store.separate_confirmation_flow ?? false
+                separate_confirmation_flow: store.separate_confirmation_flow ?? false,
+                // Include user's role for this store (important for separate confirmation flow detection)
+                user_role: userStore.role
             }
         });
     } catch (error: any) {
