@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/contexts/SubscriptionContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatLocalDate } from '@/utils/timeUtils';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ListCardSkeleton } from '@/components/LoadingSkeleton';
@@ -24,6 +26,8 @@ import { logger } from '@/utils/logger';
 export default function Merchandise() {
   const { toast } = useToast();
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -509,7 +513,7 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
   const generateTrackingCode = () => {
     // Generate tracking code in format: TRACK-YYYYMMDD-XXXX
     const date = new Date();
-    const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
+    const dateStr = formatLocalDate(date, storeTimezone).replace(/-/g, '');
     const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     const trackingCode = `TRACK-${dateStr}-${random}`;
     setTrackingCode(trackingCode);

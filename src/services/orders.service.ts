@@ -38,6 +38,9 @@ export const ordersService = {
     endDate?: string;
     limit?: number;
     offset?: number;
+    status?: string;
+    carrier_id?: string;
+    search?: string;
   }): Promise<OrdersResponse> => {
     try {
       const queryParams = new URLSearchParams();
@@ -45,6 +48,9 @@ export const ordersService = {
       if (params?.endDate) queryParams.append('endDate', params.endDate);
       if (params?.limit) queryParams.append('limit', params.limit.toString());
       if (params?.offset) queryParams.append('offset', params.offset.toString());
+      if (params?.status) queryParams.append('status', params.status);
+      if (params?.carrier_id) queryParams.append('carrier_id', params.carrier_id);
+      if (params?.search) queryParams.append('search', params.search);
 
       const url = `${API_BASE_URL}/orders${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const response = await fetch(url, {

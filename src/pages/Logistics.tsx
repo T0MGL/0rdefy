@@ -4,9 +4,11 @@ import { Badge } from '@/components/ui/badge';
 import { ExportButton } from '@/components/ExportButton';
 import { analyticsService, ShippingCostsMetrics, LogisticsMetrics } from '@/services/analytics.service';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { logger } from '@/utils/logger';
+import { formatLocalDate } from '@/utils/timeUtils';
 import { formatCurrency, getCurrencyConfig } from '@/utils/currency';
 import {
   DollarSign,
@@ -40,15 +42,17 @@ export default function Logistics() {
 
   // Use global date range context
   const { getDateRange } = useDateRange();
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
 
-  // Calculate date ranges from global context
+  // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
     return {
-      startDate: range.from.toISOString().split('T')[0],
-      endDate: range.to.toISOString().split('T')[0],
+      startDate: formatLocalDate(range.from, storeTimezone),
+      endDate: formatLocalDate(range.to, storeTimezone),
     };
-  }, [getDateRange]);
+  }, [getDateRange, storeTimezone]);
 
   useEffect(() => {
     const loadData = async () => {

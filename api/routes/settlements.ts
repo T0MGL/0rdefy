@@ -367,8 +367,12 @@ settlementsRouter.post('/v2/:id/pay', requirePermission(Module.CARRIERS, Permiss
     const { id } = req.params;
     const { amount, method, reference, notes } = req.body;
 
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Se requiere un monto válido' });
+    // Validate amount is a finite positive number
+    if (typeof amount !== 'number' || !isFinite(amount) || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'Se requiere un monto válido (número positivo)' });
+    }
+    if (amount > 999999999) {
+      return res.status(400).json({ error: 'Monto excede el límite permitido' });
     }
     if (!method) {
       return res.status(400).json({ error: 'Se requiere el método de pago' });
@@ -713,7 +717,8 @@ settlementsRouter.post('/reconcile-delivery', requirePermission(Module.CARRIERS,
 
     res.json({
       message: 'Conciliacion completada',
-      data: result
+      data: result,
+      warnings: result.warnings || []
     });
   } catch (error: any) {
     logger.error('💥 [SETTLEMENTS] Error processing delivery reconciliation:', {
@@ -1079,9 +1084,23 @@ settlementsRouter.post('/carrier-payments', requirePermission(Module.CARRIERS, P
       movement_ids,
     } = req.body;
 
-    if (!carrier_id || !amount || !direction || !payment_method) {
+    if (!carrier_id || amount === undefined || amount === null || !direction || !payment_method) {
       return res.status(400).json({
         error: 'Se requieren carrier_id, amount, direction y payment_method'
+      });
+    }
+
+    // Parse and validate amount robustly
+    const parsedAmount = typeof amount === 'number' ? amount : parseFloat(amount);
+    if (isNaN(parsedAmount) || !isFinite(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({
+        error: 'El monto del pago debe ser un número positivo válido'
+      });
+    }
+
+    if (parsedAmount > 999999999) {
+      return res.status(400).json({
+        error: 'El monto del pago excede el límite permitido'
       });
     }
 
@@ -1093,14 +1112,14 @@ settlementsRouter.post('/carrier-payments', requirePermission(Module.CARRIERS, P
 
     logger.info('💰 [CARRIER PAYMENTS] Registering payment:', {
       carrier_id,
-      amount,
+      amount: parsedAmount,
       direction,
     });
 
     const result = await settlementsService.registerCarrierPayment(
       req.storeId!,
       carrier_id,
-      parseFloat(amount),
+      parsedAmount,
       direction,
       payment_method,
       {

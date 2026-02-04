@@ -12,6 +12,7 @@ const COD_PAYMENT_METHODS = [
   'efectivo',
   'cash',
   'contra entrega',
+  'contra_entrega',
   'cod',
   '' // Empty string defaults to COD for backwards compatibility
 ];

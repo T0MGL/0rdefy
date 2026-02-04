@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ExportButton } from '@/components/ExportButton';
 import { TrendingUp, TrendingDown, DollarSign, Trophy, ShoppingBag } from 'lucide-react';
 import { logger } from '@/utils/logger';
+import { formatLocalDate } from '@/utils/timeUtils';
 import { formatCurrency } from '@/utils/currency';
 import {
   PieChart,
@@ -23,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { analyticsService } from '@/services/analytics.service';
 import { ordersService } from '@/services/orders.service';
 import { useDateRange } from '@/contexts/DateRangeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import type { DashboardOverview, Product } from '@/types';
 
@@ -41,15 +43,17 @@ export function RevenueIntelligence() {
 
   // Use global date range context
   const { getDateRange } = useDateRange();
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
 
-  // Calculate date ranges from global context
+  // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
     return {
-      startDate: range.from.toISOString().split('T')[0],
-      endDate: range.to.toISOString().split('T')[0],
+      startDate: formatLocalDate(range.from, storeTimezone),
+      endDate: formatLocalDate(range.to, storeTimezone),
     };
-  }, [getDateRange]);
+  }, [getDateRange, storeTimezone]);
 
   useEffect(() => {
     const loadData = async () => {

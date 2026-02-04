@@ -15,6 +15,7 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { logger } from '@/utils/logger';
+import { formatLocalDate } from '@/utils/timeUtils';
 import {
   Truck,
   CheckCircle2,
@@ -45,7 +46,7 @@ import {
 
 export default function DashboardLogistics() {
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
-  const { permissions } = useAuth();
+  const { permissions, currentStore } = useAuth();
   const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
   const [isLoading, setIsLoading] = useState(true);
   const [showDetailedMetrics, setShowDetailedMetrics] = useState(false);
@@ -72,20 +73,22 @@ export default function DashboardLogistics() {
     'pending': { name: 'Pendiente', color: 'hsl(280, 60%, 60%)' },
   }), []);
 
-  // Calculate date ranges from global context
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
+
+  // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
     const diffTime = Math.abs(range.to.getTime() - range.from.getTime());
     const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
     const result = {
-      startDate: range.from.toISOString().split('T')[0],
-      endDate: range.to.toISOString().split('T')[0],
+      startDate: formatLocalDate(range.from, storeTimezone),
+      endDate: formatLocalDate(range.to, storeTimezone),
       days,
     };
 
     return result;
-  }, [getDateRange]);
+  }, [getDateRange, storeTimezone]);
 
   const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);

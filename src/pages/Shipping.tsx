@@ -132,6 +132,7 @@ export default function Shipping() {
       dispatchDate: new Date(),
       storeName,
       notes: dispatchNotes || undefined,
+      timezone: currentStore?.timezone,
     });
 
     toast({

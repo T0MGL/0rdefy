@@ -35,6 +35,8 @@ import {
   X
 } from 'lucide-react';
 import apiClient from '@/services/api.client';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatLocalDate } from '@/utils/timeUtils';
 
 interface RetryAttempt {
   id: string;
@@ -103,6 +105,8 @@ const retryStatusLabels = {
 };
 
 export default function Incidents() {
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
@@ -605,7 +609,7 @@ export default function Incidents() {
                 type="date"
                 value={scheduledDate}
                 onChange={(e) => setScheduledDate(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
+                min={formatLocalDate(new Date(), storeTimezone)}
               />
             </div>
 

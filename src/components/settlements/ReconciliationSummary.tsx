@@ -19,8 +19,8 @@ interface ReconciliationSummaryProps {
   totalNotDelivered: number;
   totalCodExpected: number;
   totalCodCollected: number;
-  carrierFeePerDelivery: number;
-  failedAttemptFeeRate: number;
+  totalCarrierFees: number;
+  totalFailedAttemptFees: number;
   discrepancyNotes?: string;
   onConfirm: () => void;
   onCancel: () => void;
@@ -43,16 +43,14 @@ export function ReconciliationSummary({
   totalNotDelivered,
   totalCodExpected,
   totalCodCollected,
-  carrierFeePerDelivery,
-  failedAttemptFeeRate,
+  totalCarrierFees,
+  totalFailedAttemptFees,
   discrepancyNotes,
   onConfirm,
   onCancel,
   isProcessing,
 }: ReconciliationSummaryProps) {
-  const totalCarrierFees = totalDelivered * carrierFeePerDelivery;
-  const failedAttemptFees = totalNotDelivered * (carrierFeePerDelivery * failedAttemptFeeRate);
-  const netReceivable = totalCodCollected - totalCarrierFees - failedAttemptFees;
+  const netReceivable = totalCodCollected - totalCarrierFees - totalFailedAttemptFees;
   const hasDiscrepancy = totalCodCollected !== totalCodExpected;
 
   return (
@@ -144,13 +142,13 @@ export function ReconciliationSummary({
           Tarifas
         </div>
         <div className="flex items-center justify-between py-1 text-muted-foreground">
-          <span>Entregas ({totalDelivered} x {formatCurrency(carrierFeePerDelivery)})</span>
+          <span>Entregas ({totalDelivered} pedidos)</span>
           <span>-{formatCurrency(totalCarrierFees)}</span>
         </div>
-        {totalNotDelivered > 0 && (
+        {totalNotDelivered > 0 && totalFailedAttemptFees > 0 && (
           <div className="flex items-center justify-between py-1 text-muted-foreground">
-            <span>Fallidos ({totalNotDelivered} x {Math.round(failedAttemptFeeRate * 100)}%)</span>
-            <span>-{formatCurrency(failedAttemptFees)}</span>
+            <span>Fallidos ({totalNotDelivered} pedidos)</span>
+            <span>-{formatCurrency(totalFailedAttemptFees)}</span>
           </div>
         )}
 

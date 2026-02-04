@@ -9,6 +9,7 @@ import autoTable from 'jspdf-autotable';
 import { ReadyToShipOrder } from '@/services/shipping.service';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import { formatCurrency } from '@/utils/currency';
+import { formatLocalDate } from '@/utils/timeUtils';
 
 interface DeliveryManifestData {
   orders: ReadyToShipOrder[];
@@ -18,6 +19,7 @@ interface DeliveryManifestData {
   storeAddress?: string;
   storePhone?: string;
   notes?: string;
+  timezone?: string;
 }
 
 export class DeliveryManifestGenerator {
@@ -49,7 +51,7 @@ export class DeliveryManifestGenerator {
     // Document number / Control number
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    const manifestNumber = `MAN-${data.dispatchDate.toISOString().split('T')[0].replace(/-/g, '')}-${data.orders.length.toString().padStart(3, '0')}`;
+    const manifestNumber = `MAN-${formatLocalDate(data.dispatchDate, data.timezone).replace(/-/g, '')}-${data.orders.length.toString().padStart(3, '0')}`;
     doc.text(`No. ${manifestNumber}`, pageWidth / 2, yPos, { align: 'center' });
     yPos += 10;
 
@@ -254,7 +256,7 @@ export class DeliveryManifestGenerator {
     // ==================== SAVE PDF ====================
     const sanitizedStoreName = data.storeName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
     const sanitizedCarrierName = data.carrierName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-    const dateStr = data.dispatchDate.toISOString().split('T')[0];
+    const dateStr = formatLocalDate(data.dispatchDate, data.timezone);
     const filename = `orden-entrega-${sanitizedStoreName}-${sanitizedCarrierName}-${dateStr}.pdf`;
     doc.save(filename);
   }

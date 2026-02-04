@@ -658,6 +658,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             offset = '0',
             customer_phone,
             shopify_order_id,
+            carrier_id,
+            search,
             startDate,
             endDate,
             show_test = 'true',        // Filter for test orders
@@ -668,7 +670,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         // ✅ SELECT explicit fields (15 vs 60+ columns = 75% less data)
         // ✅ Removed customers JOIN (not used in list view)
         // ✅ Removed products nested JOIN (image_url already in order_line_items)
-        // ✅ count: 'estimated' instead of 'exact' (no COUNT(*) table scan)
+        // ✅ count: 'exact' for accurate totals with server-side filters
         let query = supabaseAdmin
             .from('orders')
             .select(`
@@ -711,6 +713,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 address_reference,
                 shipping_city,
                 delivery_zone,
+                is_pickup,
+                delivery_preferences,
+                delivery_notes,
+                internal_notes,
+                shopify_shipping_method,
                 line_items,
                 order_line_items (
                     id,
@@ -726,7 +733,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     id,
                     name
                 )
-            `, { count: 'estimated' })
+            `, { count: 'exact' })
             .eq('store_id', req.storeId)
             .order('created_at', { ascending: false })
             .range(safeNumber(offset, 0), safeNumber(offset, 0) + safeNumber(limit, 20) - 1);
@@ -746,6 +753,37 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             query = query.eq('sleeves_status', status);
         }
 
+        // Carrier filter
+        if (carrier_id) {
+            const carrierStr = carrier_id as string;
+            if (carrierStr === 'pickup') {
+                query = query.eq('is_pickup', true);
+            } else if (carrierStr === 'none') {
+                // Orders without carrier and NOT pickup (is_pickup can be NULL or false)
+                query = query.is('courier_id', null).or('is_pickup.is.null,is_pickup.eq.false');
+            } else {
+                query = query.eq('courier_id', carrierStr);
+            }
+        }
+
+        // Text search (customer name, phone, shopify order name)
+        if (search) {
+            const searchStr = (search as string).trim();
+            if (searchStr.length > 0) {
+                // Sanitize for PostgREST filter syntax safety:
+                // - %_ are LIKE wildcards
+                // - ,. are PostgREST operator delimiters
+                // - () are PostgREST grouping
+                // - \ is escape char
+                const searchClean = searchStr.replace(/[%_.,()\\]/g, '');
+                if (searchClean.length > 0) {
+                    query = query.or(
+                        `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%`
+                    );
+                }
+            }
+        }
+
         if (customer_phone) {
             query = query.eq('customer_phone', customer_phone);
         }
@@ -755,15 +793,22 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         }
 
         // Date range filtering
+        // Supports both full ISO timestamps (timezone-safe) and YYYY-MM-DD date strings (legacy)
         if (startDate) {
             query = query.gte('created_at', startDate as string);
         }
 
         if (endDate) {
-            // Add one day to endDate to include the full day
-            const endDateTime = new Date(endDate as string);
-            endDateTime.setDate(endDateTime.getDate() + 1);
-            query = query.lt('created_at', endDateTime.toISOString());
+            const endStr = endDate as string;
+            if (endStr.includes('T')) {
+                // Full ISO timestamp (includes end-of-day time) - use directly
+                query = query.lte('created_at', endStr);
+            } else {
+                // Legacy YYYY-MM-DD format - add one day to include the full day
+                const endDateTime = new Date(endStr);
+                endDateTime.setDate(endDateTime.getDate() + 1);
+                query = query.lt('created_at', endDateTime.toISOString());
+            }
         }
 
         const { data, error, count } = await query;
@@ -853,8 +898,10 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 has_internal_notes: !!order.internal_notes,
                 // NEW: Shopify shipping method
                 shopify_shipping_method: order.shopify_shipping_method,
-                // Delivery notes
-                delivery_notes: order.delivery_notes
+                // Pickup and delivery
+                is_pickup: order.is_pickup || false,
+                delivery_notes: order.delivery_notes,
+                delivery_preferences: order.delivery_preferences
             };
         }) || [];
 

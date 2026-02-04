@@ -27,9 +27,20 @@ import { logger } from '../utils/logger';
  * Normalize city text for comparison: remove accents, lowercase, trim.
  * Matches the behavior of DB function normalize_location_text().
  */
+/**
+ * Normalize city text for comparison: remove accents, lowercase, trim.
+ * IMPORTANT: Must match DB function normalize_location_text() exactly.
+ * Uses explicit character mapping (same as PostgreSQL translate()) for guaranteed consistency.
+ */
 function normalizeCityText(text: string | null | undefined): string {
   if (!text) return '';
-  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const from = 'áéíóúàèìòùâêîôûäëïöüñÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÄËÏÖÜÑ';
+  const to   = 'aeiouaeiouaeiouaeiounAEIOUAEIOUAEIOUAEIOUN';
+  let result = text;
+  for (let i = 0; i < from.length; i++) {
+    result = result.replaceAll(from[i], to[i]);
+  }
+  return result.toLowerCase().trim();
 }
 
 // ============================================================
@@ -434,7 +445,25 @@ export async function createDispatchSession(
   const sessionCode = await generateDispatchCodeWithRetry(storeId);
 
   // ============================================================
-  // VALIDATION 2: Get carrier zones and coverage (BLOCKING)
+  // VALIDATION 2: Verify carrier is active
+  // ============================================================
+  const { data: carrierData } = await supabaseAdmin
+    .from('carriers')
+    .select('id, name, is_active')
+    .eq('id', carrierId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (!carrierData) {
+    throw new Error('Transportadora no encontrada');
+  }
+
+  if (!carrierData.is_active) {
+    throw new Error(`La transportadora "${carrierData.name}" está desactivada. Actívala antes de crear un despacho.`);
+  }
+
+  // ============================================================
+  // VALIDATION 3: Get carrier zones and coverage (BLOCKING)
   // ============================================================
   const { data: zones } = await supabaseAdmin
     .from('carrier_zones')
@@ -1381,6 +1410,35 @@ export async function markSettlementPaid(
     throw new Error('El monto del pago debe ser positivo');
   }
 
+  if (!isFinite(payment.amount)) {
+    throw new Error('El monto del pago debe ser un número finito');
+  }
+
+  // Pre-check: fetch settlement to validate overpayment before hitting RPC
+  const { data: currentSettlement } = await supabaseAdmin
+    .from('daily_settlements')
+    .select('net_receivable, amount_paid, status')
+    .eq('id', settlementId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (currentSettlement) {
+    const absNetReceivable = Math.abs(currentSettlement.net_receivable || 0);
+    const currentPaid = currentSettlement.amount_paid || 0;
+    const remaining = absNetReceivable - currentPaid;
+
+    if (remaining <= 0 && currentSettlement.status === 'paid') {
+      throw new Error('Esta liquidación ya fue pagada completamente');
+    }
+
+    if (payment.amount > remaining + 0.01) {
+      throw new Error(
+        `El monto (${payment.amount}) excede el saldo pendiente (${remaining.toFixed(0)}). ` +
+        `Monto máximo permitido: ${remaining.toFixed(0)}`
+      );
+    }
+  }
+
   // Sanitize string inputs
   const sanitizedMethod = payment.method?.trim().substring(0, 50) || null;
   const sanitizedReference = payment.reference?.trim().substring(0, 255) || null;
@@ -1871,6 +1929,7 @@ export interface ManualReconciliationData {
     delivered: boolean;
     failure_reason?: string;
     notes?: string;
+    override_prepaid?: boolean; // User override: treat COD as prepaid for this reconciliation
   }>;
   total_amount_collected: number;
   discrepancy_notes?: string;
@@ -2165,8 +2224,13 @@ async function processManualReconciliationLegacy(
       continue;
     }
 
-    // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
-    const isCod = !dbOrder.prepaid_method && isCodPayment(dbOrder.payment_method);
+    // IMPORTANT: Determine if this is COD for reconciliation calculation
+    // Order is COD only if:
+    // 1. prepaid_method is NOT set (customer didn't pay before delivery)
+    // 2. payment_method is a COD type (efectivo, cash, etc.)
+    // 3. User did NOT override to mark as prepaid during reconciliation
+    const baseCod = !dbOrder.prepaid_method && isCodPayment(dbOrder.payment_method);
+    const isCod = baseCod && !orderInput.override_prepaid;
 
     // Calculate fee: coverage (city) → zone (delivery_zone) → zone (shipping_city) → default
     const normalizedCity = dbOrder.shipping_city_normalized || normalizeCityText(dbOrder.shipping_city);
@@ -3214,9 +3278,10 @@ async function getPendingReconciliationOrdersFallback(
       break;
     }
   }
-  // If no fallback zone found, use first zone's rate as default
+  // If no fallback zone found, use lowest zone rate as conservative default (deterministic)
   if (defaultRate === 0 && zones && zones.length > 0) {
-    defaultRate = zones[0].rate || 0;
+    const sortedZones = [...zones].sort((a, b) => (a.rate || 0) - (b.rate || 0));
+    defaultRate = sortedZones[0].rate || 0;
   }
 
   return orders.map((order: any) => {
@@ -3435,9 +3500,10 @@ async function processDeliveryReconciliationFallback(
       break;
     }
   }
-  // If no fallback zone found, use first zone's rate as default
+  // If no fallback zone found, use lowest zone rate as conservative default (deterministic)
   if (defaultRate === 0 && zones && zones.length > 0) {
-    defaultRate = zones[0].rate || 0;
+    const sortedZones = [...zones].sort((a, b) => (a.rate || 0) - (b.rate || 0));
+    defaultRate = sortedZones[0].rate || 0;
   }
 
   // STEP 4: Calculate totals (all in memory first, before any updates)
@@ -3718,6 +3784,8 @@ async function processOrderUpdatesAndReturn(
 
   // CRITICAL FIX (Migration 119): Create carrier_account_movements
   // This was the missing piece causing incorrect carrier balances
+  const warnings: string[] = [];
+
   try {
     // Prepare order data for RPC
     const movementOrders = orderUpdates.map(o => ({
@@ -3746,15 +3814,20 @@ async function processOrderUpdatesAndReturn(
         settlement_id: settlement.id,
         error: movementError.message
       });
+      warnings.push('Los movimientos de cuenta del courier no se pudieron registrar automaticamente.');
     } else {
       const result = Array.isArray(movementResult) ? movementResult[0] : movementResult;
+      const movementsCreated = result?.movements_created || 0;
       logger.info('SETTLEMENTS', 'Carrier movements created successfully', {
         settlement_id: settlement.id,
-        movements_created: result?.movements_created || 0,
+        movements_created: movementsCreated,
         cod_movements: result?.cod_movements || 0,
         fee_movements: result?.fee_movements || 0,
         failed_movements: result?.failed_movements || 0
       });
+      if (movementsCreated === 0) {
+        warnings.push('No se generaron movimientos de cuenta para el courier. Verifique la configuracion.');
+      }
     }
   } catch (movementErr: any) {
     // Log but don't fail - settlement is already created
@@ -3762,12 +3835,14 @@ async function processOrderUpdatesAndReturn(
       settlement_id: settlement.id,
       error: movementErr.message
     });
+    warnings.push('Error inesperado al registrar movimientos del courier.');
   }
 
   logger.info('SETTLEMENTS', 'Fallback reconciliation completed', {
     settlement_id: settlement.id,
     settlement_code: settlementCode,
-    orders_updated: orderUpdates.length
+    orders_updated: orderUpdates.length,
+    warnings_count: warnings.length
   });
 
   return {
@@ -3780,6 +3855,7 @@ async function processOrderUpdatesAndReturn(
     total_cod_collected: totalCodCollected,
     total_carrier_fees: totalCarrierFees,
     failed_attempt_fee: failedAttemptFee,
-    net_receivable: netReceivable
+    net_receivable: netReceivable,
+    warnings
   };
 }

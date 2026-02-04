@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { logger } from '@/utils/logger';
+import { formatLocalDate } from '@/utils/timeUtils';
 import { formatCurrency } from '@/utils/currency';
 import {
   Collapsible,
@@ -33,20 +34,22 @@ export function DailySummary() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Check if user has analytics permission (wait for auth to load)
-  const { permissions, loading: authLoading } = useAuth();
+  const { permissions, loading: authLoading, currentStore } = useAuth();
   const hasAnalyticsAccess = !authLoading && permissions.canAccessModule(Module.ANALYTICS);
 
   // Use global date range context
   const { selectedRange, getDateRange } = useDateRange();
 
-  // Calculate date ranges from global context
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
+
+  // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
     return {
-      startDate: range.from.toISOString().split('T')[0],
-      endDate: range.to.toISOString().split('T')[0],
+      startDate: formatLocalDate(range.from, storeTimezone),
+      endDate: formatLocalDate(range.to, storeTimezone),
     };
-  }, [getDateRange]);
+  }, [getDateRange, storeTimezone]);
 
   // Get title based on selected range
   const getSummaryTitle = () => {

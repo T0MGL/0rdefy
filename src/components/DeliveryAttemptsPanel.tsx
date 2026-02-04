@@ -7,6 +7,8 @@
 import { useEffect, useState } from 'react';
 import { DeliveryAttempt } from '@/types';
 import { deliveryAttemptsService } from '@/services/delivery-attempts.service';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatLocalDate } from '@/utils/timeUtils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,8 @@ interface DeliveryAttemptsPanelProps {
 }
 
 export function DeliveryAttemptsPanel({ orderId, orderNumber }: DeliveryAttemptsPanelProps) {
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
   const [attempts, setAttempts] = useState<DeliveryAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewAttemptDialog, setShowNewAttemptDialog] = useState(false);
@@ -32,7 +36,7 @@ export function DeliveryAttemptsPanel({ orderId, orderNumber }: DeliveryAttempts
   const [selectedAttempt, setSelectedAttempt] = useState<DeliveryAttempt | null>(null);
   const [markAction, setMarkAction] = useState<'delivered' | 'failed'>('delivered');
   const [formData, setFormData] = useState({
-    scheduled_date: new Date().toISOString().split('T')[0],
+    scheduled_date: formatLocalDate(new Date(), storeTimezone),
     notes: '',
     photo_url: '',
     failed_reason: '',
@@ -75,7 +79,7 @@ export function DeliveryAttemptsPanel({ orderId, orderNumber }: DeliveryAttempts
 
       setShowNewAttemptDialog(false);
       setFormData({
-        scheduled_date: new Date().toISOString().split('T')[0],
+        scheduled_date: formatLocalDate(new Date(), storeTimezone),
         notes: '',
         photo_url: '',
         failed_reason: '',
@@ -117,7 +121,7 @@ export function DeliveryAttemptsPanel({ orderId, orderNumber }: DeliveryAttempts
       setShowMarkDialog(false);
       setSelectedAttempt(null);
       setFormData({
-        scheduled_date: new Date().toISOString().split('T')[0],
+        scheduled_date: formatLocalDate(new Date(), storeTimezone),
         notes: '',
         photo_url: '',
         failed_reason: '',

@@ -17,6 +17,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { AdditionalValue } from '@/types';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatLocalDate } from '@/utils/timeUtils';
 import { logger } from '@/utils/logger';
 
 const categoryIcons: Record<string, JSX.Element> = {
@@ -35,12 +37,14 @@ const categoryLabels: Record<string, string> = {
 
 // --- ONE-TIME VALUE FORM ---
 function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: AdditionalValue; onSubmit: (data: any) => void; onCancel: () => void }) {
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
   const [formData, setFormData] = useState({
     category: value?.category || 'marketing',
     description: value?.description || '',
     amount: value?.amount || 0,
     type: value?.type || 'expense',
-    date: value?.date || new Date().toISOString().split('T')[0],
+    date: value?.date || formatLocalDate(new Date(), storeTimezone),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -126,13 +130,15 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
 
 // --- RECURRING VALUE FORM ---
 function RecurringValueForm({ value, onSubmit, onCancel }: { value?: RecurringAdditionalValue; onSubmit: (data: any) => void; onCancel: () => void }) {
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
   const [formData, setFormData] = useState({
     category: value?.category || 'marketing',
     description: value?.description || '',
     amount: value?.amount || 0,
     type: value?.type || 'expense',
     frequency: value?.frequency || 'monthly',
-    start_date: value?.start_date ? new Date(value.start_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+    start_date: value?.start_date ? formatLocalDate(new Date(value.start_date), storeTimezone) : formatLocalDate(new Date(), storeTimezone),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -237,6 +243,8 @@ function RecurringValueForm({ value, onSubmit, onCancel }: { value?: RecurringAd
 
 
 export default function AdditionalValues() {
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
   const [values, setValues] = useState<AdditionalValue[]>([]);
   const [recurringValues, setRecurringValues] = useState<RecurringAdditionalValue[]>([]);
   const [summary, setSummary] = useState({ marketing: 0, sales: 0, employees: 0, operational: 0 });
@@ -257,7 +265,7 @@ export default function AdditionalValues() {
   // Ordefy Subscription Dialog
   const [ordefyDialogOpen, setOrdefyDialogOpen] = useState(false);
   const [ordefyAmount, setOrdefyAmount] = useState(29.99);
-  const [ordefyStartDate, setOrdefyStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [ordefyStartDate, setOrdefyStartDate] = useState(formatLocalDate(new Date(), storeTimezone));
 
   const { toast } = useToast();
 

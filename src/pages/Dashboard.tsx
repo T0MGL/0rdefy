@@ -19,6 +19,7 @@ import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { calculateRevenueProjection } from '@/utils/recommendationEngine';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 import { logger } from '@/utils/logger';
+import { formatLocalDate } from '@/utils/timeUtils';
 import {
   DollarSign,
   TrendingDown,
@@ -53,7 +54,7 @@ export default function Dashboard() {
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
   // Global View state from context (toggle is in Header, only shown on Dashboard)
-  const { stores, permissions, loading: authLoading } = useAuth();
+  const { stores, permissions, loading: authLoading, currentStore } = useAuth();
   const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
 
@@ -84,21 +85,23 @@ export default function Dashboard() {
     return value >= 0 ? 'up' : 'down';
   };
 
-  // Calculate date ranges from global context
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
+
+  // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
     const diffTime = Math.abs(range.to.getTime() - range.from.getTime());
     const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
     const result = {
-      startDate: range.from.toISOString().split('T')[0],
-      endDate: range.to.toISOString().split('T')[0],
+      startDate: formatLocalDate(range.from, storeTimezone),
+      endDate: formatLocalDate(range.to, storeTimezone),
       days,
     };
 
     logger.log('📅 Date range calculated:', result);
     return result;
-  }, [getDateRange]);
+  }, [getDateRange, storeTimezone]);
 
   const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
     // Skip loading analytics for users without analytics access

@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { logger } from '@/utils/logger';
+import { formatLocalDate } from '@/utils/timeUtils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -102,7 +103,9 @@ export default function Warehouse() {
   const [sessionToAbandon, setSessionToAbandon] = useState<PickingSession | null>(null);
   const [abandoningSession, setAbandoningSession] = useState(false);
 
-  // Calculate date ranges from global context
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
+
+  // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
 
@@ -115,17 +118,17 @@ export default function Warehouse() {
       const weekAgo = new Date();
       weekAgo.setDate(today.getDate() - 7);
       return {
-        startDate: weekAgo.toISOString().split('T')[0],
-        endDate: today.toISOString().split('T')[0],
+        startDate: formatLocalDate(weekAgo, storeTimezone),
+        endDate: formatLocalDate(today, storeTimezone),
       };
     }
 
     const result = {
-      startDate: range.from.toISOString().split('T')[0],
-      endDate: range.to.toISOString().split('T')[0],
+      startDate: formatLocalDate(range.from, storeTimezone),
+      endDate: formatLocalDate(range.to, storeTimezone),
     };
     return result;
-  }, [getDateRange]);
+  }, [getDateRange, storeTimezone]);
 
   const loadDashboardData = useCallback(async () => {
     setLoading(true);

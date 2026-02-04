@@ -126,23 +126,21 @@ collaboratorsRouter.post(
       }
 
       // Check user limit for subscription plan
-      const { data: canAdd, error: canAddError } = await supabaseAdmin
-        .rpc('can_add_user_to_store', { p_store_id: storeId });
+      // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
+      const { data: planCheck, error: canAddError } = await supabaseAdmin
+        .rpc('can_add_user_to_store', { p_store_id: storeId })
+        .single();
 
       if (canAddError) {
         return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
-      if (!canAdd) {
-        const { data: stats } = await supabaseAdmin
-          .rpc('get_store_user_stats', { p_store_id: storeId })
-          .single();
-
+      if (!planCheck?.can_add) {
         return res.status(403).json({
           error: 'User limit reached for your subscription plan',
-          current: stats?.current_users,
-          max: stats?.max_users,
-          plan: stats?.plan
+          current: planCheck?.current_users,
+          max: planCheck?.max_users,
+          plan: planCheck?.reason
         });
       }
 
@@ -467,8 +465,10 @@ collaboratorsRouter.post(
 
       // SECURITY FIX: Validate plan limit at acceptance time (not just at creation)
       // This prevents race conditions where multiple invitations exceed the limit
-      const { data: canAdd, error: canAddError } = await supabaseAdmin
-        .rpc('can_add_user_to_store', { p_store_id: invitation.store_id });
+      // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
+      const { data: planCheck, error: canAddError } = await supabaseAdmin
+        .rpc('can_add_user_to_store', { p_store_id: invitation.store_id })
+        .single();
 
       if (canAddError) {
         // Rollback: Mark invitation as unused
@@ -479,23 +479,19 @@ collaboratorsRouter.post(
         return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
-      if (!canAdd) {
+      if (!planCheck?.can_add) {
         // Rollback: Mark invitation as unused so it can be used when space is available
         await supabaseAdmin
           .from('collaborator_invitations')
           .update({ used: false, used_at: null })
           .eq('id', invitation.id);
 
-        const { data: stats } = await supabaseAdmin
-          .rpc('get_store_user_stats', { p_store_id: invitation.store_id })
-          .single();
-
         return res.status(403).json({
           error: 'User limit reached for the store subscription plan',
           message: 'The store has reached its maximum number of users. Please contact the store owner to upgrade the plan.',
-          current: stats?.current_users,
-          max: stats?.max_users,
-          plan: stats?.plan
+          current: planCheck?.current_users,
+          max: planCheck?.max_users,
+          plan: planCheck?.reason
         });
       }
 
@@ -883,24 +879,22 @@ collaboratorsRouter.patch(
       }
 
       // Check user limit for subscription plan before reactivation
-      const { data: canAdd, error: canAddError } = await supabaseAdmin
-        .rpc('can_add_user_to_store', { p_store_id: storeId });
+      // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
+      const { data: planCheck, error: canAddError } = await supabaseAdmin
+        .rpc('can_add_user_to_store', { p_store_id: storeId })
+        .single();
 
       if (canAddError) {
         return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
       }
 
-      if (!canAdd) {
-        const { data: stats } = await supabaseAdmin
-          .rpc('get_store_user_stats', { p_store_id: storeId })
-          .single();
-
+      if (!planCheck?.can_add) {
         return res.status(403).json({
           error: 'User limit reached for your subscription plan',
           message: 'Upgrade your plan to add more users',
-          current: stats?.current_users,
-          max: stats?.max_users,
-          plan: stats?.plan
+          current: planCheck?.current_users,
+          max: planCheck?.max_users,
+          plan: planCheck?.reason
         });
       }
 

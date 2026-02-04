@@ -33,6 +33,7 @@ import { ordersExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
 import { logger } from '@/utils/logger';
+import { startOfDayInTimezone, endOfDayInTimezone } from '@/utils/timeUtils';
 import {
   Select,
   SelectContent,
@@ -259,28 +260,44 @@ export default function Orders() {
   const { isHighlighted } = useHighlight();
   const previousCountRef = useRef(0);
 
+  // Store timezone from preferences (IANA format, e.g., "America/Asuncion")
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
+
   // Memoize date params to trigger refetch when date range changes
+  // Uses the store's configured timezone for accurate day boundaries
   const dateParams = useMemo(() => {
     const dateRange = getDateRange();
     return {
-      startDate: dateRange.from.toISOString().split('T')[0],
-      endDate: dateRange.to.toISOString().split('T')[0],
+      startDate: startOfDayInTimezone(dateRange.from, storeTimezone),
+      endDate: endOfDayInTimezone(dateRange.to, storeTimezone),
     };
-  }, [getDateRange]);
+  }, [getDateRange, storeTimezone]);
 
-  // Use ref for dateParams to avoid recreating queryFn on every dateParams change
+  // Build server-side filter params (status + carrier sent to API for correct pagination)
+  const serverFilters = useMemo(() => {
+    const filters: { status?: string; carrier_id?: string; search?: string } = {};
+    if (chipFilters.status) filters.status = chipFilters.status;
+    if (carrierFilter !== 'all') filters.carrier_id = carrierFilter;
+    if (debouncedSearch) filters.search = debouncedSearch;
+    return filters;
+  }, [chipFilters.status, carrierFilter, debouncedSearch]);
+
+  // Use refs for stable queryFn (avoids recreating polling interval)
   const dateParamsRef = useRef(dateParams);
   useEffect(() => {
     dateParamsRef.current = dateParams;
   }, [dateParams]);
 
-  // Use ref for toast to keep queryFn stable
+  const serverFiltersRef = useRef(serverFilters);
+  useEffect(() => {
+    serverFiltersRef.current = serverFilters;
+  }, [serverFilters]);
+
   const toastRef = useRef(toast);
   useEffect(() => {
     toastRef.current = toast;
   }, [toast]);
 
-  // Use ref for pagination.limit to avoid queryFn recreation
   const paginationLimitRef = useRef(pagination.limit);
   useEffect(() => {
     paginationLimitRef.current = pagination.limit;
@@ -291,19 +308,22 @@ export default function Orders() {
   const queryFn = useCallback(async () => {
     const result = await ordersService.getAll({
       ...dateParamsRef.current,
+      ...serverFiltersRef.current,
       limit: paginationLimitRef.current,
       offset: 0
     });
     const data = result.data;
     const paginationData = result.pagination;
 
-    // Check for new orders
-    if (data.length > previousCountRef.current && previousCountRef.current > 0) {
-      const newOrdersCount = data.length - previousCountRef.current;
-      toastRef.current({
-        title: `🔔 ${newOrdersCount} Nuevo${newOrdersCount > 1 ? 's' : ''} Pedido${newOrdersCount > 1 ? 's' : ''}!`,
-        description: `Tienes ${newOrdersCount} nuevo${newOrdersCount > 1 ? 's' : ''} pedido${newOrdersCount > 1 ? 's' : ''}`,
-      });
+    // Check for new orders (only when no filters active to avoid false positives)
+    if (!serverFiltersRef.current.status && !serverFiltersRef.current.carrier_id && !serverFiltersRef.current.search) {
+      if (data.length > previousCountRef.current && previousCountRef.current > 0) {
+        const newOrdersCount = data.length - previousCountRef.current;
+        toastRef.current({
+          title: `🔔 ${newOrdersCount} Nuevo${newOrdersCount > 1 ? 's' : ''} Pedido${newOrdersCount > 1 ? 's' : ''}!`,
+          description: `Tienes ${newOrdersCount} nuevo${newOrdersCount > 1 ? 's' : ''} pedido${newOrdersCount > 1 ? 's' : ''}`,
+        });
+      }
     }
 
     setOrders(data);
@@ -330,6 +350,7 @@ export default function Orders() {
       const newOffset = pagination.offset + pagination.limit;
       const result = await ordersService.getAll({
         ...dateParams,
+        ...serverFilters,
         limit: pagination.limit,
         offset: newOffset
       });
@@ -347,22 +368,20 @@ export default function Orders() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, pagination, dateParams, toast]);
+  }, [isLoadingMore, pagination, dateParams, serverFilters, toast]);
 
   // Store refetch in ref to avoid including it in effect dependencies
-  // This prevents infinite loops while still allowing the effect to call refetch
   const refetchRef = useRef(refetch);
   useEffect(() => {
     refetchRef.current = refetch;
   }, [refetch]);
 
-  // Refetch when date range changes - reset pagination
-  // CRITICAL: Do NOT include refetch in dependencies - it causes infinite loops
-  // Instead, use refetchRef to access the latest refetch function
+  // Refetch when date range or server filters change - reset pagination
   useEffect(() => {
     setPagination(prev => ({ ...prev, offset: 0 }));
+    previousCountRef.current = 0; // Reset new-order detection when filters change
     refetchRef.current();
-  }, [dateParams]); // Only dateParams - refetch accessed via ref
+  }, [dateParams, serverFilters]);
 
   // Process URL query parameters for filtering and navigation from notifications
   useEffect(() => {
@@ -863,30 +882,59 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         }
       }
 
-      // Calculate total including upsell (ensure all values are numbers)
-      const mainProductTotal = Number(product.price) * Number(data.quantity);
-      const upsellPrice = upsellProduct ? Number(upsellProduct.price) || 0 : 0;
+      // Detect if the main product changed vs. the original order
+      const originalMainItem = orderToEdit.order_line_items?.find((item: any) => !item.is_upsell)
+        || orderToEdit.order_line_items?.[0];
+      const originalProductId = originalMainItem?.product_id;
+      const productChanged = data.product !== originalProductId;
+
+      // Preserve original unit price when product didn't change
+      // This prevents Shopify/webhook prices from being overwritten by current catalog prices
+      let mainUnitPrice: number;
+      if (!productChanged && originalMainItem?.unit_price != null) {
+        mainUnitPrice = Number(originalMainItem.unit_price);
+      } else {
+        mainUnitPrice = Number(product.price);
+      }
+      const mainProductTotal = mainUnitPrice * Number(data.quantity);
+
+      // Same logic for upsell: preserve original price if upsell product didn't change
+      const originalUpsellItem = orderToEdit.order_line_items?.find((item: any) => item.is_upsell === true);
+      const upsellChanged = data.upsellProductId !== originalUpsellItem?.product_id;
+      let upsellUnitPrice = 0;
+      if (upsellProduct) {
+        if (!upsellChanged && originalUpsellItem?.unit_price != null) {
+          upsellUnitPrice = Number(originalUpsellItem.unit_price);
+        } else {
+          upsellUnitPrice = Number(upsellProduct.price) || 0;
+        }
+      }
       const upsellQty = Number(data.upsellQuantity) || 1;
-      const upsellTotal = upsellProduct ? upsellPrice * upsellQty : 0;
+      const upsellTotal = upsellProduct ? upsellUnitPrice * upsellQty : 0;
       const orderTotal = mainProductTotal + upsellTotal;
 
       logger.log('💰 [ORDERS] Update total calculation:', {
+        productChanged,
+        mainUnitPrice,
         mainProductTotal,
-        upsellPrice,
+        upsellChanged,
+        upsellUnitPrice,
         upsellQty,
         upsellTotal,
         orderTotal
       });
 
+      // Pass mainProductTotal (not orderTotal) — upsell is handled by the separate /upsell endpoint
+      // This ensures line_items get the correct unit price (not inflated by upsell)
       const updatedOrder = await ordersService.update(orderToEdit.id, {
         customer: data.customer,
         phone: data.phone,
         address: data.address,
         google_maps_link: data.googleMapsLink,
         product: product.name,
-        product_id: product.id, // ✅ Pass product_id
+        product_id: product.id,
         quantity: data.quantity,
-        total: orderTotal,
+        total: mainProductTotal,
         carrier: data.carrier,
         paymentMethod: data.paymentMethod,
         // Shipping info
@@ -898,7 +946,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         // Upsell data
         upsell_product_id: data.upsellProductId,
         upsell_product_name: upsellProduct?.name,
-        upsell_product_price: upsellProduct?.price,
+        upsell_product_price: upsellChanged ? upsellProduct?.price : upsellUnitPrice || upsellProduct?.price,
         upsell_quantity: data.upsellQuantity,
         // Internal notes (admin only)
         internal_notes: data.internalNotes || null,
@@ -1131,66 +1179,24 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   }, [refetch, toast]);
 
   // Memoize filtered orders to avoid recalculation on every render
-  // Get carriers that have orders (for dropdown filter)
-  const carriersWithOrders = useMemo(() => {
-    const carrierIdsInOrders = new Set(orders.map(o => o.carrier_id).filter(Boolean));
-    return carriers.filter(c => carrierIdsInOrders.has(c.id));
-  }, [carriers, orders]);
+  // Show all carriers in the dropdown filter (not limited to current results,
+  // since server-side filtering would hide carriers not in current result set)
+  const carriersForFilter = carriers;
 
   const filteredOrders = useMemo(() => {
+    // Status, carrier, and search are now filtered server-side.
+    // Only scheduledFilter remains client-side (JSONB field not easily queryable).
     return orders.filter(order => {
-      // Aplicar filtros de chips (estado del pedido)
-      if (chipFilters.status && order.status !== chipFilters.status) return false;
-
-      // Aplicar filtro de pedidos programados
+      // Aplicar filtro de pedidos programados (client-side only)
       if (scheduledFilter !== 'all') {
         const scheduled = getScheduledDeliveryInfo(order);
         if (scheduledFilter === 'scheduled' && !scheduled.isScheduled) return false;
         if (scheduledFilter === 'ready' && scheduled.isScheduled) return false;
       }
 
-      // Aplicar filtro de transportadora
-      if (carrierFilter !== 'all') {
-        if (carrierFilter === 'pickup') {
-          // Filtrar pedidos de retiro en local
-          if (!order.is_pickup) return false;
-        } else if (carrierFilter === 'none') {
-          // Filtrar pedidos sin transportadora (y que no sean retiro)
-          if (order.carrier_id || order.is_pickup) return false;
-        } else {
-          // Filtrar por transportadora específica
-          if (order.carrier_id !== carrierFilter) return false;
-        }
-      }
-
-      // Aplicar búsqueda de texto
-      if (debouncedSearch) {
-        const searchLower = debouncedSearch.toLowerCase().trim();
-        const searchClean = searchLower.replace('#', ''); // Allow searching "1001" to find "#1001"
-
-        return (
-          // Search by Customer Name
-          order.customer.toLowerCase().includes(searchLower) ||
-          // Search by Phone
-          order.phone.includes(debouncedSearch) ||
-          // Search by Product Name
-          order.product.toLowerCase().includes(searchLower) ||
-          // Search by Internal ID (partial match)
-          order.id.toLowerCase().includes(searchLower) ||
-          // Search by Order Number (ignoring #)
-          (order as any).order_number?.toString().toLowerCase().includes(searchClean) ||
-          // Search by Shopify Order Name (e.g. "#1001")
-          order.shopify_order_name?.toLowerCase().includes(searchClean) ||
-          // Search by Shopify Order Number (e.g. "1001")
-          order.shopify_order_number?.toString().includes(searchClean) ||
-          // Search by Email (if available)
-          (order as any).customer_email?.toLowerCase().includes(searchLower)
-        );
-      }
-
       return true;
     });
-  }, [orders, chipFilters, carrierFilter, scheduledFilter, debouncedSearch]);
+  }, [orders, scheduledFilter]);
 
   // Export filename: StoreName DD.MM.YYYY
   const exportFilename = useMemo(() => {
@@ -1633,7 +1639,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
               <SelectItem value="all">Todas las transportadoras</SelectItem>
               <SelectItem value="pickup">Retiro en local</SelectItem>
               <SelectItem value="none">Sin transportadora</SelectItem>
-              {carriersWithOrders.map(carrier => (
+              {carriersForFilter.map(carrier => (
                 <SelectItem key={carrier.id} value={carrier.id}>
                   {carrier.name}
                 </SelectItem>

@@ -13,7 +13,7 @@
  * 5. Confirm and create settlement
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -174,6 +174,9 @@ export function PendingReconciliationView() {
   const [totalAmountCollected, setTotalAmountCollected] = useState<number | null>(null);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
 
+  // Abort controller for cancelling stale order fetches on group switch
+  const loadOrdersAbortRef = useRef<AbortController | null>(null);
+
   // Payment step state
   const [reconciliationResult, setReconciliationResult] = useState<ReconciliationResult | null>(null);
   const [selectedPaymentOption, setSelectedPaymentOption] = useState<PaymentOption | null>(null);
@@ -208,16 +211,26 @@ export function PendingReconciliationView() {
 
   // Load orders for a specific date/carrier
   const loadOrders = useCallback(async (deliveryDate: string, carrierId: string) => {
+    // Cancel any in-flight request to prevent stale data from overwriting current state
+    if (loadOrdersAbortRef.current) {
+      loadOrdersAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    loadOrdersAbortRef.current = abortController;
+
     setLoading(true);
     try {
       const response = await fetch(
         `${API_BASE}/api/settlements/pending-reconciliation/${deliveryDate}/${carrierId}`,
-        { headers: getAuthHeaders() }
+        { headers: getAuthHeaders(), signal: abortController.signal }
       );
 
       if (!response.ok) {
         throw new Error('Error al cargar los pedidos');
       }
+
+      // If this request was aborted while awaiting json(), bail out
+      if (abortController.signal.aborted) return;
 
       const result = await response.json();
       const ordersData = result.data || [];
@@ -230,6 +243,8 @@ export function PendingReconciliationView() {
       });
       setReconciliationState(initialState);
     } catch (error: any) {
+      // Don't show error toast for aborted requests (user switched groups)
+      if (error.name === 'AbortError') return;
       logger.error('[PendingReconciliation] Error loading orders:', error);
       toast({
         title: 'Error',
@@ -237,7 +252,10 @@ export function PendingReconciliationView() {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      // Only clear loading if this is still the active request
+      if (!abortController.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [toast]);
 
@@ -315,7 +333,7 @@ export function PendingReconciliationView() {
   const financialSummary = useMemo(() => {
     if (!selectedGroup) return null;
 
-    const failedFeePercent = selectedGroup.failed_attempt_fee_percent / 100;
+    const failedFeePercent = (selectedGroup.failed_attempt_fee_percent ?? 50) / 100;
 
     const totalCarrierFees = stats.deliveredCarrierFees;
     const failedAttemptFees = stats.notDeliveredCarrierFees * failedFeePercent;
@@ -421,6 +439,14 @@ export function PendingReconciliationView() {
 
       const result = await response.json();
 
+      // Show warnings if any (non-blocking issues like failed carrier movement creation)
+      if (result.warnings?.length > 0) {
+        toast({
+          title: 'Advertencia',
+          description: result.warnings.join(' '),
+        });
+      }
+
       // Save the result for payment step
       setReconciliationResult(result.data);
 
@@ -451,11 +477,11 @@ export function PendingReconciliationView() {
   const handleRegisterPayment = async () => {
     if (!reconciliationResult || !selectedPaymentOption) return;
 
-    // If pending, just go to complete without registering payment
+    // If pending, settlement already exists in DB with status 'pending' — no API call needed
     if (selectedPaymentOption === 'pending') {
       toast({
-        title: 'Liquidacion creada',
-        description: `${reconciliationResult.settlement_code} - Pago pendiente de registrar`,
+        title: 'Liquidacion guardada',
+        description: `${reconciliationResult.settlement_code} creada exitosamente. Registra el pago desde la pestana "Pagos" cuando se concrete.`,
       });
       setCurrentStep('complete');
       return;

@@ -1,9 +1,10 @@
 /**
  * Time utilities with timezone support for accurate time calculations
- * Based on user's browser timezone (from Intl.DateTimeFormat)
+ * Based on store's configured timezone (from store preferences)
  *
  * All functions include error handling to prevent crashes on invalid input
  */
+import { fromZonedTime } from 'date-fns-tz';
 
 /**
  * Get user's timezone from browser
@@ -21,6 +22,81 @@ export function getUserTimezone(): string {
  */
 export function getNow(): Date {
   return new Date();
+}
+
+/**
+ * Format a Date as YYYY-MM-DD in a specific IANA timezone.
+ * If no timezone is provided, falls back to the browser's local timezone.
+ *
+ * This avoids the common bug of using .toISOString().split('T')[0] which converts
+ * to UTC first and can shift the date backward for negative UTC offset timezones.
+ *
+ * Uses Intl.DateTimeFormat for correct timezone conversion (DST-safe).
+ */
+export function formatLocalDate(date: Date, timezone?: string): string {
+  try {
+    if (timezone) {
+      // Use Intl.DateTimeFormat to extract year/month/day in the target timezone
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(date);
+
+      const year = parts.find(p => p.type === 'year')?.value || '';
+      const month = parts.find(p => p.type === 'month')?.value || '';
+      const day = parts.find(p => p.type === 'day')?.value || '';
+      return `${year}-${month}-${day}`;
+    }
+  } catch {
+    // Invalid timezone — fall through to browser local
+  }
+
+  // Fallback: browser's local timezone
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Get the start of day (00:00:00.000) as a UTC ISO string for a given IANA timezone.
+ * Uses date-fns-tz for correct DST handling.
+ *
+ * Example: startOfDayInTimezone(new Date(), 'America/Asuncion')
+ * → if it's Feb 4 in Asuncion (UTC-3), returns "2026-02-04T03:00:00.000Z"
+ */
+export function startOfDayInTimezone(date: Date, timezone: string): string {
+  try {
+    const dateStr = formatLocalDate(date, timezone); // "2026-02-04" in store TZ
+    // fromZonedTime interprets a local time as being in the given timezone
+    // and returns the corresponding UTC instant (DST-safe)
+    const utcInstant = fromZonedTime(`${dateStr} 00:00:00`, timezone);
+    return utcInstant.toISOString();
+  } catch {
+    // Fallback: use browser local if timezone is invalid
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString();
+  }
+}
+
+/**
+ * Get the end of day (23:59:59.999) as a UTC ISO string for a given IANA timezone.
+ * Uses date-fns-tz for correct DST handling.
+ */
+export function endOfDayInTimezone(date: Date, timezone: string): string {
+  try {
+    const dateStr = formatLocalDate(date, timezone);
+    const utcInstant = fromZonedTime(`${dateStr} 23:59:59.999`, timezone);
+    return utcInstant.toISOString();
+  } catch {
+    // Fallback: use browser local if timezone is invalid
+    const d = new Date(date);
+    d.setHours(23, 59, 59, 999);
+    return d.toISOString();
+  }
 }
 
 /**

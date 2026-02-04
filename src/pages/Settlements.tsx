@@ -101,6 +101,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
@@ -373,8 +374,9 @@ const formatCurrency = (amount: number): string => {
   }).format(amount) + ' Gs';
 };
 
-// Carrier fee configuration (should come from carrier_zones in production)
-const DEFAULT_CARRIER_FEE = 25000;
+// TODO: Legacy flow uses flat-rate fee assumption. Migrate fully to delivery-based
+// reconciliation (PendingReconciliationView) which uses real per-order carrier fees.
+const LEGACY_DEFAULT_CARRIER_FEE = 25000;
 
 // Main tab type
 type MainTab = 'conciliaciones' | 'cuentas' | 'pagos';
@@ -409,6 +411,23 @@ export default function Settlements() {
   const [csvImportData, setCsvImportData] = useState<CSVImportResult | null>(null);
   const [csvFileName, setCsvFileName] = useState('');
   const [csvProcessing, setCsvProcessing] = useState(false);
+
+  // Unmatched CSV orders review state
+  const [unmatchedOrders, setUnmatchedOrders] = useState<Array<{
+    id: string;
+    order_number: string;
+    customer_name: string;
+    total_price: number;
+    cod_amount: number;
+    is_cod: boolean;
+    delivered: boolean;
+  }>>([]);
+  const [unmatchedReviewOpen, setUnmatchedReviewOpen] = useState(false);
+  const [pendingCsvProcessData, setPendingCsvProcessData] = useState<{
+    matchedGroup: CourierDateGroup;
+    ordersData: Array<{ order_id: string; delivered: boolean; failure_reason?: string; notes?: string }>;
+    totalCollected: number;
+  } | null>(null);
 
   // Carrier Accounts state (Cuentas tab)
   const [carrierBalances, setCarrierBalances] = useState<CarrierBalance[]>([]);
@@ -683,7 +702,7 @@ export default function Settlements() {
           dispatch_date: selectedGroup.dispatch_date,
           orders: ordersData,
           total_amount_collected: totalAmountCollected,
-          discrepancy_notes: discrepancyNotes || undefined,
+          discrepancy_notes: discrepancyNotes || null,
           confirm_discrepancy: confirmDiscrepancy,
         }),
       });
@@ -735,6 +754,13 @@ export default function Settlements() {
 
   // Open payment dialog for a carrier
   const openPaymentDialog = (carrier: CarrierBalance) => {
+    if (carrier.net_balance === 0) {
+      toast({
+        title: 'Sin saldo pendiente',
+        description: `${carrier.carrier_name} no tiene saldo pendiente. Usa "Crear Ajuste" si necesitas registrar un movimiento.`,
+      });
+      return;
+    }
     setPaymentCarrier(carrier);
     setPaymentAmount(Math.abs(carrier.net_balance).toString());
     setPaymentDirection(carrier.net_balance > 0 ? 'from_carrier' : 'to_carrier');
@@ -917,7 +943,7 @@ export default function Settlements() {
     // Remove common prefixes: #, ORD-, OR#, ord-, or#
     // Then convert to lowercase and trim
     return num
-      .replace(/^(ORD-|OR#|ord-|or#|#)/i, '')
+      .replace(/^(ORD-|OR#|SH#|SH-|ord-|or#|sh#|sh-|#)/i, '')
       .toLowerCase()
       .trim();
   };
@@ -996,66 +1022,107 @@ export default function Settlements() {
       }
 
       // Check for unmatched orders in the group
-      const unmatchedCount = matchedGroup.orders.length - matchedOrders.length;
-      if (unmatchedCount > 0) {
-        // Add unmatched orders as delivered (default behavior)
-        for (const order of matchedGroup.orders) {
-          const isMatched = matchedOrders.some(m => m.order.id === order.id);
-          if (!isMatched) {
-            ordersData.push({
-              order_id: order.id,
-              delivered: true, // Default to delivered if not in CSV
-            });
-            if (order.is_cod) {
-              totalCollected += order.cod_amount;
-            }
-          }
-        }
+      const unmatchedInGroup = matchedGroup.orders.filter(
+        order => !matchedOrders.some(m => m.order.id === order.id)
+      );
 
-        toast({
-          title: 'Pedidos sin datos',
-          description: `${unmatchedCount} pedido(s) no estaban en el CSV y se marcaron como entregados`,
-        });
+      if (unmatchedInGroup.length > 0) {
+        // SAFE DEFAULT: Present unmatched orders for user review instead of auto-marking
+        setUnmatchedOrders(unmatchedInGroup.map(order => ({
+          id: order.id,
+          order_number: order.order_number,
+          customer_name: order.customer_name,
+          total_price: order.total_price,
+          cod_amount: order.cod_amount,
+          is_cod: order.is_cod,
+          delivered: false, // Safe default: assume NOT delivered if courier didn't report it
+        })));
+        setPendingCsvProcessData({ matchedGroup, ordersData, totalCollected });
+        setCsvImportDialogOpen(false);
+        setUnmatchedReviewOpen(true);
+        setCsvProcessing(false);
+        return; // Pause - user must review before continuing
       }
 
-      // Process reconciliation
-      const response = await fetch(`${API_BASE}/api/settlements/manual-reconciliation`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          carrier_id: matchedGroup.carrier_id,
-          dispatch_date: matchedGroup.dispatch_date,
-          orders: ordersData,
-          total_amount_collected: totalCollected,
-          discrepancy_notes: `Importado desde CSV: ${csvFileName}`,
-          confirm_discrepancy: true, // Auto-confirm since data comes from courier
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Error al procesar la conciliacion');
-      }
-
-      const result = await response.json();
-
-      toast({
-        title: 'Importacion exitosa',
-        description: `Liquidacion ${result.data.settlement_code} creada con ${matchedOrders.length} pedidos`,
-      });
-
-      // Mark first action completed
-      onboardingService.markFirstActionCompleted('settlements');
-
-      // Close dialog and reload
-      setCsvImportDialogOpen(false);
-      setCsvImportData(null);
-      loadGroups();
+      // No unmatched orders — proceed directly
+      await submitCsvReconciliation(matchedGroup, ordersData, totalCollected);
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Error',
         description: error.message || 'No se pudo procesar el archivo CSV',
+      });
+    } finally {
+      setCsvProcessing(false);
+    }
+  };
+
+  // Submit CSV reconciliation to backend (shared by direct and post-review flows)
+  const submitCsvReconciliation = async (
+    group: CourierDateGroup,
+    ordersData: Array<{ order_id: string; delivered: boolean; failure_reason?: string; notes?: string }>,
+    totalCollected: number
+  ) => {
+    const response = await fetch(`${API_BASE}/api/settlements/manual-reconciliation`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        carrier_id: group.carrier_id,
+        dispatch_date: group.dispatch_date,
+        orders: ordersData,
+        total_amount_collected: totalCollected,
+        discrepancy_notes: `Importado desde CSV: ${csvFileName}`,
+        confirm_discrepancy: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Error al procesar la conciliacion');
+    }
+
+    const result = await response.json();
+
+    toast({
+      title: 'Importacion exitosa',
+      description: `Liquidacion ${result.data.settlement_code} creada con ${ordersData.length} pedidos`,
+    });
+
+    onboardingService.markFirstActionCompleted('settlements');
+    setCsvImportDialogOpen(false);
+    setCsvImportData(null);
+    setUnmatchedReviewOpen(false);
+    setPendingCsvProcessData(null);
+    setUnmatchedOrders([]);
+    loadGroups();
+  };
+
+  // Handle confirmation of unmatched orders after user review
+  const handleConfirmUnmatchedOrders = async () => {
+    if (!pendingCsvProcessData) return;
+    setCsvProcessing(true);
+
+    try {
+      const { matchedGroup, ordersData, totalCollected } = pendingCsvProcessData;
+      let adjustedTotal = totalCollected;
+
+      // Add user's decisions for each unmatched order
+      for (const unmatched of unmatchedOrders) {
+        ordersData.push({
+          order_id: unmatched.id,
+          delivered: unmatched.delivered,
+        });
+        if (unmatched.delivered && unmatched.is_cod) {
+          adjustedTotal += unmatched.cod_amount;
+        }
+      }
+
+      await submitCsvReconciliation(matchedGroup, ordersData, adjustedTotal);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'No se pudo procesar la conciliacion',
       });
     } finally {
       setCsvProcessing(false);
@@ -1369,6 +1436,103 @@ export default function Settlements() {
                   <>
                     <CheckCircle2 className="h-4 w-4" />
                     Procesar Importacion
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Unmatched CSV Orders Review Dialog */}
+        <Dialog open={unmatchedReviewOpen} onOpenChange={(open) => {
+          if (!open) {
+            setUnmatchedReviewOpen(false);
+            setPendingCsvProcessData(null);
+            setUnmatchedOrders([]);
+          }
+        }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                Pedidos Sin Datos en CSV
+              </DialogTitle>
+              <DialogDescription>
+                {unmatchedOrders.length} pedido(s) del despacho no aparecen en el archivo CSV.
+                Por seguridad, se asumen como <span className="font-semibold text-foreground">no entregados</span>.
+                Marca los que si fueron entregados.
+              </DialogDescription>
+            </DialogHeader>
+
+            <ScrollArea className="max-h-64">
+              <div className="space-y-2">
+                {unmatchedOrders.map((order, idx) => (
+                  <div
+                    key={order.id}
+                    className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${
+                      order.delivered
+                        ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+                        : 'bg-muted/30 border-border'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">#{order.order_number}</p>
+                      <p className="text-xs text-muted-foreground truncate">{order.customer_name}</p>
+                      {order.is_cod && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                          COD: {formatCurrency(order.cod_amount)}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 ml-3">
+                      <Checkbox
+                        id={`unmatched-${order.id}`}
+                        checked={order.delivered}
+                        onCheckedChange={(checked) => {
+                          setUnmatchedOrders(prev => prev.map((o, i) =>
+                            i === idx ? { ...o, delivered: !!checked } : o
+                          ));
+                        }}
+                      />
+                      <label htmlFor={`unmatched-${order.id}`} className="text-sm cursor-pointer select-none">
+                        Entregado
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+
+            {unmatchedOrders.some(o => o.delivered && o.is_cod) && (
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
+                  {unmatchedOrders.filter(o => o.delivered && o.is_cod).length} pedido(s) COD marcados como
+                  entregados sumaran {formatCurrency(
+                    unmatchedOrders.filter(o => o.delivered && o.is_cod).reduce((sum, o) => sum + o.cod_amount, 0)
+                  )} al total cobrado.
+                </p>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => {
+                setUnmatchedReviewOpen(false);
+                setPendingCsvProcessData(null);
+                setUnmatchedOrders([]);
+              }}>
+                Cancelar
+              </Button>
+              <Button onClick={handleConfirmUnmatchedOrders} disabled={csvProcessing} className="gap-2">
+                {csvProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Confirmar y Procesar
                   </>
                 )}
               </Button>
@@ -1983,8 +2147,8 @@ export default function Settlements() {
           totalNotDelivered={stats.notDelivered}
           totalCodExpected={stats.codExpected}
           totalCodCollected={totalAmountCollected || 0}
-          carrierFeePerDelivery={DEFAULT_CARRIER_FEE}
-          failedAttemptFeeRate={(selectedGroup.failed_attempt_fee_percent ?? 50) / 100}
+          totalCarrierFees={stats.delivered * LEGACY_DEFAULT_CARRIER_FEE}
+          totalFailedAttemptFees={stats.notDelivered * (LEGACY_DEFAULT_CARRIER_FEE * ((selectedGroup.failed_attempt_fee_percent ?? 50) / 100))}
           discrepancyNotes={discrepancyNotes}
           onConfirm={handleConfirmReconciliation}
           onCancel={handleBack}
