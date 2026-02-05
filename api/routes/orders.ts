@@ -766,20 +766,44 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         }
 
-        // Text search (customer name, phone, shopify order name)
+        // Text search (customer name, phone, shopify order name, order ID, shopify order number)
         if (search) {
             const searchStr = (search as string).trim();
+            console.log('[ORDERS SEARCH] Received search query:', searchStr);
             if (searchStr.length > 0) {
-                // Sanitize for PostgREST filter syntax safety:
-                // - %_ are LIKE wildcards
-                // - ,. are PostgREST operator delimiters
-                // - () are PostgREST grouping
-                // - \ is escape char
-                const searchClean = searchStr.replace(/[%_.,()\\]/g, '');
-                if (searchClean.length > 0) {
-                    query = query.or(
-                        `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%`
-                    );
+                // Check if search string is a UUID (for exact ID search)
+                const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                const isUUID = uuidRegex.test(searchStr);
+
+                if (isUUID) {
+                    // Exact UUID search
+                    query = query.eq('id', searchStr);
+                } else {
+                    // Sanitize for PostgREST filter syntax safety
+                    const searchClean = searchStr.replace(/[%_.,()\\]/g, '');
+                    if (searchClean.length > 0) {
+                        // Split search into words for better full name matching
+                        // e.g., "Juan Perez" → search for "Juan" AND "Perez" in any name field
+                        const words = searchClean.split(/\s+/).filter(w => w.length > 0);
+
+                        if (words.length > 1) {
+                            // Multiple words: search each word in both first and last name (AND logic)
+                            // This allows "Juan Perez" to match first_name="Juan" + last_name="Perez"
+                            const nameConditions = words.map(word =>
+                                `customer_first_name.ilike.%${word}%,customer_last_name.ilike.%${word}%`
+                            ).join(',');
+
+                            // Also search in phone, shopify fields (but these are single-word matches)
+                            query = query.or(
+                                `${nameConditions},customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`
+                            );
+                        } else {
+                            // Single word: search in all fields
+                            query = query.or(
+                                `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1144,7 +1168,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         .from('customers')
                         .select('id')
                         .eq('store_id', req.storeId)
-                        .or(`phone.eq.${customer_phone},email.eq.${customer_email}`)
+                        .or(`phone.eq.${(customer_phone || '').replace(/[,().]/g, '')},email.eq.${(customer_email || '').replace(/[,().]/g, '')}`)
                         .maybeSingle();
 
                     if (existingByPhone) {

@@ -880,7 +880,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [currentRole]);
 
-  const value = {
+  const value = useMemo(() => ({
     user,
     currentStore,
     stores,
@@ -895,7 +895,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     createStore,
     deleteStore,
     permissions,
-  };
+  }), [user, currentStore, stores, loading, permissions]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

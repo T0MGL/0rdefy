@@ -548,7 +548,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
 
   // ==================== CONTEXT VALUE ====================
 
-  const value: WarehouseContextValue = {
+  const value: WarehouseContextValue = useMemo(() => ({
     ...state,
     progress,
 
@@ -593,7 +593,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     canProceedToPacking,
     canCompleteSession,
     unprintedOrders,
-  };
+  }), [state, progress, goToStep, goBack, reset, toggleOrderSelection, selectAllOrders, clearSelection, createSession, resumeSession, updatePickingQuantity, markItemComplete, markItemOutOfStock, finishPicking, packItem, packAllItems, goToNextOrder, goToPreviousOrder, goToOrder, printLabel, printAllLabels, completeSession, loadConfirmedOrders, loadActiveSessions, currentOrder, canProceedToPacking, canCompleteSession, unprintedOrders]);
 
   return (
     <WarehouseContext.Provider value={value}>

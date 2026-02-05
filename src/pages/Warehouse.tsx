@@ -48,14 +48,13 @@ import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 
 type View = 'dashboard' | 'picking' | 'packing';
 
-// TIMEOUT FIX: Helper function to add timeout to promises
+// TIMEOUT FIX: Helper function to add timeout to promises (with timer cleanup)
 const withTimeout = <T,>(promise: Promise<T>, ms: number, operation: string): Promise<T> => {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout: ${operation} tardó más de ${ms / 1000}s`)), ms)
-    )
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`Timeout: ${operation} tardó más de ${ms / 1000}s`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
 };
 
 // Default timeout for warehouse operations (90 seconds)

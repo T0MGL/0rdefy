@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS customers (
     last_name VARCHAR(255),
     name VARCHAR(255),
     address TEXT,
-    city VARCHAR(100),
+    city VARCHAR(150),  -- Migration 124: Increased from 100 to 150 to handle long city names from webhooks
     state VARCHAR(100),
     postal_code VARCHAR(20),
     country VARCHAR(100),

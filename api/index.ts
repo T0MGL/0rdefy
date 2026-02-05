@@ -346,29 +346,40 @@ app.use((req: any, res: Response, next: NextFunction) => {
     const isWebhookRoute = req.path.startsWith('/api/shopify/webhook/') ||
         req.path.startsWith('/api/shopify/webhooks/');
 
-    // DEBUG: Log all webhook-like paths to verify middleware is capturing them
-    if (req.path.includes('webhook') || req.path.includes('orders')) {
-        logger.info('RAWBODY_MIDDLEWARE', `[DEBUG] Path: ${req.path}, isWebhookRoute: ${isWebhookRoute}, Method: ${req.method}`);
-    }
-
     if (isWebhookRoute) {
+        const MAX_WEBHOOK_BODY_SIZE = 2 * 1024 * 1024; // 2MB limit
         let data = '';
+        let oversized = false;
         req.setEncoding('utf8');
         req.on('data', (chunk: string) => {
             data += chunk;
+            if (data.length > MAX_WEBHOOK_BODY_SIZE) {
+                oversized = true;
+                req.destroy();
+            }
         });
         req.on('end', () => {
+            if (oversized) {
+                logger.warn('RAWBODY_MIDDLEWARE', `Webhook body exceeded ${MAX_WEBHOOK_BODY_SIZE} bytes, rejected`);
+                if (!res.headersSent) res.status(413).json({ error: 'Payload too large' });
+                return;
+            }
             req.rawBody = data;
-            // DEBUG: Log rawBody capture
-            logger.info('RAWBODY_MIDDLEWARE', `[DEBUG] Captured rawBody for ${req.path}, length: ${data.length}`);
-            // Parse JSON manually for webhook routes
             try {
                 req.body = JSON.parse(data);
             } catch (e) {
-                logger.error('❌ Failed to parse webhook JSON:', e);
+                logger.warn('RAWBODY_MIDDLEWARE', 'Failed to parse webhook JSON');
                 req.body = {};
             }
             next();
+        });
+        req.on('error', (err: Error) => {
+            if (oversized) {
+                if (!res.headersSent) res.status(413).json({ error: 'Payload too large' });
+                return;
+            }
+            logger.error('RAWBODY_MIDDLEWARE', 'Request stream error', err);
+            next(err);
         });
     } else {
         next();
@@ -696,12 +707,15 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
         });
     }
 
-    // Default error response
+    // Default error response - don't leak internal details in production
+    const isProd = process.env.NODE_ENV === 'production';
     res.status(err.status || 500).json({
         error: err.name || 'Internal Server Error',
-        message: err.message || 'An unexpected error occurred',
+        message: isProd && (!err.status || err.status >= 500)
+            ? 'An unexpected error occurred'
+            : (err.message || 'An unexpected error occurred'),
         timestamp: new Date().toISOString(),
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+        ...(!isProd && { stack: err.stack })
     });
 });
 

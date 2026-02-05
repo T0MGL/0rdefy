@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useMemo, ReactNode, useEffect, useCallback } from 'react';
 import { logger } from '@/utils/logger';
 
 export type DateRangeValue = 'today' | '7d' | '30d' | 'custom';
@@ -78,16 +78,16 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRange, customRange]);
 
+  const value = useMemo(() => ({
+    selectedRange,
+    setSelectedRange,
+    customRange,
+    setCustomRange,
+    getDateRange,
+  }), [selectedRange, customRange, getDateRange]);
+
   return (
-    <DateRangeContext.Provider
-      value={{
-        selectedRange,
-        setSelectedRange,
-        customRange,
-        setCustomRange,
-        getDateRange,
-      }}
-    >
+    <DateRangeContext.Provider value={value}>
       {children}
     </DateRangeContext.Provider>
   );

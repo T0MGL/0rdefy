@@ -320,10 +320,13 @@ const validateHmac = (query: any, secret: string): boolean => {
   logger.info('API', '🔐 [HMAC] Received:', hmac);
 
   // Step 3: Compare with received HMAC (timing-safe comparison)
-  const isValid = crypto.timingSafeEqual(
-    Buffer.from(hash),
-    Buffer.from(hmac as string)
-  );
+  const hashBuf = Buffer.from(hash);
+  const hmacBuf = Buffer.from(hmac as string);
+  if (hashBuf.length !== hmacBuf.length) {
+    logger.info('API', '❌ [HMAC] Invalid (length mismatch)');
+    return false;
+  }
+  const isValid = crypto.timingSafeEqual(hashBuf, hmacBuf);
 
   logger.info('API', isValid ? '✅ [HMAC] Valid' : '❌ [HMAC] Invalid');
   return isValid;

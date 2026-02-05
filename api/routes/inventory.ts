@@ -100,7 +100,12 @@ inventoryRouter.get('/movements', async (req: AuthRequest, res: Response) => {
 
         // If there's a search term, we need to fetch products first and filter
         if (search) {
-            const searchTerm = (search as string).toLowerCase();
+            const { sanitizeSearchInput } = require('../utils/sanitize');
+            const searchTerm = sanitizeSearchInput((search as string).toLowerCase());
+
+            if (!searchTerm) {
+                return res.json({ data: [], count: 0, limit: limitNum, offset: offsetNum });
+            }
 
             // Get products matching the search
             const { data: matchingProducts } = await supabaseAdmin

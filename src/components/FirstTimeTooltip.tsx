@@ -129,16 +129,18 @@ export function FirstTimeTooltip({
 
   async function checkFirstVisit() {
     setIsLoading(true);
+    let mounted = true;
     try {
       // Use async API call to get accurate state from database
       const isFirstVisit = await onboardingService.shouldShowTipAsync(moduleId);
-      setIsVisible(isFirstVisit);
+      if (mounted) setIsVisible(isFirstVisit);
     } catch {
       // On error, default to not showing
-      setIsVisible(false);
+      if (mounted) setIsVisible(false);
     } finally {
-      setIsLoading(false);
+      if (mounted) setIsLoading(false);
     }
+    return () => { mounted = false; };
   }
 
   async function handleDismiss() {

@@ -243,6 +243,14 @@ router.post(
         });
       }
 
+      // Validate base64 size (5MB limit - matches multer config)
+      const MAX_BASE64_SIZE = 5 * 1024 * 1024 * 1.37; // ~6.85MB in base64 encoding
+      if (base64.length > MAX_BASE64_SIZE) {
+        return res.status(413).json({
+          error: 'Image too large. Maximum size is 5MB.'
+        });
+      }
+
       const validBuckets = ['avatars', 'products', 'merchandise'];
       if (!validBuckets.includes(bucket)) {
         return res.status(400).json({
