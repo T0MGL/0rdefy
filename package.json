@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "author": "Bright Idea",
-  "description": "Ordefy - E-commerce management dashboard - Developed by Bright Idea",
+  "description": "Ordefy - E-commerce management dashboard - Developed by Bright Idea - Deploy: 2026-02-10",
   "engines": {
     "node": ">=20.0.0"
   },
