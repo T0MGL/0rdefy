@@ -663,7 +663,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             startDate,
             endDate,
             show_test = 'true',        // Filter for test orders
-            show_deleted = 'true'      // Show soft-deleted orders (with opacity)
+            show_deleted = 'true',     // Show soft-deleted orders (with opacity)
+            scheduled_filter = 'all'   // Filter for scheduled deliveries: 'all' | 'scheduled' | 'ready'
         } = req.query;
 
         // Build query - OPTIMIZED (Migration 083)
@@ -750,6 +751,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         }
 
         if (status) {
+            console.log('[ORDERS FILTER] Status filter:', status);
             query = query.eq('sleeves_status', status);
         }
 
@@ -760,7 +762,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 query = query.eq('is_pickup', true);
             } else if (carrierStr === 'none') {
                 // Orders without carrier and NOT pickup (is_pickup can be NULL or false)
-                query = query.is('courier_id', null).or('is_pickup.is.null,is_pickup.eq.false');
+                // Use .is() for courier_id NULL check combined with .in() for is_pickup values
+                query = query.is('courier_id', null).in('is_pickup', [null, false]);
             } else {
                 query = query.eq('courier_id', carrierStr);
             }
@@ -779,26 +782,28 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     // Exact UUID search
                     query = query.eq('id', searchStr);
                 } else {
-                    // Sanitize for PostgREST filter syntax safety
-                    const searchClean = searchStr.replace(/[%_.,()\\]/g, '');
+                    // Sanitize for PostgREST filter syntax safety - only remove SQL wildcards
+                    // Keep common chars like ().-,# for phone/address searches
+                    const searchClean = searchStr.replace(/[%_\\]/g, '').trim();
                     if (searchClean.length > 0) {
-                        // Split search into words for better full name matching
-                        // e.g., "Juan Perez" → search for "Juan" AND "Perez" in any name field
+                        // Search using full phrase in all fields (more accurate than word-by-word OR)
+                        // This ensures "Juan Perez" only matches customers with both words in their name
+                        // Split into words for additional individual word search
                         const words = searchClean.split(/\s+/).filter(w => w.length > 0);
 
                         if (words.length > 1) {
-                            // Multiple words: search each word in both first and last name (AND logic)
-                            // This allows "Juan Perez" to match first_name="Juan" + last_name="Perez"
-                            const nameConditions = words.map(word =>
-                                `customer_first_name.ilike.%${word}%,customer_last_name.ilike.%${word}%`
-                            ).join(',');
+                            // Multiple words: search full phrase + individual words with priority to full phrase
+                            // Strategy: Use full phrase match for better precision
+                            // Full phrase in first name, last name, or phone
+                            const fullPhraseCondition = `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%`;
 
-                            // Also search in phone, shopify fields (but these are single-word matches)
-                            query = query.or(
-                                `${nameConditions},customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`
-                            );
+                            // Also search in order fields (shopify_order_name, shopify_order_number)
+                            const orderFieldsCondition = `shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`;
+
+                            // Combine all conditions
+                            query = query.or(`${fullPhraseCondition},${orderFieldsCondition}`);
                         } else {
-                            // Single word: search in all fields
+                            // Single word: search in all fields as before
                             query = query.or(
                                 `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`
                             );
@@ -828,14 +833,42 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 // Full ISO timestamp (includes end-of-day time) - use directly
                 query = query.lte('created_at', endStr);
             } else {
-                // Legacy YYYY-MM-DD format - add one day to include the full day
+                // Legacy YYYY-MM-DD format - add one day and use lte to include the full last day
                 const endDateTime = new Date(endStr);
                 endDateTime.setDate(endDateTime.getDate() + 1);
-                query = query.lt('created_at', endDateTime.toISOString());
+                query = query.lte('created_at', endDateTime.toISOString());
             }
         }
 
+        // Scheduled delivery filter (Migration 125: server-side filtering)
+        // Uses JSONB field with functional index for performance
+        if (scheduled_filter === 'scheduled') {
+            // Show only orders with future delivery restriction
+            // Filter: delivery_preferences.not_before_date > TODAY
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            query = query
+                .not('delivery_preferences', 'is', null)
+                .gt('delivery_preferences->not_before_date', today);
+        } else if (scheduled_filter === 'ready') {
+            // Show only orders ready to deliver (no future restriction or no delivery_preferences)
+            // Filter: delivery_preferences IS NULL OR not_before_date <= TODAY
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            query = query.or(
+                `delivery_preferences.is.null,delivery_preferences->not_before_date.lte.${today}`
+            );
+        }
+        // 'all' = no filter applied
+
         const { data, error, count } = await query;
+
+        console.log('[ORDERS QUERY] Results:', {
+            status: status || 'none',
+            search: search || 'none',
+            carrier_id: carrier_id || 'none',
+            count: count,
+            resultsLength: data?.length || 0,
+            error: error?.message || 'none'
+        });
 
         if (error) {
             throw error;

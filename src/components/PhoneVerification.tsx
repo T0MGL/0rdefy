@@ -30,13 +30,12 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
   const [demoMode, setDemoMode] = useState(false);
   const [demoCode, setDemoCode] = useState('');
 
-  // Countdown timer
+  // Countdown timer - FIXED: Remove timeRemaining from dependencies to prevent recreation
   useEffect(() => {
     if (step === 'code' && timeRemaining > 0) {
       const timer = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev <= 1) {
-            clearInterval(timer);
             setError('El código ha expirado. Solicita uno nuevo.');
             setCanResend(true);
             return 0;
@@ -47,9 +46,9 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
 
       return () => clearInterval(timer);
     }
-  }, [step, timeRemaining]);
+  }, [step]); // ✅ FIXED: Only depend on step, not timeRemaining
 
-  // Enable resend after 60 seconds
+  // Enable resend after 60 seconds - FIXED: Remove canResend from dependencies
   useEffect(() => {
     if (step === 'code' && !canResend) {
       const timer = setTimeout(() => {
@@ -58,7 +57,7 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
 
       return () => clearTimeout(timer);
     }
-  }, [step, canResend]);
+  }, [step]); // ✅ FIXED: Only depend on step, not canResend
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

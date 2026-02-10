@@ -104,6 +104,9 @@ export default function Warehouse() {
 
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
 
+  // ✅ FIXED: Track if component is mounted to prevent state updates after unmount
+  const isMountedRef = useRef<boolean>(true);
+
   // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
@@ -136,18 +139,27 @@ export default function Warehouse() {
         warehouseService.getConfirmedOrders(),
         warehouseService.getActiveSessions(),
       ]);
-      setConfirmedOrders(orders);
-      setActiveSessions(sessions);
+      // ✅ FIXED: Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setConfirmedOrders(orders);
+        setActiveSessions(sessions);
+      }
     } catch (error) {
       logger.error('Error loading dashboard data:', error);
-      showErrorToast(toast, error, {
-        module: 'warehouse',
-        action: 'load_dashboard',
-        entity: 'datos del almacén',
-        variant: 'destructive',
-      });
+      // ✅ FIXED: Only show toast if component is still mounted
+      if (isMountedRef.current) {
+        showErrorToast(toast, error, {
+          module: 'warehouse',
+          action: 'load_dashboard',
+          entity: 'datos del almacén',
+          variant: 'destructive',
+        });
+      }
     } finally {
-      setLoading(false);
+      // ✅ FIXED: Only update loading state if component is still mounted
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [toast]);
 
@@ -161,19 +173,28 @@ export default function Warehouse() {
         OPERATION_TIMEOUT,
         'cargar lista de picking'
       );
-      setPickingList(data.items);
-      setSessionOrders(data.orders);
+      // ✅ FIXED: Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setPickingList(data.items);
+        setSessionOrders(data.orders);
+      }
     } catch (error: any) {
       logger.error('Error loading picking list:', error);
-      toast({
-        title: 'Error',
-        description: error.message?.includes('Timeout')
-          ? 'La operación tardó demasiado. Por favor, intenta de nuevo.'
-          : 'No se pudo cargar la lista de picking',
-        variant: 'destructive',
-      });
+      // ✅ FIXED: Only show toast if component is still mounted
+      if (isMountedRef.current) {
+        toast({
+          title: 'Error',
+          description: error.message?.includes('Timeout')
+            ? 'La operación tardó demasiado. Por favor, intenta de nuevo.'
+            : 'No se pudo cargar la lista de picking',
+          variant: 'destructive',
+        });
+      }
     } finally {
-      setLoading(false);
+      // ✅ FIXED: Only update loading state if component is still mounted
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [currentSession, toast]);
 
@@ -187,20 +208,37 @@ export default function Warehouse() {
         OPERATION_TIMEOUT,
         'cargar lista de empaque'
       );
-      setPackingData(data);
+      // ✅ FIXED: Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setPackingData(data);
+      }
     } catch (error: any) {
       logger.error('Error loading packing list:', error);
-      toast({
-        title: 'Error',
-        description: error.message?.includes('Timeout')
-          ? 'La operación tardó demasiado. Por favor, intenta de nuevo.'
-          : 'No se pudo cargar la lista de empaque',
-        variant: 'destructive',
-      });
+      // ✅ FIXED: Only show toast if component is still mounted
+      if (isMountedRef.current) {
+        toast({
+          title: 'Error',
+          description: error.message?.includes('Timeout')
+            ? 'La operación tardó demasiado. Por favor, intenta de nuevo.'
+            : 'No se pudo cargar la lista de empaque',
+          variant: 'destructive',
+        });
+      }
     } finally {
-      setLoading(false);
+      // ✅ FIXED: Only update loading state if component is still mounted
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [currentSession, toast]);
+
+  // ✅ FIXED: Set mounted flag and cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Load dashboard data when entering dashboard view
   useEffect(() => {

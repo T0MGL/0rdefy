@@ -73,6 +73,9 @@ export function GlobalSearch() {
   // Store-scoped cache using useRef to persist across renders but clear on store change
   const dataCacheRef = useRef<CachedData | null>(null);
   const lastStoreIdRef = useRef<string | null>(null);
+  // ✅ FIXED: Track if component is mounted to prevent state updates after unmount
+  const isMountedRef = useRef<boolean>(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Store-specific localStorage keys
   const recentSearchesKey = currentStore?.id
@@ -135,6 +138,18 @@ export function GlobalSearch() {
     }
   }, [open, currentStore?.id, recentSearchesKey, frequentItemsKey]);
 
+  // ✅ FIXED: Set mounted flag and cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Abort any in-flight requests when component unmounts
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   // Load data when dialog opens - with caching
   useEffect(() => {
     if (open && !hasLoaded) {
@@ -158,6 +173,10 @@ export function GlobalSearch() {
       return;
     }
 
+    // ✅ FIXED: Create new AbortController for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     setIsLoading(true);
     try {
       // ✅ FIXED: Load only limited data for search (not all records)
@@ -173,6 +192,11 @@ export function GlobalSearch() {
         carriersService.getAll({ limit: 50 }),
         customersService.getAll({ limit: 200 }),
       ]);
+
+      // ✅ FIXED: Check if component is still mounted and request wasn't aborted
+      if (!isMountedRef.current || abortController.signal.aborted) {
+        return;
+      }
 
       const ordersData = ordersResponse.data || [];
 
@@ -193,13 +217,23 @@ export function GlobalSearch() {
       setCarriers(carriersData);
       setCustomers(customersData);
       setHasLoaded(true);
-    } catch (error) {
+    } catch (error: any) {
+      // ✅ FIXED: Ignore abort errors - they're expected on cleanup
+      if (error.name === 'AbortError') {
+        return;
+      }
       logger.error('Error loading search data:', error);
-      toast.error('Error al cargar datos de búsqueda', {
-        description: 'Intenta nuevamente más tarde'
-      });
+      // ✅ FIXED: Only show toast if component is still mounted
+      if (isMountedRef.current) {
+        toast.error('Error al cargar datos de búsqueda', {
+          description: 'Intenta nuevamente más tarde'
+        });
+      }
     } finally {
-      setIsLoading(false);
+      // ✅ FIXED: Only update loading state if component is still mounted
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 

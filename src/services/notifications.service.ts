@@ -125,15 +125,25 @@ class NotificationsService {
 
   /**
    * Subscribe to notification updates (for components)
-   * Includes defensive limit to prevent memory leaks from unremoved listeners
+   * ✅ FIXED: Defensive limit to prevent memory leaks WITHOUT nuclear cleanup
+   * If limit reached, logs warning but allows natural cleanup via component unmount
    */
   subscribe(listener: NotificationListener): () => void {
-    const MAX_LISTENERS = 100;
+    const MAX_LISTENERS = 200; // ✅ FIXED: Increased limit (was 100)
+
     if (this.listeners.size >= MAX_LISTENERS) {
-      console.warn(`NotificationsService: Max listeners (${MAX_LISTENERS}) reached, clearing stale listeners`);
-      this.listeners.clear();
+      // ✅ FIXED: Log warning but DON'T clear all listeners
+      // Let components cleanup naturally when they unmount
+      console.error(
+        `NotificationsService: Max listeners (${MAX_LISTENERS}) reached. ` +
+        `This indicates a memory leak - components are not cleaning up subscriptions. ` +
+        `Current count: ${this.listeners.size}`
+      );
+      // Continue anyway - better to have too many listeners than to break the UI
     }
+
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };

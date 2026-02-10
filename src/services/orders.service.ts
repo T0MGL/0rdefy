@@ -41,6 +41,7 @@ export const ordersService = {
     status?: string;
     carrier_id?: string;
     search?: string;
+    scheduled_filter?: 'all' | 'scheduled' | 'ready';
   }): Promise<OrdersResponse> => {
     try {
       const queryParams = new URLSearchParams();
@@ -51,6 +52,7 @@ export const ordersService = {
       if (params?.status) queryParams.append('status', params.status);
       if (params?.carrier_id) queryParams.append('carrier_id', params.carrier_id);
       if (params?.search) queryParams.append('search', params.search);
+      if (params?.scheduled_filter) queryParams.append('scheduled_filter', params.scheduled_filter);
 
       const url = `${API_BASE_URL}/orders${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const response = await fetch(url, {

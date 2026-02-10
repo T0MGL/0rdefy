@@ -41,7 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star, StickyNote } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star, StickyNote, X } from 'lucide-react';
 import { format, isAfter, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -273,14 +273,15 @@ export default function Orders() {
     };
   }, [getDateRange, storeTimezone]);
 
-  // Build server-side filter params (status + carrier sent to API for correct pagination)
+  // Build server-side filter params (status + carrier + scheduled sent to API for correct pagination)
   const serverFilters = useMemo(() => {
-    const filters: { status?: string; carrier_id?: string; search?: string } = {};
+    const filters: { status?: string; carrier_id?: string; search?: string; scheduled_filter?: 'all' | 'scheduled' | 'ready' } = {};
     if (chipFilters.status) filters.status = chipFilters.status;
     if (carrierFilter !== 'all') filters.carrier_id = carrierFilter;
     if (debouncedSearch) filters.search = debouncedSearch;
+    if (scheduledFilter !== 'all') filters.scheduled_filter = scheduledFilter;
     return filters;
-  }, [chipFilters.status, carrierFilter, debouncedSearch]);
+  }, [chipFilters.status, carrierFilter, debouncedSearch, scheduledFilter]);
 
   // Use refs for stable queryFn (avoids recreating polling interval)
   const dateParamsRef = useRef(dateParams);
@@ -1183,20 +1184,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   // since server-side filtering would hide carriers not in current result set)
   const carriersForFilter = carriers;
 
+  // ALL filters now server-side (Migration 125) - no client-side filtering needed
+  // filteredOrders is now just orders (all filtering done in API)
   const filteredOrders = useMemo(() => {
-    // Status, carrier, and search are now filtered server-side.
-    // Only scheduledFilter remains client-side (JSONB field not easily queryable).
-    return orders.filter(order => {
-      // Aplicar filtro de pedidos programados (client-side only)
-      if (scheduledFilter !== 'all') {
-        const scheduled = getScheduledDeliveryInfo(order);
-        if (scheduledFilter === 'scheduled' && !scheduled.isScheduled) return false;
-        if (scheduledFilter === 'ready' && scheduled.isScheduled) return false;
-      }
-
-      return true;
-    });
-  }, [orders, scheduledFilter]);
+    return orders;
+  }, [orders]);
 
   // Export filename: StoreName DD.MM.YYYY
   const exportFilename = useMemo(() => {
@@ -1520,6 +1512,23 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             >
               <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
             </Button>
+            {/* Clear Filters Button - Always visible when filters active */}
+            {(chipFilters.status || carrierFilter !== 'all' || search || scheduledFilter !== 'all') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setChipFilters({});
+                  setCarrierFilter('all');
+                  setSearch('');
+                  setScheduledFilter('all');
+                }}
+                className="gap-2 text-xs h-7 px-3 border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/20"
+              >
+                <X size={14} />
+                Limpiar Filtros
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1673,6 +1682,37 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       {
         viewMode === 'calendar' ? (
           <OrdersCalendar />
+        ) : filteredOrders.length === 0 ? (
+          // No results with active filters
+          <Card className="p-12">
+            <div className="flex flex-col items-center justify-center text-center space-y-4">
+              <div className="rounded-full bg-orange-100 dark:bg-orange-900/20 p-4">
+                <Search className="h-8 w-8 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">No se encontraron pedidos</h3>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  {chipFilters.status && `Estado: ${chipFilters.status}`}
+                  {carrierFilter !== 'all' && ` • Transportadora seleccionada`}
+                  {search && ` • Búsqueda: "${search}"`}
+                  {scheduledFilter !== 'all' && ` • Filtro de programación activo`}
+                </p>
+              </div>
+              <Button
+                onClick={() => {
+                  setChipFilters({});
+                  setCarrierFilter('all');
+                  setSearch('');
+                  setScheduledFilter('all');
+                }}
+                variant="outline"
+                className="gap-2"
+              >
+                <X size={16} />
+                Limpiar Filtros
+              </Button>
+            </div>
+          </Card>
         ) : (
           <Card className="overflow-hidden" data-tour-target="orders-table">
             <div className="overflow-x-auto">

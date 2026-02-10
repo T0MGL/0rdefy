@@ -153,7 +153,10 @@ export function OrderConfirmationDialog({
 
   // Fetch fresh store settings when dialog opens (ensures separate_confirmation_flow is current)
   // This prevents stale localStorage data from showing wrong UI to confirmadores
+  // ✅ FIXED: Added AbortController to prevent race conditions when dialog opens/closes quickly
   useEffect(() => {
+    const abortController = new AbortController();
+
     const fetchStoreSettings = async () => {
       if (!open) {
         setLoadingSeparateFlow(true);
@@ -177,8 +180,14 @@ export function OrderConfirmationDialog({
               'Authorization': `Bearer ${token}`,
               'X-Store-ID': storeId,
             },
+            signal: abortController.signal, // ✅ FIXED: Add abort signal
           }
         );
+
+        // ✅ FIXED: Check if aborted before updating state
+        if (abortController.signal.aborted) {
+          return;
+        }
 
         if (response.ok) {
           const { data } = await response.json();
@@ -197,17 +206,29 @@ export function OrderConfirmationDialog({
           setSeparateFlowEnabled(currentStore?.separate_confirmation_flow === true);
           setUserRoleFromApi(null); // Will use cached currentStore.role
         }
-      } catch (error) {
+      } catch (error: any) {
+        // ✅ FIXED: Ignore abort errors - they're expected on cleanup
+        if (error.name === 'AbortError') {
+          return;
+        }
         logger.error('Error fetching store settings:', error);
         // Fallback to cached values
         setSeparateFlowEnabled(currentStore?.separate_confirmation_flow === true);
         setUserRoleFromApi(null); // Will use cached currentStore.role
       } finally {
-        setLoadingSeparateFlow(false);
+        // ✅ FIXED: Only update loading state if not aborted
+        if (!abortController.signal.aborted) {
+          setLoadingSeparateFlow(false);
+        }
       }
     };
 
     fetchStoreSettings();
+
+    // ✅ FIXED: Cleanup - abort request when dialog closes or dependencies change
+    return () => {
+      abortController.abort();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-fetch when dialog opens or store changes
   }, [open, currentStore?.separate_confirmation_flow, currentStore?.role]);
 
