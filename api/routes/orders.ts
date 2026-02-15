@@ -64,6 +64,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
                     phone
                 ),
                 stores!orders_store_id_fkey (
+                    name,
                     currency
                 )
             `)
@@ -94,6 +95,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
                     id: data.id,
                     carrier_name: data.carriers?.name || 'Repartidor',
                     store_id: data.store_id,
+                    store_name: data.stores?.name || 'Ordefy',
                     currency: storeCurrency
                 }
             });
@@ -117,6 +119,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
                     customer_phone: data.customer_phone,
                     customer_address: data.customer_address,
                     store_id: data.store_id,
+                    store_name: data.stores?.name || 'Ordefy',
                     currency: storeCurrency
                 }
             });
@@ -155,6 +158,7 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
             has_active_incident: data.has_active_incident || false,
             carrier_name: data.carriers?.name,
             store_id: data.store_id,
+            store_name: data.stores?.name || 'Ordefy',
             currency: storeCurrency
         };
 
@@ -718,6 +722,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 delivery_preferences,
                 delivery_notes,
                 internal_notes,
+                n8n_sent,
+                n8n_processed_at,
                 shopify_shipping_method,
                 line_items,
                 order_line_items (

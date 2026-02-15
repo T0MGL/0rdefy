@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDemoTour } from './DemoTourProvider';
 import { Button } from '@/components/ui/button';
@@ -75,6 +75,9 @@ export function DemoTourTooltip() {
   const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition>({});
   const [isShopifyConnected, setIsShopifyConnected] = useState<boolean | null>(null);
   const [isCheckingShopify, setIsCheckingShopify] = useState(false);
+  const [hasScroll, setHasScroll] = useState(false); // Track if tooltip has scrollable content
+  const [isAtBottom, setIsAtBottom] = useState(false); // Track if scrolled to bottom
+  const tooltipRef = useRef<HTMLDivElement>(null); // Track tooltip dimensions
 
   const isFirstStep = currentStepIndex === 0;
   const isLastStep = currentStepIndex === totalSteps - 1;
@@ -103,7 +106,7 @@ export function DemoTourTooltip() {
     checkShopifyConnection();
   }, [isWelcomeStepWithPathSelection, isShopifyConnected]);
 
-  // Calculate tooltip position
+  // Calculate tooltip position with smart viewport constraints
   useEffect(() => {
     if (!isActive || !currentStep) return;
 
@@ -119,87 +122,149 @@ export function DemoTourTooltip() {
 
     const updatePosition = () => {
       const element = document.querySelector(currentStep.target!);
-      if (!element) return;
+      if (!element || !tooltipRef.current) return;
 
       const rect = element.getBoundingClientRect();
-      const tooltipWidth = 400;
-      const tooltipHeight = 280;
-      const padding = 16;
+
+      // Get REAL tooltip dimensions (not hardcoded)
+      const tooltipRect = tooltipRef.current.getBoundingClientRect();
+      const tooltipWidth = tooltipRect.width || 400; // Fallback to expected width
+      const tooltipHeight = tooltipRect.height || 300; // Dynamic height
+
+      const padding = 16; // Minimum distance from viewport edges
       const arrowOffset = 20;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
 
-      let position: TooltipPosition = {};
-      const placement = currentStep.placement || 'bottom';
+      // Helper: Check if position fits in viewport
+      const fitsInViewport = (pos: { top?: number; left?: number }) => {
+        if (pos.top !== undefined && pos.left !== undefined) {
+          return (
+            pos.top >= padding &&
+            pos.left >= padding &&
+            pos.top + tooltipHeight <= viewportHeight - padding &&
+            pos.left + tooltipWidth <= viewportWidth - padding
+          );
+        }
+        return false;
+      };
 
-      switch (placement) {
-        case 'top':
-          position = {
-            bottom: window.innerHeight - rect.top + arrowOffset,
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                window.innerWidth - tooltipWidth - padding
-              )
-            ),
-          };
-          break;
-        case 'bottom':
-          position = {
-            top: rect.bottom + arrowOffset,
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                window.innerWidth - tooltipWidth - padding
-              )
-            ),
-          };
-          break;
-        case 'left':
-          position = {
-            top: Math.max(
-              padding,
-              Math.min(
-                rect.top + rect.height / 2 - tooltipHeight / 2,
-                window.innerHeight - tooltipHeight - padding
-              )
-            ),
-            right: window.innerWidth - rect.left + arrowOffset,
-          };
-          break;
-        case 'right':
-          position = {
-            top: Math.max(
-              padding,
-              Math.min(
-                rect.top + rect.height / 2 - tooltipHeight / 2,
-                window.innerHeight - tooltipHeight - padding
-              )
-            ),
-            left: rect.right + arrowOffset,
-          };
-          break;
-        default:
-          position = {
-            top: rect.bottom + arrowOffset,
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                window.innerWidth - tooltipWidth - padding
-              )
-            ),
-          };
+      // Try placements in order of preference
+      const placements: Array<'bottom' | 'top' | 'right' | 'left'> =
+        currentStep.placement === 'center'
+          ? ['bottom', 'top', 'right', 'left']
+          : [currentStep.placement || 'bottom', 'top', 'right', 'left'];
+
+      let finalPosition: TooltipPosition | null = null;
+
+      for (const placement of placements) {
+        let proposedPosition: { top?: number; left?: number } = {};
+
+        switch (placement) {
+          case 'top':
+            proposedPosition = {
+              top: rect.top - tooltipHeight - arrowOffset,
+              left: rect.left + rect.width / 2 - tooltipWidth / 2,
+            };
+            break;
+          case 'bottom':
+            proposedPosition = {
+              top: rect.bottom + arrowOffset,
+              left: rect.left + rect.width / 2 - tooltipWidth / 2,
+            };
+            break;
+          case 'left':
+            proposedPosition = {
+              top: rect.top + rect.height / 2 - tooltipHeight / 2,
+              left: rect.left - tooltipWidth - arrowOffset,
+            };
+            break;
+          case 'right':
+            proposedPosition = {
+              top: rect.top + rect.height / 2 - tooltipHeight / 2,
+              left: rect.right + arrowOffset,
+            };
+            break;
+        }
+
+        // Constrain to viewport with padding
+        const constrainedPosition = {
+          top: Math.max(
+            padding,
+            Math.min(proposedPosition.top || 0, viewportHeight - tooltipHeight - padding)
+          ),
+          left: Math.max(
+            padding,
+            Math.min(proposedPosition.left || 0, viewportWidth - tooltipWidth - padding)
+          ),
+        };
+
+        // Check if this constrained position actually fits
+        if (fitsInViewport(constrainedPosition)) {
+          finalPosition = constrainedPosition;
+          break; // Found a good position
+        }
       }
 
-      setTooltipPosition(position);
+      // If no placement works, force center as fallback
+      if (!finalPosition) {
+        setTooltipPosition({
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+        });
+      } else {
+        setTooltipPosition(finalPosition);
+      }
     };
 
-    updatePosition();
-    const interval = setInterval(updatePosition, 200);
+    // Initial position calculation with small delay to ensure ref is ready
+    const initialTimeout = setTimeout(updatePosition, 50);
+    updatePosition(); // Try immediately as well
 
-    return () => clearInterval(interval);
+    // Update position on scroll/resize/interval
+    const interval = setInterval(updatePosition, 200);
+    window.addEventListener('scroll', updatePosition, true); // Capture phase for all scrolls
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
   }, [isActive, currentStep, currentStepIndex]);
+
+  // Detect scrollable content and scroll position
+  useEffect(() => {
+    if (!isActive || !tooltipRef.current) return;
+
+    const tooltipElement = tooltipRef.current;
+
+    const checkScroll = () => {
+      if (!tooltipElement) return;
+
+      const hasScrollableContent = tooltipElement.scrollHeight > tooltipElement.clientHeight;
+      setHasScroll(hasScrollableContent);
+
+      // Check if scrolled to bottom (within 10px threshold)
+      const isScrolledToBottom =
+        tooltipElement.scrollHeight - tooltipElement.scrollTop - tooltipElement.clientHeight < 10;
+      setIsAtBottom(isScrolledToBottom);
+    };
+
+    checkScroll();
+
+    // Listen to scroll events on the tooltip
+    tooltipElement.addEventListener('scroll', checkScroll);
+
+    const interval = setInterval(checkScroll, 500);
+
+    return () => {
+      tooltipElement.removeEventListener('scroll', checkScroll);
+      clearInterval(interval);
+    };
+  }, [isActive, currentStepIndex]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -282,7 +347,7 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-64px)] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100vh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
           style={{
             top: '50%',
             left: '50%',
@@ -397,7 +462,7 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-64px)] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100vh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
           style={{
             top: '50%',
             left: '50%',
@@ -448,6 +513,7 @@ export function DemoTourTooltip() {
   return (
     <AnimatePresence mode="wait">
       <motion.div
+        ref={tooltipRef}
         key={currentStepIndex}
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -459,12 +525,26 @@ export function DemoTourTooltip() {
           mass: 0.8,
         }}
         className={cn(
-          'fixed z-[10002] w-[400px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-100px)]',
+          'fixed z-[10002] w-[400px] max-w-[calc(100vw-32px)]',
           'bg-card border border-border rounded-2xl shadow-2xl',
-          'overflow-y-auto'
+          // Smart max-height: respect safe areas and ensure buttons always visible
+          tooltipPosition.transform?.includes('translate(-50%, -50%)')
+            ? 'max-h-[min(600px,calc(100vh-80px))]' // Centered: generous height
+            : 'max-h-[calc(100vh-100px)]', // Positioned: conservative height
+          'overflow-y-auto scroll-smooth scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent'
         )}
         style={tooltipPosition}
       >
+        {/* Scroll indicator - subtle gradient at bottom when scrollable and not at bottom */}
+        {hasScroll && !isAtBottom && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-card via-card/80 to-transparent pointer-events-none z-10 rounded-b-2xl"
+          />
+        )}
+
         {/* Header with gradient */}
         <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-4 pb-3">
           <div className="flex items-center gap-2">

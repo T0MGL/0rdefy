@@ -1,0 +1,322 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Ordefy Health Check - NOCTE</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f3f4f6;
+      padding: 2rem;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 2rem;
+    }
+    .header h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .header p { opacity: 0.9; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      padding: 2rem;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .summary-card {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .summary-card h3 { font-size: 0.875rem; color: #6b7280; margin-bottom: 0.5rem; }
+    .summary-card p { font-size: 2rem; font-weight: bold; }
+    .checks {
+      padding: 2rem;
+    }
+    .check-item {
+      background: #f9fafb;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border-radius: 8px;
+      border-left-width: 4px;
+    }
+    .check-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .check-icon { font-size: 1.25rem; }
+    .check-category {
+      font-weight: 600;
+      color: #1f2937;
+      flex: 1;
+    }
+    .check-count {
+      background: #ef4444;
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+    .check-message {
+      color: #4b5563;
+      margin-left: 2rem;
+    }
+    details {
+      margin-top: 1rem;
+      margin-left: 2rem;
+    }
+    summary {
+      cursor: pointer;
+      color: #667eea;
+      font-weight: 500;
+    }
+    pre {
+      background: #1f2937;
+      color: #f9fafb;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin-top: 0.5rem;
+      font-size: 0.875rem;
+    }
+    .footer {
+      padding: 1rem 2rem;
+      background: #f9fafb;
+      border-top: 1px solid #e5e7eb;
+      color: #6b7280;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🏥 Ordefy Health Check</h1>
+      <p>NOCTE • 2/12/2026, 11:04:42 PM</p>
+    </div>
+
+    <div class="summary">
+      <div class="summary-card">
+        <h3>Total Checks</h3>
+        <p>9</p>
+      </div>
+      <div class="summary-card">
+        <h3>✅ OK</h3>
+        <p style="color: #10b981">6</p>
+      </div>
+      <div class="summary-card">
+        <h3>⚠️ Warnings</h3>
+        <p style="color: #f59e0b">2</p>
+      </div>
+      <div class="summary-card">
+        <h3>❌ Critical</h3>
+        <p style="color: #ef4444">1</p>
+      </div>
+      <div class="summary-card" style="grid-column: span 2;">
+        <h3>Overall Status</h3>
+        <p style="color: #ef4444">CRITICAL</p>
+      </div>
+    </div>
+
+    <div class="checks">
+      
+    <div class="check-item" style="border-left: 4px solid #10b981">
+      <div class="check-header">
+        <span class="check-icon">✅</span>
+        <span class="check-category">Inventory</span>
+        <span class="check-count">0</span>
+      </div>
+      <div class="check-message">Stock levels are healthy</div>
+      
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #ef4444">
+      <div class="check-header">
+        <span class="check-icon">❌</span>
+        <span class="check-category">Inventory</span>
+        <span class="check-count">50</span>
+      </div>
+      <div class="check-message">Órdenes shipped/delivered sin deducción de stock</div>
+      <details><summary>Ver detalles</summary><pre>[
+  {
+    "id": "83487cc6-ee19-425e-8f55-d90012957ce3",
+    "order_number": "ORD-20260212-83487c",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-12T19:21:42.758488"
+  },
+  {
+    "id": "5c828374-bd02-42b0-89de-1695103d4d17",
+    "order_number": "ORD-20260217",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-12T20:02:53.199697"
+  },
+  {
+    "id": "e21794c9-070f-43ae-aa97-0d36039ede4c",
+    "order_number": "ORD-20260214",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-12T15:10:05.84627"
+  },
+  {
+    "id": "9000c8b1-00ca-40be-86a7-bac38716216f",
+    "order_number": "ORD-20260213",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-12T15:10:02.99711"
+  },
+  {
+    "id": "fcbf26e9-1d9d-4837-8474-b41781033207",
+    "order_number": "ORD-20260211",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-12T15:09:58.732715"
+  },
+  {
+    "id": "421ac863-88d8-4bb4-b6e0-6b00e8c00c8d",
+    "order_number": "ORD-20260210-421ac8",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-11T14:05:07.362358"
+  },
+  {
+    "id": "524c64e4-b9f4-492d-bd7f-c3fd87ab477e",
+    "order_number": "ORD-20260213",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-11T14:05:10.546006"
+  },
+  {
+    "id": "de1d255b-2e6d-4fff-8e0b-b51c51d18b88",
+    "order_number": "ORD-20260212",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-11T14:05:15.863352"
+  },
+  {
+    "id": "c0757ab0-61fe-4a2c-a5f3-95a006355246",
+    "order_number": "ORD-20260210",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-10T19:20:40.329177"
+  },
+  {
+    "id": "11bf5e81-e77b-4a37-aca2-c02a99154695",
+    "order_number": "ORD-20260209-11bf5e",
+    "shopify_order_name": null,
+    "sleeves_status": "delivered",
+    "updated_at": "2026-02-09T19:44:43.746396"
+  }
+]</pre></details>
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #10b981">
+      <div class="check-header">
+        <span class="check-icon">✅</span>
+        <span class="check-category">Orders</span>
+        <span class="check-count">0</span>
+      </div>
+      <div class="check-message">All shipped orders have carriers</div>
+      
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #10b981">
+      <div class="check-header">
+        <span class="check-icon">✅</span>
+        <span class="check-category">Orders</span>
+        <span class="check-count">0</span>
+      </div>
+      <div class="check-message">No old pending orders</div>
+      
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #10b981">
+      <div class="check-header">
+        <span class="check-icon">✅</span>
+        <span class="check-category">Shopify Sync</span>
+        <span class="check-count">0</span>
+      </div>
+      <div class="check-message">No stale pending syncs</div>
+      
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #f59e0b">
+      <div class="check-header">
+        <span class="check-icon">⚠️</span>
+        <span class="check-category">Carrier Coverage</span>
+        <span class="check-count">1</span>
+      </div>
+      <div class="check-message">Transportadoras activas sin coverage configurado</div>
+      <details><summary>Ver detalles</summary><pre>[
+  {
+    "id": "a0958551-ecb9-468c-ad98-212054a98848",
+    "name": "TSI",
+    "is_active": true,
+    "carrier_coverage": []
+  }
+]</pre></details>
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #10b981">
+      <div class="check-header">
+        <span class="check-icon">✅</span>
+        <span class="check-category">Returns</span>
+        <span class="check-count">0</span>
+      </div>
+      <div class="check-message">Return sessions have correct counts</div>
+      
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #10b981">
+      <div class="check-header">
+        <span class="check-icon">✅</span>
+        <span class="check-category">Analytics</span>
+        
+      </div>
+      <div class="check-message">Revenue (últimos 7 días): 5,327,000 Gs</div>
+      <details><summary>Ver detalles</summary><pre>{
+  "total_revenue": 5327000,
+  "order_count": 23,
+  "avg_order_value": 231608.69565217392
+}</pre></details>
+    </div>
+  
+    <div class="check-item" style="border-left: 4px solid #f59e0b">
+      <div class="check-header">
+        <span class="check-icon">⚠️</span>
+        <span class="check-category">Analytics</span>
+        
+      </div>
+      <div class="check-message">Delivery Rate (últimos 7 días): 65.38%</div>
+      <details><summary>Ver detalles</summary><pre>{
+  "delivered_orders": 17,
+  "total_orders": 26,
+  "delivery_rate": "65.38"
+}</pre></details>
+    </div>
+  
+    </div>
+
+    <div class="footer">
+      Generated by Ordefy Health Check System • 2026-02-13T02:04:42.519Z
+    </div>
+  </div>
+</body>
+</html>
+  

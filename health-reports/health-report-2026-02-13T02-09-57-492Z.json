@@ -1,0 +1,87 @@
+{
+  "timestamp": "2026-02-13T02:09:57.492Z",
+  "store": {
+    "id": "1eeaf2c7-2cd2-4257-8213-d90b1280a19d",
+    "name": "NOCTE",
+    "owner_email": "gaston@thebrightidea.ai"
+  },
+  "summary": {
+    "total_checks": 9,
+    "ok": 7,
+    "warnings": 2,
+    "critical": 0,
+    "overall_status": "WARNING"
+  },
+  "checks": [
+    {
+      "category": "Inventory",
+      "status": "OK",
+      "message": "Stock levels are healthy",
+      "count": 0
+    },
+    {
+      "category": "Inventory",
+      "status": "OK",
+      "message": "All shipped orders have stock deducted",
+      "count": 0
+    },
+    {
+      "category": "Orders",
+      "status": "OK",
+      "message": "All shipped orders have carriers",
+      "count": 0
+    },
+    {
+      "category": "Orders",
+      "status": "OK",
+      "message": "No old pending orders",
+      "count": 0
+    },
+    {
+      "category": "Shopify Sync",
+      "status": "OK",
+      "message": "No stale pending syncs",
+      "count": 0
+    },
+    {
+      "category": "Carrier Coverage",
+      "status": "WARNING",
+      "message": "Transportadoras activas sin coverage configurado",
+      "count": 1,
+      "details": [
+        {
+          "id": "a0958551-ecb9-468c-ad98-212054a98848",
+          "name": "TSI",
+          "is_active": true,
+          "carrier_coverage": []
+        }
+      ]
+    },
+    {
+      "category": "Returns",
+      "status": "OK",
+      "message": "Return sessions have correct counts",
+      "count": 0
+    },
+    {
+      "category": "Analytics",
+      "status": "OK",
+      "message": "Revenue (últimos 7 días): 5,327,000 Gs",
+      "details": {
+        "total_revenue": 5327000,
+        "order_count": 23,
+        "avg_order_value": 231608.69565217392
+      }
+    },
+    {
+      "category": "Analytics",
+      "status": "WARNING",
+      "message": "Delivery Rate (últimos 7 días): 65.38%",
+      "details": {
+        "delivered_orders": 17,
+        "total_orders": 26,
+        "delivery_rate": "65.38"
+      }
+    }
+  ]
+}

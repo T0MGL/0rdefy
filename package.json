@@ -20,6 +20,7 @@
     "api:dev": "tsx watch api/index.ts",
     "api:build": "tsc -p api/tsconfig.json",
     "api:start": "npx tsx api/index.ts",
+    "health:check": "tsx scripts/health-check.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui",

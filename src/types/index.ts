@@ -140,6 +140,9 @@ export interface Order {
   is_test?: boolean;
   marked_test_by?: string;
   marked_test_at?: string;
+  // n8n webhook integration
+  n8n_sent?: boolean;
+  n8n_processed_at?: string;
   // Order line items (for Shopify orders)
   order_line_items?: Array<{
     id: string;

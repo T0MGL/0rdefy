@@ -7,7 +7,8 @@ import { getSessionToken } from '@shopify/app-bridge/utilities';
 import type { ClientApplication } from '@shopify/app-bridge';
 import { logger } from '@/utils/logger';
 
-const API_KEY = 'e4ac05aaca557fdb387681f0f209335d';
+// Get API Key from environment variable (fallback to hardcoded for backward compatibility)
+const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY || 'e4ac05aaca557fdb387681f0f209335d';
 
 // Extend Window interface for Shopify globals
 declare global {

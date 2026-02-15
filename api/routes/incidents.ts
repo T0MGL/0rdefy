@@ -279,7 +279,7 @@ incidentsRouter.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/incidents/:id - Get single incident details
-incidentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+incidentsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -325,7 +325,7 @@ incidentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 // POST /api/incidents/:id/schedule-retry - Schedule or reschedule retry attempt
 // If retry_id is provided, updates that specific retry
 // Otherwise, finds the next pending (scheduled) retry and updates it
-incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Response) => {
+incidentsRouter.post('/:id/schedule-retry', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { scheduled_date, notes, retry_id } = req.body;
@@ -487,7 +487,7 @@ incidentsRouter.post('/:id/schedule-retry', async (req: AuthRequest, res: Respon
 });
 
 // POST /api/incidents/:id/resolve - Manually resolve incident
-incidentsRouter.post('/:id/resolve', async (req: AuthRequest, res: Response) => {
+incidentsRouter.post('/:id/resolve', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { resolution_type, notes, payment_method } = req.body;
@@ -606,7 +606,7 @@ incidentsRouter.put('/:id/retry/:retry_id', async (req: AuthRequest, res: Respon
 });
 
 // DELETE /api/incidents/:id - Delete incident (admin only, use with caution)
-incidentsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+incidentsRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 

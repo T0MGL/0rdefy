@@ -11,7 +11,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { Module, Permission } from '../permissions';
-import { sanitizeSearchInput } from '../utils/sanitize';
+import { sanitizeSearchInput, validateUUIDParam } from '../utils/sanitize';
 
 export const suppliersRouter = Router();
 
@@ -103,7 +103,7 @@ suppliersRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/suppliers/:id - Get single supplier
 // ================================================================
-suppliersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+suppliersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -208,7 +208,7 @@ suppliersRouter.post('/', requirePermission(Module.SUPPLIERS, Permission.CREATE)
 // ================================================================
 // PUT /api/suppliers/:id - Update supplier
 // ================================================================
-suppliersRouter.put('/:id', requirePermission(Module.SUPPLIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+suppliersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.SUPPLIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -270,7 +270,7 @@ suppliersRouter.put('/:id', requirePermission(Module.SUPPLIERS, Permission.EDIT)
 // ================================================================
 // DELETE /api/suppliers/:id - Delete supplier
 // ================================================================
-suppliersRouter.delete('/:id', requirePermission(Module.SUPPLIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+suppliersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.SUPPLIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -321,7 +321,7 @@ suppliersRouter.delete('/:id', requirePermission(Module.SUPPLIERS, Permission.DE
 // ================================================================
 // GET /api/suppliers/:id/products - Get products from supplier
 // ================================================================
-suppliersRouter.get('/:id/products', async (req: AuthRequest, res: Response) => {
+suppliersRouter.get('/:id/products', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { limit = '20', offset = '0' } = req.query;

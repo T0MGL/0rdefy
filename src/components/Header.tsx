@@ -264,8 +264,8 @@ export function Header() {
   };
 
   return (
-    <header className="h-16 border-b border-border bg-card sticky top-0 z-40 shadow-sm">
-      <div className="h-full px-6 flex items-center justify-between">
+    <header className="h-16 border-b border-border bg-card sticky top-0 z-50 shadow-sm">
+      <div className="h-full px-6 lg:pl-4 flex items-center justify-between">
         {/* Welcome Message - Hidden on mobile (we have bottom nav) */}
         <div className="hidden lg:block">
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-card-foreground truncate max-w-[200px] md:max-w-none">

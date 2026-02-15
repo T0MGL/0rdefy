@@ -378,10 +378,27 @@ export default function Orders() {
   }, [refetch]);
 
   // Refetch when date range or server filters change - reset pagination
+  // CRITICAL FIX: Call fetch directly with current values instead of relying on refs
+  // to avoid race condition where serverFiltersRef.current might not be updated yet
   useEffect(() => {
     setPagination(prev => ({ ...prev, offset: 0 }));
     previousCountRef.current = 0; // Reset new-order detection when filters change
-    refetchRef.current();
+    setIsLoading(true);
+
+    // Fetch directly with current filter values (not refs)
+    ordersService.getAll({
+      ...dateParams,
+      ...serverFilters,
+      limit: paginationLimitRef.current,
+      offset: 0
+    }).then(result => {
+      setOrders(result.data);
+      setPagination(result.pagination);
+      setIsLoading(false);
+    }).catch(error => {
+      logger.error('Error fetching orders:', error);
+      setIsLoading(false);
+    });
   }, [dateParams, serverFilters]);
 
   // Process URL query parameters for filtering and navigation from notifications
@@ -1813,6 +1830,22 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                               className="bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 text-xs px-1.5 py-0"
                             >
                               Shopify
+                            </Badge>
+                          )}
+                          {!order.shopify_order_id && (order.n8n_sent || order.n8n_processed_at) && (
+                            <Badge
+                              variant="outline"
+                              className="bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 text-xs px-1.5 py-0"
+                            >
+                              WEBHOOK
+                            </Badge>
+                          )}
+                          {!order.shopify_order_id && !order.n8n_sent && !order.n8n_processed_at && (
+                            <Badge
+                              variant="outline"
+                              className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 text-xs px-1.5 py-0"
+                            >
+                              ORDEFY
                             </Badge>
                           )}
                           {isDeleted && (

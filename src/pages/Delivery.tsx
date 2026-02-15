@@ -32,6 +32,7 @@ import {
   User,
   ShoppingBag,
   Sparkles,
+  MessageCircle,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -73,6 +74,20 @@ function formatDeliveryCurrency(value: number, currencyCode: string = 'PYG'): st
 function getCurrencySymbol(currencyCode: string = 'PYG'): string {
   const config = CURRENCY_CONFIG[currencyCode] || CURRENCY_CONFIG['PYG'];
   return config.symbol;
+}
+
+// Format phone number for WhatsApp (remove spaces, dashes, parentheses)
+function formatPhoneForWhatsApp(phone: string): string {
+  // Remove all non-numeric characters except +
+  return phone.replace(/[^\d+]/g, '');
+}
+
+// Generate WhatsApp link with predefined message
+function getWhatsAppLink(phone: string, customerName: string, storeName: string): string {
+  const formattedPhone = formatPhoneForWhatsApp(phone);
+  const message = `Hola ${customerName},\n\nSoy el delivery de ${storeName}.\n\nQuisiera entregarle su pedido.`;
+  const encodedMessage = encodeURIComponent(message);
+  return `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
 }
 
 type DeliveryState =
@@ -688,14 +703,31 @@ export default function Delivery() {
               </div>
               <div className="flex-1 min-w-0">
                 <h2 className="text-foreground font-bold text-lg truncate">{orderData.customer_name}</h2>
+                <p className="text-muted-foreground text-sm mt-1">{orderData.customer_phone}</p>
+
+                {/* Contact buttons - WhatsApp and Phone */}
                 {orderData.customer_phone && (
-                  <a
-                    href={`tel:${orderData.customer_phone}`}
-                    className="inline-flex items-center gap-2 mt-2 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors"
-                  >
-                    <Phone className="h-4 w-4 text-primary" />
-                    <span className="text-primary font-medium text-sm">{orderData.customer_phone}</span>
-                  </a>
+                  <div className="flex gap-2 mt-3">
+                    {/* WhatsApp Button */}
+                    <a
+                      href={getWhatsAppLink(orderData.customer_phone, orderData.customer_name, orderData.store_name || 'Ordefy')}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-colors shadow-sm"
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      <span className="font-medium text-sm">WhatsApp</span>
+                    </a>
+
+                    {/* Call Button */}
+                    <a
+                      href={`tel:${orderData.customer_phone}`}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-colors shadow-sm"
+                    >
+                      <Phone className="h-4 w-4" />
+                      <span className="font-medium text-sm">Llamar</span>
+                    </a>
+                  </div>
                 )}
               </div>
             </div>

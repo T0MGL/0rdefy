@@ -1,3 +1,5 @@
+import { validateUUIDParam } from '../utils/sanitize';
+
 // ================================================================
 // ORDEFY API - INVENTORY MOVEMENTS ROUTES
 // ================================================================
@@ -246,7 +248,7 @@ inventoryRouter.get('/movements/summary', async (req: AuthRequest, res: Response
 // Returns all movements for a single product
 // ================================================================
 
-inventoryRouter.get('/movements/product/:id', async (req: AuthRequest, res: Response) => {
+inventoryRouter.get('/movements/product/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { limit = '50', offset = '0' } = req.query;
