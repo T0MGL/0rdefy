@@ -16,6 +16,7 @@ import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
 import { getTodayInTimezone } from '../utils/dateUtils';
 import { Module } from '../permissions';
+import { validateUUIDParam } from '../utils/sanitize';
 
 export const incidentsRouter = Router();
 

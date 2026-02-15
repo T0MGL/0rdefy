@@ -11,6 +11,7 @@ import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { requireFeature } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
+import { validateUUIDParam } from '../utils/sanitize';
 
 export const merchandiseRouter = Router();
 
