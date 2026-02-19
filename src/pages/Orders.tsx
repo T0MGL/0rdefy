@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { ordersExportColumns } from '@/utils/exportConfigs';
+import { ordersExportColumns, createPlanillaTransportadoraColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
 import { logger } from '@/utils/logger';
@@ -259,6 +259,9 @@ export default function Orders() {
   const debouncedSearch = useDebounce(search, 300);
   const { isHighlighted } = useHighlight();
   const previousCountRef = useRef(0);
+  // AbortController for load-more requests: cancelled when filters/date change to prevent
+  // stale paginated data from being appended on top of newly filtered results
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
 
   // Store timezone from preferences (IANA format, e.g., "America/Asuncion")
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
@@ -275,13 +278,18 @@ export default function Orders() {
 
   // Build server-side filter params (status + carrier + scheduled sent to API for correct pagination)
   const serverFilters = useMemo(() => {
-    const filters: { status?: string; carrier_id?: string; search?: string; scheduled_filter?: 'all' | 'scheduled' | 'ready' } = {};
+    const filters: { status?: string; carrier_id?: string; search?: string; scheduled_filter?: 'all' | 'scheduled' | 'ready'; timezone?: string } = {};
     if (chipFilters.status) filters.status = chipFilters.status;
     if (carrierFilter !== 'all') filters.carrier_id = carrierFilter;
     if (debouncedSearch) filters.search = debouncedSearch;
-    if (scheduledFilter !== 'all') filters.scheduled_filter = scheduledFilter;
+    if (scheduledFilter !== 'all') {
+      filters.scheduled_filter = scheduledFilter;
+      // Always send store timezone so backend calculates "today" in the correct local time,
+      // not UTC (which can differ by several hours from Paraguay time)
+      filters.timezone = storeTimezone;
+    }
     return filters;
-  }, [chipFilters.status, carrierFilter, debouncedSearch, scheduledFilter]);
+  }, [chipFilters.status, carrierFilter, debouncedSearch, scheduledFilter, storeTimezone]);
 
   // Use refs for stable queryFn (avoids recreating polling interval)
   const dateParamsRef = useRef(dateParams);
@@ -346,6 +354,11 @@ export default function Orders() {
   const handleLoadMore = useCallback(async () => {
     if (isLoadingMore || !pagination.hasMore) return;
 
+    // Cancel any in-flight load-more from a previous click
+    loadMoreAbortRef.current?.abort();
+    const abortController = new AbortController();
+    loadMoreAbortRef.current = abortController;
+
     setIsLoadingMore(true);
     try {
       const newOffset = pagination.offset + pagination.limit;
@@ -356,10 +369,14 @@ export default function Orders() {
         offset: newOffset
       });
 
+      // Abort guard: don't apply if filters changed while this request was in-flight
+      if (abortController.signal.aborted) return;
+
       // Append new orders to existing ones
       setOrders(prev => [...prev, ...(result.data as Order[])]);
       setPagination(result.pagination);
     } catch (error) {
+      if (abortController.signal.aborted) return;
       logger.error('Error loading more orders:', error);
       toast({
         title: 'Error',
@@ -367,7 +384,9 @@ export default function Orders() {
         variant: 'destructive'
       });
     } finally {
-      setIsLoadingMore(false);
+      if (!abortController.signal.aborted) {
+        setIsLoadingMore(false);
+      }
     }
   }, [isLoadingMore, pagination, dateParams, serverFilters, toast]);
 
@@ -379,8 +398,22 @@ export default function Orders() {
 
   // Refetch when date range or server filters change - reset pagination
   // CRITICAL FIX: Call fetch directly with current values instead of relying on refs
-  // to avoid race condition where serverFiltersRef.current might not be updated yet
+  // to avoid race condition where serverFiltersRef.current might not be updated yet.
+  // AbortController cancels in-flight requests when filters change again (rapid filter clicks),
+  // preventing a slow stale request from overwriting the correct filtered data.
+  // Also aborts any pending load-more: its stale paginated data must not be appended to new results.
   useEffect(() => {
+    // Kill any in-flight load-more so it doesn't append stale pages on top of new filter results
+    loadMoreAbortRef.current?.abort();
+    loadMoreAbortRef.current = null;
+    setIsLoadingMore(false);
+
+    // Clear selected order IDs — the new filter may show completely different orders,
+    // and stale selections would let users accidentally bulk-print/delete invisible orders
+    setSelectedOrderIds(new Set());
+
+    const abortController = new AbortController();
+
     setPagination(prev => ({ ...prev, offset: 0 }));
     previousCountRef.current = 0; // Reset new-order detection when filters change
     setIsLoading(true);
@@ -392,13 +425,19 @@ export default function Orders() {
       limit: paginationLimitRef.current,
       offset: 0
     }).then(result => {
+      if (abortController.signal.aborted) return;
       setOrders(result.data);
       setPagination(result.pagination);
       setIsLoading(false);
     }).catch(error => {
+      if (abortController.signal.aborted) return;
       logger.error('Error fetching orders:', error);
       setIsLoading(false);
     });
+
+    return () => {
+      abortController.abort();
+    };
   }, [dateParams, serverFilters]);
 
   // Process URL query parameters for filtering and navigation from notifications
@@ -420,7 +459,9 @@ export default function Orders() {
           setChipFilters({ status: 'confirmed' });
           break;
         case 'shipped':
-          setChipFilters({ status: 'shipped' });
+        case 'in_transit':
+          // 'shipped' is a legacy URL alias — the current status name is 'in_transit'
+          setChipFilters({ status: 'in_transit' });
           break;
         case 'delivered':
           setChipFilters({ status: 'delivered' });
@@ -1217,6 +1258,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     return `${safeName} ${dd}.${mm}.${yyyy}`;
   }, [currentStore?.name]);
 
+  // Planilla transportadora columns — EMPRESA column uses the store name
+  const planillaColumns = useMemo(
+    () => createPlanillaTransportadoraColumns(currentStore?.name || 'Empresa'),
+    [currentStore?.name]
+  );
+
   // Selection handlers
   const handleToggleSelectAll = useCallback(() => {
     if (selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length) {
@@ -1576,6 +1623,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             data={filteredOrders}
             filename={exportFilename}
             columns={ordersExportColumns}
+            planillaColumns={planillaColumns}
             title={`Reporte de Pedidos - ${currentStore?.name || 'Ordefy'}`}
             variant="outline"
           />
@@ -1966,39 +2014,6 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             <SelectItem value="incident">Incidencia</SelectItem>
                           </SelectContent>
                         </Select>
-                        {/* Badge for scheduled orders */}
-                        {(() => {
-                          const scheduled = getScheduledDeliveryInfo(order);
-                          if (!scheduled.isScheduled) return null;
-                          return (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge
-                                    variant="outline"
-                                    className="mt-1.5 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400 border-violet-300 dark:border-violet-700 text-xs cursor-help"
-                                  >
-                                    <CalendarClock size={12} className="mr-1" />
-                                    {scheduled.summary}
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent side="bottom" className="max-w-xs">
-                                  <div className="space-y-1">
-                                    <p className="font-medium">Pedido programado</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      No entregar antes del {scheduled.date && format(scheduled.date, "EEEE d 'de' MMMM", { locale: es })}
-                                    </p>
-                                    {(order as any).delivery_preferences?.delivery_notes && (
-                                      <p className="text-xs italic">
-                                        "{(order as any).delivery_preferences.delivery_notes}"
-                                      </p>
-                                    )}
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          );
-                        })()}
                       </td>
                       <td className="py-4 px-6 text-sm">
                         {order.is_pickup ? (
@@ -2010,17 +2025,18 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           getCarrierName(order.carrier)
                         )}
                       </td>
-                      <td className="py-4 px-6 text-center">
-                        {/* Siguiente Paso - Acciones contextuales según el estado */}
+                      <td className="py-4 px-6">
+                        {/* Siguiente Paso - Acción principal + dropdown para secundarias */}
+                        <div className="flex items-center justify-center gap-1">
                         {order.status === 'pending' && (
-                          <div className="flex gap-1 justify-center flex-wrap">
+                          <>
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 px-2 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
+                                    className="h-7 px-2.5 text-xs bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 hover:border-green-400 dark:hover:border-green-700 hover:shadow-sm transition-all duration-200"
                                     onClick={() => handleContact(order.id, generateWhatsAppConfirmationLink(order))}
                                   >
                                     <MessageSquare size={14} className="mr-1" />
@@ -2032,55 +2048,40 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
-                              onClick={() => {
-                                // Always show confirmation dialog to assign carrier, zone, upsell, etc.
-                                // This is required for dispatch/settlement reconciliation
-                                setOrderToConfirm(order);
-                                setConfirmDialogOpen(true);
-                              }}
-                            >
-                              <CheckCircle size={14} className="mr-1" />
-                              Confirmar
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 hover:shadow-sm transition-all duration-200"
-                              onClick={() => handleReject(order.id)}
-                            >
-                              <XCircle size={14} className="mr-1" />
-                              Rechazar
-                            </Button>
-                          </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                                  <MoreHorizontal size={14} />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem
+                                  className="text-blue-700 dark:text-blue-400"
+                                  onClick={() => {
+                                    setOrderToConfirm(order);
+                                    setConfirmDialogOpen(true);
+                                  }}
+                                >
+                                  <CheckCircle size={14} className="mr-2" />
+                                  Confirmar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-red-600 dark:text-red-400"
+                                  onClick={() => handleReject(order.id)}
+                                >
+                                  <XCircle size={14} className="mr-2" />
+                                  Rechazar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
                         )}
                         {order.status === 'contacted' && (
-                          <div className="flex gap-1 justify-center flex-wrap">
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 px-2 text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:border-amber-400 dark:hover:border-amber-700 hover:shadow-sm transition-all duration-200"
-                                    onClick={() => window.open(generateWhatsAppFollowUpLink(order), '_blank')}
-                                  >
-                                    <MessageSquare size={14} className="mr-1" />
-                                    Re-enviar
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Volver a enviar mensaje de WhatsApp</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                          <>
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 px-2 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
+                              className="h-7 px-2.5 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
                               onClick={() => {
                                 setOrderToConfirm(order);
                                 setConfirmDialogOpen(true);
@@ -2089,63 +2090,82 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                               <CheckCircle size={14} className="mr-1" />
                               Confirmar
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 hover:shadow-sm transition-all duration-200"
-                              onClick={() => handleReject(order.id)}
-                            >
-                              <XCircle size={14} className="mr-1" />
-                              Rechazar
-                            </Button>
-                          </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                                  <MoreHorizontal size={14} />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem
+                                  className="text-amber-700 dark:text-amber-400"
+                                  onClick={() => window.open(generateWhatsAppFollowUpLink(order), '_blank')}
+                                >
+                                  <MessageSquare size={14} className="mr-2" />
+                                  Re-enviar WhatsApp
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-red-600 dark:text-red-400"
+                                  onClick={() => handleReject(order.id)}
+                                >
+                                  <XCircle size={14} className="mr-2" />
+                                  Rechazar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
                         )}
                         {order.status === 'awaiting_carrier' && (
-                          <div className="flex gap-1 justify-center flex-wrap">
+                          <>
                             {(userRole === 'owner' || userRole === 'admin') ? (
                               <>
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="h-7 px-2 text-xs bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/30 hover:border-orange-400 dark:hover:border-orange-700 hover:shadow-sm transition-all duration-200"
+                                  className="h-7 px-2.5 text-xs bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/30 hover:border-orange-400 dark:hover:border-orange-700 hover:shadow-sm transition-all duration-200"
                                   onClick={() => {
                                     setOrderToAssignCarrier(order);
                                     setCarrierAssignmentDialogOpen(true);
                                   }}
                                 >
                                   <Truck size={14} className="mr-1" />
-                                  Asignar Repartidor
+                                  Asignar
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 hover:shadow-sm transition-all duration-200"
-                                  onClick={() => handleReject(order.id)}
-                                >
-                                  <XCircle size={14} className="mr-1" />
-                                  Rechazar
-                                </Button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                                      <MoreHorizontal size={14} />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-44">
+                                    <DropdownMenuItem
+                                      className="text-red-600 dark:text-red-400"
+                                      onClick={() => handleReject(order.id)}
+                                    >
+                                      <XCircle size={14} className="mr-2" />
+                                      Rechazar
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </>
                             ) : (
                               <Badge variant="outline" className={`${statusColors.awaiting_carrier} font-medium`}>
                                 <Truck size={14} className="mr-1" />
-                                Esperando Asignación
+                                Esperando
                               </Badge>
                             )}
-                          </div>
+                          </>
                         )}
                         {order.status === 'confirmed' && hasWarehouseFeature && (
-                          <div className="flex gap-1 justify-center">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:border-indigo-400 dark:hover:border-indigo-700 hover:shadow-sm transition-all duration-200"
-                              onClick={() => handleQuickPrepare(order.id)}
-                            >
-                              <PackageOpen size={14} className="mr-1" />
-                              Preparar
-                            </Button>
-                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5 text-xs bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:border-indigo-400 dark:hover:border-indigo-700 hover:shadow-sm transition-all duration-200"
+                            onClick={() => handleQuickPrepare(order.id)}
+                          >
+                            <PackageOpen size={14} className="mr-1" />
+                            Preparar
+                          </Button>
                         )}
                         {order.status === 'confirmed' && !hasWarehouseFeature && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
@@ -2163,7 +2183,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 px-2 text-xs bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/30 hover:border-purple-400 dark:hover:border-purple-700 hover:shadow-sm transition-all duration-200"
+                            className="h-7 px-2.5 text-xs bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/30 hover:border-purple-400 dark:hover:border-purple-700 hover:shadow-sm transition-all duration-200"
                             onClick={() => handleStatusUpdate(order.id, 'shipped')}
                           >
                             <Truck size={14} className="mr-1" />
@@ -2183,7 +2203,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           </Badge>
                         )}
                         {order.status === 'delivered' && (
-                          <div className="flex flex-col items-start gap-1">
+                          <>
                             <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                               <CheckCircle size={14} className="mr-1" />
                               Entregado
@@ -2198,9 +2218,6 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                     >
                                       <Star size={10} className="mr-0.5 fill-amber-500 text-amber-500" />
                                       {order.delivery_rating}/5
-                                      {order.delivery_rating_comment && (
-                                        <MessageSquare size={10} className="ml-1 text-amber-600" />
-                                      )}
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent side="bottom" className="max-w-xs">
@@ -2223,7 +2240,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                 </Tooltip>
                               </TooltipProvider>
                             )}
-                          </div>
+                          </>
                         )}
                         {order.status === 'returned' && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
@@ -2235,7 +2252,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 px-2 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
+                            className="h-7 px-2.5 text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:border-blue-400 dark:hover:border-blue-700 hover:shadow-sm transition-all duration-200"
                             onClick={() => handleStatusUpdate(order.id, 'pending')}
                           >
                             <RefreshCw size={14} className="mr-1" />
@@ -2246,13 +2263,14 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 px-2 text-xs bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/30 hover:border-orange-400 dark:hover:border-orange-700 hover:shadow-sm transition-all duration-200"
+                            className="h-7 px-2.5 text-xs bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/30 hover:border-orange-400 dark:hover:border-orange-700 hover:shadow-sm transition-all duration-200"
                             onClick={() => navigate(`/incidents?order=${order.id}`)}
                           >
                             <AlertTriangle size={14} className="mr-1" />
                             Ver Incidencia
                           </Button>
                         )}
+                        </div>
                       </td>
                       <td className="py-4 px-6 text-right text-sm font-semibold">
                         <div className="flex flex-col items-end gap-1">
@@ -2435,7 +2453,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                     </>
                   ) : (
                     <>
-                      Cargar más ({pagination.total - orders.length} restantes)
+                      Cargar más ({Math.max(0, pagination.total - orders.length)} restantes)
                     </>
                   )}
                 </Button>

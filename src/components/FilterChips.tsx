@@ -27,12 +27,18 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
     if (stored) {
       try {
         let parsed = JSON.parse(stored) as SavedFilter[];
-        // Migration: fix 'shipped' → 'in_transit' for existing saved filters
+        // Migration: fix legacy status values in saved filters
+        // 'shipped' was renamed to 'in_transit'; 'rejected' was unified into 'cancelled'
         let needsMigration = false;
         parsed = parsed.map(filter => {
-          if (filter.filters?.status === 'shipped') {
+          const currentStatus = filter.filters?.status;
+          if (currentStatus === 'shipped') {
             needsMigration = true;
             return { ...filter, filters: { ...filter.filters, status: 'in_transit' } };
+          }
+          if (currentStatus === 'rejected') {
+            needsMigration = true;
+            return { ...filter, filters: { ...filter.filters, status: 'cancelled' } };
           }
           return filter;
         });

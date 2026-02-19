@@ -1,5 +1,5 @@
 import { ExportColumn } from '@/services/export.service';
-import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
+import { formatCurrency } from '@/utils/currency';
 
 /**
  * Export configuration for Orders
@@ -89,6 +89,131 @@ export const ordersExportColumns: ExportColumn[] = [
     }
   },
 ];
+
+/**
+ * Factory: Planilla de carga oficial para transportadoras.
+ * Columnas exactas que exigen los carriers para importar pedidos:
+ * CODIGO | EMPRESA | TELEFONO | DIRECCION | NOMBRE Y APELLIDO | CIUDAD |
+ * BARRIO | REFERENCIA | CANTIDAD | PRODUCTO | IMPORTE | FECHA | UBICACIÓN | NOTA
+ *
+ * @param storeName - Nombre de la tienda (columna EMPRESA)
+ */
+export function createPlanillaTransportadoraColumns(storeName: string): ExportColumn[] {
+  return [
+    {
+      header: 'CODIGO',
+      key: 'id',
+      width: 18,
+      format: (value, row: any) =>
+        row?.shopify_order_name ||
+        (row?.shopify_order_number ? `#${row.shopify_order_number}` : null) ||
+        `#${String(value).substring(0, 8).toUpperCase()}`,
+    },
+    {
+      header: 'EMPRESA',
+      // Use a dummy key that doesn't exist on the order object so it doesn't
+      // conflict with the 'id' key used by CODIGO. ExcelJS maps row data by key,
+      // so two columns sharing the same key would overwrite each other in rowData.
+      // The format function ignores the (undefined) value and returns storeName directly.
+      key: '_empresa',
+      width: 22,
+      format: () => storeName,
+    },
+    {
+      header: 'TELEFONO',
+      key: 'phone',
+      width: 15,
+      format: (value) => value ? String(value).replace(/\s+/g, '') : '',
+    },
+    {
+      header: 'DIRECCION',
+      key: 'address',
+      width: 35,
+      format: (value) => value || '',
+    },
+    {
+      header: 'NOMBRE Y APELLIDO',
+      key: 'customer',
+      width: 25,
+      format: (value) => value || '',
+    },
+    {
+      header: 'CIUDAD',
+      key: 'shipping_city',
+      width: 20,
+      format: (value, row: any) => value || row?.delivery_zone || '',
+    },
+    {
+      header: 'BARRIO',
+      key: 'neighborhood',
+      width: 20,
+      format: (value) => value || '',
+    },
+    {
+      header: 'REFERENCIA',
+      key: 'address_reference',
+      width: 25,
+      format: (value) => value || '',
+    },
+    {
+      header: 'CANTIDAD',
+      key: 'quantity',
+      width: 10,
+      format: (value) => String(value ?? 0),
+    },
+    {
+      header: 'PRODUCTO',
+      key: 'product',
+      width: 32,
+      format: (value) => value || '',
+    },
+    {
+      header: 'IMPORTE',
+      key: 'total',
+      width: 14,
+      // Plain number — carriers need it for calculations, no currency symbol.
+      // Guard against NaN in case value is null/undefined/non-numeric.
+      format: (value) => {
+        const n = Number(value);
+        return !isNaN(n) ? String(n) : '0';
+      },
+    },
+    {
+      header: 'FECHA',
+      key: 'date',
+      width: 12,
+      format: (value) => {
+        if (!value) return '';
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return '';
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        return `${dd}/${mm}/${d.getFullYear()}`;
+      },
+    },
+    {
+      header: 'UBICACIÓN',
+      key: 'delivery_zone',
+      width: 16,
+      format: (value, row: any) => {
+        if (!value) return row?.shipping_city || '';
+        const zone = String(value).toUpperCase();
+        if (zone === 'ASUNCION') return 'Asunción';
+        if (zone === 'CENTRAL') return 'Central';
+        return row?.shipping_city || String(value).replace(/_/g, ' ');
+      },
+    },
+    {
+      header: 'NOTA',
+      key: 'delivery_notes',
+      width: 32,
+      format: (value, row: any) => {
+        const parts = [value, row?.internal_notes].filter(Boolean);
+        return parts.join(' | ');
+      },
+    },
+  ];
+}
 
 /**
  * Export configuration for Products

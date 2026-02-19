@@ -668,7 +668,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             endDate,
             show_test = 'true',        // Filter for test orders
             show_deleted = 'true',     // Show soft-deleted orders (with opacity)
-            scheduled_filter = 'all'   // Filter for scheduled deliveries: 'all' | 'scheduled' | 'ready'
+            scheduled_filter = 'all',  // Filter for scheduled deliveries: 'all' | 'scheduled' | 'ready'
+            timezone                   // Store IANA timezone (e.g. 'America/Asuncion') for date calculations
         } = req.query;
 
         // Build query - OPTIMIZED (Migration 083)
@@ -743,7 +744,10 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             `, { count: 'exact' })
             .eq('store_id', req.storeId)
             .order('created_at', { ascending: false })
-            .range(safeNumber(offset, 0), safeNumber(offset, 0) + safeNumber(limit, 20) - 1);
+            .range(
+                Math.max(0, safeNumber(offset, 0)),
+                Math.max(0, safeNumber(offset, 0)) + Math.min(500, Math.max(1, safeNumber(limit, 50))) - 1
+            );
 
         // Filter test orders (show by default unless show_test=false)
         if (show_test === 'false') {
@@ -757,8 +761,21 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         }
 
         if (status) {
-            console.log('[ORDERS FILTER] Status filter:', status);
-            query = query.eq('sleeves_status', status);
+            const statusStr = status as string;
+            console.log('[ORDERS FILTER] Status filter:', statusStr);
+            // Normalize legacy aliases on input before hitting the DB.
+            // The frontend sends 'in_transit' and 'cancelled', but old URL params, external
+            // integrations, or stale localStorage may send 'shipped' or 'rejected'.
+            // We always query both DB values so no orders are silently missed.
+            if (statusStr === 'in_transit' || statusStr === 'shipped') {
+                // DB stores both 'in_transit' (current) and 'shipped' (legacy) for dispatched orders
+                query = query.in('sleeves_status', ['in_transit', 'shipped']);
+            } else if (statusStr === 'cancelled' || statusStr === 'rejected') {
+                // DB stores both 'cancelled' (current) and 'rejected' (legacy) for cancelled orders
+                query = query.in('sleeves_status', ['cancelled', 'rejected']);
+            } else {
+                query = query.eq('sleeves_status', statusStr);
+            }
         }
 
         // Carrier filter
@@ -798,16 +815,17 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                         const words = searchClean.split(/\s+/).filter(w => w.length > 0);
 
                         if (words.length > 1) {
-                            // Multiple words: search full phrase + individual words with priority to full phrase
-                            // Strategy: Use full phrase match for better precision
-                            // Full phrase in first name, last name, or phone
-                            const fullPhraseCondition = `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%`;
-
-                            // Also search in order fields (shopify_order_name, shopify_order_number)
-                            const orderFieldsCondition = `shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`;
-
-                            // Combine all conditions
-                            query = query.or(`${fullPhraseCondition},${orderFieldsCondition}`);
+                            // Multiple words: each word must appear in at least one searchable field (AND logic)
+                            // This correctly finds "Juan Perez" when customer_first_name='Juan' and customer_last_name='Perez'
+                            // because each word is searched independently across all name fields.
+                            // Chaining multiple .or() calls in Supabase creates AND between the OR groups:
+                            //   WHERE (first_name ILIKE '%Juan%' OR last_name ILIKE '%Juan%')
+                            //   AND   (first_name ILIKE '%Perez%' OR last_name ILIKE '%Perez%')
+                            words.forEach(word => {
+                                query = query.or(
+                                    `customer_first_name.ilike.%${word}%,customer_last_name.ilike.%${word}%,customer_phone.ilike.%${word}%,shopify_order_name.ilike.%${word}%,shopify_order_number.ilike.%${word}%`
+                                );
+                            });
                         } else {
                             // Single word: search in all fields as before
                             query = query.or(
@@ -848,20 +866,37 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         // Scheduled delivery filter (Migration 125: server-side filtering)
         // Uses JSONB field with functional index for performance
-        if (scheduled_filter === 'scheduled') {
-            // Show only orders with future delivery restriction
-            // Filter: delivery_preferences.not_before_date > TODAY
-            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-            query = query
-                .not('delivery_preferences', 'is', null)
-                .gt('delivery_preferences->not_before_date', today);
-        } else if (scheduled_filter === 'ready') {
-            // Show only orders ready to deliver (no future restriction or no delivery_preferences)
-            // Filter: delivery_preferences IS NULL OR not_before_date <= TODAY
-            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-            query = query.or(
-                `delivery_preferences.is.null,delivery_preferences->not_before_date.lte.${today}`
-            );
+        if (scheduled_filter === 'scheduled' || scheduled_filter === 'ready') {
+            // Calculate "today" in the store's configured timezone, NOT in server UTC.
+            // A store in Paraguay (UTC-4) could be 2026-02-19 while the server (UTC) says 2026-02-20,
+            // causing scheduled orders to be incorrectly marked as past or future.
+            const tz = (timezone as string) || 'America/Asuncion';
+            const today = (() => {
+                try {
+                    // Intl.DateTimeFormat with en-CA locale formats as YYYY-MM-DD natively
+                    return new Intl.DateTimeFormat('en-CA', {
+                        timeZone: tz,
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                    }).format(new Date());
+                } catch {
+                    // Fallback to UTC if timezone is invalid
+                    return new Date().toISOString().split('T')[0];
+                }
+            })();
+
+            if (scheduled_filter === 'scheduled') {
+                // Show only orders with a future delivery restriction
+                query = query
+                    .not('delivery_preferences', 'is', null)
+                    .gt('delivery_preferences->not_before_date', today);
+            } else {
+                // Show only orders ready to deliver (no restriction, or restriction date is today/past)
+                query = query.or(
+                    `delivery_preferences.is.null,delivery_preferences->not_before_date.lte.${today}`
+                );
+            }
         }
         // 'all' = no filter applied
 
@@ -968,13 +1003,15 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             };
         }) || [];
 
+        const safeOffset = Math.max(0, safeNumber(offset, 0));
+        const safeLimit = Math.min(500, Math.max(1, safeNumber(limit, 50)));
         res.json({
             data: transformedData,
             pagination: {
                 total: count || 0,
-                limit: safeNumber(limit, 20),
-                offset: safeNumber(offset, 0),
-                hasMore: safeNumber(offset, 0) + (data?.length || 0) < (count || 0)
+                limit: safeLimit,
+                offset: safeOffset,
+                hasMore: safeOffset + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {

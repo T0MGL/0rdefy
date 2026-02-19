@@ -5,9 +5,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Download, FileSpreadsheet, FileText, FileDown, Lock } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, FileDown, Lock, Truck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { exportService, ExportColumn } from '@/services/export.service';
 import { useSubscription } from '@/contexts/SubscriptionContext';
@@ -20,6 +21,9 @@ interface ExportButtonProps {
   title?: string;
   variant?: 'default' | 'outline' | 'ghost';
   size?: 'default' | 'sm' | 'lg';
+  /** When provided, adds a "Planilla Transportadora" option that exports
+   *  with these columns instead of the default ones. */
+  planillaColumns?: ExportColumn[];
 }
 
 export function ExportButton({
@@ -28,7 +32,8 @@ export function ExportButton({
   columns,
   title,
   variant = 'outline',
-  size = 'default'
+  size = 'default',
+  planillaColumns,
 }: ExportButtonProps) {
   const { toast } = useToast();
   const { hasFeature } = useSubscription();
@@ -52,7 +57,7 @@ export function ExportButton({
       });
 
       // Execute export
-      exportService.export({
+      await exportService.export({
         filename,
         format,
         columns,
@@ -76,6 +81,42 @@ export function ExportButton({
     }
   };
 
+  const handlePlanillaExport = async () => {
+    if (!hasPdfExcelReports) {
+      setUpgradeModalOpen(true);
+      return;
+    }
+    if (!planillaColumns) return;
+
+    try {
+      toast({
+        title: '📋 Exportando planilla...',
+        description: `Preparando ${data.length} pedidos en formato transportadora`,
+      });
+
+      await exportService.export({
+        filename: `${filename} - Planilla`,
+        format: 'excel',
+        columns: planillaColumns,
+        data,
+        title: 'Planilla Transportadora',
+        orientation: 'landscape',
+      });
+
+      toast({
+        title: '✅ Planilla exportada',
+        description: `${data.length} pedidos exportados en formato oficial`,
+      });
+    } catch (error) {
+      logger.error('Planilla export error:', error);
+      toast({
+        title: '❌ Error al exportar',
+        description: 'No se pudo completar la exportación. Por favor intenta de nuevo.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -85,7 +126,20 @@ export function ExportButton({
             Exportar
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent align="end" className="w-60">
+          {planillaColumns && (
+            <>
+              <DropdownMenuItem onClick={handlePlanillaExport} className="gap-2">
+                <Truck size={16} className="text-purple-600 dark:text-purple-400" />
+                <div className="flex-1">
+                  <p className="font-medium">Planilla Transportadora</p>
+                  <p className="text-xs text-muted-foreground">Formato oficial de carga</p>
+                </div>
+                {!hasPdfExcelReports && <Lock size={14} className="text-muted-foreground" />}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem onClick={() => handleExport('excel')} className="gap-2">
             <FileSpreadsheet size={16} className="text-green-600 dark:text-green-400" />
             <div className="flex-1">

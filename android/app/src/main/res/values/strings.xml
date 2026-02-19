@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ordefy</string>
+    <string name="title_activity_main">Ordefy</string>
+    <string name="package_name">com.ordefy.app</string>
+    <string name="custom_url_scheme">com.ordefy.app</string>
+</resources>

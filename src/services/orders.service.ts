@@ -42,6 +42,7 @@ export const ordersService = {
     carrier_id?: string;
     search?: string;
     scheduled_filter?: 'all' | 'scheduled' | 'ready';
+    timezone?: string;
   }): Promise<OrdersResponse> => {
     try {
       const queryParams = new URLSearchParams();
@@ -53,6 +54,7 @@ export const ordersService = {
       if (params?.carrier_id) queryParams.append('carrier_id', params.carrier_id);
       if (params?.search) queryParams.append('search', params.search);
       if (params?.scheduled_filter) queryParams.append('scheduled_filter', params.scheduled_filter);
+      if (params?.timezone) queryParams.append('timezone', params.timezone);
 
       const url = `${API_BASE_URL}/orders${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const response = await fetch(url, {
