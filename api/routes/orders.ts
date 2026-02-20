@@ -3774,7 +3774,7 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
         // ================================================================
         // CRITICAL: Check stock availability before transitioning to ready_to_ship
         // ================================================================
-        if (existingOrder.sleeves_status === 'in_preparation') {
+        if (existingOrder.sleeves_status === 'in_preparation' || existingOrder.sleeves_status === 'confirmed') {
             // Use normalized order_line_items first (Shopify orders), fallback to JSONB line_items (manual orders)
             const normalizedItems = existingOrder.order_line_items || [];
             const jsonbItems = existingOrder.line_items || [];
@@ -3841,8 +3841,10 @@ ordersRouter.post('/:id/mark-printed', requirePermission(Module.ORDERS, Permissi
 
         // CRITICAL: Change order status to ready_to_ship when label is printed
         // This triggers the stock decrement via the inventory management trigger
-        // Only change if order is in 'in_preparation' (packing complete)
-        if (existingOrder.sleeves_status === 'in_preparation') {
+        // Handle two cases:
+        // 1. Order in 'in_preparation' (packing complete)
+        // 2. Order in 'confirmed' (direct dispatch, no picking/packing)
+        if (existingOrder.sleeves_status === 'in_preparation' || existingOrder.sleeves_status === 'confirmed') {
             updateData.sleeves_status = 'ready_to_ship';
         }
 
