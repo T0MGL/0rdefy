@@ -193,15 +193,10 @@ export function createPlanillaTransportadoraColumns(storeName: string): ExportCo
     },
     {
       header: 'UBICACIÓN',
-      key: 'delivery_zone',
-      width: 16,
-      format: (value, row: any) => {
-        if (!value) return row?.shipping_city || '';
-        const zone = String(value).toUpperCase();
-        if (zone === 'ASUNCION') return 'Asunción';
-        if (zone === 'CENTRAL') return 'Central';
-        return row?.shipping_city || String(value).replace(/_/g, ' ');
-      },
+      // Google Maps link for delivery location pinning
+      key: 'google_maps_link',
+      width: 25,
+      format: (value) => value || '',
     },
     {
       header: 'NOTA',

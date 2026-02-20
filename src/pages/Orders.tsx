@@ -315,8 +315,13 @@ export default function Orders() {
   // Memoize queryFn to prevent infinite re-renders
   // CRITICAL: This function must be stable to avoid recreating the polling interval
   const queryFn = useCallback(async () => {
+    // CRITICAL: When user searches by name/ID, ignore date range to find ANY matching order
+    // across all time. If ivan has an order from 2 months ago and you search "ivan", it
+    // MUST be found regardless of current date filter. Searching bypasses pagination filters.
+    const isSearching = !!serverFiltersRef.current.search;
+
     const result = await ordersService.getAll({
-      ...dateParamsRef.current,
+      ...(isSearching ? {} : dateParamsRef.current),
       ...serverFiltersRef.current,
       limit: paginationLimitRef.current,
       offset: 0
@@ -362,8 +367,12 @@ export default function Orders() {
     setIsLoadingMore(true);
     try {
       const newOffset = pagination.offset + pagination.limit;
+      // CRITICAL: When user searches, ignore date range (same as initial search behavior).
+      // Load more must continue searching across all time, not just current date range.
+      const isSearching = !!serverFilters.search;
+
       const result = await ordersService.getAll({
-        ...dateParams,
+        ...(isSearching ? {} : dateParams),
         ...serverFilters,
         limit: pagination.limit,
         offset: newOffset
@@ -418,9 +427,14 @@ export default function Orders() {
     previousCountRef.current = 0; // Reset new-order detection when filters change
     setIsLoading(true);
 
+    // CRITICAL: When user searches, ignore date range to find ANY order by name/ID.
+    // Otherwise if ivan's orders are from 2 months ago and you're viewing "this week",
+    // searching "ivan" returns 0 results. Search must bypass pagination date filters.
+    const isSearching = !!serverFilters.search;
+
     // Fetch directly with current filter values (not refs)
     ordersService.getAll({
-      ...dateParams,
+      ...(isSearching ? {} : dateParams),
       ...serverFilters,
       limit: paginationLimitRef.current,
       offset: 0
@@ -1576,18 +1590,21 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             >
               <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
             </Button>
-            {/* Clear Filters Button - Always visible when filters active */}
-            {(chipFilters.status || carrierFilter !== 'all' || search || scheduledFilter !== 'all') && (
+            {/* Clear Filters Button - ALWAYS visible, enables clearing even with 0 results */}
+            {/* Shows when: status filter OR carrier filter OR search OR scheduled filter is active */}
+            {/* This ensures users can ALWAYS clear filters regardless of result count */}
+            {(chipFilters.status || carrierFilter !== 'all' || debouncedSearch || scheduledFilter !== 'all') && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   setChipFilters({});
                   setCarrierFilter('all');
-                  setSearch('');
+                  setSearch('');  // Clear search input
                   setScheduledFilter('all');
                 }}
                 className="gap-2 text-xs h-7 px-3 border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/20"
+                title="Limpiar todos los filtros y búsqueda"
               >
                 <X size={14} />
                 Limpiar Filtros
@@ -1762,20 +1779,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   {search && ` • Búsqueda: "${search}"`}
                   {scheduledFilter !== 'all' && ` • Filtro de programación activo`}
                 </p>
+                <p className="text-xs text-muted-foreground mt-4">Usa el botón "Limpiar Filtros" en la barra superior para limpiar los filtros activos</p>
               </div>
-              <Button
-                onClick={() => {
-                  setChipFilters({});
-                  setCarrierFilter('all');
-                  setSearch('');
-                  setScheduledFilter('all');
-                }}
-                variant="outline"
-                className="gap-2"
-              >
-                <X size={16} />
-                Limpiar Filtros
-              </Button>
             </div>
           </Card>
         ) : (
