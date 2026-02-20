@@ -793,47 +793,33 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         }
 
         // Text search (customer name, phone, shopify order name, order ID, shopify order number)
-        if (search) {
-            const searchStr = (search as string).trim();
-            console.log('[ORDERS SEARCH] Received search query:', searchStr);
-            if (searchStr.length > 0) {
-                // Check if search string is a UUID (for exact ID search)
-                const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                const isUUID = uuidRegex.test(searchStr);
+        if (search && typeof search === 'string') {
+            try {
+                const searchStr = search.trim();
+                console.log('[ORDERS SEARCH] Received search query:', searchStr);
+                if (searchStr.length > 0) {
+                    // Check if search string is a UUID (for exact ID search)
+                    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                    const isUUID = uuidRegex.test(searchStr);
 
-                if (isUUID) {
-                    // Exact UUID search
-                    query = query.eq('id', searchStr);
-                } else {
-                    // Sanitize for PostgREST filter syntax safety - only remove SQL wildcards
-                    // Keep common chars like ().-,# for phone/address searches
-                    const searchClean = searchStr.replace(/[%_\\]/g, '').trim();
-                    if (searchClean.length > 0) {
-                        // Search using full phrase in all fields (more accurate than word-by-word OR)
-                        // This ensures "Juan Perez" only matches customers with both words in their name
-                        // Split into words for additional individual word search
-                        const words = searchClean.split(/\s+/).filter(w => w.length > 0);
-
-                        if (words.length > 1) {
-                            // Multiple words: each word must appear in at least one searchable field (AND logic)
-                            // This correctly finds "Juan Perez" when customer_first_name='Juan' and customer_last_name='Perez'
-                            // because each word is searched independently across all name fields.
-                            // Chaining multiple .or() calls in Supabase creates AND between the OR groups:
-                            //   WHERE (first_name ILIKE '%Juan%' OR last_name ILIKE '%Juan%')
-                            //   AND   (first_name ILIKE '%Perez%' OR last_name ILIKE '%Perez%')
-                            words.forEach(word => {
-                                query = query.or(
-                                    `customer_first_name.ilike.%${word}%,customer_last_name.ilike.%${word}%,customer_phone.ilike.%${word}%,shopify_order_name.ilike.%${word}%,shopify_order_number.ilike.%${word}%`
-                                );
-                            });
-                        } else {
-                            // Single word: search in all fields as before
-                            query = query.or(
-                                `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`
-                            );
+                    if (isUUID) {
+                        // Exact UUID search
+                        query = query.eq('id', searchStr);
+                    } else {
+                        // Sanitize for PostgREST filter syntax safety - only remove SQL wildcards
+                        // Keep common chars like ().-,# for phone/address searches
+                        const searchClean = searchStr.replace(/[%_\\]/g, '').trim();
+                        if (searchClean.length > 0) {
+                            // Build OR condition for all searchable fields
+                            // Supabase PostgREST will search across all fields with OR logic
+                            const orCondition = `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`;
+                            query = query.or(orCondition);
                         }
                     }
                 }
+            } catch (searchError) {
+                console.error('[ORDERS SEARCH] Error processing search:', searchError);
+                // Continue without search if there's an error
             }
         }
 
