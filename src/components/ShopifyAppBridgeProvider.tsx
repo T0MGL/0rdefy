@@ -7,8 +7,8 @@ import { getSessionToken } from '@shopify/app-bridge/utilities';
 import type { ClientApplication } from '@shopify/app-bridge';
 import { logger } from '@/utils/logger';
 
-// Get API Key from environment variable (fallback to hardcoded for backward compatibility)
-const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY || 'e4ac05aaca557fdb387681f0f209335d';
+// API key must come from environment variables (Vite exposes only VITE_* vars)
+const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY;
 
 // Extend Window interface for Shopify globals
 declare global {
@@ -39,6 +39,12 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
 
     const initializeAppBridge = async () => {
       try {
+        if (!API_KEY) {
+          logger.error('❌ [SHOPIFY] Missing VITE_SHOPIFY_API_KEY environment variable');
+          setIsReady(true);
+          return;
+        }
+
         logger.log('✅ [SHOPIFY] Initializing App Bridge with official NPM library');
 
         // Get host from URL params or sessionStorage

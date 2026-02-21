@@ -137,8 +137,13 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         logger.log('[Shopify]   Host:', host || 'N/A');
         logger.log('[Shopify]   Shop:', shopDomain || 'N/A');
 
-        // Inicializar App Bridge 3.0 CDN con el client_id del shopify.app.toml
-        const CLIENT_ID = 'e4ac05aaca557fdb387681f0f209335d';
+        const CLIENT_ID = import.meta.env.VITE_SHOPIFY_API_KEY;
+        if (!CLIENT_ID) {
+          logger.error('[Shopify] Missing VITE_SHOPIFY_API_KEY environment variable');
+          setError(new Error('Missing VITE_SHOPIFY_API_KEY'));
+          setIsLoading(false);
+          return;
+        }
 
         const appConfig: any = {
           apiKey: CLIENT_ID,
