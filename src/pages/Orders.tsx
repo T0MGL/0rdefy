@@ -256,7 +256,7 @@ export default function Orders() {
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
-  const debouncedSearch = useDebounce(search, 300);
+  const debouncedSearch = useDebounce(search, 500);
   const { isHighlighted } = useHighlight();
   const previousCountRef = useRef(0);
   // AbortController for load-more requests: cancelled when filters/date change to prevent
@@ -281,7 +281,7 @@ export default function Orders() {
     const filters: { status?: string; carrier_id?: string; search?: string; scheduled_filter?: 'all' | 'scheduled' | 'ready'; timezone?: string } = {};
     if (chipFilters.status) filters.status = chipFilters.status;
     if (carrierFilter !== 'all') filters.carrier_id = carrierFilter;
-    if (debouncedSearch) filters.search = debouncedSearch;
+    if (debouncedSearch && debouncedSearch.length >= 2) filters.search = debouncedSearch;
     if (scheduledFilter !== 'all') {
       filters.scheduled_filter = scheduledFilter;
       // Always send store timezone so backend calculates "today" in the correct local time,
@@ -1593,7 +1593,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             {/* Clear Filters Button - ALWAYS visible, enables clearing even with 0 results */}
             {/* Shows when: status filter OR carrier filter OR search OR scheduled filter is active */}
             {/* This ensures users can ALWAYS clear filters regardless of result count */}
-            {(chipFilters.status || carrierFilter !== 'all' || debouncedSearch || scheduledFilter !== 'all') && (
+            {(chipFilters.status || carrierFilter !== 'all' || search || scheduledFilter !== 'all') && (
               <Button
                 variant="outline"
                 size="sm"
