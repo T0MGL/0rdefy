@@ -812,7 +812,9 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                         if (searchClean.length > 0) {
                             // Build OR condition for all searchable fields
                             // Supabase PostgREST will search across all fields with OR logic
-                            const orCondition = `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%,id.ilike.%${searchClean}%`;
+                            // CRITICAL: id is UUID type - cannot use ilike on UUID columns (causes 500)
+                            // UUID exact search is handled above via isUUID check
+                            const orCondition = `customer_first_name.ilike.%${searchClean}%,customer_last_name.ilike.%${searchClean}%,customer_phone.ilike.%${searchClean}%,shopify_order_name.ilike.%${searchClean}%,shopify_order_number.ilike.%${searchClean}%`;
                             query = query.or(orCondition);
                         }
                     }
