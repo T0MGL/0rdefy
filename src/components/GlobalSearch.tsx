@@ -150,14 +150,7 @@ export function GlobalSearch() {
     };
   }, []);
 
-  // Load data when dialog opens - with caching
-  useEffect(() => {
-    if (open && !hasLoaded) {
-      loadSearchData();
-    }
-  }, [open, hasLoaded]);
-
-  const loadSearchData = async () => {
+  const loadSearchData = useCallback(async () => {
     const storeId = currentStore?.id;
     if (!storeId) return;
 
@@ -171,6 +164,11 @@ export function GlobalSearch() {
       setCustomers(cache.customers);
       setHasLoaded(true);
       return;
+    }
+
+    // Cancel previous in-flight load if a new one starts
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
 
     // ✅ FIXED: Create new AbortController for this request
@@ -230,12 +228,22 @@ export function GlobalSearch() {
         });
       }
     } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
       // ✅ FIXED: Only update loading state if component is still mounted
       if (isMountedRef.current) {
         setIsLoading(false);
       }
     }
-  };
+  }, [currentStore?.id]);
+
+  // Load data when dialog opens - with caching
+  useEffect(() => {
+    if (open && !hasLoaded) {
+      loadSearchData();
+    }
+  }, [open, hasLoaded, loadSearchData]);
 
   // Save recent search (store-specific)
   const saveRecentSearch = useCallback((search: Omit<RecentSearch, 'timestamp'>) => {

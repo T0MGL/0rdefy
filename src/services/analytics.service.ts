@@ -78,7 +78,7 @@ export const analyticsService = {
     }
   },
 
-  getChartData: async (days: number = 7, params?: { startDate?: string; endDate?: string }): Promise<ChartData[]> => {
+  getChartData: async (days: number = 7, params?: { startDate?: string; endDate?: string }, signal?: AbortSignal): Promise<ChartData[]> => {
     try {
       const queryParams = new URLSearchParams();
       if (params?.startDate && params?.endDate) {
@@ -90,6 +90,7 @@ export const analyticsService = {
 
       const response = await fetch(`${API_BASE_URL}/analytics/chart?${queryParams.toString()}`, {
         headers: getHeaders(),
+        signal,
       });
       if (!response.ok) {
         throw new Error(`Error HTTP: ${response.status}`);
@@ -97,6 +98,9 @@ export const analyticsService = {
       const result = await response.json();
       return result.data || [];
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error;
+      }
       console.error('Error loading chart data:', error);
       return [];
     }

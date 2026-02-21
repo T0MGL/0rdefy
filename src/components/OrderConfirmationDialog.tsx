@@ -229,7 +229,6 @@ export function OrderConfirmationDialog({
     return () => {
       abortController.abort();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-fetch when dialog opens or store changes
   }, [open, currentStore?.separate_confirmation_flow, currentStore?.role]);
 
   // Fetch products when dialog opens

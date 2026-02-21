@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -168,12 +168,12 @@ export function MobileBottomNav() {
   };
 
   // Filter items based on permissions
-  const filterByPermissions = (items: NavItem[]): NavItem[] => {
+  const filterByPermissions = useCallback((items: NavItem[]): NavItem[] => {
     return items.filter(item => {
       if (!item.module) return true; // No module = always visible (e.g., Support)
       return permissions.canAccessModule(item.module);
     });
-  };
+  }, [permissions]);
 
   // Build role-specific navigation config
   const navConfig = useMemo((): RoleTabConfig => {
@@ -204,7 +204,7 @@ export function MobileBottomNav() {
     );
 
     return { tabs: mainTabs, moreItems };
-  }, [currentRole, permissions]);
+  }, [currentRole, permissions, filterByPermissions]);
 
   // Check if "Más" sheet has the active route
   const isMoreActive = navConfig.moreItems.some(item =>

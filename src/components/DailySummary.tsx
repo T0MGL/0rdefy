@@ -23,8 +23,10 @@ import {
 } from 'lucide-react';
 import { ordersService } from '@/services/orders.service';
 import { analyticsService } from '@/services/analytics.service';
+import { unifiedService } from '@/services/unified.service';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth, Module } from '@/contexts/AuthContext';
+import { useGlobalView } from '@/contexts/GlobalViewContext';
 import type { Order, DashboardOverview } from '@/types';
 
 export function DailySummary() {
@@ -34,8 +36,11 @@ export function DailySummary() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Check if user has analytics permission (wait for auth to load)
-  const { permissions, loading: authLoading, currentStore } = useAuth();
+  const { permissions, loading: authLoading, currentStore, stores } = useAuth();
+  const { globalViewEnabled } = useGlobalView();
   const hasAnalyticsAccess = !authLoading && permissions.canAccessModule(Module.ANALYTICS);
+  const hasMultipleStores = (stores?.length || 0) >= 2;
+  const useGlobalViewData = globalViewEnabled && hasMultipleStores;
 
   // Use global date range context
   const { selectedRange, getDateRange } = useDateRange();
@@ -75,6 +80,7 @@ export function DailySummary() {
 
     const loadData = async () => {
       setIsLoading(true);
+      let fetchedOrdersCount = 0;
       try {
         const dateParams = {
           startDate: dateRange.startDate,
@@ -82,14 +88,38 @@ export function DailySummary() {
         };
 
         // Always load orders (all roles with Dashboard access can see orders)
-        const ordersResponse = await ordersService.getAll(dateParams);
-        const ordersData = ordersResponse.data || [];
+        let ordersData: Order[] = [];
+        if (useGlobalViewData) {
+          const unifiedOrders = await unifiedService.getOrders({
+            startDate: dateParams.startDate,
+            endDate: dateParams.endDate,
+            limit: 2000,
+          });
+          ordersData = (unifiedOrders.data || []) as unknown as Order[];
+        } else {
+          const ordersResponse = await ordersService.getAll(dateParams);
+          ordersData = ordersResponse.data || [];
+        }
+
+        fetchedOrdersCount = ordersData.length;
         setOrders(ordersData);
 
         // Only load analytics if user has permission
         if (hasAnalyticsAccess) {
-          const overviewData = await analyticsService.getOverview(dateParams);
-          setOverview(overviewData);
+          if (useGlobalViewData) {
+            const unifiedOverview = await unifiedService.getAnalyticsOverview(dateParams);
+            setOverview(unifiedOverview.data || {
+              totalOrders: ordersData.length,
+              revenue: 0,
+              deliveryRate: 0,
+              profitMargin: 0,
+              netProfit: 0,
+              changes: null,
+            } as DashboardOverview);
+          } else {
+            const overviewData = await analyticsService.getOverview(dateParams);
+            setOverview(overviewData);
+          }
         } else {
           // Calculate basic metrics from orders for roles without analytics access
           const totalRevenue = ordersData.reduce((sum: number, o: Order) => sum + (o.total_price || 0), 0);
@@ -114,7 +144,7 @@ export function DailySummary() {
         logger.error('Error loading daily summary data:', error);
         // Even on error, set a basic overview to prevent crash
         setOverview({
-          totalOrders: orders.length,
+          totalOrders: fetchedOrdersCount,
           revenue: 0,
           deliveryRate: 0,
           profitMargin: 0,
@@ -126,7 +156,7 @@ export function DailySummary() {
       }
     };
     loadData();
-  }, [dateRange, hasAnalyticsAccess, authLoading]);
+  }, [dateRange, hasAnalyticsAccess, authLoading, useGlobalViewData]);
 
   if (authLoading || isLoading || !overview) {
     return (

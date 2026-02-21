@@ -321,7 +321,6 @@ export class ShopifyWebhookManager {
         .select('*')
         .eq('status', 'pending')
         .lte('next_retry_at', new Date().toISOString())
-        .lt('retry_count', this.supabase.rpc('max_retries'))
         .order('next_retry_at', { ascending: true })
         .limit(50); // Process in batches
 
@@ -329,24 +328,48 @@ export class ShopifyWebhookManager {
         return { processed: 0, succeeded: 0, failed: 0, still_pending: 0 };
       }
 
-      logger.info('BACKEND', `🔄 Processing ${retries.length} webhook retries...`);
+      const retriesToProcess = retries.filter(
+        (retry) => (retry.retry_count ?? 0) < (retry.max_retries ?? 0)
+      );
+
+      if (retriesToProcess.length === 0) {
+        return { processed: 0, succeeded: 0, failed: 0, still_pending: 0 };
+      }
+
+      logger.info('BACKEND', `🔄 Processing ${retriesToProcess.length} webhook retries...`);
 
       let succeeded = 0;
       let failed = 0;
       let stillPending = 0;
 
-      for (const retry of retries) {
+      for (const retry of retriesToProcess) {
         try {
-          // Mark as processing
-          await this.supabase
+          // Atomic claim: only one worker can move pending -> processing
+          const { data: claimedRetry, error: claimError } = await this.supabase
             .from('shopify_webhook_retry_queue')
             .update({ status: 'processing' })
-            .eq('id', retry.id);
+            .eq('id', retry.id)
+            .eq('status', 'pending')
+            .select('*')
+            .maybeSingle();
+
+          if (claimError) {
+            logger.error('BACKEND', `❌ Error claiming retry ${retry.id}:`, claimError);
+            stillPending++;
+            continue;
+          }
+
+          if (!claimedRetry) {
+            logger.debug('BACKEND', `⏭️ Retry ${retry.id} already claimed by another worker`);
+            continue;
+          }
+
+          const activeRetry = claimedRetry as any;
 
           // Attempt to reprocess webhook
           // This would call the original webhook processing function
           // For now, we'll simulate success/failure
-          const result = await this.reprocessWebhook(retry);
+          const result = await this.reprocessWebhook(activeRetry);
 
           if (result.success) {
             // Success - remove from queue
@@ -356,22 +379,23 @@ export class ShopifyWebhookManager {
                 status: 'success',
                 completed_at: new Date().toISOString(),
               })
-              .eq('id', retry.id);
+              .eq('id', activeRetry.id)
+              .eq('status', 'processing');
 
             // Record metric
             await this.recordMetric(
-              retry.integration_id,
-              retry.store_id,
+              activeRetry.integration_id,
+              activeRetry.store_id,
               'processed',
               0
             );
 
             succeeded++;
-            logger.info('BACKEND', `✅ Webhook retry succeeded: ${retry.id}`);
+            logger.info('BACKEND', `✅ Webhook retry succeeded: ${activeRetry.id}`);
           } else {
             // Failed - update retry count and schedule next attempt
-            const newRetryCount = retry.retry_count + 1;
-            const maxed = newRetryCount >= retry.max_retries;
+            const newRetryCount = activeRetry.retry_count + 1;
+            const maxed = newRetryCount >= activeRetry.max_retries;
 
             if (maxed) {
               // Max retries reached - mark as failed
@@ -384,21 +408,22 @@ export class ShopifyWebhookManager {
                   last_error_code: result.error_code,
                   completed_at: new Date().toISOString(),
                 })
-                .eq('id', retry.id);
+                .eq('id', activeRetry.id)
+                .eq('status', 'processing');
 
               failed++;
-              logger.error('BACKEND', `❌ Webhook retry failed permanently: ${retry.id}`);
+              logger.error('BACKEND', `❌ Webhook retry failed permanently: ${activeRetry.id}`);
             } else {
               // Schedule next retry with exponential backoff
               const backoffSeconds = Math.min(
-                retry.backoff_seconds * 2,
+                activeRetry.backoff_seconds * 2,
                 3600 // max 1 hour
               );
               const nextRetryAt = new Date();
               nextRetryAt.setSeconds(nextRetryAt.getSeconds() + backoffSeconds);
 
               // Update error history
-              const errorHistory = JSON.parse(retry.error_history || '[]');
+              const errorHistory = JSON.parse(activeRetry.error_history || '[]');
               errorHistory.push({
                 attempt: newRetryCount,
                 error: result.error,
@@ -417,18 +442,19 @@ export class ShopifyWebhookManager {
                   error_history: JSON.stringify(errorHistory),
                   backoff_seconds: backoffSeconds,
                 })
-                .eq('id', retry.id);
+                .eq('id', activeRetry.id)
+                .eq('status', 'processing');
 
               stillPending++;
               logger.info('BACKEND', 
-                `⏳ Webhook retry rescheduled: ${retry.id} (attempt ${newRetryCount}/${retry.max_retries})`
+                `⏳ Webhook retry rescheduled: ${activeRetry.id} (attempt ${newRetryCount}/${activeRetry.max_retries})`
               );
             }
 
             // Record metric
             await this.recordMetric(
-              retry.integration_id,
-              retry.store_id,
+              activeRetry.integration_id,
+              activeRetry.store_id,
               maxed ? 'failed' : 'retried',
               0,
               result.error_code
@@ -446,7 +472,7 @@ export class ShopifyWebhookManager {
       );
 
       return {
-        processed: retries.length,
+        processed: retriesToProcess.length,
         succeeded,
         failed,
         still_pending: stillPending,

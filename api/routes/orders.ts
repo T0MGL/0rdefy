@@ -3126,8 +3126,10 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
 
         // Log successful atomic operations
         if (result.upsell_applied) {
+            logger.info('BACKEND', `[CONFIRM_ORDER] Upsell applied for order ${id}`);
         }
         if (result.discount_applied) {
+            logger.info('BACKEND', `[CONFIRM_ORDER] Discount applied for order ${id}`);
         }
 
         // ================================================================
@@ -3148,6 +3150,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     .eq('id', id);
             } catch (qrError) {
                 // Continue without QR code, don't fail the confirmation
+                logger.warn('BACKEND', `[CONFIRM_ORDER] QR generation failed for order ${id}:`, qrError);
             }
         }
 
@@ -3160,6 +3163,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     .eq('id', id);
             } catch (prefError) {
                 // Continue without preferences, don't fail the confirmation
+                logger.warn('BACKEND', `[CONFIRM_ORDER] Failed to save delivery preferences for order ${id}:`, prefError);
             }
         }
 
@@ -3666,7 +3670,7 @@ ordersRouter.patch('/:id/upsell', validateUUIDParam('id'), requirePermission(Mod
         }
 
         // Update JSONB line_items (for backwards compatibility)
-        let updatedLineItems = [...(existingOrder.line_items as any[] || []).filter((item: any) => !item.is_upsell)];
+        const updatedLineItems = [...(existingOrder.line_items as any[] || []).filter((item: any) => !item.is_upsell)];
         updatedLineItems.push({
             product_id: product.id,
             product_name: product.name,
@@ -3958,6 +3962,7 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
 
         // Process each order individually to handle status changes correctly
         const updatedOrders = [];
+        const failedUpdates: Array<{ order_id: string; error: string }> = [];
         for (const order of existingOrders || []) {
             const updateData: any = {
                 printed: true,
@@ -3984,16 +3989,29 @@ ordersRouter.post('/mark-printed-bulk', requirePermission(Module.ORDERS, Permiss
                 .single();
 
             if (updateError) {
+                logger.error('BACKEND', `[MARK_PRINTED_BULK] Failed updating order ${order.id}:`, updateError);
+                failedUpdates.push({
+                    order_id: order.id,
+                    error: updateError.message || 'Update failed'
+                });
             } else if (updated) {
                 updatedOrders.push(updated);
             }
         }
 
+        if (updatedOrders.length === 0 && failedUpdates.length > 0) {
+            return res.status(500).json({
+                error: 'Bulk update failed',
+                message: 'No se pudo marcar como impresos los pedidos solicitados',
+                failed: failedUpdates
+            });
+        }
 
         res.json({
             success: true,
             message: `${updatedOrders?.length || 0} pedidos marcados como impresos`,
-            data: updatedOrders
+            data: updatedOrders,
+            failed: failedUpdates
         });
     } catch (error: any) {
         res.status(500).json({

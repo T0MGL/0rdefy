@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode, useMemo } from 'react';
+import { createContext, useContext, useState, useCallback, ReactNode, useMemo, useEffect } from 'react';
 
 // Storage key for global view preference
 const GLOBAL_VIEW_STORAGE_KEY = 'dashboard_global_view';
@@ -45,6 +45,31 @@ export function GlobalViewProvider({ children }: { children: ReactNode }) {
       safeSetItem(GLOBAL_VIEW_STORAGE_KEY, String(newValue));
       return newValue;
     });
+  }, []);
+
+  // Auto-disable global view when user switches window/tab to avoid costly reloads
+  useEffect(() => {
+    const disableGlobalView = () => {
+      setGlobalViewEnabledState(prev => {
+        if (!prev) return prev;
+        safeSetItem(GLOBAL_VIEW_STORAGE_KEY, 'false');
+        return false;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        disableGlobalView();
+      }
+    };
+
+    window.addEventListener('blur', disableGlobalView);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('blur', disableGlobalView);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   // Memoize context value to prevent unnecessary re-renders

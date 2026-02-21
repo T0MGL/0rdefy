@@ -301,7 +301,8 @@ export function useSmartPolling<T>({
 
   // Fetch on mount if requested
   useEffect(() => {
-    if (fetchOnMount && enabled) {
+    // Avoid duplicate initial fetch when polling already performed an immediate fetch
+    if (fetchOnMount && enabled && !isPollingRef.current) {
       fetchData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -12,7 +12,6 @@ import { DashboardOverview, ConfirmationMetrics } from '@/types';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { formatCurrency } from '@/utils/currency';
 import { useSubscription } from '@/contexts/SubscriptionContext';
-import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { logger } from '@/utils/logger';
 import { formatLocalDate } from '@/utils/timeUtils';
@@ -30,6 +29,8 @@ import {
   XCircle,
   DoorOpen,
   Banknote,
+  Lock,
+  ArrowRight,
 } from 'lucide-react';
 import {
   PieChart,
@@ -43,11 +44,14 @@ import {
   YAxis,
   CartesianGrid,
 } from 'recharts';
+import { useNavigate } from 'react-router-dom';
 
 export default function DashboardLogistics() {
-  const { hasFeature, loading: subscriptionLoading } = useSubscription();
+  const navigate = useNavigate();
+  const { hasFeature, loading: subscriptionLoading, canUpgrade } = useSubscription();
   const { permissions, currentStore } = useAuth();
   const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
+  const hasWarehouseFeature = hasFeature('warehouse');
   const [isLoading, setIsLoading] = useState(true);
   const [showDetailedMetrics, setShowDetailedMetrics] = useState(false);
 
@@ -98,7 +102,9 @@ export default function DashboardLogistics() {
         endDate: dateRange.endDate,
       };
 
-      if (hasAnalyticsAccess) {
+      // Full logistics analytics only for plans with warehouse access.
+      // Free plan and blocked plans receive a lightweight preview.
+      if (hasWarehouseFeature && hasAnalyticsAccess) {
         // Full analytics data for users with analytics permission
         const [overview, confirmation, statusDist, codData, logisticsData, incidentsData] = await Promise.all([
           analyticsService.getOverview(dateParams),
@@ -186,6 +192,9 @@ export default function DashboardLogistics() {
         }));
 
         setOrderStatusData(transformedStatus);
+        setLogisticsMetrics(null);
+        setCodMetrics(null);
+        setIncidentsMetrics(null);
       }
     } catch (error: any) {
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
@@ -197,25 +206,21 @@ export default function DashboardLogistics() {
         setIsLoading(false);
       }
     }
-  }, [statusMap, dateRange, hasAnalyticsAccess]);
+  }, [statusMap, dateRange, hasAnalyticsAccess, hasWarehouseFeature]);
 
   useEffect(() => {
-    if (!hasFeature('warehouse')) return;
     const abortController = new AbortController();
     loadDashboardData(abortController.signal);
 
     return () => {
       abortController.abort();
     };
-  }, [loadDashboardData, hasFeature]);
+  }, [loadDashboardData]);
 
   // Check warehouse feature access - AFTER all hooks
   // Wait for subscription to load to prevent flash of upgrade modal
   if (subscriptionLoading) {
     return null;
-  }
-  if (!hasFeature('warehouse')) {
-    return <FeatureBlockedPage feature="warehouse" />;
   }
 
   if (isLoading) {
@@ -242,6 +247,34 @@ export default function DashboardLogistics() {
 
   return (
     <div className="space-y-6">
+      {!hasWarehouseFeature && (
+        <Card className="p-4 border-primary/30 bg-primary/5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Lock size={16} className="text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold text-card-foreground">Vista logística limitada</p>
+                <p className="text-sm text-muted-foreground">
+                  Puedes ver un resumen operativo básico. Para picking, packing, despacho y conciliaciones, actualiza a Starter+.
+                </p>
+              </div>
+            </div>
+            {canUpgrade && (
+              <Button
+                size="sm"
+                className="gap-2 shrink-0"
+                onClick={() => navigate('/settings', { state: { openSection: 'subscription', fromFeature: 'warehouse', returnPath: '/dashboard-logistics' } })}
+              >
+                Actualizar plan
+                <ArrowRight size={14} />
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
       <FirstTimeWelcomeBanner
         moduleId="dashboard-logistics"
         title="¡Bienvenido al Dashboard Logístico!"
@@ -310,6 +343,15 @@ export default function DashboardLogistics() {
           />
         </div>
       </div>
+
+      {!hasWarehouseFeature && (
+        <Card className="p-6 border-dashed border-primary/30 bg-primary/5">
+          <h3 className="text-lg font-semibold text-card-foreground">Funciones desbloqueables en Starter+</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Dashboard logístico avanzado, métricas COD, incidencias, flujo completo de almacén y conciliaciones.
+          </p>
+        </Card>
+      )}
 
       {/* Nuevas Métricas de Logística Avanzada */}
       {logisticsMetrics && (

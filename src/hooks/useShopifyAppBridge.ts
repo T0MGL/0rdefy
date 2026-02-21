@@ -44,24 +44,61 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
   const [error, setError] = useState<Error | null>(null);
   const [app, setApp] = useState<any>(null);
   const retryCountRef = useRef(0);
+  const isMountedRef = useRef(false);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout | undefined;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
     const MAX_RETRIES = 20; // Máximo 20 reintentos = 2 segundos
     const RETRY_DELAY = 100; // 100ms entre reintentos
+
+    isMountedRef.current = true;
 
     // Reset retry count on mount
     retryCountRef.current = 0;
 
+    const clearRetryTimeout = () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    };
+
+    const setIsLoadingSafe = (value: boolean) => {
+      if (isMountedRef.current) {
+        setIsLoading(value);
+      }
+    };
+
+    const setErrorSafe = (value: Error | null) => {
+      if (isMountedRef.current) {
+        setError(value);
+      }
+    };
+
+    const setSessionTokenSafe = (value: string) => {
+      if (isMountedRef.current) {
+        setSessionToken(value);
+      }
+    };
+
+    const setAppSafe = (value: any) => {
+      if (isMountedRef.current) {
+        setApp(value);
+      }
+    };
+
     const initializeAppBridge = async () => {
+      if (!isMountedRef.current) return;
+
       try {
-        setIsLoading(true);
-        setError(null);
+        setIsLoadingSafe(true);
+        setErrorSafe(null);
 
         // Check if App Bridge was loaded (set by index.html script)
         if (!window.__SHOPIFY_EMBEDDED__) {
           logger.log('[Shopify] Not in embedded mode - App Bridge disabled');
-          setIsLoading(false);
+          setIsLoadingSafe(false);
           return;
         }
 
@@ -112,7 +149,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
           if (retryCountRef.current >= MAX_RETRIES) {
             logger.error(`[Shopify] App Bridge failed to load after ${MAX_RETRIES} attempts (${MAX_RETRIES * RETRY_DELAY}ms). Running in standalone mode.`);
-            setIsLoading(false);
+            setIsLoadingSafe(false);
             return;
           }
 
@@ -121,15 +158,19 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
           }
 
           // Reintentar después de un breve delay
-          setTimeout(initializeAppBridge, RETRY_DELAY);
+          clearRetryTimeout();
+          retryTimeoutRef.current = setTimeout(() => {
+            retryTimeoutRef.current = null;
+            void initializeAppBridge();
+          }, RETRY_DELAY);
           return;
         }
 
         // Validar que tengamos al menos host o shopDomain
         if (!host && !shopDomain) {
           logger.error('[Shopify] Could not determine shop or host from parameters');
-          setError(new Error('Missing shop and host parameters'));
-          setIsLoading(false);
+          setErrorSafe(new Error('Missing shop and host parameters'));
+          setIsLoadingSafe(false);
           return;
         }
 
@@ -140,8 +181,8 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         const CLIENT_ID = import.meta.env.VITE_SHOPIFY_API_KEY;
         if (!CLIENT_ID) {
           logger.error('[Shopify] Missing VITE_SHOPIFY_API_KEY environment variable');
-          setError(new Error('Missing VITE_SHOPIFY_API_KEY'));
-          setIsLoading(false);
+          setErrorSafe(new Error('Missing VITE_SHOPIFY_API_KEY'));
+          setIsLoadingSafe(false);
           return;
         }
 
@@ -164,7 +205,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         const shopifyApp = window.shopify.createApp(appConfig);
 
-        setApp(shopifyApp);
+        setAppSafe(shopifyApp);
 
         logger.log('[Shopify] App Bridge 3.0 initialized successfully');
 
@@ -181,8 +222,12 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
             throw new Error('Failed to get session token from Shopify');
           }
 
+          if (!isMountedRef.current) {
+            return token;
+          }
+
           logger.log('[Shopify] Session token obtained successfully');
-          setSessionToken(token);
+          setSessionTokenSafe(token);
 
           // Guardar el token en localStorage para uso en API requests
           localStorage.setItem('shopify_session_token', token);
@@ -195,6 +240,7 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
 
         // Renovar el token periódicamente (cada 50 segundos, los tokens de Shopify duran 60s)
         intervalId = setInterval(async () => {
+          if (!isMountedRef.current) return;
           try {
             logger.log('[Shopify] Refreshing session token...');
             await fetchSessionToken();
@@ -205,16 +251,18 @@ export const useShopifyAppBridge = (): UseShopifyAppBridgeResult => {
         }, 50000); // 50 segundos
       } catch (err) {
         logger.error('[Shopify] Error initializing App Bridge:', err);
-        setError(err instanceof Error ? err : new Error('Unknown error'));
+        setErrorSafe(err instanceof Error ? err : new Error('Unknown error'));
       } finally {
-        setIsLoading(false);
+        setIsLoadingSafe(false);
       }
     };
 
-    initializeAppBridge();
+    void initializeAppBridge();
 
-    // Limpiar el intervalo cuando el componente se desmonte
+    // Limpiar timers cuando el componente se desmonte
     return () => {
+      isMountedRef.current = false;
+      clearRetryTimeout();
       if (intervalId) {
         clearInterval(intervalId);
       }

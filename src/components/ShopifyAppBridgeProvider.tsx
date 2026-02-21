@@ -76,6 +76,12 @@ export function ShopifyAppBridgeProvider({ children }: { children: React.ReactNo
           forceRedirect: true,
         };
 
+        // Keep the Shopify API key meta tag in sync for App Bridge compatibility
+        const shopifyApiKeyMeta = document.querySelector('meta[name="shopify-api-key"]');
+        if (shopifyApiKeyMeta) {
+          shopifyApiKeyMeta.setAttribute('content', API_KEY);
+        }
+
         logger.log('📦 [SHOPIFY] Config:', {
           apiKey: API_KEY.substring(0, 8) + '...',
           host: savedHost

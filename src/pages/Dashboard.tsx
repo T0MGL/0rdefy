@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
 import { MetricCard } from '@/components/MetricCard';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { InfoTooltip } from '@/components/InfoTooltip';
 import { UsageLimitsIndicator } from '@/components/UsageLimitsIndicator';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { useAuth, Module } from '@/contexts/AuthContext';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { DashboardOverview, ChartData } from '@/types';
@@ -36,7 +37,11 @@ import {
   Activity,
   Globe,
   Store,
+  Lock,
+  ArrowRight,
+  Loader2,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import {
   LineChart,
   Line,
@@ -49,12 +54,16 @@ import {
 } from 'recharts';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showSecondaryMetrics, setShowSecondaryMetrics] = useState(false);
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
+  const hasLoadedMetricsRef = useRef(false);
 
   // Global View state from context (toggle is in Header, only shown on Dashboard)
-  const { stores, permissions, loading: authLoading, currentStore } = useAuth();
+  const { stores, permissions, loading: authLoading, currentStore, refreshStores } = useAuth();
+  const { subscription, canUpgrade } = useSubscription();
   const { globalViewEnabled } = useGlobalView();
   const [globalViewStores, setGlobalViewStores] = useState<{ id: string; name: string }[]>([]);
 
@@ -71,6 +80,13 @@ export default function Dashboard() {
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
 
+  // Sync store memberships when Global View is used to avoid stale local cache mismatches
+  useEffect(() => {
+    if (!authLoading && globalViewEnabled && hasMultipleStores) {
+      void refreshStores();
+    }
+  }, [authLoading, globalViewEnabled, hasMultipleStores, refreshStores]);
+
   // Safe accessors for change metrics (prevents null reference errors)
   const getChange = (metric: string) => {
     if (!dashboardOverview?.changes) return undefined;
@@ -86,6 +102,8 @@ export default function Dashboard() {
   };
 
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
+  const currentPlan = subscription?.plan?.toLowerCase() || 'free';
+  const isFreePlan = currentPlan === 'free';
 
   // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
@@ -107,10 +125,17 @@ export default function Dashboard() {
     // Skip loading analytics for users without analytics access
     if (!hasAnalyticsAccess) {
       setIsLoading(false);
+      setIsRefreshing(false);
+      hasLoadedMetricsRef.current = false;
       return;
     }
 
-    setIsLoading(true);
+    const hasCachedMetrics = hasLoadedMetricsRef.current;
+    if (hasCachedMetrics) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     try {
       const dateParams = {
         startDate: dateRange.startDate,
@@ -127,8 +152,8 @@ export default function Dashboard() {
         // Fetch unified data from all stores
         logger.log('🌍 [Dashboard] Fetching UNIFIED data from all stores...');
         const [unifiedOverview, unifiedChart] = await Promise.all([
-          unifiedService.getAnalyticsOverview(dateParams),
-          unifiedService.getAnalyticsChart(dateRange.days, dateParams),
+          unifiedService.getAnalyticsOverview(dateParams, signal),
+          unifiedService.getAnalyticsChart(dateRange.days, dateParams, signal),
         ]);
 
         logger.log('🌍 [Dashboard] Unified response:', {
@@ -145,8 +170,8 @@ export default function Dashboard() {
       } else {
         // Fetch data from current store only
         const [singleOverview, singleChart] = await Promise.all([
-          analyticsService.getOverview(dateParams),
-          analyticsService.getChartData(dateRange.days, dateParams),
+          analyticsService.getOverview(dateParams, signal),
+          analyticsService.getChartData(dateRange.days, dateParams, signal),
         ]);
 
         overview = singleOverview;
@@ -159,8 +184,16 @@ export default function Dashboard() {
         return;
       }
 
-      setDashboardOverview(overview);
-      setChartData(chart);
+      if (overview) {
+        setDashboardOverview(overview);
+        hasLoadedMetricsRef.current = true;
+      } else if (!hasCachedMetrics) {
+        setDashboardOverview(null);
+      }
+
+      if (chart.length > 0 || !hasCachedMetrics) {
+        setChartData(chart);
+      }
     } catch (error: any) {
       // Ignore abort errors
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
@@ -170,6 +203,7 @@ export default function Dashboard() {
     } finally {
       if (!signal?.aborted) {
         setIsLoading(false);
+        setIsRefreshing(false);
       }
     }
   }, [dateRange, globalViewEnabled, hasMultipleStores, stores, hasAnalyticsAccess]);
@@ -224,11 +258,22 @@ export default function Dashboard() {
     );
   }
 
-  if (isLoading) {
+  const isGlobalViewActive = globalViewEnabled && hasMultipleStores;
+  const hasHeavyGlobalLoad = isGlobalViewActive && (globalViewStores.length > 3 || (stores?.length || 0) > 3);
+
+  if (isLoading && !dashboardOverview) {
     return (
       <div className="space-y-6">
-        <DailySummary />
-        <QuickActions />
+        {hasHeavyGlobalLoad && (
+          <Card className="p-4 border-emerald-300/60 bg-emerald-50/70 dark:bg-emerald-950/20">
+            <div className="flex items-center gap-3 text-emerald-700 dark:text-emerald-300">
+              <Loader2 size={16} className="animate-spin" />
+              <p className="text-sm font-medium">
+                Consolidando métricas globales de múltiples tiendas...
+              </p>
+            </div>
+          </Card>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[...Array(10)].map((_, i) => (
             <CardSkeleton key={i} />
@@ -253,10 +298,51 @@ export default function Dashboard() {
   }
 
   // Determine if we're showing global view
-  const isShowingGlobalView = globalViewEnabled && hasMultipleStores && globalViewStores.length > 0;
+  const isShowingGlobalView = isGlobalViewActive && globalViewStores.length > 0;
 
   return (
     <div className="space-y-6">
+      {isFreePlan && (
+        <Card className="p-4 border-primary/30 bg-primary/5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Lock size={16} className="text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold text-card-foreground">Vista limitada en plan Free</p>
+                <p className="text-sm text-muted-foreground">
+                  Tienes acceso al resumen principal. Desbloquea métricas de rentabilidad, costos, gráficos avanzados e inteligencia de ingresos con Starter+.
+                </p>
+              </div>
+            </div>
+            {canUpgrade && (
+              <Button
+                size="sm"
+                className="gap-2 shrink-0"
+                onClick={() => navigate('/settings', { state: { openSection: 'subscription', fromFeature: 'warehouse', returnPath: '/' } })}
+              >
+                Actualizar plan
+                <ArrowRight size={14} />
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {isRefreshing && (
+        <Card className="p-3 border-emerald-300/60 bg-emerald-50/60 dark:bg-emerald-950/20">
+          <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+            <Loader2 size={14} className="animate-spin" />
+            <p className="text-sm">
+              {hasHeavyGlobalLoad
+                ? 'Actualizando vista global. Estamos unificando datos de todas tus tiendas...'
+                : 'Actualizando métricas...'}
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* Global View Store Badges - Shows which stores are being aggregated */}
       {isShowingGlobalView && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
@@ -361,270 +447,294 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Secondary Metrics - Collapsible */}
-      <div className="space-y-4">
-        <Button
-          variant="ghost"
-          className="w-full flex items-center justify-between p-4 hover:bg-accent"
-          onClick={() => setShowSecondaryMetrics(!showSecondaryMetrics)}
-        >
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">Métricas de Rentabilidad</h3>
-            <span className="text-sm text-muted-foreground">
-              ({showSecondaryMetrics ? 'Ocultar' : 'Mostrar'})
-            </span>
+      {!isFreePlan ? (
+        <>
+          {/* Secondary Metrics - Collapsible */}
+          <div className="space-y-4">
+            <Button
+              variant="ghost"
+              className="w-full flex items-center justify-between p-4 hover:bg-accent"
+              onClick={() => setShowSecondaryMetrics(!showSecondaryMetrics)}
+            >
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold">Métricas de Rentabilidad</h3>
+                <span className="text-sm text-muted-foreground">
+                  ({showSecondaryMetrics ? 'Ocultar' : 'Mostrar'})
+                </span>
+              </div>
+              {showSecondaryMetrics ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </Button>
+
+            {showSecondaryMetrics && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      ROAS
+                      <InfoTooltip content="Retorno de la inversión publicitaria (solo pedidos entregados)." />
+                    </div>
+                  }
+                  value={
+                    dashboardOverview.gasto_publicitario > 0 && (dashboardOverview.realRevenue ?? 0) > 0
+                      ? `${(dashboardOverview.realRoas ?? dashboardOverview.roas).toFixed(2)}x`
+                      : 'N/A'
+                  }
+                  change={
+                    dashboardOverview.gasto_publicitario > 0 &&
+                    (dashboardOverview.realRevenue ?? 0) > 0
+                      ? getChange('realRoas')
+                      : undefined
+                  }
+                  trend={
+                    dashboardOverview.gasto_publicitario > 0 &&
+                    (dashboardOverview.realRevenue ?? 0) > 0
+                      ? getTrend('realRoas')
+                      : undefined
+                  }
+                  icon={<Target className="text-green-600" size={20} />}
+                  subtitle={
+                    dashboardOverview.gasto_publicitario === 0
+                      ? 'Sin campañas activas'
+                      : (dashboardOverview.realRevenue ?? 0) === 0
+                      ? 'Sin pedidos entregados'
+                      : undefined
+                  }
+                />
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      ROI General
+                      <InfoTooltip content="Retorno sobre la inversión total (solo pedidos entregados)." />
+                    </div>
+                  }
+                  value={
+                    (dashboardOverview.realCosts ?? 0) > 0 && (dashboardOverview.realRevenue ?? 0) > 0
+                      ? `${(dashboardOverview.realRoi ?? dashboardOverview.roi).toFixed(1)}%`
+                      : 'N/A'
+                  }
+                  change={
+                    (dashboardOverview.realCosts ?? 0) > 0 &&
+                    (dashboardOverview.realRevenue ?? 0) > 0
+                      ? getChange('realRoi')
+                      : undefined
+                  }
+                  trend={
+                    (dashboardOverview.realCosts ?? 0) > 0 &&
+                    (dashboardOverview.realRevenue ?? 0) > 0
+                      ? getTrend('realRoi')
+                      : undefined
+                  }
+                  icon={<Target className="text-blue-600" size={20} />}
+                  subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
+                />
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      Margen Bruto
+                      <InfoTooltip content="Beneficio sobre venta después de costos de producto (solo entregados)." />
+                    </div>
+                  }
+                  value={
+                    (dashboardOverview.realRevenue ?? 0) > 0
+                      ? `${(dashboardOverview.realGrossMargin ?? dashboardOverview.grossMargin)}%`
+                      : 'N/A'
+                  }
+                  change={(dashboardOverview.realRevenue ?? 0) > 0 ? getChange('realGrossMargin') : undefined}
+                  trend={(dashboardOverview.realRevenue ?? 0) > 0 ? getTrend('realGrossMargin') : undefined}
+                  icon={<Percent className="text-emerald-600" size={20} />}
+                  subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
+                />
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      Margen Neto
+                      <InfoTooltip content="Beneficio final sobre venta después de todos los gastos (solo entregados)." />
+                    </div>
+                  }
+                  value={
+                    (dashboardOverview.realRevenue ?? 0) > 0
+                      ? `${(dashboardOverview.realNetMargin ?? dashboardOverview.netMargin)}%`
+                      : 'N/A'
+                  }
+                  change={(dashboardOverview.realRevenue ?? 0) > 0 ? getChange('realNetMargin') : undefined}
+                  trend={(dashboardOverview.realRevenue ?? 0) > 0 ? getTrend('realNetMargin') : undefined}
+                  icon={<Percent className="text-primary" size={20} />}
+                  subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
+                />
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      Costo por Pedido
+                      <InfoTooltip content="Costo promedio total de adquirir y procesar un pedido." />
+                    </div>
+                  }
+                  value={formatCurrency(dashboardOverview.costPerOrder)}
+                  change={getChange('costPerOrder')}
+                  trend={getTrend('costPerOrder')}
+                  icon={<Package2 className="text-gray-600" size={20} />}
+                />
+              </div>
+            )}
           </div>
-          {showSecondaryMetrics ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-        </Button>
 
-        {showSecondaryMetrics && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  ROAS
-                  <InfoTooltip content="Retorno de la inversión publicitaria (solo pedidos entregados)." />
-                </div>
-              }
-              value={
-                dashboardOverview.gasto_publicitario > 0 && (dashboardOverview.realRevenue ?? 0) > 0
-                  ? `${(dashboardOverview.realRoas ?? dashboardOverview.roas).toFixed(2)}x`
-                  : 'N/A'
-              }
-              change={
-                dashboardOverview.gasto_publicitario > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0
-                  ? getChange('realRoas')
-                  : undefined
-              }
-              trend={
-                dashboardOverview.gasto_publicitario > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0
-                  ? getTrend('realRoas')
-                  : undefined
-              }
-              icon={<Target className="text-green-600" size={20} />}
-              subtitle={
-                dashboardOverview.gasto_publicitario === 0
-                  ? 'Sin campañas activas'
-                  : (dashboardOverview.realRevenue ?? 0) === 0
-                  ? 'Sin pedidos entregados'
-                  : undefined
-              }
-            />
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  ROI General
-                  <InfoTooltip content="Retorno sobre la inversión total (solo pedidos entregados)." />
-                </div>
-              }
-              value={
-                (dashboardOverview.realCosts ?? 0) > 0 && (dashboardOverview.realRevenue ?? 0) > 0
-                  ? `${(dashboardOverview.realRoi ?? dashboardOverview.roi).toFixed(1)}%`
-                  : 'N/A'
-              }
-              change={
-                (dashboardOverview.realCosts ?? 0) > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0
-                  ? getChange('realRoi')
-                  : undefined
-              }
-              trend={
-                (dashboardOverview.realCosts ?? 0) > 0 &&
-                (dashboardOverview.realRevenue ?? 0) > 0
-                  ? getTrend('realRoi')
-                  : undefined
-              }
-              icon={<Target className="text-blue-600" size={20} />}
-              subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
-            />
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  Margen Bruto
-                  <InfoTooltip content="Beneficio sobre venta después de costos de producto (solo entregados)." />
-                </div>
-              }
-              value={
-                (dashboardOverview.realRevenue ?? 0) > 0
-                  ? `${(dashboardOverview.realGrossMargin ?? dashboardOverview.grossMargin)}%`
-                  : 'N/A'
-              }
-              change={(dashboardOverview.realRevenue ?? 0) > 0 ? getChange('realGrossMargin') : undefined}
-              trend={(dashboardOverview.realRevenue ?? 0) > 0 ? getTrend('realGrossMargin') : undefined}
-              icon={<Percent className="text-emerald-600" size={20} />}
-              subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
-            />
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  Margen Neto
-                  <InfoTooltip content="Beneficio final sobre venta después de todos los gastos (solo entregados)." />
-                </div>
-              }
-              value={
-                (dashboardOverview.realRevenue ?? 0) > 0
-                  ? `${(dashboardOverview.realNetMargin ?? dashboardOverview.netMargin)}%`
-                  : 'N/A'
-              }
-              change={(dashboardOverview.realRevenue ?? 0) > 0 ? getChange('realNetMargin') : undefined}
-              trend={(dashboardOverview.realRevenue ?? 0) > 0 ? getTrend('realNetMargin') : undefined}
-              icon={<Percent className="text-primary" size={20} />}
-              subtitle={(dashboardOverview.realRevenue ?? 0) === 0 ? 'Sin pedidos entregados' : undefined}
-            />
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  Costo por Pedido
-                  <InfoTooltip content="Costo promedio total de adquirir y procesar un pedido." />
-                </div>
-              }
-              value={formatCurrency(dashboardOverview.costPerOrder)}
-              change={getChange('costPerOrder')}
-              trend={getTrend('costPerOrder')}
-              icon={<Package2 className="text-gray-600" size={20} />}
-            />
+          {/* Cost Breakdown - Collapsible */}
+          <div className="space-y-4">
+            <Button
+              variant="ghost"
+              className="w-full flex items-center justify-between p-4 hover:bg-accent"
+              onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+            >
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold">Desglose de Costos</h3>
+                <span className="text-sm text-muted-foreground">
+                  ({showAdvancedMetrics ? 'Ocultar' : 'Mostrar'})
+                </span>
+              </div>
+              {showAdvancedMetrics ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </Button>
+
+            {showAdvancedMetrics && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      Costos de Productos
+                      <InfoTooltip content="Valor total del costo de la mercancía vendida (COGS)." />
+                    </div>
+                  }
+                  value={formatCurrency(dashboardOverview.realProductCosts ?? dashboardOverview.productCosts)}
+                  change={dashboardOverview.changes?.realProductCosts !== null ? Math.abs(dashboardOverview.changes?.realProductCosts || 0) : undefined}
+                  trend={dashboardOverview.changes?.realProductCosts !== null ? (dashboardOverview.changes?.realProductCosts >= 0 ? 'up' : 'down') : undefined}
+                  icon={<TrendingDown className="text-red-600" size={20} />}
+                  subtitle="Solo pedidos entregados"
+                />
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      Costos de Envío
+                      <InfoTooltip content="Gasto total en servicios de logística y transporte." />
+                    </div>
+                  }
+                  value={formatCurrency(dashboardOverview.realDeliveryCosts ?? dashboardOverview.deliveryCosts)}
+                  change={dashboardOverview.changes?.realDeliveryCosts !== null ? Math.abs(dashboardOverview.changes?.realDeliveryCosts || 0) : undefined}
+                  trend={dashboardOverview.changes?.realDeliveryCosts !== null ? (dashboardOverview.changes?.realDeliveryCosts >= 0 ? 'up' : 'down') : undefined}
+                  icon={<Truck className="text-orange-600" size={20} />}
+                  subtitle="Solo pedidos entregados"
+                />
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      Gasto Publicitario
+                      <InfoTooltip content="Inversión total realizada en campañas de marketing." />
+                    </div>
+                  }
+                  value={formatCurrency(dashboardOverview.gasto_publicitario)}
+                  change={dashboardOverview.changes?.gasto_publicitario !== null ? Math.abs(dashboardOverview.changes?.gasto_publicitario || 0) : undefined}
+                  trend={dashboardOverview.changes?.gasto_publicitario !== null ? (dashboardOverview.changes?.gasto_publicitario >= 0 ? 'up' : 'down') : undefined}
+                  icon={<Megaphone className="text-blue-600" size={20} />}
+                  subtitle="Inversión publicitaria"
+                />
+                <MetricCard
+                  title={
+                    <div className="flex items-center">
+                      {/* Special case for dynamic title */}
+                      <span>IVA Recolectado ({dashboardOverview.taxRate}%)</span>
+                      <InfoTooltip content="Monto total de impuestos recaudados sobre las ventas." />
+                    </div>
+                  }
+                  value={formatCurrency(dashboardOverview.taxCollected)}
+                  change={dashboardOverview.changes?.taxCollected !== null ? Math.abs(dashboardOverview.changes?.taxCollected || 0) : undefined}
+                  trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
+                  icon={<Receipt className="text-orange-600" size={20} />}
+                  subtitle="Incluido en facturación"
+                />
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Cost Breakdown - Collapsible */}
-      <div className="space-y-4">
-        <Button
-          variant="ghost"
-          className="w-full flex items-center justify-between p-4 hover:bg-accent"
-          onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
-        >
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">Desglose de Costos</h3>
-            <span className="text-sm text-muted-foreground">
-              ({showAdvancedMetrics ? 'Ocultar' : 'Mostrar'})
-            </span>
+          {/* Financial Chart */}
+          <Card className="p-6 bg-card">
+            <h3 className="text-lg font-semibold mb-4 text-card-foreground">Resumen Financiero (Pedidos Entregados)</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Ingresos, costos y beneficio basados únicamente en pedidos entregados
+            </p>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis dataKey="date" className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                    color: 'hsl(var(--card-foreground))',
+                  }}
+                  formatter={(value: number, name: string) => {
+                    return [formatCurrency(value), name];
+                  }}
+                />
+                <Legend wrapperStyle={{ color: 'hsl(var(--card-foreground))' }} />
+                <Line
+                  type="monotone"
+                  dataKey="realRevenue"
+                  stroke="hsl(84, 81%, 63%)"
+                  strokeWidth={2.5}
+                  name="Ingresos Reales"
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="costs"
+                  stroke="hsl(0, 84%, 60%)"
+                  strokeWidth={2.5}
+                  name="Costos (Producto + Envío)"
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="gasto_publicitario"
+                  stroke="hsl(217, 91%, 60%)"
+                  strokeWidth={2.5}
+                  name="Gasto Publicitario"
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="profit"
+                  stroke="hsl(142, 76%, 45%)"
+                  strokeWidth={2.5}
+                  name="Beneficio Neto"
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+
+          {/* Revenue Intelligence Section */}
+          <RevenueIntelligence />
+        </>
+      ) : (
+        <Card className="p-6 border-dashed border-primary/30 bg-primary/5">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-card-foreground">Secciones avanzadas bloqueadas</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Rentabilidad detallada, desglose de costos, gráfico financiero e inteligencia de ingresos están disponibles en Starter+.
+              </p>
+            </div>
+            {canUpgrade && (
+              <Button
+                className="gap-2 self-start lg:self-auto"
+                onClick={() => navigate('/settings', { state: { openSection: 'subscription', fromFeature: 'warehouse', returnPath: '/' } })}
+              >
+                Ver planes
+                <ArrowRight size={14} />
+              </Button>
+            )}
           </div>
-          {showAdvancedMetrics ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-        </Button>
-
-        {showAdvancedMetrics && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  Costos de Productos
-                  <InfoTooltip content="Valor total del costo de la mercancía vendida (COGS)." />
-                </div>
-              }
-              value={formatCurrency(dashboardOverview.realProductCosts ?? dashboardOverview.productCosts)}
-              change={dashboardOverview.changes?.realProductCosts !== null ? Math.abs(dashboardOverview.changes?.realProductCosts || 0) : undefined}
-              trend={dashboardOverview.changes?.realProductCosts !== null ? (dashboardOverview.changes?.realProductCosts >= 0 ? 'up' : 'down') : undefined}
-              icon={<TrendingDown className="text-red-600" size={20} />}
-              subtitle="Solo pedidos entregados"
-            />
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  Costos de Envío
-                  <InfoTooltip content="Gasto total en servicios de logística y transporte." />
-                </div>
-              }
-              value={formatCurrency(dashboardOverview.realDeliveryCosts ?? dashboardOverview.deliveryCosts)}
-              change={dashboardOverview.changes?.realDeliveryCosts !== null ? Math.abs(dashboardOverview.changes?.realDeliveryCosts || 0) : undefined}
-              trend={dashboardOverview.changes?.realDeliveryCosts !== null ? (dashboardOverview.changes?.realDeliveryCosts >= 0 ? 'up' : 'down') : undefined}
-              icon={<Truck className="text-orange-600" size={20} />}
-              subtitle="Solo pedidos entregados"
-            />
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  Gasto Publicitario
-                  <InfoTooltip content="Inversión total realizada en campañas de marketing." />
-                </div>
-              }
-              value={formatCurrency(dashboardOverview.gasto_publicitario)}
-              change={dashboardOverview.changes?.gasto_publicitario !== null ? Math.abs(dashboardOverview.changes?.gasto_publicitario || 0) : undefined}
-              trend={dashboardOverview.changes?.gasto_publicitario !== null ? (dashboardOverview.changes?.gasto_publicitario >= 0 ? 'up' : 'down') : undefined}
-              icon={<Megaphone className="text-blue-600" size={20} />}
-              subtitle="Inversión publicitaria"
-            />
-            <MetricCard
-              title={
-                <div className="flex items-center">
-                  {/* Special case for dynamic title */}
-                  <span>IVA Recolectado ({dashboardOverview.taxRate}%)</span>
-                  <InfoTooltip content="Monto total de impuestos recaudados sobre las ventas." />
-                </div>
-              }
-              value={formatCurrency(dashboardOverview.taxCollected)}
-              change={dashboardOverview.changes?.taxCollected !== null ? Math.abs(dashboardOverview.changes?.taxCollected || 0) : undefined}
-              trend={dashboardOverview.changes?.taxCollected !== null ? (dashboardOverview.changes?.taxCollected >= 0 ? 'up' : 'down') : undefined}
-              icon={<Receipt className="text-orange-600" size={20} />}
-              subtitle="Incluido en facturación"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Financial Chart */}
-      <Card className="p-6 bg-card">
-        <h3 className="text-lg font-semibold mb-4 text-card-foreground">Resumen Financiero (Pedidos Entregados)</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          Ingresos, costos y beneficio basados únicamente en pedidos entregados
-        </p>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-            <XAxis dataKey="date" className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
-            <YAxis className="stroke-muted-foreground" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '8px',
-                color: 'hsl(var(--card-foreground))',
-              }}
-              formatter={(value: number, name: string) => {
-                return [formatCurrency(value), name];
-              }}
-            />
-            <Legend wrapperStyle={{ color: 'hsl(var(--card-foreground))' }} />
-            <Line
-              type="monotone"
-              dataKey="realRevenue"
-              stroke="hsl(84, 81%, 63%)"
-              strokeWidth={2.5}
-              name="Ingresos Reales"
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="costs"
-              stroke="hsl(0, 84%, 60%)"
-              strokeWidth={2.5}
-              name="Costos (Producto + Envío)"
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="gasto_publicitario"
-              stroke="hsl(217, 91%, 60%)"
-              strokeWidth={2.5}
-              name="Gasto Publicitario"
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="profit"
-              stroke="hsl(142, 76%, 45%)"
-              strokeWidth={2.5}
-              name="Beneficio Neto"
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </Card>
-
-      {/* Revenue Intelligence Section */}
-      <RevenueIntelligence />
+        </Card>
+      )}
     </div>
   );
 }

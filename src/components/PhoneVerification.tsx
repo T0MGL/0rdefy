@@ -3,7 +3,7 @@
  * WhatsApp-based phone number verification UI
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,35 +29,90 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
   const [canResend, setCanResend] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [demoCode, setDemoCode] = useState('');
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resendTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verifyCallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Countdown timer - FIXED: Remove timeRemaining from dependencies to prevent recreation
   useEffect(() => {
-    if (step === 'code' && timeRemaining > 0) {
-      const timer = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            setError('El código ha expirado. Solicita uno nuevo.');
-            setCanResend(true);
-            return 0;
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      if (resendTimeoutRef.current) {
+        clearTimeout(resendTimeoutRef.current);
+        resendTimeoutRef.current = null;
+      }
+      if (verifyCallbackTimeoutRef.current) {
+        clearTimeout(verifyCallbackTimeoutRef.current);
+        verifyCallbackTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // Countdown timer
+  useEffect(() => {
+    if (step !== 'code') {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      return;
+    }
+
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+    }
+
+    countdownIntervalRef.current = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
           }
-          return prev - 1;
-        });
-      }, 1000);
+          setError('El código ha expirado. Solicita uno nuevo.');
+          setCanResend(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-      return () => clearInterval(timer);
-    }
-  }, [step]); // ✅ FIXED: Only depend on step, not timeRemaining
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, [step]);
 
-  // Enable resend after 60 seconds - FIXED: Remove canResend from dependencies
+  // Enable resend after 60 seconds
   useEffect(() => {
-    if (step === 'code' && !canResend) {
-      const timer = setTimeout(() => {
-        setCanResend(true);
-      }, 60000); // 60 seconds
-
-      return () => clearTimeout(timer);
+    if (step !== 'code' || canResend) {
+      if (resendTimeoutRef.current) {
+        clearTimeout(resendTimeoutRef.current);
+        resendTimeoutRef.current = null;
+      }
+      return;
     }
-  }, [step]); // ✅ FIXED: Only depend on step, not canResend
+
+    if (resendTimeoutRef.current) {
+      clearTimeout(resendTimeoutRef.current);
+    }
+
+    resendTimeoutRef.current = setTimeout(() => {
+      setCanResend(true);
+      resendTimeoutRef.current = null;
+    }, 60000); // 60 seconds
+
+    return () => {
+      if (resendTimeoutRef.current) {
+        clearTimeout(resendTimeoutRef.current);
+        resendTimeoutRef.current = null;
+      }
+    };
+  }, [step, canResend]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -130,8 +185,12 @@ export function PhoneVerification({ onVerified, onSkip, allowSkip = false }: Pho
       setSuccess('¡Teléfono verificado exitosamente!');
 
       // Call onVerified callback after a short delay
-      setTimeout(() => {
+      if (verifyCallbackTimeoutRef.current) {
+        clearTimeout(verifyCallbackTimeoutRef.current);
+      }
+      verifyCallbackTimeoutRef.current = setTimeout(() => {
         onVerified?.();
+        verifyCallbackTimeoutRef.current = null;
       }, 1500);
 
     } catch (err: any) {

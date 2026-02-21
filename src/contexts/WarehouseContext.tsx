@@ -9,12 +9,12 @@ import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
 import { useToast } from '@/hooks/use-toast';
 import type {
-import { logger } from '@/utils/logger';
   PickingSession,
   ConfirmedOrder,
   PackingListResponse,
   OrderForPacking
 } from '@/services/warehouse.service';
+import { logger } from '@/utils/logger';
 
 // Extended types for the new order-first approach
 export interface OrderInSession {

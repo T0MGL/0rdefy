@@ -118,7 +118,7 @@ export const unifiedService = {
     getAnalyticsOverview: async (params?: {
         startDate?: string;
         endDate?: string;
-    }): Promise<UnifiedAnalyticsResponse> => {
+    }, signal?: AbortSignal): Promise<UnifiedAnalyticsResponse> => {
         try {
             const queryParams = new URLSearchParams();
             if (params?.startDate) queryParams.append('startDate', params.startDate);
@@ -129,6 +129,7 @@ export const unifiedService = {
 
             const response = await fetch(url, {
                 headers: getHeaders(),
+                signal,
             });
 
             if (!response.ok) {
@@ -158,7 +159,7 @@ export const unifiedService = {
     getAnalyticsChart: async (days: number, params?: {
         startDate?: string;
         endDate?: string;
-    }): Promise<ChartData[]> => {
+    }, signal?: AbortSignal): Promise<ChartData[]> => {
         try {
             const queryParams = new URLSearchParams();
             queryParams.append('days', days.toString());
@@ -167,6 +168,7 @@ export const unifiedService = {
 
             const response = await fetch(`${API_BASE_URL}/unified/analytics/chart?${queryParams}`, {
                 headers: getHeaders(),
+                signal,
             });
 
             if (!response.ok) {

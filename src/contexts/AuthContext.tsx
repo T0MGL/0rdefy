@@ -238,13 +238,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
+    const activeRequests = activeRequestsRef.current;
     return () => {
       isMountedRef.current = false;
       // Cancel all pending requests
-      activeRequestsRef.current.forEach(source => {
+      activeRequests.forEach(source => {
         source.cancel('Component unmounted');
       });
-      activeRequestsRef.current.clear();
+      activeRequests.clear();
     };
   }, []);
 
@@ -494,7 +495,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Inject query client for manual invalidation
   const queryClient = useQueryClient();
 
-  const switchStore = async (storeId: string) => {
+  const switchStore = useCallback(async (storeId: string) => {
     logger.log('🔄 [AUTH] Switching store:', storeId);
 
     const store = stores.find(s => s.id === storeId);
@@ -520,7 +521,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // window.location.href = '/'; // Still reload? No, we want soft switch.
       // But we might want to redirect to '/' if they are on a specific resource page
     }
-  };
+  }, [stores, queryClient]);
 
   const refreshStores = useCallback(async () => {
     logger.log('🔄 [AUTH] Refreshing stores from server');
@@ -958,7 +959,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     deleteStore,
     refreshStores,
     permissions,
-  }), [user, currentStore, stores, loading, permissions, refreshStores]);
+  }), [
+    user,
+    currentStore,
+    stores,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    switchStore,
+    updateProfile,
+    changePassword,
+    deleteAccount,
+    createStore,
+    deleteStore,
+    refreshStores,
+    permissions,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

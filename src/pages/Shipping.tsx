@@ -36,6 +36,7 @@ export default function Shipping() {
   const [singleDispatchOrder, setSingleDispatchOrder] = useState<ReadyToShipOrder | null>(null);
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [dispatching, setDispatching] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const hasWarehouseFeature = hasFeature('warehouse');
 
@@ -140,8 +141,6 @@ export default function Shipping() {
       description: `PDF descargado con ${selectedOrdersList.length} pedido(s)`,
     });
   }
-
-  const [exporting, setExporting] = useState(false);
 
   async function handleExportExcel() {
     if (selectedOrders.size === 0) {

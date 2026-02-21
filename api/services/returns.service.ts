@@ -119,7 +119,7 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
   // Get line items count for remaining eligible orders
   // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
   const eligibleOrderIds = eligibleOrders.map(o => o.id);
-  let lineItemCounts: any[] = [];
+  const lineItemCounts: any[] = [];
   const PAGE_SIZE = 1000;
   let page = 0;
   let hasMore = true;
@@ -236,7 +236,7 @@ export async function createReturnSession(
 
   // Get line items from order_line_items table
   // IMPORTANT: Use pagination to prevent memory exhaustion with >500 items
-  let lineItems: any[] = [];
+  const lineItems: any[] = [];
   const PAGE_SIZE = 1000;
   let page = 0;
   let hasMore = true;

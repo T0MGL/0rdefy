@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -110,14 +110,7 @@ export function ProductVariantsManager({
     option1_value: ''
   });
 
-  // Fetch variants when dialog opens
-  useEffect(() => {
-    if (open && productId) {
-      fetchVariants();
-    }
-  }, [open, productId]);
-
-  const fetchVariants = async () => {
+  const fetchVariants = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/products/${productId}/variants`, {
@@ -141,7 +134,14 @@ export function ProductVariantsManager({
     } finally {
       setLoading(false);
     }
-  };
+  }, [productId, toast]);
+
+  // Fetch variants when dialog opens
+  useEffect(() => {
+    if (open && productId) {
+      fetchVariants();
+    }
+  }, [open, productId, fetchVariants]);
 
   const resetBundleForm = () => {
     setBundleForm({

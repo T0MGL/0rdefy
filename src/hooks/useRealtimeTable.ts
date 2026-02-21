@@ -16,7 +16,7 @@
  * ```
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { useRealtimeSubscription } from './useRealtimeSubscription';
 import { useToast } from './use-toast';
@@ -81,6 +81,16 @@ export function useRealtimeTable<T extends { id: string }>({
   const [data, setData] = useState<T[]>(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (refetchTimeoutRef.current) {
+        clearTimeout(refetchTimeoutRef.current);
+        refetchTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Update data when initialData changes
   useEffect(() => {
@@ -176,7 +186,13 @@ export function useRealtimeTable<T extends { id: string }>({
     setLoading(true);
     // Implement fetch logic if needed
     // For now, just toggle loading
-    setTimeout(() => setLoading(false), 100);
+    if (refetchTimeoutRef.current) {
+      clearTimeout(refetchTimeoutRef.current);
+    }
+    refetchTimeoutRef.current = setTimeout(() => {
+      setLoading(false);
+      refetchTimeoutRef.current = null;
+    }, 100);
   }, []);
 
   return {

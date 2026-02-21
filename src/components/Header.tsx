@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils';
 import { StoreSwitcher } from './StoreSwitcher';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import type { DateRange as CalendarDateRange } from 'react-day-picker';
 
 const dateRanges = [
   { label: 'Hoy', value: 'today' },
@@ -51,7 +52,7 @@ export function Header() {
   const { signOut, user, stores, permissions } = useAuth();
   const hasAnalyticsAccess = permissions.canAccessModule(Module.ANALYTICS);
   const { hasFeature } = useSubscription();
-  const { selectedRange, setSelectedRange, customRange, setCustomRange } = useDateRange();
+  const { selectedRange, setSelectedRange, customRange, setCustomRange, getDateRange } = useDateRange();
   const { globalViewEnabled, setGlobalViewEnabled } = useGlobalView();
 
   // Show Global View toggle only on Dashboard and when user has 2+ stores
@@ -68,8 +69,7 @@ export function Header() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showCalendar, setShowCalendar] = useState(false);
-  const [startDate, setStartDate] = useState<Date>();
-  const [endDate, setEndDate] = useState<Date>();
+  const [customSelection, setCustomSelection] = useState<CalendarDateRange | undefined>(undefined);
 
   // Subscribe to cross-tab notification updates
   useEffect(() => {
@@ -235,22 +235,40 @@ export function Header() {
     }
   };
 
+  useEffect(() => {
+    if (!showCalendar) return;
+
+    if (customRange?.from) {
+      setCustomSelection({
+        from: customRange.from,
+        to: customRange.to || customRange.from,
+      });
+      return;
+    }
+
+    const currentRange = getDateRange();
+    setCustomSelection({
+      from: currentRange.from,
+      to: currentRange.to,
+    });
+  }, [showCalendar, customRange, getDateRange]);
+
   const handleApplyCustomDates = () => {
-    if (startDate && endDate) {
-      setCustomRange({ from: startDate, to: endDate });
-      setSelectedRange('custom');
-      setShowCalendar(false);
-    } else if (startDate && !endDate) {
-      // Si solo hay fecha de inicio, usar el mismo día como fin
-      setCustomRange({ from: startDate, to: startDate });
+    const from = customSelection?.from;
+    const to = customSelection?.to || from;
+
+    if (from && to) {
+      setCustomRange({ from, to });
       setSelectedRange('custom');
       setShowCalendar(false);
     }
   };
 
   const handleResetDates = () => {
-    setStartDate(undefined);
-    setEndDate(undefined);
+    setCustomSelection(undefined);
+    setCustomRange(null);
+    setSelectedRange('7d');
+    setShowCalendar(false);
   };
 
   const getCustomLabel = () => {
@@ -354,35 +372,25 @@ export function Header() {
               <PopoverContent className="w-auto p-4 bg-card border-border shadow-xl" align="end">
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm font-medium mb-2 text-foreground">Fecha de Inicio</p>
+                    <p className="text-sm font-medium mb-2 text-foreground">Selecciona un rango personalizado</p>
                     <CalendarComponent
-                      mode="single"
-                      selected={startDate}
-                      onSelect={setStartDate}
+                      mode="range"
+                      selected={customSelection}
+                      onSelect={setCustomSelection}
                       locale={es}
+                      numberOfMonths={1}
+                      captionLayout="dropdown-buttons"
+                      fromYear={2010}
+                      toYear={new Date().getFullYear()}
+                      defaultMonth={customSelection?.from}
+                      disabled={(date) => date > new Date()}
                       initialFocus
                       className="rounded-md border border-border bg-card"
                     />
                   </div>
 
-                  {startDate && (
-                    <div>
-                      <p className="text-sm font-medium mb-2 text-foreground">
-                        Fecha de Fin <span className="text-muted-foreground text-xs">(opcional)</span>
-                      </p>
-                      <CalendarComponent
-                        mode="single"
-                        selected={endDate}
-                        onSelect={setEndDate}
-                        locale={es}
-                        disabled={(date) => date < startDate}
-                        className="rounded-md border border-border bg-card"
-                      />
-                    </div>
-                  )}
-
                   <div className="flex gap-2 pt-2 border-t border-border">
-                    <Button onClick={handleApplyCustomDates} disabled={!startDate} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
+                    <Button onClick={handleApplyCustomDates} disabled={!customSelection?.from} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
                       Aplicar
                     </Button>
                     <Button onClick={handleResetDates} variant="outline" className="border-border hover:bg-muted">

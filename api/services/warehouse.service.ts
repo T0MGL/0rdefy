@@ -326,7 +326,7 @@ export async function createSession(
       .filter(d => d.variant_id)
       .map(d => d.variant_id as string);
 
-    let variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
+    const variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
     if (variantIds.length > 0) {
       const variantsData = await batchedSelect(
         'product_variants',
@@ -591,6 +591,7 @@ export async function createSession(
 
     return session;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -649,7 +650,7 @@ export async function getPickingList(
 
     // Get variant details if any items have variant_id
     const variantIds = (items || []).filter(item => item.variant_id).map(item => item.variant_id);
-    let variantMap = new Map<string, { variant_title: string; units_per_pack: number }>();
+    const variantMap = new Map<string, { variant_title: string; units_per_pack: number }>();
     if (variantIds.length > 0) {
       const { data: variants } = await supabaseAdmin
         .from('product_variants')
@@ -713,6 +714,7 @@ export async function getPickingList(
       orders: formattedOrders
     };
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -894,6 +896,7 @@ export async function updatePickingProgress(
 
     return updated;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -957,7 +960,7 @@ export async function finishPicking(
     }
 
     // VARIANT FIX: Fetch variant data for proper stock calculation
-    let variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
+    const variantStockMap = new Map<string, { uses_shared_stock: boolean; units_per_pack: number; stock: number; variant_title: string }>();
     if (variantIds.length > 0) {
       const { data: variantsData, error: variantsError } = await supabaseAdmin
         .from('product_variants')
@@ -1197,6 +1200,7 @@ export async function finishPicking(
 
     return updated;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -1293,7 +1297,7 @@ export async function getPackingList(
       sessionOrders
         ?.map((so: any) => so.orders?.courier_id)
         .filter(Boolean)
-    )] || [];
+    )];
 
     // FIX: Guard against empty carrierIds - PostgREST .in() with empty array can cause parse errors
     let carrierMap = new Map<string, string>();
@@ -1548,7 +1552,7 @@ export async function getPackingList(
 
     // VARIANT FIX: Fetch variant info for picking_session_items
     const pickingVariantIds = (pickedItems || []).filter(item => item.variant_id).map(item => item.variant_id);
-    let pickingVariantMap = new Map<string, string>();
+    const pickingVariantMap = new Map<string, string>();
     if (pickingVariantIds.length > 0) {
       const { data: pickingVariants } = await supabaseAdmin
         .from('product_variants')
@@ -1616,6 +1620,7 @@ export async function getPackingList(
       availableItems
     };
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -1799,7 +1804,7 @@ export async function updatePackingProgress(
       while (casAttempt < MAX_CAS_RETRIES && !casSuccess) {
         try {
           // RACE CONDITION FIX: Include variant_id in re-read to ensure consistency
-          let rereadQuery = supabaseAdmin
+          const rereadQuery = supabaseAdmin
             .from('packing_progress')
             .select('quantity_packed, quantity_needed, variant_id')
             .eq('id', progress.id);
@@ -1884,6 +1889,7 @@ export async function updatePackingProgress(
 
     return updatedRecord;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -1915,6 +1921,7 @@ export async function getActiveSessions(storeId: string): Promise<PickingSession
 
     return sessions;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -1963,6 +1970,7 @@ export async function getConfirmedOrders(storeId: string) {
 
     return ordersWithCounts;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -1995,6 +2003,7 @@ export async function abandonSession(
 
     return data;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -2096,6 +2105,7 @@ export async function removeOrderFromSession(
 
     return data;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -2216,6 +2226,7 @@ export async function cleanupExpiredSessions(hoursInactive: number = 48): Promis
 
     return data;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -2258,6 +2269,7 @@ export async function getStaleSessions(storeId: string): Promise<any[]> {
 
     return staleSessions;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -2294,6 +2306,7 @@ export async function updatePackingProgressAtomic(
 
     return data;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }
@@ -2451,6 +2464,7 @@ export async function completeSession(
 
     return updated;
   } catch (error) {
+    logger.error('WAREHOUSE', 'Warehouse service operation failed', error);
     throw error;
   }
 }

@@ -756,7 +756,8 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
                     separate_confirmation_flow
                 )
             `)
-            .eq('user_id', req.userId);
+            .eq('user_id', req.userId)
+            .eq('is_active', true);
 
         const stores = userStoresData?.map((us: any) => ({
             id: us.stores.id,
@@ -1032,7 +1033,8 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
                     admin_fee
                 )
             `)
-            .eq('user_id', req.userId);
+            .eq('user_id', req.userId)
+            .eq('is_active', true);
 
         if (storesError) {
             log.error('Error fetching stores', storesError);

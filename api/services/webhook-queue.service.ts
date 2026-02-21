@@ -40,6 +40,7 @@ export class WebhookQueueService {
   private supabase: SupabaseClient;
   private processing: boolean = false;
   private startingLock: boolean = false; // Guard against concurrent startProcessing() calls
+  private queueRunInProgress: boolean = false; // Prevent overlapping processQueue runs
   private concurrentLimit: number = 10; // Procesar 10 webhooks simultáneamente
   private pollingInterval: number = 1000; // Revisar cada 1 segundo
   private intervalId?: NodeJS.Timeout;
@@ -131,11 +132,11 @@ export class WebhookQueueService {
       this.processing = true;
 
       // Procesar inmediatamente
-      this.processQueue();
+      void this.processQueue();
 
       // Configurar polling para procesar continuamente
       this.intervalId = setInterval(() => {
-        this.processQueue();
+        void this.processQueue();
       }, this.pollingInterval);
     } finally {
       this.startingLock = false;
@@ -158,6 +159,17 @@ export class WebhookQueueService {
    * Procesar webhooks pendientes de la cola
    */
   private async processQueue(): Promise<void> {
+    if (!this.processing) {
+      return;
+    }
+
+    if (this.queueRunInProgress) {
+      logger.debug('BACKEND', '⏭️ [WEBHOOK-QUEUE] Skipping tick: previous batch still running');
+      return;
+    }
+
+    this.queueRunInProgress = true;
+
     try {
       // Obtener webhooks pendientes que estén listos para procesar
       const { data: pendingWebhooks, error } = await this.supabase
@@ -188,6 +200,8 @@ export class WebhookQueueService {
 
     } catch (error) {
       logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error processing queue:', error);
+    } finally {
+      this.queueRunInProgress = false;
     }
   }
 
@@ -198,53 +212,68 @@ export class WebhookQueueService {
     const startTime = Date.now();
 
     try {
-      // Marcar como procesando
-      await this.supabase
+      // Claim atómico: solo una ejecución puede pasar de pending -> processing
+      const { data: claimedWebhook, error: claimError } = await this.supabase
         .from('webhook_queue')
         .update({ status: 'processing' })
-        .eq('id', webhook.id);
+        .eq('id', webhook.id)
+        .eq('status', 'pending')
+        .select('*')
+        .maybeSingle();
 
-      logger.info('BACKEND', `⏳ [WEBHOOK-QUEUE] Processing webhook ${webhook.id} (topic: ${webhook.topic})`);
+      if (claimError) {
+        logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Error claiming webhook ${webhook.id}:`, claimError);
+        return;
+      }
+
+      if (!claimedWebhook) {
+        logger.debug('BACKEND', `⏭️ [WEBHOOK-QUEUE] Webhook ${webhook.id} already claimed by another worker`);
+        return;
+      }
+
+      const activeWebhook = claimedWebhook as WebhookQueueItem;
+
+      logger.info('BACKEND', `⏳ [WEBHOOK-QUEUE] Processing webhook ${activeWebhook.id} (topic: ${activeWebhook.topic})`);
 
       // Procesar según el topic
       // IMPORTANTE: Usar supabaseAdmin para evitar errores de RLS
       let result: any;
 
-      switch (webhook.topic) {
+      switch (activeWebhook.topic) {
         case 'orders/create':
           result = await this.webhookService.processOrderCreatedWebhook(
-            webhook.payload,
-            webhook.store_id,
-            webhook.integration_id
+            activeWebhook.payload,
+            activeWebhook.store_id,
+            activeWebhook.integration_id
           );
           break;
 
         case 'orders/updated':
           result = await this.webhookService.processOrderUpdatedWebhook(
-            webhook.payload,
-            webhook.store_id,
-            webhook.integration_id
+            activeWebhook.payload,
+            activeWebhook.store_id,
+            activeWebhook.integration_id
           );
           break;
 
         case 'products/update':
           result = await this.webhookService.processProductUpdatedWebhook(
-            webhook.payload,
-            webhook.store_id,
-            webhook.integration_id
+            activeWebhook.payload,
+            activeWebhook.store_id,
+            activeWebhook.integration_id
           );
           break;
 
         case 'products/delete':
           result = await this.webhookService.processProductDeletedWebhook(
-            webhook.payload.id,
-            webhook.store_id,
-            webhook.integration_id
+            activeWebhook.payload.id,
+            activeWebhook.store_id,
+            activeWebhook.integration_id
           );
           break;
 
         default:
-          logger.warn('BACKEND', `⚠️ [WEBHOOK-QUEUE] Unknown topic: ${webhook.topic}`);
+          logger.warn('BACKEND', `⚠️ [WEBHOOK-QUEUE] Unknown topic: ${activeWebhook.topic}`);
           result = { success: false, error: 'Unknown topic' };
       }
 
@@ -258,21 +287,22 @@ export class WebhookQueueService {
             status: 'completed',
             processed_at: new Date().toISOString(),
           })
-          .eq('id', webhook.id);
+          .eq('id', activeWebhook.id)
+          .eq('status', 'processing');
 
         // Registrar métrica
         await this.webhookManager.recordMetric(
-          webhook.integration_id,
-          webhook.store_id,
+          activeWebhook.integration_id,
+          activeWebhook.store_id,
           'processed',
           processingTime
         );
 
-        logger.info('BACKEND', `✅ [WEBHOOK-QUEUE] Webhook ${webhook.id} completed in ${processingTime}ms`);
+        logger.info('BACKEND', `✅ [WEBHOOK-QUEUE] Webhook ${activeWebhook.id} completed in ${processingTime}ms`);
 
       } else {
         // Error - reintentar o marcar como fallido
-        await this.handleWebhookError(webhook, result.error || 'Unknown error');
+        await this.handleWebhookError(activeWebhook, result.error || 'Unknown error');
       }
 
     } catch (error: any) {
@@ -298,7 +328,8 @@ export class WebhookQueueService {
           error: error.substring(0, 1000),
           processed_at: new Date().toISOString(),
         })
-        .eq('id', webhook.id);
+        .eq('id', webhook.id)
+        .eq('status', 'processing');
 
       // Registrar métrica de fallo
       await this.webhookManager.recordMetric(
@@ -325,7 +356,8 @@ export class WebhookQueueService {
           next_retry_at: nextRetryAt.toISOString(),
           error: error.substring(0, 1000),
         })
-        .eq('id', webhook.id);
+        .eq('id', webhook.id)
+        .eq('status', 'processing');
 
       logger.info('BACKEND', 
         `⏳ [WEBHOOK-QUEUE] Webhook ${webhook.id} will retry in ${backoffSeconds}s (attempt ${newRetryCount}/${webhook.max_retries})`

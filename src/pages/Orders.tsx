@@ -1117,7 +1117,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         details: { status: orders.find(o => o.id === orderToDelete)?.status },
       });
     }
-  }, [orderToDelete, toast, refetch, userRole]);
+  }, [orderToDelete, orders, toast, refetch, userRole]);
 
   // Show confirmation dialog for permanent delete
   const handlePermanentDeleteClick = useCallback((orderId: string) => {
