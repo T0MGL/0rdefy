@@ -58,6 +58,10 @@ interface TooltipPosition {
   transform?: string;
 }
 
+const VIEWPORT_PADDING = 16;
+const VIEWPORT_TOP_SAFE_PADDING = 84; // Progress bar + breathing room
+const VIEWPORT_BOTTOM_SAFE_PADDING = 16;
+
 export function DemoTourTooltip() {
   const {
     isActive,
@@ -131,19 +135,19 @@ export function DemoTourTooltip() {
       const tooltipWidth = tooltipRect.width || 400; // Fallback to expected width
       const tooltipHeight = tooltipRect.height || 300; // Dynamic height
 
-      const padding = 16; // Minimum distance from viewport edges
       const arrowOffset = 20;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+      const visualViewport = window.visualViewport;
+      const viewportWidth = visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
 
       // Helper: Check if position fits in viewport
       const fitsInViewport = (pos: { top?: number; left?: number }) => {
         if (pos.top !== undefined && pos.left !== undefined) {
           return (
-            pos.top >= padding &&
-            pos.left >= padding &&
-            pos.top + tooltipHeight <= viewportHeight - padding &&
-            pos.left + tooltipWidth <= viewportWidth - padding
+            pos.top >= VIEWPORT_TOP_SAFE_PADDING &&
+            pos.left >= VIEWPORT_PADDING &&
+            pos.top + tooltipHeight <= viewportHeight - VIEWPORT_BOTTOM_SAFE_PADDING &&
+            pos.left + tooltipWidth <= viewportWidth - VIEWPORT_PADDING
           );
         }
         return false;
@@ -190,12 +194,15 @@ export function DemoTourTooltip() {
         // Constrain to viewport with padding
         const constrainedPosition = {
           top: Math.max(
-            padding,
-            Math.min(proposedPosition.top || 0, viewportHeight - tooltipHeight - padding)
+            VIEWPORT_TOP_SAFE_PADDING,
+            Math.min(
+              proposedPosition.top || 0,
+              viewportHeight - tooltipHeight - VIEWPORT_BOTTOM_SAFE_PADDING
+            )
           ),
           left: Math.max(
-            padding,
-            Math.min(proposedPosition.left || 0, viewportWidth - tooltipWidth - padding)
+            VIEWPORT_PADDING,
+            Math.min(proposedPosition.left || 0, viewportWidth - tooltipWidth - VIEWPORT_PADDING)
           ),
         };
 
@@ -226,12 +233,16 @@ export function DemoTourTooltip() {
     const interval = setInterval(updatePosition, 200);
     window.addEventListener('scroll', updatePosition, true); // Capture phase for all scrolls
     window.addEventListener('resize', updatePosition);
+    window.visualViewport?.addEventListener('resize', updatePosition);
+    window.visualViewport?.addEventListener('scroll', updatePosition);
 
     return () => {
       clearTimeout(initialTimeout);
       clearInterval(interval);
       window.removeEventListener('scroll', updatePosition, true);
       window.removeEventListener('resize', updatePosition);
+      window.visualViewport?.removeEventListener('resize', updatePosition);
+      window.visualViewport?.removeEventListener('scroll', updatePosition);
     };
   }, [isActive, currentStep, currentStepIndex]);
 
@@ -347,7 +358,7 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100vh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100dvh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
           style={{
             top: '50%',
             left: '50%',
@@ -462,7 +473,7 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100vh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100dvh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
           style={{
             top: '50%',
             left: '50%',
@@ -529,8 +540,8 @@ export function DemoTourTooltip() {
           'bg-card border border-border rounded-2xl shadow-2xl',
           // Smart max-height: respect safe areas and ensure buttons always visible
           tooltipPosition.transform?.includes('translate(-50%, -50%)')
-            ? 'max-h-[min(600px,calc(100vh-80px))]' // Centered: generous height
-            : 'max-h-[calc(100vh-100px)]', // Positioned: conservative height
+            ? 'max-h-[min(600px,calc(100dvh-110px))]' // Centered: generous height
+            : 'max-h-[calc(100dvh-120px)]', // Positioned: conservative height
           'overflow-y-auto scroll-smooth scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent'
         )}
         style={tooltipPosition}

@@ -35,6 +35,7 @@ interface FirstTimeTooltipProps {
 const TOOLTIP_WIDTH = 320;
 const TOOLTIP_MARGIN = 16;
 const ARROW_SIZE = 12;
+const ESTIMATED_TOOLTIP_HEIGHT = 240;
 
 export function FirstTimeTooltip({
   moduleId,
@@ -51,62 +52,81 @@ export function FirstTimeTooltip({
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
   const [actualPosition, setActualPosition] = useState(position);
   const triggerRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
   // Calculate position based on trigger element
   const calculatePosition = useCallback(() => {
-    if (!triggerRef.current) return;
+    if (!triggerRef.current || typeof window === 'undefined') return;
 
     const rect = triggerRef.current.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
 
-    let top = 0;
-    let left = 0;
-    let finalPosition = position;
+    const visualViewport = window.visualViewport;
+    const viewportWidth = visualViewport?.width ?? window.innerWidth;
+    const viewportHeight = visualViewport?.height ?? window.innerHeight;
 
-    // Calculate initial position
-    switch (position) {
-      case 'bottom':
-        top = rect.bottom + ARROW_SIZE;
-        left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2;
+    const tooltipHeight = tooltipRef.current?.offsetHeight ?? ESTIMATED_TOOLTIP_HEIGHT;
+    const tooltipWidth = Math.min(TOOLTIP_WIDTH, viewportWidth - TOOLTIP_MARGIN * 2);
+    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+    const placements: Array<'top' | 'bottom' | 'left' | 'right'> = [
+      position,
+      'bottom',
+      'top',
+      'right',
+      'left',
+    ].filter((value, index, arr) => arr.indexOf(value) === index) as Array<'top' | 'bottom' | 'left' | 'right'>;
+
+    const getCoordinates = (placement: 'top' | 'bottom' | 'left' | 'right') => {
+      switch (placement) {
+        case 'bottom':
+          return {
+            top: rect.bottom + ARROW_SIZE,
+            left: rect.left + rect.width / 2 - tooltipWidth / 2,
+          };
+        case 'top':
+          return {
+            top: rect.top - tooltipHeight - ARROW_SIZE,
+            left: rect.left + rect.width / 2 - tooltipWidth / 2,
+          };
+        case 'left':
+          return {
+            top: rect.top + rect.height / 2 - tooltipHeight / 2,
+            left: rect.left - tooltipWidth - ARROW_SIZE,
+          };
+        case 'right':
+          return {
+            top: rect.top + rect.height / 2 - tooltipHeight / 2,
+            left: rect.right + ARROW_SIZE,
+          };
+      }
+    };
+
+    const fitsInViewport = (top: number, left: number) =>
+      top >= TOOLTIP_MARGIN &&
+      left >= TOOLTIP_MARGIN &&
+      top + tooltipHeight <= viewportHeight - TOOLTIP_MARGIN &&
+      left + tooltipWidth <= viewportWidth - TOOLTIP_MARGIN;
+
+    let finalPlacement = placements[0];
+    let finalCoordinates = getCoordinates(finalPlacement);
+
+    for (const candidate of placements) {
+      const coordinates = getCoordinates(candidate);
+      if (fitsInViewport(coordinates.top, coordinates.left)) {
+        finalPlacement = candidate;
+        finalCoordinates = coordinates;
         break;
-      case 'top':
-        top = rect.top - ARROW_SIZE;
-        left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2;
-        break;
-      case 'left':
-        top = rect.top + rect.height / 2;
-        left = rect.left - TOOLTIP_WIDTH - ARROW_SIZE;
-        break;
-      case 'right':
-        top = rect.top + rect.height / 2;
-        left = rect.right + ARROW_SIZE;
-        break;
+      }
     }
 
-    // Adjust horizontal position to stay within viewport
-    if (left < TOOLTIP_MARGIN) {
-      left = TOOLTIP_MARGIN;
-    } else if (left + TOOLTIP_WIDTH > viewportWidth - TOOLTIP_MARGIN) {
-      left = viewportWidth - TOOLTIP_WIDTH - TOOLTIP_MARGIN;
-    }
+    const maxTop = Math.max(TOOLTIP_MARGIN, viewportHeight - tooltipHeight - TOOLTIP_MARGIN);
+    const maxLeft = Math.max(TOOLTIP_MARGIN, viewportWidth - tooltipWidth - TOOLTIP_MARGIN);
 
-    // Adjust vertical position if needed (flip to opposite side)
-    if (position === 'bottom' && top + 200 > viewportHeight) {
-      finalPosition = 'top';
-      top = rect.top - ARROW_SIZE - 200; // Estimate tooltip height
-    } else if (position === 'top' && top < 200) {
-      finalPosition = 'bottom';
-      top = rect.bottom + ARROW_SIZE;
-    }
-
-    // Ensure minimum top
-    if (top < TOOLTIP_MARGIN) {
-      top = TOOLTIP_MARGIN;
-    }
-
-    setTooltipPosition({ top, left });
-    setActualPosition(finalPosition);
+    setTooltipPosition({
+      top: clamp(finalCoordinates.top, TOOLTIP_MARGIN, maxTop),
+      left: clamp(finalCoordinates.left, TOOLTIP_MARGIN, maxLeft),
+    });
+    setActualPosition(finalPlacement);
   }, [position]);
 
   useEffect(() => {
@@ -117,15 +137,22 @@ export function FirstTimeTooltip({
   useEffect(() => {
     if (isVisible) {
       calculatePosition();
+      const rafId = window.requestAnimationFrame(calculatePosition);
+
       // Recalculate on scroll/resize
       window.addEventListener('scroll', calculatePosition, true);
       window.addEventListener('resize', calculatePosition);
+      window.visualViewport?.addEventListener('resize', calculatePosition);
+      window.visualViewport?.addEventListener('scroll', calculatePosition);
       return () => {
+        window.cancelAnimationFrame(rafId);
         window.removeEventListener('scroll', calculatePosition, true);
         window.removeEventListener('resize', calculatePosition);
+        window.visualViewport?.removeEventListener('resize', calculatePosition);
+        window.visualViewport?.removeEventListener('scroll', calculatePosition);
       };
     }
-  }, [isVisible, calculatePosition]);
+  }, [isVisible, calculatePosition, currentStep]);
 
   async function checkFirstVisit() {
     setIsLoading(true);
@@ -187,6 +214,7 @@ export function FirstTimeTooltip({
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.2 }}
           className="fixed z-[9999]"
+          ref={tooltipRef}
           style={{
             top: tooltipPosition.top,
             left: tooltipPosition.left,

@@ -278,7 +278,7 @@ export const ordersService = {
         throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
-      let updatedOrder = await response.json();
+      const updatedOrder = await response.json();
 
       // Handle upsell separately using dedicated endpoint
       const upsellProductId = (data as any).upsell_product_id;
@@ -557,6 +557,33 @@ export const ordersService = {
     const data = result.data;
     const lineItems = data.line_items || data.order_line_items || [];
     const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+    const mappedLineItems = Array.isArray(lineItems)
+      ? lineItems.map((item: any, index: number) => {
+          const unitPrice = Number(item.unit_price ?? item.price ?? 0);
+          const quantity = Number(item.quantity ?? 1);
+          return {
+            id: item.id || `${data.id}-li-${index}`,
+            product_id: item.product_id,
+            variant_id: item.variant_id,
+            product_name: item.product_name || item.title || 'Producto',
+            variant_title: item.variant_title,
+            sku: item.sku,
+            quantity,
+            unit_price: unitPrice,
+            total_price: Number(item.total_price ?? unitPrice * quantity),
+            units_per_pack: item.units_per_pack,
+            shopify_product_id: item.shopify_product_id,
+            shopify_variant_id: item.shopify_variant_id,
+            products: item.products
+              ? {
+                  id: item.products.id,
+                  name: item.products.name,
+                  image_url: item.products.image_url,
+                }
+              : undefined,
+          };
+        })
+      : undefined;
 
     return {
       id: data.id,
@@ -576,6 +603,7 @@ export const ordersService = {
       inTransitTimestamp: data.in_transit_at,
       deliveredTimestamp: data.delivered_at,
       cancelledTimestamp: data.cancelled_at,
+      order_line_items: mappedLineItems,
     };
   },
 

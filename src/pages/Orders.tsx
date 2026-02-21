@@ -756,8 +756,19 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     try {
       const updatedOrder = await ordersService.updateStatus(orderId, newStatus);
       if (updatedOrder) {
-        // Update with server response
-        setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+        // Merge with existing order so UI metadata (e.g. thumbnails) is not lost
+        // when backend returns a partial payload on status updates.
+        setOrders(prev => prev.map(o => (
+          o.id === orderId
+            ? {
+              ...o,
+              ...updatedOrder,
+              order_line_items: updatedOrder.order_line_items?.length
+                ? updatedOrder.order_line_items
+                : o.order_line_items,
+            }
+            : o
+        )));
         toast({
           title: 'Estado actualizado',
           description: `Estado cambiado a ${statusLabels[newStatus]}`,
@@ -1786,7 +1797,18 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         ) : (
           <Card className="overflow-hidden" data-tour-target="orders-table">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-12" />
+                  <col className="w-[170px]" />
+                  <col className="w-[240px]" />
+                  <col className="w-[120px]" />
+                  <col className="w-[170px]" />
+                  <col className="w-[170px]" />
+                  <col className="w-[190px]" />
+                  <col className="w-[140px]" />
+                  <col className="w-[140px]" />
+                </colgroup>
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="text-center py-4 px-3 text-sm font-medium text-muted-foreground w-12">
@@ -1962,8 +1984,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                       </td>
                       <td className="py-4 px-6">
                         <div>
-                          <p className="text-sm font-medium flex items-center gap-1.5">
-                            {order.customer}
+                          <p className="text-sm font-medium flex items-center gap-1.5 max-w-[220px]">
+                            <span className="truncate">{order.customer}</span>
                             {order.has_internal_notes && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1988,7 +2010,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                 description: order.phone,
                               });
                             }}
-                            className="text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
+                            className="block max-w-[220px] truncate text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
                             title="Click para copiar"
                           >
                             {order.phone}
@@ -2020,7 +2042,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="py-4 px-6 text-sm">
+                      <td className="py-4 px-6 text-sm whitespace-nowrap">
                         {order.is_pickup ? (
                           <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                             <Store size={12} />
