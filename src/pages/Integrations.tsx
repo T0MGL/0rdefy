@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +19,7 @@ import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
 import { logger } from '@/utils/logger';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Integration {
   id: string;
@@ -57,6 +59,9 @@ const integrations: Integration[] = [
 
 export default function Integrations() {
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
+  const { refreshStores } = useAuth();
+  const [searchParams] = useSearchParams();
+  const didRefreshAfterOAuth = useRef(false);
   const { toast } = useToast();
   const [shopifyModalOpen, setShopifyModalOpen] = useState(false);
   const [shopifyMethodDialogOpen, setShopifyMethodDialogOpen] = useState(false);
@@ -68,6 +73,22 @@ export default function Integrations() {
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
 
   const hasShopifyImport = hasFeature('shopify_import');
+
+  useEffect(() => {
+    if (didRefreshAfterOAuth.current) return;
+
+    const status = searchParams.get('status');
+    const integration = searchParams.get('integration');
+
+    if (status === 'success' && integration === 'shopify') {
+      didRefreshAfterOAuth.current = true;
+      refreshStores().then((result) => {
+        if (result?.error) {
+          logger.warn('Could not refresh stores after Shopify OAuth:', result.error);
+        }
+      });
+    }
+  }, [searchParams, refreshStores]);
 
   // Check for existing integrations on mount
   useEffect(() => {

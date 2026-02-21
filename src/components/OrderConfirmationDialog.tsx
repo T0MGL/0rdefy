@@ -308,7 +308,7 @@ export function OrderConfirmationDialog({
         const storeId = localStorage.getItem('current_store_id');
 
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/coverage/city?city=${encodeURIComponent(selectedCity.city)}&department=${encodeURIComponent(selectedCity.department || '')}`,
+          `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/coverage/city?city=${encodeURIComponent(selectedCity.city)}&department=${encodeURIComponent(selectedCity.department || '')}&zone_code=${encodeURIComponent(selectedCity.zone_code || '')}`,
           {
             headers: {
               'Authorization': `Bearer ${token}`,

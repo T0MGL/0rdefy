@@ -564,8 +564,9 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     logger.info('API', '✅ [SHOPIFY-OAUTH] Access token received');
     logger.info('API', '📋 [SHOPIFY-OAUTH] Granted scopes:', scope);
 
-    // Fetch shop info from Shopify API to get shop name
-    let shopName = shop as string; // Default to shop domain
+    // Fetch shop info from Shopify API to get shop name.
+    // Important: do not default to full domain, to avoid overwriting store name with *.myshopify.com
+    let fetchedShopName: string | null = null;
     try {
       const shopInfoResponse = await axios.get(
         `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`,
@@ -577,12 +578,12 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       );
 
       if (shopInfoResponse.data?.shop?.name) {
-        shopName = shopInfoResponse.data.shop.name;
-        logger.info('API', '✅ [SHOPIFY-OAUTH] Shop name fetched:', shopName);
+        fetchedShopName = shopInfoResponse.data.shop.name;
+        logger.info('API', '✅ [SHOPIFY-OAUTH] Shop name fetched:', fetchedShopName);
       }
     } catch (error: any) {
       logger.error('API', '⚠️ [SHOPIFY-OAUTH] Failed to fetch shop name:', error.message);
-      // Continue with shop domain as fallback
+      // Keep existing store name if shop info is not available.
     }
 
     // Determine store_id - prioritize: stateData.store_id > query param > user's first store
@@ -606,11 +607,24 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
     // Save integration to database (OAuth flow)
     // OAuth integrations use access_token, NOT api_key/api_secret_key
+    // Check if integration already exists
+    const { data: existingIntegration } = await supabaseAdmin
+      .from('shopify_integrations')
+      .select('id, shop_name')
+      .eq('shop', shop)
+      .single();
+    const isNewIntegration = !existingIntegration;
+
+    const safeShopName =
+      fetchedShopName ||
+      existingIntegration?.shop_name ||
+      (shop as string).replace('.myshopify.com', '');
+
     const integrationData: any = {
       user_id: stateData.user_id,
       store_id: finalStoreId,
       shop_domain: shop as string,
-      shop_name: shopName, // Store the fetched shop name
+      shop_name: safeShopName,
       shop: shop as string, // Alias for shop_domain
       access_token, // OAuth access token
       scope, // OAuth granted scopes
@@ -618,13 +632,6 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
       installed_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
-
-    // Check if integration already exists
-    const { data: existingIntegration } = await supabaseAdmin
-      .from('shopify_integrations')
-      .select('id')
-      .eq('shop', shop)
-      .single();
 
     let integrationIdForWebhooks: string;
 
@@ -636,7 +643,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
         .update({
           access_token,
           scope,
-          shop_name: shopName, // Update shop name on reconnection
+          shop_name: safeShopName,
           status: 'active',
           updated_at: new Date().toISOString()
         })
@@ -667,18 +674,19 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
 
     logger.info('API', '✅ [SHOPIFY-OAUTH] Integration saved to database');
 
-    // Update store name in the stores table if we have a store_id
-    if (finalStoreId && shopName) {
+    // Update store name ONLY on first integration connect.
+    // On reconnections, keep the user-defined store name from Profile.
+    if (isNewIntegration && finalStoreId && fetchedShopName) {
       try {
         const { error: updateStoreError } = await supabaseAdmin
           .from('stores')
-          .update({ name: shopName })
+          .update({ name: fetchedShopName })
           .eq('id', finalStoreId);
 
         if (updateStoreError) {
           logger.error('API', '⚠️ [SHOPIFY-OAUTH] Failed to update store name:', updateStoreError);
         } else {
-          logger.info('API', '✅ [SHOPIFY-OAUTH] Store name updated to:', shopName);
+          logger.info('API', '✅ [SHOPIFY-OAUTH] Store name updated to:', fetchedShopName);
         }
       } catch (error: any) {
         logger.error('API', '⚠️ [SHOPIFY-OAUTH] Error updating store name:', error.message);

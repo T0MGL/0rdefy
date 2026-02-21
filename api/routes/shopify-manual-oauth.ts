@@ -347,7 +347,7 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
     logger.info('API', '📋 [MANUAL-OAUTH] Granted scopes:', scope);
 
     // Fetch shop info
-    let shopName = shop as string;
+    let fetchedShopName: string | null = null;
     let shopData: any = null;
     try {
       const shopInfoResponse = await axios.get(
@@ -357,8 +357,8 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
         }
       );
       shopData = shopInfoResponse.data?.shop;
-      shopName = shopData?.name || shop;
-      logger.info('API', '✅ [MANUAL-OAUTH] Shop name:', shopName);
+      fetchedShopName = shopData?.name || null;
+      logger.info('API', '✅ [MANUAL-OAUTH] Shop name:', fetchedShopName);
     } catch (error: any) {
       logger.warn('API', '⚠️ [MANUAL-OAUTH] Could not fetch shop info:', error.message);
     }
@@ -366,18 +366,24 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
     // Check if integration exists
     const { data: existingIntegration } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('id')
+      .select('id, shop_name')
       .eq('store_id', stateData.store_id)
       .single();
+    const isNewIntegration = !existingIntegration;
 
     let integrationId: string;
+
+    const safeShopName =
+      fetchedShopName ||
+      existingIntegration?.shop_name ||
+      (shop as string).replace('.myshopify.com', '');
 
     const integrationData = {
       user_id: stateData.user_id,
       store_id: stateData.store_id,
       shop_domain: shop as string,
       shop: (shop as string).replace('.myshopify.com', ''),
-      shop_name: shopName,
+      shop_name: safeShopName,
       access_token,
       api_key: stateData.custom_client_id,
       api_secret_key: stateData.custom_client_secret,
@@ -423,11 +429,12 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
       logger.info('API', '✅ [MANUAL-OAUTH] Integration created');
     }
 
-    // Update store name
-    if (stateData.store_id && shopName) {
+    // Update store name ONLY on first integration connect.
+    // On reconnections, keep the user-defined store name from Profile.
+    if (isNewIntegration && stateData.store_id && fetchedShopName) {
       await supabaseAdmin
         .from('stores')
-        .update({ name: shopName })
+        .update({ name: fetchedShopName })
         .eq('id', stateData.store_id);
     }
 

@@ -532,13 +532,23 @@ carriersRouter.get('/locations/search', async (req: AuthRequest, res: Response) 
 // ================================================================
 carriersRouter.get('/coverage/city', async (req: AuthRequest, res: Response) => {
     try {
-        const { city, department } = req.query;
+        const { city, department, zone_code } = req.query;
 
         if (!city) {
             return res.status(400).json({
                 error: 'City parameter is required'
             });
         }
+
+        const normalizeText = (value?: string | null): string =>
+            (value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .trim();
+
+        const normalizedCity = normalizeText(city as string);
+        const normalizedZoneCode = normalizeText((zone_code as string) || '');
 
         const { data, error } = await supabaseAdmin.rpc('get_carriers_for_city', {
             p_store_id: req.storeId,
@@ -577,7 +587,62 @@ carriersRouter.get('/coverage/city', async (req: AuthRequest, res: Response) => 
             });
         }
 
-        res.json({ data: data || [] });
+        const carriersData = (data || []) as Array<{
+            carrier_id: string;
+            carrier_name: string;
+            carrier_phone: string | null;
+            rate: number | null;
+            zone_code: string | null;
+            has_coverage: boolean;
+        }>;
+
+        // Backward-compatible fallback:
+        // If city-based coverage is missing, allow legacy carrier_zones match
+        // by zone_code (preferred) or exact city name in zone_name.
+        const { data: zoneRows, error: zoneRowsError } = await supabaseAdmin
+            .from('carrier_zones')
+            .select('carrier_id, rate, zone_name, zone_code')
+            .eq('store_id', req.storeId)
+            .eq('is_active', true);
+
+        if (zoneRowsError) throw zoneRowsError;
+
+        const legacyZoneRates = new Map<string, number>();
+        (zoneRows || []).forEach((zone: any) => {
+            const zoneName = normalizeText(zone.zone_name);
+            const zoneCode = normalizeText(zone.zone_code);
+            const matchesByZoneCode = normalizedZoneCode && zoneCode === normalizedZoneCode;
+            const matchesByZoneName = zoneName && zoneName === normalizedCity;
+            if (!matchesByZoneCode && !matchesByZoneName) return;
+            const rate = Number(zone.rate);
+            if (!Number.isFinite(rate)) return;
+
+            const current = legacyZoneRates.get(zone.carrier_id);
+            if (current == null || rate < current) {
+                legacyZoneRates.set(zone.carrier_id, rate);
+            }
+        });
+
+        const enriched = carriersData.map((carrier) => {
+            if (carrier.has_coverage) return carrier;
+            const fallbackRate = legacyZoneRates.get(carrier.carrier_id);
+            if (fallbackRate == null) return carrier;
+            return {
+                ...carrier,
+                rate: fallbackRate,
+                has_coverage: true
+            };
+        });
+
+        const sorted = enriched.sort((a, b) => {
+            if (a.has_coverage && !b.has_coverage) return -1;
+            if (!a.has_coverage && b.has_coverage) return 1;
+            if (a.rate === null) return 1;
+            if (b.rate === null) return -1;
+            return a.rate - b.rate;
+        });
+
+        res.json({ data: sorted });
     } catch (error: any) {
         logger.error('API', '[GET /api/carriers/coverage/city] Error:', error);
         res.status(500).json({

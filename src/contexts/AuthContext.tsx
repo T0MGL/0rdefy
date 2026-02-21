@@ -206,6 +206,7 @@ interface AuthContextType {
   deleteAccount: (password: string) => Promise<{ success?: boolean; error?: string }>;
   createStore: (data: { name: string; country?: string; currency?: string; taxRate?: number; adminFee?: number }) => Promise<{ success?: boolean; error?: string; storeId?: string }>;
   deleteStore: (storeId: string) => Promise<{ success?: boolean; error?: string }>;
+  refreshStores: () => Promise<{ success?: boolean; error?: string }>;
   // Permission helpers
   permissions: PermissionHelpers;
 }
@@ -520,6 +521,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // But we might want to redirect to '/' if they are on a specific resource page
     }
   };
+
+  const refreshStores = useCallback(async () => {
+    logger.log('🔄 [AUTH] Refreshing stores from server');
+
+    const cancelSource = createCancellableRequest();
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await axios.get(`${API_URL}/stores`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        cancelToken: cancelSource.token
+      });
+
+      cleanupRequest(cancelSource);
+
+      if (!isMountedRef.current) return { success: true };
+
+      if (!response.data?.success) {
+        return { error: response.data?.error || 'No se pudieron refrescar las tiendas' };
+      }
+
+      const nextStores: Store[] = response.data.stores || [];
+      setStores(nextStores);
+
+      setUser(prev => {
+        if (!prev) return prev;
+        const updated = { ...prev, stores: nextStores };
+        localStorage.setItem('user', JSON.stringify(updated));
+        return updated;
+      });
+
+      const preferredStoreId = localStorage.getItem('current_store_id') || currentStore?.id || nextStores[0]?.id;
+      const updatedCurrentStore = nextStores.find(s => s.id === preferredStoreId) || nextStores[0] || null;
+      setCurrentStore(updatedCurrentStore);
+
+      if (updatedCurrentStore) {
+        localStorage.setItem('current_store_id', updatedCurrentStore.id);
+      } else {
+        localStorage.removeItem('current_store_id');
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      cleanupRequest(cancelSource);
+
+      if (axios.isCancel(err)) {
+        return { success: true };
+      }
+
+      logger.error('💥 [AUTH] Error refreshing stores:', err);
+      if (err.response) {
+        return { error: err.response.data?.error || 'Error al refrescar tiendas' };
+      }
+      if (err.request) {
+        return { error: 'No se pudo conectar con el servidor' };
+      }
+      return { error: 'Error inesperado' };
+    }
+  }, [createCancellableRequest, cleanupRequest, currentStore?.id]);
 
   const updateProfile = useCallback(async (data: { userName?: string; userPhone?: string; storeName?: string }) => {
     logger.log('📝 [AUTH] Updating profile:', data);
@@ -894,8 +956,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     deleteAccount,
     createStore,
     deleteStore,
+    refreshStores,
     permissions,
-  }), [user, currentStore, stores, loading, permissions]);
+  }), [user, currentStore, stores, loading, permissions, refreshStores]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
