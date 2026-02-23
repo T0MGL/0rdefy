@@ -2,6 +2,7 @@
 // Rutas para configurar integracion, sincronizacion manual y webhooks
 
 import crypto from 'crypto';
+import axios from 'axios';
 import { Router, Request, Response } from 'express';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
@@ -21,6 +22,76 @@ import { logger } from '../utils/logger';
 import { WEBHOOK_ERRORS } from '../constants/webhook-errors';
 
 export const shopifyRouter = Router();
+
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+/**
+ * Revoke Shopify token when disconnecting from Ordefy dashboard.
+ * This does not uninstall the app in Shopify admin, but removes API access.
+ */
+async function revokeShopifyAccess(
+  shopDomain: string,
+  accessToken?: string | null
+): Promise<{ attempted: boolean; revoked: boolean; details: string }> {
+  if (!accessToken || accessToken.trim() === '') {
+    return {
+      attempted: false,
+      revoked: false,
+      details: 'No access token available'
+    };
+  }
+
+  const endpoints = [
+    // Current Shopify revocation endpoint
+    `https://${shopDomain}/admin/oauth/access_scopes/current.json`,
+    // Legacy fallback used in previous implementation
+    `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/access_scopes.json`
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      await axios.delete(endpoint, {
+        headers: {
+          'X-Shopify-Access-Token': accessToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+
+      logger.info('SHOPIFY', '✅ Access token revoked in Shopify', { shopDomain, endpoint });
+      return {
+        attempted: true,
+        revoked: true,
+        details: `Revoked via ${endpoint}`
+      };
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const message = error?.response?.data || error?.message || 'Unknown revoke error';
+
+      logger.warn('SHOPIFY', 'Token revocation attempt failed', {
+        shopDomain,
+        endpoint,
+        status,
+        message
+      });
+
+      // If token is already invalid or app already removed, continue disconnect flow
+      if (status === 401 || status === 403) {
+        return {
+          attempted: true,
+          revoked: false,
+          details: `Token already invalid or app already uninstalled (${status})`
+        };
+      }
+    }
+  }
+
+  return {
+    attempted: true,
+    revoked: false,
+    details: 'Unable to revoke token on Shopify'
+  };
+}
 
 // ================================================================
 // WEBHOOK SECRET HELPER - MULTI-TENANT SUPPORT
@@ -1884,7 +1955,7 @@ shopifyRouter.delete('/disconnect', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Marcar integración como desconectada
+    // Marcar integración como desconectada en Ordefy
     const { error: updateError } = await supabaseAdmin
       .from('shopify_integrations')
       .update({
@@ -1904,9 +1975,16 @@ shopifyRouter.delete('/disconnect', async (req: AuthRequest, res: Response) => {
       // No fallar la desconexión si los webhooks no se pueden eliminar
     }
 
+    // Intentar revocar token en Shopify (no bloqueante)
+    // This is the outbound signal from dashboard disconnect.
+    const revokeResult = await revokeShopifyAccess(shopDomain, integration.access_token);
+
     res.json({
       success: true,
-      message: 'Integración desconectada exitosamente'
+      message: 'Integración desconectada exitosamente',
+      shopify_token_revoked: revokeResult.revoked,
+      shopify_signal_attempted: revokeResult.attempted,
+      note: 'Shopify no permite desinstalar la app por API. Debes desinstalarla manualmente desde tu admin de Shopify.'
     });
 
   } catch (error: any) {

@@ -161,7 +161,8 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
     const confirmed = window.confirm(
       '¿Estás seguro de que deseas desconectar tu tienda de Shopify?\n\n' +
       'Los datos ya importados se conservarán en Ordefy.\n\n' +
-      'IMPORTANTE: También debes desinstalar manualmente la Custom App desde tu panel de Shopify (Settings → Apps → Develop apps → Ordefy Integration → Uninstall).'
+      'Ordefy intentará revocar automáticamente el acceso API y limpiar webhooks.\n\n' +
+      'IMPORTANTE: Shopify no permite desinstalar la app por API, así que también debes desinstalarla manualmente desde tu panel de Shopify (Settings → Apps → Develop apps → Ordefy Integration → Uninstall).'
     );
 
     if (!confirmed) return;
@@ -185,9 +186,16 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
         throw new Error(data.error || 'Error al desconectar');
       }
 
+      let revokeStatusMessage = 'No había token válido para revocar.';
+      if (data.shopify_token_revoked) {
+        revokeStatusMessage = 'Acceso API revocado en Shopify.';
+      } else if (data.shopify_signal_attempted) {
+        revokeStatusMessage = 'No se pudo confirmar la revocación del token (puede estar ya invalidado).';
+      }
+
       toast({
         title: '✅ Integración desconectada',
-        description: 'Recuerda desinstalar la Custom App desde tu panel de Shopify para completar el proceso.',
+        description: `${revokeStatusMessage} Solo falta desinstalar manualmente la app en Shopify.`,
         duration: 8000,
       });
 

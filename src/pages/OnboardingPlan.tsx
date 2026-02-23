@@ -213,9 +213,7 @@ export default function OnboardingPlan() {
           className="text-center mb-8"
         >
           <div className="flex items-center justify-center gap-2 mb-4">
-            <div className="bg-primary/10 rounded-xl p-2">
-              <Zap className="w-8 h-8 text-primary" />
-            </div>
+            <img src="/favicon.png" alt="Ordefy" className="w-10 h-10" />
             <h1 className="text-3xl font-bold">Ordefy</h1>
           </div>
           <h2 className="text-2xl font-semibold mb-2">

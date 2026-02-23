@@ -93,7 +93,7 @@ export const getShopifyIntegrationByShop = async (shop: string): Promise<{
 export const disconnectShopify = async (shop: string): Promise<void> => {
   try {
     const response = await fetch(
-      `${API_BASE}/api/shopify-oauth/disconnect?shop=${shop}`,
+      `${API_BASE}/api/shopify/disconnect?shop=${shop}`,
       {
         method: 'DELETE',
         headers: getAuthHeaders(),

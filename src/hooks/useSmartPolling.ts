@@ -100,6 +100,11 @@ export interface UseSmartPollingResult<T> {
   isPageVisible: boolean;
 
   /**
+   * Whether browser window is currently focused
+   */
+  isWindowFocused: boolean;
+
+  /**
    * Manually trigger a fetch
    */
   refetch: () => Promise<void>;
@@ -130,16 +135,26 @@ export function useSmartPolling<T>({
   const [error, setError] = useState<Error | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [isPageVisible, setIsPageVisible] = useState(true);
+  const [isWindowFocused, setIsWindowFocused] = useState(() => {
+    if (typeof document === 'undefined') return true;
+    return document.hasFocus();
+  });
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const isPollingRef = useRef(false);
   const isPageVisibleRef = useRef(isPageVisible);
+  const isWindowFocusedRef = useRef(isWindowFocused);
 
   // Keep ref in sync with state
   useEffect(() => {
     isPageVisibleRef.current = isPageVisible;
   }, [isPageVisible]);
+
+  // Keep focus ref in sync with state
+  useEffect(() => {
+    isWindowFocusedRef.current = isWindowFocused;
+  }, [isWindowFocused]);
 
   // Fetch data function - using ref for isPageVisible to prevent effect dependencies cascade
   const fetchData = useCallback(async () => {
@@ -149,9 +164,9 @@ export function useSmartPolling<T>({
       return;
     }
 
-    // Don't fetch if page is not visible (use ref to avoid dependency)
-    if (!document.hidden && !isPageVisibleRef.current) {
-      log.debug('Skipped fetch: page not visible');
+    // Don't fetch when tab/window is not actively visible to the user
+    if (document.hidden || !isPageVisibleRef.current || !isWindowFocusedRef.current) {
+      log.debug('Skipped fetch: page hidden or window unfocused');
       return;
     }
 
@@ -215,7 +230,7 @@ export function useSmartPolling<T>({
 
     // Set up new interval
     intervalRef.current = setInterval(() => {
-      if (isMountedRef.current && !document.hidden) {
+      if (isMountedRef.current && !document.hidden && isWindowFocusedRef.current) {
         fetchData();
       }
     }, interval);
@@ -283,6 +298,30 @@ export function useSmartPolling<T>({
     };
   }, []); // ✅ Empty dependencies - listener added only once, cleaned up on unmount
 
+  // Handle browser window focus/blur
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      setIsWindowFocused(true);
+
+      // Fetch immediately when user returns to the window
+      if (enabledRef.current && isPollingRef.current && !document.hidden) {
+        fetchDataRef.current();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      setIsWindowFocused(false);
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, []); // ✅ Empty dependencies - listeners added only once
+
   // Handle enabled state change - use ref to avoid infinite loop
   const startPollingRef = useRef(startPolling);
   const stopPollingRef = useRef(stopPolling);
@@ -328,6 +367,7 @@ export function useSmartPolling<T>({
     error,
     isPolling,
     isPageVisible,
+    isWindowFocused,
     refetch,
     startPolling,
     stopPolling,

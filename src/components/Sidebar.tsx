@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -127,6 +127,14 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
 
   // Sidebar is expanded when hovering OR pinned
   const isExpanded = isHovering || isPinned;
+
+  // Sync expanded state to CSS variable so Header can offset the greeting
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--sidebar-current-width',
+      isExpanded ? `${SIDEBAR_EXPANDED_WIDTH}px` : `${SIDEBAR_COLLAPSED_WIDTH}px`
+    );
+  }, [isExpanded]);
 
   // Handle mouse enter - expand immediately
   const handleMouseEnter = useCallback(() => {

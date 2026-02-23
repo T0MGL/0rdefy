@@ -906,17 +906,37 @@ shopifyOAuthRouter.delete('/disconnect', async (req: Request, res: Response) => 
 
     try {
       if (integration.access_token) {
-        const revokeUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/access_scopes.json`;
+        const revokeEndpoints = [
+          `https://${shop}/admin/oauth/access_scopes/current.json`,
+          `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/access_scopes.json`
+        ];
 
-        // Delete access token (this invalidates it)
-        await axios.delete(revokeUrl, {
-          headers: {
-            'X-Shopify-Access-Token': integration.access_token,
-            'Content-Type': 'application/json'
+        let revoked = false;
+        for (const revokeUrl of revokeEndpoints) {
+          try {
+            // Delete access token (this invalidates it)
+            await axios.delete(revokeUrl, {
+              headers: {
+                'X-Shopify-Access-Token': integration.access_token,
+                'Content-Type': 'application/json'
+              }
+            });
+            revoked = true;
+            break;
+          } catch (revokeAttemptError: any) {
+            logger.warn('API', '⚠️ [SHOPIFY-OAUTH] Token revoke attempt failed:', {
+              revokeUrl,
+              status: revokeAttemptError?.response?.status,
+              message: revokeAttemptError?.message
+            });
           }
-        });
+        }
 
-        logger.info('API', '✅ [SHOPIFY-OAUTH] Access token revoked successfully');
+        if (revoked) {
+          logger.info('API', '✅ [SHOPIFY-OAUTH] Access token revoked successfully');
+        } else {
+          logger.warn('API', '⚠️ [SHOPIFY-OAUTH] Could not confirm token revocation');
+        }
       }
     } catch (revokeError: any) {
       // Token revocation might fail if already revoked or app uninstalled
