@@ -1299,7 +1299,7 @@ settlementsRouter.post('/', requirePermission(Module.CARRIERS, Permission.CREATE
       return res.status(500).json({
         error: 'Error al crear liquidación',
         message: settlementError?.message || 'Error desconocido',
-        details: settlementError?.details || settlementError?.hint || null
+        details: 'Error creating settlement'
       });
     }
 

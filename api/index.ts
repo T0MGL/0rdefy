@@ -405,13 +405,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     const originalJson = res.json.bind(res);
     res.json = function (body: any) {
         if (res.statusCode >= 400 && body && typeof body === 'object') {
-            for (const key of ['error', 'message']) {
+            for (const key of ['error', 'message', 'details']) {
                 if (typeof body[key] === 'string') {
                     body[key] = sanitizeErrorForClient(body[key]);
                 }
             }
-            // Always strip raw database detail field (contains constraint info)
+            // Always strip fields that can leak database schema info
             delete body.detail;
+            delete body.hint;
+            delete body.constraint;
         }
         return originalJson(body);
     } as any;
