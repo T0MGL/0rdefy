@@ -1,7 +1,53 @@
 /**
  * Sanitization Utilities
- * Prevents SQL injection and other security vulnerabilities
+ * Prevents SQL injection, schema leakage, and other security vulnerabilities
  */
+
+/**
+ * Sanitizes error messages before sending to clients.
+ * Detects Postgres/Supabase error patterns that would leak
+ * schema information (table names, column names, constraints)
+ * and replaces them with generic messages.
+ *
+ * Safe user-facing messages (e.g., "Product not found") pass through unchanged.
+ */
+export function sanitizeErrorForClient(error: any): string {
+    if (!error) return 'An unexpected error occurred';
+
+    const message = typeof error === 'string' ? error : (error.message || '');
+
+    // Postgres errors have 5-digit SQLSTATE codes - always sanitize
+    if (error.code && /^\d{5}$/.test(String(error.code))) {
+        return 'A database error occurred';
+    }
+
+    // Detect Postgres/Supabase error patterns that leak schema info
+    const schemaLeakPatterns = [
+        /violates\s+(unique|foreign\s+key|check|not-null|exclusion)\s+constraint/i,
+        /duplicate\s+key\s+value/i,
+        /null\s+value\s+in\s+column\s+"[^"]+"/i,
+        /relation\s+"[^"]+"\s+does\s+not\s+exist/i,
+        /column\s+"[^"]+"\s+(does\s+not\s+exist|of\s+relation|is\s+of\s+type)/i,
+        /invalid\s+input\s+syntax\s+for\s+type/i,
+        /permission\s+denied\s+for\s+(table|schema|function|sequence)/i,
+        /syntax\s+error\s+at\s+or\s+near/i,
+        /unterminated\s+quoted\s+string/i,
+        /operator\s+does\s+not\s+exist/i,
+        /could\s+not\s+serialize\s+access/i,
+        /deadlock\s+detected/i,
+        /canceling\s+statement\s+due\s+to/i,
+        /pg_advisory/i,
+        /PGRST\d+/i,
+    ];
+
+    for (const pattern of schemaLeakPatterns) {
+        if (pattern.test(message)) {
+            return 'A database error occurred';
+        }
+    }
+
+    return message;
+}
 
 /**
  * Sanitizes a search string for use in Supabase queries

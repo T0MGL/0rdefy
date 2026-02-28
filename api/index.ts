@@ -51,6 +51,7 @@ import onboardingRouter from './routes/onboarding';
 import { supabaseAdmin } from './db/connection';
 import { requestLoggerMiddleware, logger } from './utils/logger';
 import { registerCleanup, setupShutdownHandlers } from './utils/shutdown';
+import { sanitizeErrorForClient } from './utils/sanitize';
 import { stopCleanupInterval as stopShopifyClientCleanup, clearShopifyClientCache } from './services/shopify-client-cache';
 import { destroyCircuitBreakerCache } from './utils/retry';
 import { webhookQueue } from './routes/shopify';
@@ -394,6 +395,30 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestLoggerMiddleware);
 
 // ================================================================
+// ERROR RESPONSE SANITIZATION
+// ================================================================
+// Intercepts all error responses (status >= 400) to prevent
+// database schema leakage through error messages.
+// Covers all 30+ route files automatically without individual changes.
+// ================================================================
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const originalJson = res.json.bind(res);
+    res.json = function (body: any) {
+        if (res.statusCode >= 400 && body && typeof body === 'object') {
+            for (const key of ['error', 'message']) {
+                if (typeof body[key] === 'string') {
+                    body[key] = sanitizeErrorForClient(body[key]);
+                }
+            }
+            // Always strip raw database detail field (contains constraint info)
+            delete body.detail;
+        }
+        return originalJson(body);
+    } as any;
+    next();
+});
+
+// ================================================================
 // ROUTES
 // ================================================================
 
@@ -411,13 +436,15 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // ================================================================
-// HMAC DIAGNOSTIC ENDPOINT (PUBLIC BUT SECRET-PROTECTED)
+// HMAC DIAGNOSTIC ENDPOINT (DISABLED IN PRODUCTION)
 // ================================================================
 // GET /api/debug/hmac-diagnostic
-// Protected by X-Debug-Secret header (set in env as DEBUG_SECRET)
+// Only available in development/staging - disabled in production
+// to prevent any possibility of secret exposure.
 // ================================================================
 import crypto from 'crypto';
 
+if (process.env.NODE_ENV !== 'production') {
 app.get('/api/debug/hmac-diagnostic', async (req: Request, res: Response) => {
     try {
         // SECURITY: Require DEBUG_SECRET env var - no fallback (fail-closed)
@@ -510,6 +537,7 @@ app.get('/api/debug/hmac-diagnostic', async (req: Request, res: Response) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+} // end NODE_ENV !== 'production' guard
 
 // ================================================================
 // API ROUTES WITH RATE LIMITING
@@ -681,29 +709,26 @@ app.use((req: Request, res: Response) => {
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     logger.error('[ERROR]', err);
 
-    // Database errors
+    // Database errors - generic messages only (no schema leakage)
     if (err.code === '23505') {
         return res.status(409).json({
             error: 'Conflict',
-            message: 'A record with this unique identifier already exists',
-            detail: err.detail
+            message: 'A record with this unique identifier already exists'
         });
     }
 
     if (err.code === '23503') {
         return res.status(400).json({
             error: 'Bad Request',
-            message: 'Referenced record does not exist',
-            detail: err.detail
+            message: 'Referenced record does not exist'
         });
     }
 
-    // Validation errors
+    // Validation errors - sanitize message to prevent schema leakage
     if (err.name === 'ValidationError') {
         return res.status(400).json({
             error: 'Validation Error',
-            message: err.message,
-            details: err.details
+            message: sanitizeErrorForClient(err.message)
         });
     }
 
