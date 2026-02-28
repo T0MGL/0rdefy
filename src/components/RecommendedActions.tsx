@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { generateRecommendations } from '@/utils/recommendationEngine';
 import { Card } from '@/components/ui/card';
@@ -42,6 +42,12 @@ export function RecommendedActions() {
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -53,14 +59,16 @@ export function RecommendedActions() {
           carriersService.getAll(),
           analyticsService.getOverview(),
         ]);
+        if (!isMountedRef.current) return;
         setProducts(productsData.data || []);
         setAds(adsData);
         setCarriers(carriersData);
         setOverview(overviewData);
       } catch (error) {
+        if (!isMountedRef.current) return;
         logger.error('Error loading recommendation data:', error);
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current) setIsLoading(false);
       }
     };
     loadData();

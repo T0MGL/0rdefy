@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { logger } from '@/utils/logger';
 import {
   Dialog,
@@ -33,6 +33,12 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
   const [products, setProducts] = useState<Product[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -44,18 +50,38 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
             productsService.getAll(),
             carriersService.getAll(),
           ]);
+          if (!isMountedRef.current) return;
           setOrders(ordersResponse.data || []);
           setProducts(productsData.data || []);
           setCarriers(carriersData);
         } catch (error) {
+          if (!isMountedRef.current) return;
           logger.error('Error loading metric detail data:', error);
         } finally {
-          setIsLoading(false);
+          if (isMountedRef.current) setIsLoading(false);
         }
       };
       loadData();
     }
   }, [open]);
+
+  // Aggregate orders by day for chart data (replaces Math.random)
+  const ordersByDay = useMemo(() => {
+    const dayMap: Record<string, number> = {};
+    for (const o of orders) {
+      const date = o.created_at ? new Date(o.created_at).toISOString().split('T')[0] : null;
+      if (date) {
+        dayMap[date] = (dayMap[date] || 0) + 1;
+      }
+    }
+    return Object.entries(dayMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-7)
+      .map(([date, count]) => ({
+        day: new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
+        orders: count,
+      }));
+  }, [orders]);
 
   const renderContent = () => {
     if (isLoading) {
@@ -75,13 +101,10 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
         return (
           <div className="space-y-4">
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={orders.slice(0, 7).map((o, i) => ({ 
-                day: `Día ${i + 1}`, 
-                orders: Math.floor(Math.random() * 20) + 10 
-              }))}>
+              <BarChart data={ordersByDay}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="day" />
-                <YAxis />
+                <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Bar dataKey="orders" fill="hsl(84, 81%, 63%)" />
               </BarChart>

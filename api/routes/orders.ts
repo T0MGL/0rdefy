@@ -15,7 +15,7 @@ import { checkOrderLimit, PlanLimitRequest } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
-import { isValidUUID, validateUUIDParam } from '../utils/sanitize';
+import { isValidUUID, validateUUIDParam, sanitizeSearchInput } from '../utils/sanitize';
 import { getTodayInTimezone } from '../utils/dateUtils';
 
 /**
@@ -551,13 +551,21 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
 ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
+        const token = req.body?.token || req.query?.token;
 
+        if (!token || typeof token !== 'string') {
+            return res.status(400).json({
+                error: 'Token required',
+                message: 'Se requiere un token válido para cancelar el pedido'
+            });
+        }
 
-        // First, get the order to verify it exists
+        // First, get the order to verify it exists and token matches
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
             .select('id, store_id, sleeves_status, delivery_status')
             .eq('id', id)
+            .eq('delivery_link_token', token)
             .single();
 
         if (fetchError || !existingOrder) {
@@ -849,9 +857,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                         // Exact UUID search
                         query = query.eq('id', searchStr);
                     } else {
-                        // Sanitize for PostgREST filter syntax safety - only remove SQL wildcards
-                        // Keep common chars like ().-,# for phone/address searches
-                        const searchClean = searchStr.replace(/[%_\\]/g, '').trim();
+                        // Sanitize for PostgREST filter syntax safety
+                        const searchClean = sanitizeSearchInput(searchStr);
                         if (searchClean.length > 0) {
                             // Build OR condition for all searchable fields
                             // Supabase PostgREST will search across all fields with OR logic
@@ -2269,6 +2276,18 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
 ordersRouter.get('/:id/history', async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
+
+        // Verify order belongs to this store
+        const { data: order } = await supabaseAdmin
+            .from('orders')
+            .select('id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .maybeSingle();
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('order_status_history')

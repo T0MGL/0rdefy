@@ -597,7 +597,8 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         if (ordersError) throw ordersError;
 
-        const orders = ordersData || [];
+        // Filter out soft-deleted and test orders (same as overview endpoint)
+        const orders = (ordersData || []).filter(o => !o.deleted_at && o.is_test !== true);
 
         // Get gasto publicitario from additional_values table (category='marketing', type='expense')
         const { data: marketingExpensesData, error: marketingExpensesError } = await supabaseAdmin
@@ -623,62 +624,29 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             dailyMarketingCosts[date] += Number(expense.amount) || 0;
         }
 
-        // VARIANT SUPPORT: Collect both product_ids and variant_ids for batch query
-        const productIds = new Set<string>();
-        const variantIds = new Set<string>();
-        for (const order of orders) {
-            if (order.line_items && Array.isArray(order.line_items)) {
-                for (const item of order.line_items) {
-                    if (item.product_id) {
-                        productIds.add(item.product_id.toString());
-                    }
-                    if (item.variant_id) {
-                        variantIds.add(item.variant_id.toString());
-                    }
-                }
+        // Batch-fetch line items with product/variant costs (same pattern as overview endpoint)
+        const orderIds = orders.map(o => o.id);
+        const { data: allLineItemsData } = orderIds.length > 0 ? await supabaseAdmin
+            .from('order_line_items')
+            .select(`
+                order_id,
+                product_id,
+                variant_id,
+                quantity,
+                products:product_id (id, cost, packaging_cost, additional_costs),
+                variants:variant_id (id, cost)
+            `)
+            .in('order_id', orderIds) : { data: [] };
+
+        // Build line items map by order
+        const lineItemsByOrder = new Map<string, any[]>();
+        (allLineItemsData || []).forEach(item => {
+            const orderId = item.order_id;
+            if (!lineItemsByOrder.has(orderId)) {
+                lineItemsByOrder.set(orderId, []);
             }
-        }
-
-        // Fetch all products in a single query
-        // Use local product IDs (UUIDs) from line_items to match products
-        const productCostMap = new Map<string, number>();
-        if (productIds.size > 0) {
-            const { data: productsData } = await supabaseAdmin
-                .from('products')
-                .select('id, cost, packaging_cost, additional_costs')
-                .in('id', Array.from(productIds))
-                .eq('store_id', req.storeId);
-
-            if (productsData) {
-                productsData.forEach(product => {
-                    if (product.id) {
-                        // Calculate total unit cost including packaging and extras
-                        const baseCost = Number(product.cost) || 0;
-                        const packaging = Number(product.packaging_cost) || 0;
-                        const additional = Number(product.additional_costs) || 0;
-                        const totalUnitCost = baseCost + packaging + additional;
-                        productCostMap.set(product.id, totalUnitCost);
-                    }
-                });
-            }
-        }
-
-        // VARIANT SUPPORT: Fetch variant costs
-        const variantCostMap = new Map<string, number>();
-        if (variantIds.size > 0) {
-            const { data: variantsData } = await supabaseAdmin
-                .from('product_variants')
-                .select('id, cost')
-                .in('id', Array.from(variantIds));
-
-            if (variantsData) {
-                variantsData.forEach(variant => {
-                    if (variant.id && variant.cost !== null && variant.cost !== undefined) {
-                        variantCostMap.set(variant.id, Number(variant.cost) || 0);
-                    }
-                });
-            }
-        }
+            lineItemsByOrder.get(orderId)!.push(item);
+        });
 
         // Get additional values for the date range
         let additionalValuesQuery = supabaseAdmin
@@ -741,17 +709,22 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
                 dailyData[date].realRevenue += Number(order.total_price) || 0;
                 dailyData[date].shippingCosts += Number(order.shipping_cost) || 0;
 
-                // VARIANT SUPPORT: Calculate product costs, checking variant cost first
-                if (order.line_items && Array.isArray(order.line_items)) {
-                    for (const item of order.line_items) {
-                        let itemUnitCost = 0;
-                        if (item.variant_id && variantCostMap.has(item.variant_id.toString())) {
-                            itemUnitCost = variantCostMap.get(item.variant_id.toString()) || 0;
-                        } else {
-                            itemUnitCost = productCostMap.get(item.product_id?.toString()) || 0;
-                        }
-                        dailyData[date].productCosts += itemUnitCost * (Number(item.quantity) || 1);
+                // Calculate product costs from pre-fetched line items
+                const orderLineItems = lineItemsByOrder.get(order.id) || [];
+                for (const item of orderLineItems) {
+                    let itemUnitCost = 0;
+                    // Check variant cost first, then product cost
+                    const variant = item.variants;
+                    const product = item.products;
+                    if (variant && variant.cost !== null && variant.cost !== undefined) {
+                        itemUnitCost = Number(variant.cost) || 0;
+                    } else if (product) {
+                        const baseCost = Number(product.cost) || 0;
+                        const packaging = Number(product.packaging_cost) || 0;
+                        const additional = Number(product.additional_costs) || 0;
+                        itemUnitCost = baseCost + packaging + additional;
                     }
+                    dailyData[date].productCosts += itemUnitCost * (Number(item.quantity) || 1);
                 }
             }
         }

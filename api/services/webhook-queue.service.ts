@@ -160,6 +160,33 @@ export class WebhookQueueService {
   }
 
   /**
+   * Recover webhooks stuck in 'processing' state for more than 5 minutes.
+   * This can happen if the process crashed or was killed during processing.
+   */
+  private async recoverStaleWebhooks(): Promise<void> {
+    try {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data, error } = await this.supabase
+        .from('webhook_queue')
+        .update({ status: 'pending', next_retry_at: new Date().toISOString() })
+        .eq('status', 'processing')
+        .lt('created_at', fiveMinutesAgo)
+        .select('id');
+
+      if (error) {
+        logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error recovering stale webhooks:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        logger.info('BACKEND', `🔄 [WEBHOOK-QUEUE] Recovered ${data.length} stale webhooks stuck in processing`);
+      }
+    } catch (err) {
+      logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error in recoverStaleWebhooks:', err);
+    }
+  }
+
+  /**
    * Procesar webhooks pendientes de la cola
    */
   private async processQueue(): Promise<void> {
@@ -175,6 +202,9 @@ export class WebhookQueueService {
     this.queueRunInProgress = true;
 
     try {
+      // Recover any webhooks stuck in 'processing' from a previous crash
+      await this.recoverStaleWebhooks();
+
       // Obtener webhooks pendientes que estén listos para procesar
       const { data: pendingWebhooks, error } = await this.supabase
         .from('webhook_queue')
@@ -306,12 +336,27 @@ export class WebhookQueueService {
 
       } else {
         // Error - reintentar o marcar como fallido
-        await this.handleWebhookError(activeWebhook, result.error || 'Unknown error');
+        const resultError = result?.error?.message || result?.error || 'Unknown error';
+        await this.handleWebhookError(activeWebhook, String(resultError));
       }
 
     } catch (error: any) {
       logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Error processing webhook ${webhook.id}:`, error);
-      await this.handleWebhookError(webhook, error.message);
+      const errorMessage = error?.message || String(error) || 'Unknown error';
+      try {
+        await this.handleWebhookError(webhook, errorMessage);
+      } catch (handleErr) {
+        // If handleWebhookError itself fails, reset to pending so it can be retried
+        logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] handleWebhookError failed for ${webhook.id}, resetting to pending:`, handleErr);
+        try {
+          await this.supabase
+            .from('webhook_queue')
+            .update({ status: 'pending', next_retry_at: new Date(Date.now() + 60000).toISOString() })
+            .eq('id', webhook.id);
+        } catch (resetErr) {
+          logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Fatal: could not reset webhook ${webhook.id}:`, resetErr);
+        }
+      }
     }
   }
 

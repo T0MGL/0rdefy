@@ -418,11 +418,12 @@ customersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module
     try {
         const { id } = req.params;
 
-        // Check if customer has orders
+        // Check if customer has orders (scoped to current store)
         const { count, error: countError } = await supabaseAdmin
             .from('orders')
             .select('*', { count: 'exact', head: true })
-            .eq('customer_id', id);
+            .eq('customer_id', id)
+            .eq('store_id', req.storeId);
 
         if (countError) {
             throw countError;

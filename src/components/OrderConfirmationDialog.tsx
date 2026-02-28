@@ -253,6 +253,8 @@ export function OrderConfirmationDialog({
 
   // Search cities for autocomplete (debounced)
   useEffect(() => {
+    const abortController = new AbortController();
+
     const searchCities = async () => {
       if (!citySearch || citySearch.length < 2 || !useCoverageSystem) {
         setCityResults([]);
@@ -271,8 +273,11 @@ export function OrderConfirmationDialog({
               'Authorization': `Bearer ${token}`,
               'X-Store-ID': storeId || '',
             },
+            signal: abortController.signal,
           }
         );
+
+        if (abortController.signal.aborted) return;
 
         if (response.ok) {
           const { data } = await response.json();
@@ -280,21 +285,29 @@ export function OrderConfirmationDialog({
         } else {
           setCityResults([]);
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
         logger.error('Error searching cities:', error);
         setCityResults([]);
       } finally {
-        setLoadingCities(false);
+        if (!abortController.signal.aborted) {
+          setLoadingCities(false);
+        }
       }
     };
 
     // Debounce search
     const timeoutId = setTimeout(searchCities, 300);
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      abortController.abort();
+    };
   }, [citySearch, useCoverageSystem]);
 
   // Fetch carriers with coverage when city is selected
   useEffect(() => {
+    const abortController = new AbortController();
+
     const fetchCarriersForCity = async () => {
       if (!selectedCity || !useCoverageSystem) {
         setCarriersWithCoverage([]);
@@ -313,8 +326,11 @@ export function OrderConfirmationDialog({
               'Authorization': `Bearer ${token}`,
               'X-Store-ID': storeId || '',
             },
+            signal: abortController.signal,
           }
         );
+
+        if (abortController.signal.aborted) return;
 
         if (response.ok) {
           const { data } = await response.json();
@@ -367,15 +383,19 @@ export function OrderConfirmationDialog({
         } else {
           setCarriersWithCoverage([]);
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
         logger.error('Error fetching carriers for city:', error);
         setCarriersWithCoverage([]);
       } finally {
-        setLoadingCoverage(false);
+        if (!abortController.signal.aborted) {
+          setLoadingCoverage(false);
+        }
       }
     };
 
     fetchCarriersForCity();
+    return () => abortController.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- courierId and hasPrefilledShippingData intentionally excluded
   }, [selectedCity, useCoverageSystem]);
 

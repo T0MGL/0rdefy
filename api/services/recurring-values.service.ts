@@ -34,25 +34,29 @@ export class RecurringValuesService {
             if (!recurringValues || recurringValues.length === 0) return;
 
             const today = new Date();
-            const operations = [];
+            const MAX_ITERATIONS = 120; // Safety cap to prevent infinite loop with old start_date
 
             for (const rv of recurringValues) {
                 const nextDate = this.getNextDueDate(rv);
 
                 // If there's a valid next date and it's in the past or today
                 if (nextDate && nextDate <= today) {
-                    // Generate values until we catch up to today
+                    // Generate values sequentially until we catch up to today
                     let currentDateToProcess = nextDate;
                     let lastProcessedDate = rv.last_processed_date;
+                    let iterations = 0;
+                    let allSucceeded = true;
 
-                    while (currentDateToProcess <= today) {
+                    while (currentDateToProcess <= today && iterations < MAX_ITERATIONS) {
+                        iterations++;
+
                         // Check end date
                         if (rv.end_date && new Date(rv.end_date) < currentDateToProcess) {
                             break;
                         }
 
-                        // Create the additional value record
-                        const insertPromise = supabaseAdmin
+                        // Create the additional value record sequentially
+                        const { error: insertError } = await supabaseAdmin
                             .from('additional_values')
                             .insert({
                                 store_id: storeId,
@@ -63,7 +67,11 @@ export class RecurringValuesService {
                                 date: currentDateToProcess.toISOString().split('T')[0]
                             });
 
-                        operations.push(insertPromise);
+                        if (insertError) {
+                            logger.error('BACKEND', `[RecurringValuesService] Insert failed for rv ${rv.id}:`, insertError);
+                            allSucceeded = false;
+                            break; // Stop processing this rv, will retry from this point next run
+                        }
 
                         lastProcessedDate = currentDateToProcess.toISOString().split('T')[0];
 
@@ -71,24 +79,17 @@ export class RecurringValuesService {
                         currentDateToProcess = this.addPeriod(currentDateToProcess, rv.frequency);
                     }
 
-                    // Update the last_processed_date on the recurring value template
+                    if (iterations >= MAX_ITERATIONS) {
+                        logger.error('BACKEND', `[RecurringValuesService] Max iterations reached for rv ${rv.id}, stopping`);
+                    }
+
+                    // Only update last_processed_date if at least some inserts succeeded
                     if (lastProcessedDate !== rv.last_processed_date) {
-                        const updatePromise = supabaseAdmin
+                        await supabaseAdmin
                             .from('recurring_additional_values')
                             .update({ last_processed_date: lastProcessedDate })
                             .eq('id', rv.id);
-
-                        operations.push(updatePromise);
                     }
-                }
-            }
-
-            if (operations.length > 0) {
-                const results = await Promise.allSettled(operations);
-                const failures = results.filter(r => r.status === 'rejected');
-                if (failures.length > 0) {
-                    logger.error('BACKEND', `[RecurringValuesService] ${failures.length}/${results.length} operations failed:`,
-                        failures.map(f => (f as PromiseRejectedResult).reason));
                 }
             }
 

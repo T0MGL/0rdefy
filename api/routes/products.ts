@@ -626,40 +626,31 @@ productsRouter.patch('/:id/stock', requirePermission(Module.PRODUCTS, Permission
             });
         }
 
-        // For increment/decrement, we need to fetch current stock first
+        // For increment/decrement, use atomic RPC to prevent race conditions
         if (operation === 'increment' || operation === 'decrement') {
-            const { data: currentProduct, error: fetchError } = await supabaseAdmin
-                .from('products')
-                .select('stock')
-                .eq('id', id)
-                .eq('store_id', req.storeId)
-                .single();
-
-            if (fetchError || !currentProduct) {
-                return res.status(404).json({
-                    error: 'Producto no encontrado'
-                });
-            }
-
-            // Parse stock value and ensure it's a positive number
             const stockChange = Math.abs(parseInt(stock, 10) || 0);
 
-            let newStock = currentProduct.stock;
-            if (operation === 'increment') {
-                newStock += stockChange;
-            } else {
-                newStock = Math.max(0, newStock - stockChange);
+            const { data: rpcResult, error: rpcError } = await supabaseAdmin
+                .rpc('atomic_stock_update', {
+                    p_product_id: id,
+                    p_store_id: req.storeId,
+                    p_operation: operation,
+                    p_amount: stockChange,
+                });
+
+            if (rpcError) {
+                if (rpcError.message?.includes('Product not found')) {
+                    return res.status(404).json({ error: 'Producto no encontrado' });
+                }
+                throw rpcError;
             }
 
+            // Fetch full product for response and Shopify sync
             const { data, error } = await supabaseAdmin
                 .from('products')
-                .update({
-                    stock: newStock,
-                    updated_at: new Date().toISOString()
-                })
+                .select()
                 .eq('id', id)
                 .eq('store_id', req.storeId)
-                .select()
                 .single();
 
             if (error || !data) {

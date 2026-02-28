@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert } from '@/types';
 import {
@@ -41,9 +41,14 @@ const severityConfig = {
 export function AlertsPanel({ open, onOpenChange, initialAlerts = [] }: AlertsPanelProps) {
   const navigate = useNavigate();
   const [alerts, setAlerts] = useState<Alert[]>(initialAlerts);
-  
+
+  // Sync alerts when initialAlerts prop changes
+  useEffect(() => {
+    setAlerts(initialAlerts);
+  }, [initialAlerts]);
+
   const dismissAlert = (id: string) => {
-    setAlerts(alerts.filter(a => a.id !== id));
+    setAlerts(prev => prev.filter(a => a.id !== id));
   };
   
   const handleAction = (alert: Alert) => {

@@ -23,6 +23,8 @@ export function sanitizeSearchInput(input: string): string {
         .replace(/--/g, '')
         .replace(/\/\*/g, '')
         .replace(/\*\//g, '')
+        // Strip PostgREST filter syntax characters to prevent filter injection
+        .replace(/[,.()']/g, '')
         // Escape wildcards to prevent unintended pattern matching
         .replace(/%/g, '\\%')
         .replace(/_/g, '\\_')
