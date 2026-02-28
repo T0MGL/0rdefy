@@ -17,8 +17,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 10000,
     // Use ES2015 for maximum compatibility
     target: 'es2015',
-    // CRITICAL: Disable minification to prevent TDZ errors
-    minify: false,
+    // Use esbuild minifier (safer than terser for TDZ edge cases)
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         // Ensure consistent file names

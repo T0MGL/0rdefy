@@ -14,6 +14,7 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger';
 
 dotenv.config();
 
@@ -57,7 +58,7 @@ export const supabase: SupabaseClient = createClient(
     }
 );
 
-console.log('✅ Supabase client (ANON) initialized:', SUPABASE_URL);
+logger.info('DB', `Supabase client (ANON) initialized: ${SUPABASE_URL}`);
 
 // ================================================================
 // ADMIN CLIENT (SERVICE ROLE KEY) - BYPASSES RLS
@@ -85,27 +86,27 @@ export const supabaseAdmin: SupabaseClient = createClient(
     }
 );
 
-console.log('✅ Supabase admin client (SERVICE_ROLE) initialized:', SUPABASE_URL);
+logger.info('DB', `Supabase admin client (SERVICE_ROLE) initialized: ${SUPABASE_URL}`);
 
 // Test Supabase connection (exported for controlled initialization)
 export async function testSupabaseConnection(): Promise<boolean> {
     try {
         const { data, error } = await supabase.from('stores').select('count').limit(1);
         if (error) {
-            console.warn('⚠️  Supabase connection test warning:', error.message);
+            logger.warn('DB', 'Supabase connection test warning', { message: error.message });
             return false;
         }
-        console.log('✅ Supabase connection test successful');
+        logger.info('DB', 'Supabase connection test successful');
         return true;
     } catch (err) {
-        console.error('❌ Supabase connection test failed:', err);
+        logger.error('DB', 'Supabase connection test failed', err);
         return false;
     }
 }
 
 // Run test but catch any unhandled rejection
 testSupabaseConnection().catch((err) => {
-    console.error('❌ Supabase connection test crashed:', err);
+    logger.error('DB', 'Supabase connection test crashed', err);
 });
 
 // ================================================================
@@ -124,7 +125,7 @@ export async function getStore(storeId: string) {
         .single();
 
     if (error) {
-        console.error('Error fetching store:', error);
+        logger.error('DB', 'Error fetching store', error);
         return null;
     }
     return data;
@@ -141,7 +142,7 @@ export async function getStoreConfig(storeId: string) {
         .single();
 
     if (error) {
-        console.error('Error fetching store config:', error);
+        logger.error('DB', 'Error fetching store config', error);
         return null;
     }
     return data;
@@ -186,7 +187,7 @@ export function setSupabaseAuth(token: string) {
         };
     } catch (e) {
         // Fallback: set via auth if available
-        console.warn('[Supabase] Could not set auth headers directly');
+        logger.warn('DB', 'Could not set Supabase auth headers directly');
     }
 }
 

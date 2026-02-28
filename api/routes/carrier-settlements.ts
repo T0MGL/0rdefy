@@ -14,6 +14,7 @@ import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
 import { Module } from '../permissions';
 import { getTodayInTimezone } from '../utils/dateUtils';
+import { logger } from '../utils/logger';
 
 export const carrierSettlementsRouter = Router();
 
@@ -38,8 +39,7 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
             offset = '0'
         } = req.query;
 
-        console.log('💰 [CARRIER-SETTLEMENTS] Fetching settlements:', {
-            store_id: req.storeId,
+        logger.debug('CARRIER-SETTLEMENTS', 'Fetching settlements', {
             carrier_id,
             status,
             start_date,
@@ -81,7 +81,7 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
         const { data, error, count } = await query;
 
         if (error) {
-            console.error('❌ [CARRIER-SETTLEMENTS] Error:', error);
+            logger.error('CARRIER-SETTLEMENTS', 'Error fetching settlements', error);
             return res.status(500).json({ error: 'Error al obtener liquidaciones' });
         }
 
@@ -95,7 +95,7 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
             }
         });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Unexpected error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Unexpected error listing settlements', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -106,7 +106,7 @@ carrierSettlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 carrierSettlementsRouter.get('/pending', async (req: AuthRequest, res: Response) => {
     try {
-        console.log('📊 [CARRIER-SETTLEMENTS] Fetching pending summary for store:', req.storeId);
+        logger.debug('CARRIER-SETTLEMENTS', 'Fetching pending summary');
 
         // Use the view we created in the migration
         const { data, error } = await supabaseAdmin
@@ -116,18 +116,18 @@ carrierSettlementsRouter.get('/pending', async (req: AuthRequest, res: Response)
             .order('oldest_delivery_date', { ascending: true });
 
         if (error) {
-            console.error('❌ [CARRIER-SETTLEMENTS] Error:', error);
+            logger.error('CARRIER-SETTLEMENTS', 'Error fetching pending settlements', error);
             return res.status(500).json({ error: 'Error al obtener liquidaciones pendientes' });
         }
 
-        console.log(`✅ [CARRIER-SETTLEMENTS] Found ${data?.length || 0} carriers with pending deliveries`);
+        logger.debug('CARRIER-SETTLEMENTS', `Found ${data?.length || 0} carriers with pending deliveries`);
 
         res.json({
             data: data || [],
             count: data?.length || 0
         });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Error fetching pending summary', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -139,7 +139,7 @@ carrierSettlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => 
     try {
         const { id } = req.params;
 
-        console.log('🔍 [CARRIER-SETTLEMENTS] Fetching settlement:', id);
+        logger.debug('CARRIER-SETTLEMENTS', 'Fetching settlement detail', { id });
 
         // Get settlement
         const { data: settlement, error: settlementError } = await supabaseAdmin
@@ -174,7 +174,7 @@ carrierSettlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => 
             .order('delivered_at', { ascending: false });
 
         if (ordersError) {
-            console.error('⚠️ [CARRIER-SETTLEMENTS] Error fetching orders:', ordersError);
+            logger.warn('CARRIER-SETTLEMENTS', 'Error fetching settlement orders', ordersError);
         }
 
         res.json({
@@ -182,7 +182,7 @@ carrierSettlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => 
             orders: orders || []
         });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Error fetching settlement detail', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -210,7 +210,7 @@ carrierSettlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
             return res.status(400).json({ error: 'period_start and period_end are required' });
         }
 
-        console.log('💰 [CARRIER-SETTLEMENTS] Creating settlement:', {
+        logger.debug('CARRIER-SETTLEMENTS', 'Creating settlement', {
             carrier_id,
             period_start,
             period_end
@@ -264,7 +264,7 @@ carrierSettlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
             });
 
         if (functionError) {
-            console.error('❌ [CARRIER-SETTLEMENTS] Function error:', functionError);
+            logger.error('CARRIER-SETTLEMENTS', 'RPC create_carrier_settlement failed', functionError);
             return res.status(500).json({
                 error: 'Error al crear liquidación',
                 message: functionError.message
@@ -292,17 +292,17 @@ carrierSettlementsRouter.post('/', async (req: AuthRequest, res: Response) => {
             .single();
 
         if (fetchError) {
-            console.error('⚠️ [CARRIER-SETTLEMENTS] Error fetching created settlement:', fetchError);
+            logger.warn('CARRIER-SETTLEMENTS', 'Error fetching created settlement', fetchError);
         }
 
-        console.log('✅ [CARRIER-SETTLEMENTS] Settlement created:', settlementId);
+        logger.info('CARRIER-SETTLEMENTS', 'Settlement created', { settlementId });
 
         res.status(201).json({
             message: 'Settlement created successfully',
             data: settlement
         });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Error creating settlement', error);
         res.status(500).json({ error: 'Error interno del servidor', message: error.message });
     }
 });
@@ -315,7 +315,7 @@ carrierSettlementsRouter.patch('/:id', async (req: AuthRequest, res: Response) =
         const { id } = req.params;
         const updates = req.body;
 
-        console.log('📝 [CARRIER-SETTLEMENTS] Updating settlement:', id);
+        logger.debug('CARRIER-SETTLEMENTS', 'Updating settlement', { id });
 
         // Remove fields that shouldn't be updated
         delete updates.id;
@@ -344,14 +344,14 @@ carrierSettlementsRouter.patch('/:id', async (req: AuthRequest, res: Response) =
             return res.status(404).json({ error: 'Liquidación no encontrada' });
         }
 
-        console.log('✅ [CARRIER-SETTLEMENTS] Settlement updated:', id);
+        logger.debug('CARRIER-SETTLEMENTS', 'Settlement updated', { id });
 
         res.json({
             message: 'Settlement updated successfully',
             data
         });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Error updating settlement', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -364,7 +364,7 @@ carrierSettlementsRouter.post('/:id/mark-paid', async (req: AuthRequest, res: Re
         const { id } = req.params;
         const { payment_date, payment_method, payment_reference } = req.body;
 
-        console.log('💵 [CARRIER-SETTLEMENTS] Marking settlement as paid:', id);
+        logger.debug('CARRIER-SETTLEMENTS', 'Marking settlement as paid', { id });
 
         const { data, error } = await supabaseAdmin
             .from('carrier_settlements')
@@ -387,14 +387,14 @@ carrierSettlementsRouter.post('/:id/mark-paid', async (req: AuthRequest, res: Re
             return res.status(404).json({ error: 'Liquidación no encontrada' });
         }
 
-        console.log('✅ [CARRIER-SETTLEMENTS] Settlement marked as paid:', id);
+        logger.debug('CARRIER-SETTLEMENTS', 'Settlement marked as paid', { id });
 
         res.json({
             message: 'Settlement marked as paid',
             data
         });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Error marking settlement as paid', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -407,7 +407,7 @@ carrierSettlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) 
     try {
         const { id } = req.params;
 
-        console.log('🗑️ [CARRIER-SETTLEMENTS] Deleting settlement:', id);
+        logger.debug('CARRIER-SETTLEMENTS', 'Deleting settlement', { id });
 
         // First, unlink all orders
         await supabaseAdmin
@@ -423,15 +423,15 @@ carrierSettlementsRouter.delete('/:id', async (req: AuthRequest, res: Response) 
             .eq('store_id', req.storeId);
 
         if (error) {
-            console.error('❌ [CARRIER-SETTLEMENTS] Error deleting:', error);
+            logger.error('CARRIER-SETTLEMENTS', 'Error deleting settlement', error);
             return res.status(500).json({ error: 'Error al eliminar liquidación' });
         }
 
-        console.log('✅ [CARRIER-SETTLEMENTS] Settlement deleted:', id);
+        logger.debug('CARRIER-SETTLEMENTS', 'Settlement deleted', { id });
 
         res.json({ message: 'Settlement deleted successfully' });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Error deleting settlement', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -452,7 +452,7 @@ carrierSettlementsRouter.get('/preview/calculate', async (req: AuthRequest, res:
             });
         }
 
-        console.log('👀 [CARRIER-SETTLEMENTS] Previewing settlement:', {
+        logger.debug('CARRIER-SETTLEMENTS', 'Previewing settlement', {
             carrier_id,
             period_start,
             period_end
@@ -499,7 +499,7 @@ carrierSettlementsRouter.get('/preview/calculate', async (req: AuthRequest, res:
             orders: orders || []
         });
     } catch (error: any) {
-        console.error('💥 [CARRIER-SETTLEMENTS] Error:', error);
+        logger.error('CARRIER-SETTLEMENTS', 'Error previewing settlement', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

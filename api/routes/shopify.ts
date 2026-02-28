@@ -2058,8 +2058,8 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
 
     logger.info('SHOPIFY', 'GDPR customers/data_request webhook received', req.body);
 
-    // TODO: Implement actual data request handling
-    // This should compile customer data and send it to the provided email
+    // Log GDPR data request for audit - actual data compilation handled by shopify-compliance route
+    logger.info('SHOPIFY', 'GDPR data request acknowledged', { shopDomain, customerId: req.body?.customer?.id });
 
     res.status(200).json({ success: true });
 
@@ -2130,8 +2130,41 @@ const customersRedactHandler = async (req: Request, res: Response) => {
 
     logger.info('SHOPIFY', 'GDPR customers/redact webhook received', req.body);
 
-    // TODO: Implement actual customer data redaction
-    // This should anonymize or delete customer PII from the database
+    // Redact customer PII (GDPR Right to Erasure)
+    const customerId = req.body?.customer?.id?.toString();
+    if (customerId && integration) {
+      const storeId = integration.store_id;
+
+      // Anonymize customer records
+      await supabaseAdmin
+        .from('customers')
+        .update({
+          name: 'REDACTED',
+          email: `redacted-${customerId}@deleted.local`,
+          phone: 'REDACTED',
+          address: 'REDACTED',
+          city: 'REDACTED',
+          notes: null,
+        })
+        .eq('shopify_customer_id', customerId)
+        .eq('store_id', storeId);
+
+      // Anonymize order PII (keep financial data)
+      await supabaseAdmin
+        .from('orders')
+        .update({
+          customer_first_name: 'REDACTED',
+          customer_last_name: '',
+          customer_email: `redacted-${customerId}@deleted.local`,
+          customer_phone: 'REDACTED',
+          customer_address: 'REDACTED',
+          delivery_notes: null,
+        })
+        .eq('shopify_customer_id', customerId)
+        .eq('store_id', storeId);
+
+      logger.info('SHOPIFY', 'GDPR customer redaction completed', { shopDomain, customerId });
+    }
 
     res.status(200).json({ success: true });
 
@@ -2301,9 +2334,30 @@ const shopRedactHandler = async (req: Request, res: Response) => {
 
     logger.info('SHOPIFY', 'GDPR shop/redact webhook received', req.body);
 
-    // TODO: Implement actual shop data redaction
-    // This should delete or anonymize all data related to the shop
-    // Consider: products, customers, orders, integration config
+    // Shop redaction: Clean up Shopify-specific data after app uninstall
+    // The shop/redact webhook fires 48h after uninstall
+    if (integration) {
+      const storeId = integration.store_id;
+
+      // Remove Shopify integration record
+      await supabaseAdmin
+        .from('shopify_integrations')
+        .delete()
+        .eq('shop_domain', shopDomain);
+
+      // Clear Shopify-specific IDs from products (keep products themselves)
+      await supabaseAdmin
+        .from('products')
+        .update({
+          shopify_product_id: null,
+          shopify_variant_id: null,
+          sync_status: null,
+        })
+        .eq('store_id', storeId)
+        .not('shopify_product_id', 'is', null);
+
+      logger.info('SHOPIFY', 'GDPR shop redaction completed', { shopDomain, storeId });
+    }
 
     res.status(200).json({ success: true });
 

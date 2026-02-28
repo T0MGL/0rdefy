@@ -813,7 +813,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         if (status) {
             const statusStr = status as string;
-            console.log('[ORDERS FILTER] Status filter:', statusStr);
+            logger.debug('ORDERS', 'Status filter applied', { status: statusStr });
             // Normalize legacy aliases on input before hitting the DB.
             // The frontend sends 'in_transit' and 'cancelled', but old URL params, external
             // integrations, or stale localStorage may send 'shipped' or 'rejected'.
@@ -847,7 +847,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         if (search && typeof search === 'string') {
             try {
                 const searchStr = search.trim();
-                console.log('[ORDERS SEARCH] Received search query:', searchStr);
+                logger.debug('ORDERS', 'Search query received', { search: searchStr });
                 if (searchStr.length > 0) {
                     // Check if search string is a UUID (for exact ID search)
                     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -870,7 +870,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     }
                 }
             } catch (searchError) {
-                console.error('[ORDERS SEARCH] Error processing search:', searchError);
+                logger.error('ORDERS', 'Error processing search', searchError);
                 // Continue without search if there's an error
             }
         }
@@ -940,7 +940,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         const { data, error, count } = await query;
 
-        console.log('[ORDERS QUERY] Results:', {
+        logger.debug('ORDERS', 'Query results', {
             status: status || 'none',
             search: search || 'none',
             carrier_id: carrier_id || 'none',
@@ -1410,12 +1410,10 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     // Migration 101: variant_type for bundle vs variation tracking
                     let variantType: string | null = item.variant_type || null; // Accept from payload for external webhooks
 
-                    console.log('📦 [ORDER CREATE] Processing line item:', {
+                    logger.debug('ORDERS', 'Processing line item', {
                         product_id: productId,
                         variant_id: variantId,
-                        product_name: item.product_name,
-                        name: item.name,
-                        title: item.title
+                        product_name: item.product_name || item.name || item.title
                     });
 
                     // Migration 097/101: If variant_id provided, fetch variant details including variant_type
@@ -1436,11 +1434,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                             if (!variantType) {
                                 variantType = variant.variant_type || (variant.uses_shared_stock ? 'bundle' : 'variation');
                             }
-                            console.log('📦 [ORDER CREATE] Variant found:', {
+                            logger.debug('ORDERS', 'Variant resolved', {
                                 variant_id: variantId,
-                                variant_title: variantTitle,
                                 variant_type: variantType,
-                                price: unitPrice,
                                 units_per_pack: unitsPerPack
                             });
                         }
@@ -1455,11 +1451,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                             .eq('store_id', req.storeId)
                             .maybeSingle();
 
-                        console.log('📦 [ORDER CREATE] Product lookup result:', {
+                        logger.debug('ORDERS', 'Product lookup', {
                             product_id: productId,
                             found: !!product,
-                            product_name: product?.name,
-                            image_url: product?.image_url,
                             error: productError?.message
                         });
 
@@ -1485,7 +1479,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     });
                 }
 
-                console.log('📦 [ORDER CREATE] Inserting line items:', normalizedLineItems);
+                logger.debug('ORDERS', `Inserting ${normalizedLineItems.length} line items`);
 
                 if (normalizedLineItems.length > 0) {
                     const { error: lineItemsError } = await supabaseAdmin
@@ -1493,9 +1487,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         .insert(normalizedLineItems);
 
                     if (lineItemsError) {
-                        console.error('❌ [ORDER CREATE] Line items insert error:', lineItemsError);
+                        logger.error('ORDERS', 'Line items insert error', lineItemsError);
                     } else {
-                        console.log('✅ [ORDER CREATE] Line items inserted successfully');
+                        logger.debug('ORDERS', 'Line items inserted successfully');
                     }
                 }
             } catch (lineItemsErr) {
@@ -2019,7 +2013,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                 .eq('id', id)
                 .single();
 
-            console.error('[PATCH /status] Order not found:', {
+            logger.warn('ORDERS', 'Order not found for status update', {
                 requestedId: id,
                 requestedStoreId: req.storeId,
                 foundOrder: debugOrder ? {
@@ -3059,7 +3053,7 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
                     }
                 } catch (upsellError) {
                     // Log but don't fail - upsell is non-critical
-                    console.error('Error adding upsell in separate flow:', upsellError);
+                    logger.error('ORDERS', 'Error adding upsell in separate flow', upsellError);
                 }
             }
 
@@ -3571,7 +3565,7 @@ ordersRouter.patch('/:id/internal-notes', validateUUIDParam('id'), requirePermis
             data
         });
     } catch (error: any) {
-        console.error('Error updating internal notes:', error);
+        logger.error('ORDERS', 'Error updating internal notes', error);
         res.status(500).json({
             error: 'Error al actualizar notas internas',
             message: error.message
@@ -3770,7 +3764,7 @@ ordersRouter.patch('/:id/upsell', validateUUIDParam('id'), requirePermission(Mod
             upsell_total: product.price * upsell_quantity
         });
     } catch (error: any) {
-        console.error('Error updating upsell:', error);
+        logger.error('ORDERS', 'Error updating upsell', error);
         res.status(500).json({
             error: 'Error al actualizar upsell',
             message: error.message
