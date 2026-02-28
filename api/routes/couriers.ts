@@ -19,7 +19,7 @@ import {
   getTopCouriers,
   getUnderperformingCouriers
 } from '../utils/courier-stats';
-import { validateUUIDParam } from '../utils/sanitize';
+import { validateUUIDParam, parsePagination } from '../utils/sanitize';
 
 export const couriersRouter = Router();
 
@@ -35,10 +35,11 @@ couriersRouter.use(requireModule(Module.CARRIERS));
 couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
     try {
         const {
-            limit = '50',
-            offset = '0',
+            limit: rawLimit = '50',
+            offset: rawOffset = '0',
             status
         } = req.query;
+        const { limit, offset } = parsePagination(rawLimit, rawOffset);
 
         logger.info('API', `📦 [COURIERS] Fetching couriers for store ${req.storeId}, status: ${status}`);
 
@@ -58,7 +59,7 @@ couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
         // Apply pagination and sorting
         query = query
             .order('name', { ascending: true })
-            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
+            .range(offset, offset + limit - 1);
 
         const { data, error, count } = await query;
 
@@ -648,7 +649,8 @@ couriersRouter.delete('/zones/:zoneId', requirePermission(Module.CARRIERS, Permi
 couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { limit = '50', offset = '0' } = req.query;
+        const { limit: rawLimit = '50', offset: rawOffset = '0' } = req.query;
+        const { limit, offset } = parsePagination(rawLimit, rawOffset);
 
         logger.info('API', `⭐ [COURIERS] Fetching reviews for courier ${id}`);
 
@@ -686,7 +688,7 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
             .eq('store_id', req.storeId)
             .not('delivery_rating', 'is', null)
             .order('rated_at', { ascending: false })
-            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
+            .range(offset, offset + limit - 1);
 
         if (reviewsError) {
             logger.error('API', '[COURIERS] Reviews query error:', reviewsError);

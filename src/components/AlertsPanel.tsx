@@ -68,7 +68,7 @@ export function AlertsPanel({ open, onOpenChange, initialAlerts = [] }: AlertsPa
         ) : (
           <div className="space-y-3">
             {alerts.map((alert) => {
-              const config = severityConfig[alert.severity];
+              const config = severityConfig[alert.severity as keyof typeof severityConfig] || severityConfig.info;
               const Icon = config.icon;
               
               return (

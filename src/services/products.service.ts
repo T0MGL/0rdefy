@@ -39,8 +39,24 @@ const calculateProfitability = (price: number, cost: number): string => {
   return profitMargin.toFixed(1);
 };
 
+export interface ProductsResponse {
+  data: Product[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
 export const productsService = {
-  getAll: async (options?: { source?: 'local' | 'shopify'; limit?: number; offset?: number }): Promise<Product[]> => {
+  getAll: async (options?: {
+    source?: 'local' | 'shopify';
+    limit?: number;
+    offset?: number;
+    search?: string;
+    stockFilter?: 'all' | 'low-stock' | 'out-of-stock';
+  }): Promise<ProductsResponse> => {
     try {
       const params = new URLSearchParams();
       if (options?.source) {
@@ -52,6 +68,12 @@ export const productsService = {
       if (options?.offset) {
         params.append('offset', options.offset.toString());
       }
+      if (options?.search) {
+        params.append('search', options.search);
+      }
+      if (options?.stockFilter && options.stockFilter !== 'all') {
+        params.append('stock_filter', options.stockFilter);
+      }
       const url = `${API_BASE_URL}/products${params.toString() ? `?${params.toString()}` : ''}`;
 
       const response = await fetch(url, {
@@ -62,8 +84,7 @@ export const productsService = {
       }
       const result = await response.json();
       // API returns {data: [], pagination: {...}}, transform backend format to frontend
-      const products = result.data || [];
-      return products.map((p: any) => ({
+      const products = (result.data || []).map((p: any) => ({
         id: p.id,
         name: p.name,
         sku: p.sku || '',
@@ -79,10 +100,15 @@ export const productsService = {
         sales: p.sales || 0,
         shopify_product_id: p.shopify_product_id || null,
         shopify_variant_id: p.shopify_variant_id || null,
+        has_variants: p.has_variants || false,
       }));
+      return {
+        data: products,
+        pagination: result.pagination || { total: products.length, limit: 50, offset: 0, hasMore: false },
+      };
     } catch (error) {
       logger.error('Error loading products:', error);
-      return [];
+      return { data: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } };
     }
   },
 

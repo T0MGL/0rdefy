@@ -181,9 +181,9 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     let isMounted = true;
     const loadProducts = async () => {
       try {
-        const data = await productsService.getAll();
+        const result = await productsService.getAll();
         if (isMounted) {
-          setProducts(data);
+          setProducts(result.data || []);
         }
       } catch (error) {
         logger.error('Error loading products:', error);

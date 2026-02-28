@@ -103,6 +103,25 @@ export function sanitizeInteger(
 }
 
 /**
+ * Parses and clamps pagination parameters from query strings.
+ * Prevents DoS via unbounded limit and ensures valid offset.
+ *
+ * @param rawLimit - The raw limit from req.query
+ * @param rawOffset - The raw offset from req.query
+ * @param maxLimit - Maximum allowed limit (default: 200)
+ * @returns { limit, offset } clamped to safe values
+ */
+export function parsePagination(
+    rawLimit: any,
+    rawOffset: any,
+    maxLimit: number = 200
+): { limit: number; offset: number } {
+    const limit = sanitizeInteger(rawLimit, 1, maxLimit, 50);
+    const offset = sanitizeInteger(rawOffset, 0, Number.MAX_SAFE_INTEGER, 0);
+    return { limit, offset };
+}
+
+/**
  * Express middleware factory to validate UUID parameters
  *
  * @param paramName - The name of the route parameter to validate (default: 'id')

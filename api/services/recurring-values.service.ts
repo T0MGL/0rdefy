@@ -84,7 +84,12 @@ export class RecurringValuesService {
             }
 
             if (operations.length > 0) {
-                await Promise.all(operations);
+                const results = await Promise.allSettled(operations);
+                const failures = results.filter(r => r.status === 'rejected');
+                if (failures.length > 0) {
+                    logger.error('BACKEND', `[RecurringValuesService] ${failures.length}/${results.length} operations failed:`,
+                        failures.map(f => (f as PromiseRejectedResult).reason));
+                }
             }
 
         } catch (error) {

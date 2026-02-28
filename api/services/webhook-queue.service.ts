@@ -132,11 +132,15 @@ export class WebhookQueueService {
       this.processing = true;
 
       // Procesar inmediatamente
-      void this.processQueue();
+      this.processQueue().catch(err => {
+        logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] processQueue failed:', err);
+      });
 
       // Configurar polling para procesar continuamente
       this.intervalId = setInterval(() => {
-        void this.processQueue();
+        this.processQueue().catch(err => {
+          logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] processQueue polling failed:', err);
+        });
       }, this.pollingInterval);
     } finally {
       this.startingLock = false;

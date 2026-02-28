@@ -8,6 +8,7 @@
 import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
+import { parsePagination } from '../utils/sanitize';
 import { verifyToken, AuthRequest } from '../middleware/auth';
 
 export const unifiedRouter = Router();
@@ -94,9 +95,7 @@ unifiedRouter.get('/warehouse/ready', async (req: AuthRequest, res: Response) =>
     } catch (error) {
         logger.error('API', '[GET /api/unified/warehouse/ready] Error:', error);
         res.status(500).json({
-            error: 'Error al obtener datos unificados de bodega',
-            details: error instanceof Error ? error.message : String(error),
-            raw: error
+            error: 'Error al obtener datos unificados de bodega'
         });
     }
 });
@@ -142,9 +141,7 @@ unifiedRouter.get('/warehouse/sessions', async (req: AuthRequest, res: Response)
     } catch (error) {
         logger.error('API', '[GET /api/unified/warehouse/sessions] Error:', error);
         res.status(500).json({
-            error: 'Error al obtener sesiones unificadas',
-            details: error instanceof Error ? error.message : String(error),
-            raw: error
+            error: 'Error al obtener sesiones unificadas'
         });
     }
 });
@@ -157,7 +154,8 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
         return res.status(401).json({ error: 'User not authenticated' });
     }
     try {
-        const { limit = '50', offset = '0', status, startDate, endDate } = req.query;
+        const { limit: rawLimit = '50', offset: rawOffset = '0', status, startDate, endDate } = req.query;
+        const { limit, offset } = parsePagination(rawLimit, rawOffset);
         const storeIds = await getUserStoreIds(req.user.id);
         logger.info('API', `[GET /api/unified/orders] User: ${req.user.id}, Found Stores: ${storeIds.length}`, storeIds);
 
@@ -193,7 +191,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
             `, { count: 'exact' })
             .in('store_id', storeIds)
             .order('created_at', { ascending: false })
-            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
+            .range(offset, offset + limit - 1);
 
         if (status) {
             query = query.eq('sleeves_status', status);
@@ -288,9 +286,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
     } catch (error) {
         logger.error('API', '[GET /api/unified/orders] Error:', error);
         res.status(500).json({
-            error: 'Error al obtener pedidos unificados',
-            details: error instanceof Error ? error.message : String(error),
-            raw: error
+            error: 'Error al obtener pedidos unificados'
         });
     }
 });
@@ -343,9 +339,7 @@ unifiedRouter.get('/shipping/ready', async (req: AuthRequest, res: Response) => 
     } catch (error) {
         logger.error('API', '[GET /api/unified/shipping/ready] Error:', error);
         res.status(500).json({
-            error: 'Error al obtener datos de despacho unificados',
-            details: error instanceof Error ? error.message : String(error),
-            raw: error
+            error: 'Error al obtener datos de despacho unificados'
         });
     }
 });
@@ -429,7 +423,7 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
         // Fetch orders from all stores
         const { data: ordersData, error: ordersError } = await supabaseAdmin
             .from('orders')
-            .select('*, store_id')
+            .select('id, created_at, total_price, sleeves_status, shipping_cost, confirmed_at, delivered_at, shipped_at, deleted_at, is_test, store_id, line_items')
             .in('store_id', storeIds)
             .gte('created_at', previousPeriodStart.toISOString())
             .lte('created_at', currentPeriodEnd.toISOString());

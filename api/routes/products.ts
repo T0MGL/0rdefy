@@ -36,7 +36,8 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             min_price,
             max_price,
             is_active,
-            source
+            source,
+            stock_filter
         } = req.query;
 
         // Determine is_active filter value (default to true if not specified)
@@ -73,6 +74,12 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         if (max_price) {
             query = query.lte('price', parseFloat(max_price as string));
+        }
+
+        if (stock_filter === 'low-stock') {
+            query = query.gt('stock', 0).lt('stock', 10);
+        } else if (stock_filter === 'out-of-stock') {
+            query = query.eq('stock', 0);
         }
 
         const { data, error, count } = await query;

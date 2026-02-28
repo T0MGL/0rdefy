@@ -32,6 +32,7 @@ import type { Order, DashboardOverview } from '@/types';
 export function DailySummary() {
   const [isOpen, setIsOpen] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -87,8 +88,9 @@ export function DailySummary() {
           endDate: dateRange.endDate,
         };
 
-        // Always load orders (all roles with Dashboard access can see orders)
+        // Load order counts (lightweight for single-store, full for global view)
         let ordersData: Order[] = [];
+        let countsData: Record<string, number> = {};
         if (useGlobalViewData) {
           const unifiedOrders = await unifiedService.getOrders({
             startDate: dateParams.startDate,
@@ -96,13 +98,16 @@ export function DailySummary() {
             limit: 2000,
           });
           ordersData = (unifiedOrders.data || []) as unknown as Order[];
+          fetchedOrdersCount = ordersData.length;
+          setOrders(ordersData);
         } else {
-          const ordersResponse = await ordersService.getAll(dateParams);
-          ordersData = ordersResponse.data || [];
+          // Use lightweight counts endpoint instead of fetching all orders
+          const countsResult = await ordersService.getCountsByStatus(dateParams);
+          countsData = countsResult.data || {};
+          fetchedOrdersCount = countsResult.total;
+          setStatusCounts(countsData);
+          setOrders([]); // No full orders needed for single-store
         }
-
-        fetchedOrdersCount = ordersData.length;
-        setOrders(ordersData);
 
         // Only load analytics if user has permission
         if (hasAnalyticsAccess) {
@@ -121,17 +126,20 @@ export function DailySummary() {
             setOverview(overviewData);
           }
         } else {
-          // Calculate basic metrics from orders for roles without analytics access
+          // Calculate basic metrics for roles without analytics access
+          // For global view, use ordersData; for single-store, use counts
           const totalRevenue = ordersData.reduce((sum: number, o: Order) => sum + (o.total_price || 0), 0);
-          const deliveredOrders = ordersData.filter((o: Order) => o.status === 'delivered');
-          const deliveryRate = ordersData.length > 0
-            ? Math.round((deliveredOrders.length / ordersData.length) * 100)
+          const deliveredCount = useGlobalViewData
+            ? ordersData.filter((o: Order) => o.status === 'delivered').length
+            : (countsData['delivered'] || 0);
+          const deliveryRate = fetchedOrdersCount > 0
+            ? Math.round((deliveredCount / fetchedOrdersCount) * 100)
             : 0;
 
-          // Create a simplified overview from orders data
+          // Create a simplified overview from available data
           const simplifiedOverview: DashboardOverview = {
-            totalOrders: ordersData.length,
-            revenue: totalRevenue,
+            totalOrders: fetchedOrdersCount,
+            revenue: totalRevenue, // Only accurate for global view; 0 for single-store without analytics
             deliveryRate,
             profitMargin: 0, // Not available without analytics
             netProfit: 0, // Not available without analytics
@@ -183,11 +191,14 @@ export function DailySummary() {
   // ===== USAR DATOS DEL OVERVIEW (YA FILTRADOS POR FECHA) =====
   // El overview ya contiene las métricas del período seleccionado y las comparativas con el período anterior
 
-  // Contar pedidos pendientes en el período seleccionado
-  const pendingConfirmation = orders.filter(o => o.status === 'pending' && !o.confirmedByWhatsApp);
+  // Use statusCounts for single-store (lightweight), fall back to orders array for global view
+  const pendingCount = useGlobalViewData
+    ? orders.filter(o => o.status === 'pending' && !o.confirmedByWhatsApp).length
+    : (statusCounts['pending'] || 0);
 
-  // Contar pedidos en preparación en el período seleccionado
-  const inPreparation = orders.filter(o => o.status === 'in_preparation');
+  const inPreparationCount = useGlobalViewData
+    ? orders.filter(o => o.status === 'in_preparation').length
+    : (statusCounts['in_preparation'] || 0);
 
   // Obtener el label correcto basado en el período seleccionado
   const getMetricLabel = (baseLabel: string) => {
@@ -222,15 +233,15 @@ export function DailySummary() {
     },
     {
       label: 'Pendientes Confirmar',
-      value: pendingConfirmation.length,
-      change: null, // No tiene sentido comparar pendientes con período anterior
+      value: pendingCount,
+      change: null,
       icon: AlertTriangle,
       trend: undefined,
     },
     {
       label: 'En Preparación',
-      value: inPreparation.length,
-      change: null, // No tiene sentido comparar en preparación con período anterior
+      value: inPreparationCount,
+      change: null,
       icon: Package2,
       trend: undefined,
     },
@@ -294,10 +305,10 @@ export function DailySummary() {
             <div>
               <h4 className="font-semibold mb-2">Alertas Importantes</h4>
               <ul className="space-y-2 text-sm">
-                {pendingConfirmation.length > 0 && (
+                {pendingCount > 0 && (
                   <li className="flex items-start gap-2">
                     <AlertTriangle size={16} className="text-yellow-600 mt-0.5" />
-                    <span>{pendingConfirmation.length} pedidos pendientes de confirmación</span>
+                    <span>{pendingCount} pedidos pendientes de confirmación</span>
                   </li>
                 )}
                 <li className="flex items-start gap-2">
@@ -326,11 +337,11 @@ export function DailySummary() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">En preparación</span>
-                    <span className="font-semibold">{inPreparation.length}</span>
+                    <span className="font-semibold">{inPreparationCount}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Total del período</span>
-                    <span className="font-semibold">{orders.length}</span>
+                    <span className="font-semibold">{overview?.totalOrders ?? 0}</span>
                   </div>
                 </div>
               </div>

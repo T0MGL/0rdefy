@@ -21,10 +21,11 @@ import { ProductVariantsManager } from '@/components/ProductVariantsManager';
 import { productsService } from '@/services/products.service';
 import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
-import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download, Layers, MoreVertical } from 'lucide-react';
+import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download, Layers, MoreVertical, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Product } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,11 +33,11 @@ import { productsExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
 
+const PAGE_SIZE = 50;
+
 export default function Products() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showCalculator, setShowCalculator] = useState(false);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [confirmShopifyDeleteOpen, setConfirmShopifyDeleteOpen] = useState(false);
@@ -53,21 +54,64 @@ export default function Products() {
   const [stockFilter, setStockFilter] = useState<'all' | 'low-stock' | 'out-of-stock'>('all');
   const [variantsDialogOpen, setVariantsDialogOpen] = useState(false);
   const [variantsProduct, setVariantsProduct] = useState<Product | null>(null);
+
+  // Search & pagination state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
+  const queryClient = useQueryClient();
 
+  // Cleanup debounce timer on unmount
   useEffect(() => {
-    const loadProducts = async () => {
-      const data = await productsService.getAll();
-      setProducts(data);
-      setIsLoading(false);
-    };
-    const checkShopify = async () => {
-      const hasIntegration = await productsService.checkShopifyIntegration();
-      setHasShopifyIntegration(hasIntegration);
-    };
-    loadProducts();
-    checkShopify();
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
+
+  // Debounce search input
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(value);
+      setPage(0); // Reset to first page on search
+    }, 300);
+  }, []);
+
+  // Reset page when stock filter changes
+  useEffect(() => {
+    setPage(0);
+  }, [stockFilter]);
+
+  // TanStack Query for products
+  const { data: productsResponse, isLoading, isFetching } = useQuery({
+    queryKey: ['products', { search: debouncedSearch, stockFilter, page }],
+    queryFn: () => productsService.getAll({
+      search: debouncedSearch || undefined,
+      stockFilter,
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+    }),
+    staleTime: 30_000, // 30s
+    placeholderData: (prev) => prev, // Keep previous data while fetching
+  });
+
+  const products = productsResponse?.data || [];
+  const pagination = productsResponse?.pagination || { total: 0, limit: PAGE_SIZE, offset: 0, hasMore: false };
+  const totalPages = Math.ceil(pagination.total / PAGE_SIZE);
+
+  // Reset page if current page is beyond available data (e.g., after deleting last product on a page)
+  useEffect(() => {
+    if (totalPages > 0 && page >= totalPages) {
+      setPage(totalPages - 1);
+    }
+  }, [totalPages, page]);
+
+  // Check Shopify integration once
+  useEffect(() => {
+    productsService.checkShopifyIntegration().then(setHasShopifyIntegration);
   }, []);
 
   // Process URL query parameters for filtering and navigation from notifications
@@ -101,7 +145,6 @@ export default function Products() {
     if (highlightId && products.length > 0) {
       const productExists = products.some(p => p.id === highlightId);
       if (!productExists) {
-        // Product not found - show toast and clean URL
         toast({
           title: 'Producto no encontrado',
           description: 'El producto al que intentas acceder ya no existe o fue eliminado.',
@@ -114,13 +157,9 @@ export default function Products() {
     }
   }, [searchParams, setSearchParams, products, toast]);
 
-  // Filter products based on stock filter
-  const filteredProducts = useMemo(() => {
-    if (stockFilter === 'all') return products;
-    if (stockFilter === 'low-stock') return products.filter(p => p.stock > 0 && p.stock < 10);
-    if (stockFilter === 'out-of-stock') return products.filter(p => p.stock === 0);
-    return products;
-  }, [products, stockFilter]);
+  const invalidateProducts = () => {
+    queryClient.invalidateQueries({ queryKey: ['products'] });
+  };
 
   const handleCreate = () => {
     setSelectedProduct(null);
@@ -136,7 +175,7 @@ export default function Products() {
 
   const handleEdit = (product: Product) => {
     setSelectedProduct(product);
-    setFormMode('manual'); // Editing is always manual form for now
+    setFormMode('manual');
     setDialogOpen(true);
   };
 
@@ -145,13 +184,11 @@ export default function Products() {
     setDeleteDialogOpen(true);
   };
 
-  // Show confirmation dialog before publishing to Shopify
   const handlePublishToShopifyClick = (product: Product) => {
     setProductToPublish(product);
     setPublishConfirmOpen(true);
   };
 
-  // Actually publish to Shopify after confirmation
   const handlePublishToShopify = async () => {
     if (!productToPublish) return;
 
@@ -160,10 +197,7 @@ export default function Products() {
 
     try {
       await productsService.publishToShopify(productToPublish.id);
-
-      // Recargar productos para obtener el shopify_product_id actualizado
-      const updatedProducts = await productsService.getAll();
-      setProducts(updatedProducts);
+      invalidateProducts();
 
       toast({
         title: 'Producto publicado',
@@ -193,10 +227,8 @@ export default function Products() {
     setVariantsDialogOpen(true);
   };
 
-  const handleVariantsUpdated = async () => {
-    // Refresh products to get updated has_variants flag
-    const data = await productsService.getAll();
-    setProducts(data);
+  const handleVariantsUpdated = () => {
+    invalidateProducts();
   };
 
   const confirmStockAdjustment = async () => {
@@ -218,8 +250,7 @@ export default function Products() {
         stock: newStock,
       });
 
-      const updatedProducts = await productsService.getAll();
-      setProducts(updatedProducts);
+      invalidateProducts();
       setStockDialogOpen(false);
       setStockAdjustment(0);
 
@@ -242,11 +273,9 @@ export default function Products() {
 
   const handleDeleteOptionClick = (deleteFromShopify: boolean) => {
     if (deleteFromShopify) {
-      // Show second confirmation for Shopify deletion
       setDeleteDialogOpen(false);
       setConfirmShopifyDeleteOpen(true);
     } else {
-      // Delete only from Ordefy
       confirmDelete(false);
     }
   };
@@ -261,8 +290,7 @@ export default function Products() {
         throw new Error('Error al eliminar producto');
       }
 
-      // Only update UI after successful server response
-      setProducts(prev => prev.filter(p => p.id !== productToDelete.id));
+      invalidateProducts();
 
       setDeleteDialogOpen(false);
       setConfirmShopifyDeleteOpen(false);
@@ -288,35 +316,17 @@ export default function Products() {
   };
 
   const handleSubmit = async (data: any) => {
-    // Store previous state for rollback
-    const previousProducts = products;
-
     try {
       if (selectedProduct) {
         const totalCost = data.cost + (data.packaging_cost || 0) + (data.additional_costs || 0);
-        const optimisticProduct = {
-          ...selectedProduct,
-          ...data,
-          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
-        };
 
-        // Optimistic update BEFORE request
-        setProducts(prev =>
-          prev.map(p => (p.id === selectedProduct.id ? optimisticProduct : p))
-        );
-
-        const updatedProduct = await productsService.update(selectedProduct.id, {
+        await productsService.update(selectedProduct.id, {
           ...data,
           profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
           sales: selectedProduct.sales,
         });
 
-        // Update with server response
-        if (updatedProduct) {
-          setProducts(prev =>
-            prev.map(p => (p.id === selectedProduct.id ? updatedProduct : p))
-          );
-        }
+        invalidateProducts();
 
         toast({
           title: 'Producto actualizado',
@@ -324,8 +334,7 @@ export default function Products() {
         });
       } else if (data.id) {
         // Product already created by ProductForm (e.g., from Shopify import)
-        // Just add it to local state
-        setProducts(prev => [data, ...prev]);
+        invalidateProducts();
 
         toast({
           title: 'Producto importado',
@@ -334,25 +343,13 @@ export default function Products() {
       } else {
         const totalCost = data.cost + (data.packaging_cost || 0) + (data.additional_costs || 0);
 
-        // Optimistic update with temporary ID
-        const tempId = `temp-${Date.now()}`;
-        const optimisticProduct = {
-          id: tempId,
-          ...data,
-          profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
-          sales: 0,
-        };
-
-        setProducts(prev => [optimisticProduct, ...prev]);
-
-        const newProduct = await productsService.create({
+        await productsService.create({
           ...data,
           profitability: data.price > 0 ? ((data.price - totalCost) / data.price * 100).toFixed(1) : '0.0',
           sales: 0,
         });
 
-        // Replace temp product with real one
-        setProducts(prev => prev.map(p => p.id === tempId ? newProduct : p));
+        invalidateProducts();
 
         toast({
           title: 'Producto creado',
@@ -363,9 +360,6 @@ export default function Products() {
       setDialogOpen(false);
     } catch (error) {
       logger.error('Error al guardar producto:', error);
-
-      // ROLLBACK: Restore previous state on error
-      setProducts(previousProducts);
 
       showErrorToast(toast, error, {
         module: 'products',
@@ -394,7 +388,10 @@ export default function Products() {
     );
   }
 
-  if (products.length === 0) {
+  // Show empty state only when no products AND no active search/filter
+  const isEmptyStore = products.length === 0 && !debouncedSearch && stockFilter === 'all';
+
+  if (isEmptyStore) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -463,50 +460,67 @@ export default function Products() {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Productos</h2>
-          <p className="text-muted-foreground">Gestiona tu catálogo de productos</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Productos</h2>
+            <p className="text-muted-foreground">
+              {pagination.total > 0
+                ? `${pagination.total} producto${pagination.total !== 1 ? 's' : ''}`
+                : 'Gestiona tu catálogo de productos'}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <ExportButton
+              data={products}
+              filename="productos"
+              columns={productsExportColumns}
+              title="Catálogo de Productos - Ordefy"
+              variant="outline"
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="gap-2">
+                  <Plus size={18} />
+                  Agregar Producto
+                  <ChevronDown size={14} className="ml-1 opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleCreate} className="gap-2 cursor-pointer">
+                  <Plus size={16} />
+                  Crear Manualmente
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleImportShopify}
+                  disabled={!hasShopifyIntegration}
+                  className="gap-2 cursor-pointer"
+                >
+                  <Download size={16} />
+                  Importar de Shopify
+                  {!hasShopifyIntegration && <span className="ml-auto text-xs text-muted-foreground">(No conectado)</span>}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setShowCalculator(!showCalculator)}
+            >
+              {showCalculator ? 'Ocultar' : 'Mostrar'} Calculadora
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <ExportButton
-            data={products}
-            filename="productos"
-            columns={productsExportColumns}
-            title="Catálogo de Productos - Ordefy"
-            variant="outline"
+
+        {/* Search Bar */}
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por nombre o SKU..."
+            value={searchTerm}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="pl-9"
           />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button className="gap-2">
-                <Plus size={18} />
-                Agregar Producto
-                <ChevronDown size={14} className="ml-1 opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleCreate} className="gap-2 cursor-pointer">
-                <Plus size={16} />
-                Crear Manualmente
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleImportShopify}
-                disabled={!hasShopifyIntegration}
-                className="gap-2 cursor-pointer"
-              >
-                <Download size={16} />
-                Importar de Shopify
-                {!hasShopifyIntegration && <span className="ml-auto text-xs text-muted-foreground">(No conectado)</span>}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => setShowCalculator(!showCalculator)}
-          >
-            {showCalculator ? 'Ocultar' : 'Mostrar'} Calculadora
-          </Button>
         </div>
       </div>
 
@@ -523,146 +537,203 @@ export default function Products() {
             <span className="ml-1">×</span>
           </Badge>
           <span className="text-sm text-muted-foreground">
-            ({filteredProducts.length} de {products.length} productos)
+            ({pagination.total} productos)
           </span>
         </div>
       )}
 
-      {/* Products Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredProducts.map((product, index) => (
-          <motion.div
-            key={product.id}
-            id={`item-${product.id}`}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
+      {/* No search results */}
+      {products.length === 0 && (debouncedSearch || stockFilter !== 'all') && (
+        <div className="flex flex-col items-center justify-center py-12 px-4">
+          <Search className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-semibold mb-1">Sin resultados</h3>
+          <p className="text-muted-foreground text-center text-sm">
+            {debouncedSearch
+              ? `No se encontraron productos para "${debouncedSearch}"`
+              : 'No hay productos con este filtro de stock'}
+          </p>
+          <Button
+            variant="ghost"
+            className="mt-4"
+            onClick={() => {
+              handleSearchChange('');
+              setStockFilter('all');
+            }}
           >
-            <Card className={`overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50 ${isHighlighted(product.id)
-              ? 'ring-2 ring-yellow-400 dark:ring-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-              : ''
-              }`}>
-              <div className="aspect-square bg-muted flex items-center justify-center">
-                <img
-                  src={product.image}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="p-6 space-y-4">
-                <div>
-                  <h3 className="font-semibold text-lg mb-2">{product.name}</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge
-                      variant="outline"
-                      className={
-                        product.stock > 20
-                          ? 'bg-primary/20 text-primary border-primary/30'
-                          : 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30'
-                      }
-                    >
-                      Stock: {product.stock}
-                    </Badge>
-                    {(product as any).has_variants && (
-                      <Badge variant="outline" className="bg-purple-500/20 text-purple-700 dark:text-purple-400 border-purple-500/30 gap-1">
-                        <Layers size={12} />
-                        Variantes
-                      </Badge>
-                    )}
-                    {product.shopify_product_id && (
-                      <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30 gap-1">
-                        <ShoppingBag size={12} />
-                        Shopify
-                      </Badge>
-                    )}
-                  </div>
-                </div>
+            Limpiar filtros
+          </Button>
+        </div>
+      )}
 
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Precio:</span>
-                    <span className="font-semibold">{formatCurrency(product.price)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Costo:</span>
-                    <span className="font-semibold">{formatCurrency(product.cost)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Rentabilidad:</span>
-                    <span className="font-semibold text-primary">
-                      {product.profitability}%
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Ventas totales:</span>
-                    <span className="font-semibold">{product.sales}</span>
-                  </div>
+      {/* Products Grid */}
+      {products.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {products.map((product, index) => (
+            <motion.div
+              key={product.id}
+              id={`item-${product.id}`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(index * 0.05, 0.3) }}
+            >
+              <Card className={`overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50 ${isHighlighted(product.id)
+                ? 'ring-2 ring-yellow-400 dark:ring-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+                : ''
+                }`}>
+                <div className="aspect-square bg-muted flex items-center justify-center">
+                  <img
+                    src={product.image}
+                    alt={product.name}
+                    className="w-full h-full object-cover"
+                  />
                 </div>
+                <div className="p-6 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-lg mb-2">{product.name}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        variant="outline"
+                        className={
+                          product.stock > 20
+                            ? 'bg-primary/20 text-primary border-primary/30'
+                            : 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30'
+                        }
+                      >
+                        Stock: {product.stock}
+                      </Badge>
+                      {(product as any).has_variants && (
+                        <Badge variant="outline" className="bg-purple-500/20 text-purple-700 dark:text-purple-400 border-purple-500/30 gap-1">
+                          <Layers size={12} />
+                          Variantes
+                        </Badge>
+                      )}
+                      {product.shopify_product_id && (
+                        <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30 gap-1">
+                          <ShoppingBag size={12} />
+                          Shopify
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
 
-                <div className="flex flex-col gap-2 pt-2">
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 gap-2"
-                      onClick={() => handleEdit(product)}
-                    >
-                      <Edit size={16} />
-                      Editar
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="px-2">
-                          <MoreVertical size={16} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => handleManageVariants(product)}
-                          className="gap-2 cursor-pointer"
-                        >
-                          <Layers size={16} />
-                          Variantes / SKUs
-                          {(product as any).has_variants && (
-                            <Badge variant="secondary" className="ml-auto text-xs">
-                              Activo
-                            </Badge>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleAdjustStock(product)}
-                          className="gap-2 cursor-pointer"
-                        >
-                          <PackagePlus size={16} />
-                          Ajustar Stock
-                        </DropdownMenuItem>
-                        {hasShopifyIntegration && !product.shopify_product_id && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Precio:</span>
+                      <span className="font-semibold">{formatCurrency(product.price)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Costo:</span>
+                      <span className="font-semibold">{formatCurrency(product.cost)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Rentabilidad:</span>
+                      <span className="font-semibold text-primary">
+                        {product.profitability}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Ventas totales:</span>
+                      <span className="font-semibold">{product.sales}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 pt-2">
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 gap-2"
+                        onClick={() => handleEdit(product)}
+                      >
+                        <Edit size={16} />
+                        Editar
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="px-2">
+                            <MoreVertical size={16} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => handlePublishToShopifyClick(product)}
-                            disabled={isPublishing === product.id}
-                            className="gap-2 cursor-pointer text-green-700 dark:text-green-400"
+                            onClick={() => handleManageVariants(product)}
+                            className="gap-2 cursor-pointer"
                           >
-                            <Upload size={16} />
-                            {isPublishing === product.id ? 'Publicando...' : 'Publicar a Shopify'}
+                            <Layers size={16} />
+                            Variantes / SKUs
+                            {(product as any).has_variants && (
+                              <Badge variant="secondary" className="ml-auto text-xs">
+                                Activo
+                              </Badge>
+                            )}
                           </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => handleDelete(product)}
-                          className="gap-2 cursor-pointer text-destructive focus:text-destructive"
-                        >
-                          <Trash2 size={16} />
-                          Eliminar
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <DropdownMenuItem
+                            onClick={() => handleAdjustStock(product)}
+                            className="gap-2 cursor-pointer"
+                          >
+                            <PackagePlus size={16} />
+                            Ajustar Stock
+                          </DropdownMenuItem>
+                          {hasShopifyIntegration && !product.shopify_product_id && (
+                            <DropdownMenuItem
+                              onClick={() => handlePublishToShopifyClick(product)}
+                              disabled={isPublishing === product.id}
+                              className="gap-2 cursor-pointer text-green-700 dark:text-green-400"
+                            >
+                              <Upload size={16} />
+                              {isPublishing === product.id ? 'Publicando...' : 'Publicar a Shopify'}
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => handleDelete(product)}
+                            className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                          >
+                            <Trash2 size={16} />
+                            Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-sm text-muted-foreground">
+            {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, pagination.total)} de {pagination.total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+            >
+              <ChevronLeft size={16} />
+              Anterior
+            </Button>
+            <span className="text-sm text-muted-foreground px-2">
+              {page + 1} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+            >
+              Siguiente
+              <ChevronRight size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Product Form Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

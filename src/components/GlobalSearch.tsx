@@ -201,7 +201,7 @@ export function GlobalSearch() {
       // Update cache with store ID
       dataCacheRef.current = {
         orders: ordersData,
-        products: productsData,
+        products: productsData.data || [],
         ads: adsData,
         carriers: carriersData,
         customers: customersData,
@@ -210,7 +210,7 @@ export function GlobalSearch() {
       };
 
       setOrders(ordersData);
-      setProducts(productsData);
+      setProducts(productsData.data || []);
       setAds(adsData);
       setCarriers(carriersData);
       setCustomers(customersData);

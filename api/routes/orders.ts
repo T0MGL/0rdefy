@@ -652,6 +652,49 @@ function mapStatus(dbStatus: string): 'pending' | 'contacted' | 'awaiting_carrie
 }
 
 // ================================================================
+// GET /api/orders/stats/counts-by-status - Lightweight status counts
+// ================================================================
+ordersRouter.get('/stats/counts-by-status', async (req: AuthRequest, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        let query = supabaseAdmin
+            .from('orders')
+            .select('sleeves_status')
+            .eq('store_id', req.storeId)
+            .is('deleted_at', null)
+            .or('is_test.is.null,is_test.eq.false');
+
+        if (startDate) {
+            query = query.gte('created_at', startDate as string);
+        }
+        if (endDate) {
+            const end = new Date(endDate as string);
+            end.setHours(23, 59, 59, 999);
+            query = query.lte('created_at', end.toISOString());
+        }
+
+        const { data, error } = await query;
+
+        if (error) throw error;
+
+        // Aggregate counts in JS (Supabase client can't GROUP BY)
+        const counts: Record<string, number> = {};
+        let total = 0;
+        (data || []).forEach(row => {
+            const status = row.sleeves_status || 'pending';
+            counts[status] = (counts[status] || 0) + 1;
+            total++;
+        });
+
+        res.json({ data: counts, total });
+    } catch (error: any) {
+        logger.error('SERVER', '[GET /api/orders/stats/counts-by-status] Error:', error);
+        res.status(500).json({ error: 'Error fetching order counts' });
+    }
+});
+
+// ================================================================
 // GET /api/orders - List all orders
 // ================================================================
 ordersRouter.get('/', async (req: AuthRequest, res: Response) => {

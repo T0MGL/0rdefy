@@ -66,6 +66,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             currentPeriodStart = new Date(startDate as string);
             // Convert endDate to end of day to include all orders from that day
             currentPeriodEnd = new Date(toEndOfDay(endDate as string));
+
+            // Validate dates are valid and start < end
+            if (isNaN(currentPeriodStart.getTime()) || isNaN(currentPeriodEnd.getTime())) {
+                return res.status(400).json({ error: 'Fechas inválidas' });
+            }
+            if (currentPeriodStart >= currentPeriodEnd) {
+                return res.status(400).json({ error: 'La fecha de inicio debe ser anterior a la fecha de fin' });
+            }
+
             const periodDuration = currentPeriodEnd.getTime() - currentPeriodStart.getTime();
             previousPeriodStart = new Date(currentPeriodStart.getTime() - periodDuration);
             previousPeriodEnd = currentPeriodStart;
@@ -85,8 +94,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             .select('id, created_at, total_price, sleeves_status, shipping_cost, confirmed_at, delivered_at, shipped_at, deleted_at, is_test')
             .eq('store_id', req.storeId)
             .gte('created_at', previousPeriodStart.toISOString())
-            .lte('created_at', currentPeriodEnd.toISOString())
-            .limit(10000); // Cap at 10K orders to prevent memory issues
+            .lte('created_at', currentPeriodEnd.toISOString());
 
         const { data: ordersData, error: ordersError } = await query;
 
@@ -144,6 +152,42 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 return expenseDate >= previous7DaysStart && expenseDate < last7DaysStart;
             })
             .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+
+        // ===== PRE-FETCH: Line items and additional values for ALL orders (both periods) =====
+        const allOrderIds = orders.map(o => o.id);
+
+        // Pre-fetch line items once (eliminates duplicate query inside calculateMetrics)
+        const { data: allLineItemsData } = allOrderIds.length > 0 ? await supabaseAdmin
+            .from('order_line_items')
+            .select(`
+                order_id,
+                product_id,
+                variant_id,
+                quantity,
+                products:product_id (id, cost, packaging_cost, additional_costs),
+                variants:variant_id (id, cost)
+            `)
+            .in('order_id', allOrderIds) : { data: [] };
+
+        // Build line items map once
+        const prebuiltLineItemsByOrder = new Map<string, any[]>();
+        (allLineItemsData || []).forEach(item => {
+            const orderId = item.order_id;
+            if (!prebuiltLineItemsByOrder.has(orderId)) {
+                prebuiltLineItemsByOrder.set(orderId, []);
+            }
+            prebuiltLineItemsByOrder.get(orderId)!.push(item);
+        });
+
+        // Pre-fetch additional values once (income + all expenses for the full period)
+        const { data: allAdditionalValuesData } = await supabaseAdmin
+            .from('additional_values')
+            .select('type, amount, date')
+            .eq('store_id', req.storeId)
+            .gte('date', previousPeriodStart.toISOString().split('T')[0])
+            .lte('date', currentPeriodEnd.toISOString().split('T')[0]);
+
+        const allAdditionalValues = allAdditionalValuesData || [];
 
         // ===== HELPER FUNCTION: Calculate metrics for a set of orders =====
         const calculateMetrics = async (ordersList: any[], gastoPublicitarioCosts: number, periodStart: Date, periodEnd: Date) => {
@@ -211,39 +255,13 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Ejemplo: Si precio = 11000 y tasa = 10%, entonces IVA = 11000 - (11000 / 1.10) = 1000
             const taxCollectedValue = taxRate > 0 ? (rev - (rev / (1 + taxRate / 100))) : 0;
 
-            // 3. PRODUCT COSTS - Use normalized order_line_items table for accurate product mapping
-            // This is more reliable than JSONB line_items which may have Shopify IDs instead of local UUIDs
-            const orderIds = ordersList.map(o => o.id);
-
-            // Fetch line items from normalized table with product costs
-            const { data: lineItemsData } = orderIds.length > 0 ? await supabaseAdmin
-                .from('order_line_items')
-                .select(`
-                    order_id,
-                    product_id,
-                    variant_id,
-                    quantity,
-                    products:product_id (id, cost, packaging_cost, additional_costs),
-                    variants:variant_id (id, cost)
-                `)
-                .in('order_id', orderIds) : { data: [] };
-
-            // Group line items by order_id for cost calculation
-            const lineItemsByOrder = new Map<string, any[]>();
-            (lineItemsData || []).forEach(item => {
-                const orderId = item.order_id;
-                if (!lineItemsByOrder.has(orderId)) {
-                    lineItemsByOrder.set(orderId, []);
-                }
-                lineItemsByOrder.get(orderId)!.push(item);
-            });
-
+            // 3. PRODUCT COSTS - Use pre-fetched line items map (no extra DB query)
             // Calculate product costs
             let productCosts = 0;
             let realProductCosts = 0;
 
             for (const order of ordersList) {
-                const items = lineItemsByOrder.get(order.id) || [];
+                const items = prebuiltLineItemsByOrder.get(order.id) || [];
                 let orderCost = 0;
 
                 for (const item of items) {
@@ -272,15 +290,11 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 }
             }
 
-            // 3.5. GET ADDITIONAL VALUES FOR THIS PERIOD
-            const { data: additionalValuesData } = await supabaseAdmin
-                .from('additional_values')
-                .select('type, amount')
-                .eq('store_id', req.storeId)
-                .gte('date', periodStart.toISOString().split('T')[0])
-                .lte('date', periodEnd.toISOString().split('T')[0]);
-
-            const additionalValues = additionalValuesData || [];
+            // 3.5. ADDITIONAL VALUES FOR THIS PERIOD (from pre-fetched data)
+            const additionalValues = allAdditionalValues.filter(av => {
+                const avDate = new Date(av.date);
+                return avDate >= periodStart && avDate <= periodEnd;
+            });
 
             // Add incomes to revenue
             const additionalIncome = additionalValues
@@ -567,7 +581,6 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             .from('orders')
             .select('id, created_at, total_price, sleeves_status, shipping_cost, deleted_at, is_test')
             .eq('store_id', req.storeId)
-            .limit(10000); // Cap at 10K orders
 
         // Apply date filters
         if (startDateParam && endDateParam) {
@@ -806,7 +819,6 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             .from('orders')
             .select('id, created_at, sleeves_status, confirmed_at, delivered_at, deleted_at, is_test')
             .eq('store_id', req.storeId)
-            .limit(10000); // Cap at 10K orders
 
         // Apply date filters if provided
         if (startDate) {
@@ -1093,7 +1105,6 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
             .is('deleted_at', null)
             .or('is_test.is.null,is_test.eq.false')
             .gte('created_at', lookbackDate.toISOString())
-            .limit(10000); // Cap at 10K orders
 
         if (historicalError) throw historicalError;
 
@@ -1105,7 +1116,6 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
             .is('deleted_at', null)
             .or('is_test.is.null,is_test.eq.false')
             .neq('sleeves_status', 'cancelled')
-            .limit(10000); // Cap at 10K orders
 
         if (activeError) throw activeError;
 
@@ -1320,7 +1330,6 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
             .select('id, total_price, sleeves_status, shipping_cost')
             .eq('store_id', req.storeId)
             .not('sleeves_status', 'in', '(cancelled,returned)')
-            .limit(10000); // Cap at 10K orders
 
         if (ordersError) throw ordersError;
 
@@ -1620,7 +1629,6 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
-            .limit(10000); // Cap at 10K orders
 
         if (ordersError) throw ordersError;
 
@@ -1816,7 +1824,6 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
-            .limit(10000); // Cap at 10K orders
 
         if (ordersError) throw ordersError;
 
@@ -1950,7 +1957,6 @@ analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
-            .limit(10000); // Cap at 10K incidents
 
         if (incidentsError) throw incidentsError;
 
@@ -2059,7 +2065,6 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
-            .limit(10000); // Cap at 10K orders
 
         if (ordersError) throw ordersError;
         const orders = ordersData || [];

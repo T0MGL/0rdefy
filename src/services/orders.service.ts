@@ -696,6 +696,29 @@ export const ordersService = {
     };
   },
 
+  getCountsByStatus: async (params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: Record<string, number>; total: number }> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) queryParams.append('startDate', params.startDate);
+      if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+      const url = `${API_BASE_URL}/orders/stats/counts-by-status${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await fetch(url, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      logger.error('Error fetching order counts:', error);
+      return { data: {}, total: 0 };
+    }
+  },
+
   reconcile: async (ids: string[]): Promise<boolean> => {
     try {
       // NOTE: If backend has a bulk endpoint, use it. For now, we loop.

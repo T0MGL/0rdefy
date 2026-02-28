@@ -43,6 +43,7 @@ const dateRanges = [
   { label: 'Hoy', value: 'today' },
   { label: '7 días', value: '7d' },
   { label: '30 días', value: '30d' },
+  { label: 'Desde siempre', value: 'all' },
   { label: 'Personalizado', value: 'custom' },
 ];
 
@@ -68,7 +69,8 @@ export function Header() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [showCalendar, setShowCalendar] = useState(false);
+  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  const [showCalendarView, setShowCalendarView] = useState(false);
   const [customSelection, setCustomSelection] = useState<CalendarDateRange | undefined>(undefined);
 
   // Subscribe to cross-tab notification updates
@@ -225,33 +227,27 @@ export function Header() {
     setUnreadCount(0);
   };
 
-  const handleDateRangeChange = (value: string) => {
-    if (value !== 'custom') {
-      setSelectedRange(value as any);
-    } else {
-      // Set to custom mode and open calendar
-      setSelectedRange('custom');
-      setShowCalendar(true);
+  const handleDatePopoverChange = (open: boolean) => {
+    setDatePopoverOpen(open);
+    if (!open) {
+      setShowCalendarView(false);
     }
   };
 
-  useEffect(() => {
-    if (!showCalendar) return;
-
-    if (customRange?.from) {
-      setCustomSelection({
-        from: customRange.from,
-        to: customRange.to || customRange.from,
-      });
-      return;
+  const handlePresetClick = (value: string) => {
+    if (value === 'custom') {
+      if (customRange?.from) {
+        setCustomSelection({ from: customRange.from, to: customRange.to || customRange.from });
+      } else {
+        const currentRange = getDateRange();
+        setCustomSelection({ from: currentRange.from, to: currentRange.to });
+      }
+      setShowCalendarView(true);
+    } else {
+      setSelectedRange(value as any);
+      setDatePopoverOpen(false);
     }
-
-    const currentRange = getDateRange();
-    setCustomSelection({
-      from: currentRange.from,
-      to: currentRange.to,
-    });
-  }, [showCalendar, customRange, getDateRange]);
+  };
 
   const handleApplyCustomDates = () => {
     const from = customSelection?.from;
@@ -260,7 +256,7 @@ export function Header() {
     if (from && to) {
       setCustomRange({ from, to });
       setSelectedRange('custom');
-      setShowCalendar(false);
+      setDatePopoverOpen(false);
     }
   };
 
@@ -268,7 +264,7 @@ export function Header() {
     setCustomSelection(undefined);
     setCustomRange(null);
     setSelectedRange('7d');
-    setShowCalendar(false);
+    setDatePopoverOpen(false);
   };
 
   const getCustomLabel = () => {
@@ -324,77 +320,46 @@ export function Header() {
             <GlobalSearch />
           </div>
 
-          {/* Date Selector - Simplified on mobile */}
-          <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1 sm:gap-2 h-10 min-h-[44px] px-2 sm:px-3 bg-card">
-                  <Calendar size={16} className="text-muted-foreground" />
-                  <span className="text-sm hidden sm:inline">
-                    {selectedRange === 'custom' && customRange
-                      ? getCustomLabel()
-                      : dateRanges.find((r) => r.value === selectedRange)?.label
-                    }
-                  </span>
-                  <ChevronDown size={14} className="text-muted-foreground hidden sm:block" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                {dateRanges.filter(r => r.value !== 'custom').map((range) => (
-                  <DropdownMenuItem
-                    key={range.value}
-                    onClick={() => handleDateRangeChange(range.value)}
-                    className={cn(
-                      'cursor-pointer',
-                      selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
-                    )}
-                  >
-                    {range.label}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuItem
-                  className={cn(
-                    'cursor-pointer',
-                    selectedRange === 'custom' && 'bg-primary/10 text-primary font-medium'
-                  )}
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    // No cambiar selectedRange hasta que el usuario aplique las fechas
-                    // (evita re-renders del Dashboard y el modal flasheando)
-                    setTimeout(() => setShowCalendar(true), 100);
-                  }}
-                >
-                  Personalizado
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Custom Date Picker Popover - Outside DropdownMenu */}
-            <Popover open={showCalendar} onOpenChange={setShowCalendar}>
-              <PopoverTrigger asChild>
-                {/* Hidden trigger - opened programmatically */}
-                <div className="hidden" />
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-4 bg-card border-border shadow-xl" align="end">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium mb-2 text-foreground">Selecciona un rango personalizado</p>
-                    <CalendarComponent
-                      mode="range"
-                      selected={customSelection}
-                      onSelect={setCustomSelection}
-                      locale={es}
-                      numberOfMonths={1}
-                      captionLayout="dropdown-buttons"
-                      fromYear={2010}
-                      toYear={new Date().getFullYear()}
-                      defaultMonth={customSelection?.from}
-                      disabled={(date) => date > new Date()}
-                      initialFocus
-                      className="rounded-md border border-border bg-card"
-                    />
+          {/* Date Selector */}
+          <Popover open={datePopoverOpen} onOpenChange={handleDatePopoverChange}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1 sm:gap-2 h-10 min-h-[44px] px-2 sm:px-3 bg-card">
+                <Calendar size={16} className="text-muted-foreground" />
+                <span className="text-sm hidden sm:inline">
+                  {selectedRange === 'custom' && customRange
+                    ? getCustomLabel()
+                    : dateRanges.find((r) => r.value === selectedRange)?.label
+                  }
+                </span>
+                <ChevronDown size={14} className="text-muted-foreground hidden sm:block" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 bg-card border-border shadow-xl" align="end">
+              {showCalendarView ? (
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowCalendarView(false)}
+                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      ← Volver
+                    </button>
+                    <p className="text-sm font-medium text-foreground">Rango personalizado</p>
                   </div>
-
+                  <CalendarComponent
+                    mode="range"
+                    selected={customSelection}
+                    onSelect={setCustomSelection}
+                    locale={es}
+                    numberOfMonths={1}
+                    captionLayout="dropdown-buttons"
+                    fromYear={2020}
+                    toYear={new Date().getFullYear()}
+                    defaultMonth={customSelection?.from}
+                    disabled={(date) => date > new Date()}
+                    initialFocus
+                    className="rounded-md border border-border bg-card"
+                  />
                   <div className="flex gap-2 pt-2 border-t border-border">
                     <Button onClick={handleApplyCustomDates} disabled={!customSelection?.from} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
                       Aplicar
@@ -404,9 +369,24 @@ export function Header() {
                     </Button>
                   </div>
                 </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+              ) : (
+                <div className="py-1 min-w-[160px]">
+                  {dateRanges.map((range) => (
+                    <button
+                      key={range.value}
+                      onClick={() => handlePresetClick(range.value)}
+                      className={cn(
+                        'w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors',
+                        selectedRange === range.value && 'bg-primary/10 text-primary font-medium'
+                      )}
+                    >
+                      {range.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
 
           {/* Notifications */}
           <DropdownMenu open={notifOpen} onOpenChange={handleNotificationOpen}>

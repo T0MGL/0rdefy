@@ -51,6 +51,8 @@ import {
   DollarSign,
   ChevronRight,
   Search,
+  Save,
+  Trash2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
@@ -147,6 +149,45 @@ interface ReconciliationResult {
   net_receivable: number;
 }
 
+// Draft persistence utilities (24h expiry)
+const DRAFT_PREFIX = 'ordefy_reconciliation_draft_';
+const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
+interface ReconciliationDraft {
+  reconciliationState: Record<string, OrderReconciliation>;
+  totalAmountCollected: number | null;
+  discrepancyNotes: string;
+  savedAt: number;
+}
+
+function getDraftKey(date: string, carrierId: string) {
+  const storeId = localStorage.getItem('current_store_id') || 'default';
+  return `${DRAFT_PREFIX}${storeId}_${date}_${carrierId}`;
+}
+
+function saveDraft(date: string, carrierId: string, draft: ReconciliationDraft) {
+  try {
+    localStorage.setItem(getDraftKey(date, carrierId), JSON.stringify(draft));
+  } catch { /* quota exceeded - ignore */ }
+}
+
+function loadDraft(date: string, carrierId: string): ReconciliationDraft | null {
+  try {
+    const raw = localStorage.getItem(getDraftKey(date, carrierId));
+    if (!raw) return null;
+    const draft: ReconciliationDraft = JSON.parse(raw);
+    if (Date.now() - draft.savedAt > DRAFT_EXPIRY_MS) {
+      localStorage.removeItem(getDraftKey(date, carrierId));
+      return null;
+    }
+    return draft;
+  } catch { return null; }
+}
+
+function clearDraft(date: string, carrierId: string) {
+  localStorage.removeItem(getDraftKey(date, carrierId));
+}
+
 const FAILURE_REASONS = [
   { value: 'no_answer', label: 'No contesta' },
   { value: 'wrong_address', label: 'Direccion incorrecta' },
@@ -176,6 +217,10 @@ export function PendingReconciliationView() {
 
   // Abort controller for cancelling stale order fetches on group switch
   const loadOrdersAbortRef = useRef<AbortController | null>(null);
+
+  // Draft state
+  const [hasDraft, setHasDraft] = useState(false);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Payment step state
   const [reconciliationResult, setReconciliationResult] = useState<ReconciliationResult | null>(null);
@@ -241,7 +286,28 @@ export function PendingReconciliationView() {
       ordersData.forEach((order: PendingOrder) => {
         initialState.set(order.id, { delivered: true });
       });
-      setReconciliationState(initialState);
+
+      // Restore draft if available
+      const draft = loadDraft(deliveryDate, carrierId);
+      if (draft) {
+        const restoredState = new Map<string, OrderReconciliation>();
+        Object.entries(draft.reconciliationState).forEach(([k, v]) => {
+          if (initialState.has(k)) restoredState.set(k, v);
+        });
+        // Only restore if we matched at least some orders
+        if (restoredState.size > 0) {
+          // Fill any new orders not in draft with defaults
+          initialState.forEach((v, k) => { if (!restoredState.has(k)) restoredState.set(k, v); });
+          setReconciliationState(restoredState);
+          setTotalAmountCollected(draft.totalAmountCollected);
+          setDiscrepancyNotes(draft.discrepancyNotes);
+          setHasDraft(true);
+        } else {
+          setReconciliationState(initialState);
+        }
+      } else {
+        setReconciliationState(initialState);
+      }
     } catch (error: any) {
       // Don't show error toast for aborted requests (user switched groups)
       if (error.name === 'AbortError') return;
@@ -263,6 +329,34 @@ export function PendingReconciliationView() {
   useEffect(() => {
     loadGroups();
   }, [loadGroups]);
+
+  // Auto-save draft (debounced 500ms)
+  useEffect(() => {
+    if (!selectedGroup || currentStep !== 'reconciliation' || orders.length === 0) return;
+
+    // Skip saving if all values are defaults (no user changes)
+    const hasCustomState = Array.from(reconciliationState.values()).some(
+      s => !s.delivered || s.failure_reason || s.override_prepaid
+    );
+    const hasAmount = totalAmountCollected !== null;
+    const hasNotes = discrepancyNotes.length > 0;
+    if (!hasCustomState && !hasAmount && !hasNotes) return;
+
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      const stateObj: Record<string, OrderReconciliation> = {};
+      reconciliationState.forEach((v, k) => { stateObj[k] = v; });
+      saveDraft(selectedGroup.delivery_date, selectedGroup.carrier_id, {
+        reconciliationState: stateObj,
+        totalAmountCollected,
+        discrepancyNotes,
+        savedAt: Date.now(),
+      });
+      setHasDraft(true);
+    }, 500);
+
+    return () => { if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current); };
+  }, [reconciliationState, totalAmountCollected, discrepancyNotes, selectedGroup, currentStep, orders.length]);
 
   // Group by date for visual hierarchy
   const groupedByDate = useMemo(() => {
@@ -447,6 +541,12 @@ export function PendingReconciliationView() {
         });
       }
 
+      // Clear draft on successful reconciliation
+      if (selectedGroup) {
+        clearDraft(selectedGroup.delivery_date, selectedGroup.carrier_id);
+        setHasDraft(false);
+      }
+
       // Save the result for payment step
       setReconciliationResult(result.data);
 
@@ -548,6 +648,19 @@ export function PendingReconciliationView() {
     }
   };
 
+  // Discard the current draft
+  const handleDiscardDraft = () => {
+    if (!selectedGroup) return;
+    clearDraft(selectedGroup.delivery_date, selectedGroup.carrier_id);
+    setHasDraft(false);
+    // Reset reconciliation to defaults
+    const initialState = new Map<string, OrderReconciliation>();
+    orders.forEach(order => { initialState.set(order.id, { delivered: true }); });
+    setReconciliationState(initialState);
+    setTotalAmountCollected(null);
+    setDiscrepancyNotes('');
+  };
+
   // Reset and go back
   const handleBack = () => {
     if (currentStep === 'reconciliation') {
@@ -558,6 +671,7 @@ export function PendingReconciliationView() {
       setTotalAmountCollected(null);
       setDiscrepancyNotes('');
       setSearchTerm('');
+      setHasDraft(false);
     } else if (currentStep === 'confirm') {
       setCurrentStep('reconciliation');
     } else if (currentStep === 'payment') {
@@ -575,6 +689,7 @@ export function PendingReconciliationView() {
       setReconciliationResult(null);
       setSelectedPaymentOption(null);
       setPaymentReference('');
+      setHasDraft(false);
       loadGroups();
     }
   };
@@ -724,13 +839,25 @@ export function PendingReconciliationView() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1">
-            <h2 className="text-lg font-semibold">
-              {selectedGroup.carrier_name} - {format(parseISO(selectedGroup.delivery_date), "d 'de' MMMM", { locale: es })}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">
+                {selectedGroup.carrier_name} - {format(parseISO(selectedGroup.delivery_date), "d 'de' MMMM", { locale: es })}
+              </h2>
+              {hasDraft && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  <Save className="h-3 w-3" /> Borrador
+                </Badge>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">
               {orders.length} pedidos entregados
             </p>
           </div>
+          {hasDraft && (
+            <Button variant="ghost" size="sm" className="text-muted-foreground gap-1" onClick={handleDiscardDraft}>
+              <Trash2 className="h-3.5 w-3.5" /> Descartar
+            </Button>
+          )}
         </div>
 
         {/* Stats Bar */}
@@ -929,6 +1056,16 @@ export function PendingReconciliationView() {
                   {stats.codExpected > 0 ? 'COD esperado' : 'Todo prepago'}
                 </p>
                 <p className="text-lg font-semibold">{formatCurrency(stats.codExpected)}</p>
+                {stats.codExpected > 0 && totalAmountCollected !== stats.codExpected && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs"
+                    onClick={() => setTotalAmountCollected(stats.codExpected)}
+                  >
+                    Usar monto esperado
+                  </Button>
+                )}
               </div>
             </div>
 

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useMemo, ReactNode, useEffect, useCallback } from 'react';
 import { logger } from '@/utils/logger';
 
-export type DateRangeValue = 'today' | '7d' | '30d' | 'custom';
+export type DateRangeValue = 'today' | '7d' | '30d' | 'all' | 'custom';
 
 export interface DateRange {
   from: Date;
@@ -52,6 +52,12 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         return {
           from: thirtyDaysAgo,
+          to: now,
+        };
+      }
+      case 'all': {
+        return {
+          from: new Date(2020, 0, 1),
           to: now,
         };
       }

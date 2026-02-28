@@ -7,6 +7,7 @@ import { Module, Permission } from '../permissions';
 import * as settlementsService from '../services/settlements.service';
 import { getTodayInTimezone } from '../utils/dateUtils';
 import { logger } from '../utils/logger';
+import { parsePagination } from '../utils/sanitize';
 
 export const settlementsRouter = Router();
 
@@ -26,7 +27,8 @@ settlementsRouter.use(requireFeature('warehouse'));
 // ================================================================
 settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { date, carrier_id, status, limit = '50', offset = '0' } = req.query;
+    const { date, carrier_id, status, limit: rawLimit = '50', offset: rawOffset = '0' } = req.query;
+    const { limit, offset } = parsePagination(rawLimit, rawOffset);
 
     logger.info('SETTLEMENTS', 'Fetching settlements', {
       store_id: req.storeId,
@@ -57,10 +59,7 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
       query = query.eq('status', status);
     }
 
-    query = query.range(
-      parseInt(offset as string, 10),
-      parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1
-    );
+    query = query.range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;
 
@@ -73,9 +72,9 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
       data,
       pagination: {
         total: count || 0,
-        limit: parseInt(limit as string, 10),
-        offset: parseInt(offset as string, 10),
-        hasMore: count ? count > parseInt(offset as string, 10) + parseInt(limit as string, 10) : false
+        limit,
+        offset,
+        hasMore: count ? count > offset + limit : false
       }
     });
   } catch (error: any) {

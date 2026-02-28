@@ -12,7 +12,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { Module, Permission } from '../permissions';
-import { sanitizeSearchInput, validateUUIDParam } from '../utils/sanitize';
+import { sanitizeSearchInput, validateUUIDParam, parsePagination } from '../utils/sanitize';
 
 export const customersRouter = Router();
 
@@ -29,14 +29,15 @@ customersRouter.use(requireModule(Module.CUSTOMERS));
 customersRouter.get('/', async (req: AuthRequest, res: Response) => {
     try {
         const {
-            limit = '50',
-            offset = '0',
+            limit: rawLimit = '50',
+            offset: rawOffset = '0',
             search,
             min_orders,
             min_spent,
             sort_by = 'created_at',
             sort_order = 'DESC'
         } = req.query;
+        const { limit, offset } = parsePagination(rawLimit, rawOffset);
 
         // Build base query with count
         let query = supabaseAdmin
@@ -67,7 +68,7 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
         query = query
             .order(sortField, { ascending: sortDirection })
-            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
+            .range(offset, offset + limit - 1);
 
         const { data, error, count } = await query;
 
@@ -79,9 +80,9 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
             data: data || [],
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string, 10),
-                offset: parseInt(offset as string, 10),
-                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
+                limit,
+                offset,
+                hasMore: offset + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {
@@ -129,7 +130,8 @@ customersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, re
 customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { limit = '20', offset = '0' } = req.query;
+        const { limit: rawLimit = '20', offset: rawOffset = '0' } = req.query;
+        const { limit, offset } = parsePagination(rawLimit, rawOffset);
 
         const { data, error, count } = await supabaseAdmin
             .from('orders')
@@ -143,7 +145,7 @@ customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequ
             .eq('customer_id', id)
             .eq('store_id', req.storeId)
             .order('created_at', { ascending: false })
-            .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
+            .range(offset, offset + limit - 1);
 
         if (error) {
             throw error;
@@ -161,9 +163,9 @@ customersRouter.get('/:id/orders', validateUUIDParam('id'), async (req: AuthRequ
             data: transformedData,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string, 10),
-                offset: parseInt(offset as string, 10),
-                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
+                limit,
+                offset,
+                hasMore: offset + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {

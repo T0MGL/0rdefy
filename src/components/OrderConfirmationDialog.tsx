@@ -238,8 +238,8 @@ export function OrderConfirmationDialog({
 
       try {
         setLoadingProducts(true);
-        const allProducts = await productsService.getAll();
-        setProducts(allProducts);
+        const allProductsResult = await productsService.getAll();
+        setProducts(allProductsResult.data || []);
       } catch (error) {
         logger.error('Error fetching products:', error);
         setProducts([]);

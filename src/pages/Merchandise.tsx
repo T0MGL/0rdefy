@@ -84,7 +84,7 @@ export default function Merchandise() {
       }
 
       if (productsResult.status === 'fulfilled') {
-        setProducts(productsResult.value);
+        setProducts(productsResult.value.data || []);
       } else {
         errors.push('productos');
         logger.error('Error loading products:', productsResult.reason);

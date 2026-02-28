@@ -53,7 +53,7 @@ export function RecommendedActions() {
           carriersService.getAll(),
           analyticsService.getOverview(),
         ]);
-        setProducts(productsData);
+        setProducts(productsData.data || []);
         setAds(adsData);
         setCarriers(carriersData);
         setOverview(overviewData);
