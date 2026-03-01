@@ -777,9 +777,6 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 n8n_sent,
                 n8n_processed_at,
                 shopify_shipping_method,
-                customer_ruc,
-                customer_ruc_dv,
-                invoice_id,
                 line_items,
                 order_line_items (
                     id,
@@ -1394,15 +1391,22 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 internal_notes: internal_notes?.trim()?.substring(0, 5000) || null,
                 // Upsell tracking - true if line_items contains is_upsell item
                 upsell_added: upsell_added || (Array.isArray(line_items) && line_items.some((item: any) => item.is_upsell)),
-                // Electronic invoicing (SIFEN)
-                customer_ruc: customer_ruc || null,
-                customer_ruc_dv: customer_ruc_dv ? Number(customer_ruc_dv) : null
             }])
             .select()
             .single();
 
         if (error) {
             throw error;
+        }
+
+        // Save customer RUC for electronic invoicing (non-blocking, column may not exist yet)
+        if (customer_ruc && data?.id) {
+            supabaseAdmin
+                .from('orders')
+                .update({ customer_ruc, customer_ruc_dv: customer_ruc_dv ? Number(customer_ruc_dv) : null })
+                .eq('id', data.id)
+                .then(() => {})
+                .catch(() => {});
         }
 
 
@@ -2011,7 +2015,6 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .from('orders')
             .select(`
                 sleeves_status, delivery_link_token, line_items, store_id, deleted_at,
-                customer_ruc,
                 order_line_items (id, product_id, quantity, product_name)
             `)
             .eq('id', id)
@@ -2176,23 +2179,31 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             updateData.delivered_at = new Date().toISOString();
 
             // Non-blocking auto-invoice: fire-and-forget if customer has RUC (PY stores only)
-            if (currentOrder.customer_ruc) {
-                // Check store country before attempting invoice (non-blocking)
-                supabaseAdmin
-                    .from('stores')
-                    .select('country')
-                    .eq('id', req.storeId)
-                    .single()
-                    .then(({ data: store }) => {
-                        if (store?.country === 'PY') {
-                            import('../services/invoicing.service').then(({ generateInvoice }) => {
-                                generateInvoice(req.storeId!, id)
-                                    .catch((err: any) => logger.error('[AutoInvoice] Failed:', err.message));
-                            }).catch(() => {}); // Ignore if invoicing module not available
-                        }
-                    })
-                    .catch(() => {}); // Silently fail - auto-invoice is best-effort
-            }
+            // Fetch customer_ruc separately (column may not exist until migration 125)
+            supabaseAdmin
+                .from('orders')
+                .select('customer_ruc')
+                .eq('id', id)
+                .single()
+                .then(({ data: orderRuc }) => {
+                    if (!orderRuc?.customer_ruc) return;
+                    // Check store country before attempting invoice
+                    supabaseAdmin
+                        .from('stores')
+                        .select('country')
+                        .eq('id', req.storeId)
+                        .single()
+                        .then(({ data: store }) => {
+                            if (store?.country === 'PY') {
+                                import('../services/invoicing.service').then(({ generateInvoice }) => {
+                                    generateInvoice(req.storeId!, id)
+                                        .catch((err: any) => logger.error('[AutoInvoice] Failed:', err.message));
+                                }).catch(() => {});
+                            }
+                        })
+                        .catch(() => {});
+                })
+                .catch(() => {}); // Silently fail - column may not exist yet
         }
 
         if (sleeves_status === 'cancelled' || sleeves_status === 'rejected') {
