@@ -777,6 +777,9 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 n8n_sent,
                 n8n_processed_at,
                 shopify_shipping_method,
+                customer_ruc,
+                customer_ruc_dv,
+                invoice_id,
                 line_items,
                 order_line_items (
                     id,
@@ -1037,7 +1040,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 // Pickup and delivery
                 is_pickup: order.is_pickup || false,
                 delivery_notes: order.delivery_notes,
-                delivery_preferences: order.delivery_preferences
+                delivery_preferences: order.delivery_preferences,
+                // Electronic invoicing (SIFEN)
+                customer_ruc: order.customer_ruc,
+                customer_ruc_dv: order.customer_ruc_dv,
+                invoice_id: order.invoice_id
             };
         }) || [];
 
@@ -1244,7 +1251,10 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             // Internal admin notes
             internal_notes,
             // Upsell tracking
-            upsell_added
+            upsell_added,
+            // Electronic invoicing (SIFEN)
+            customer_ruc,
+            customer_ruc_dv
         } = req.body;
 
         // Validation
@@ -1383,7 +1393,10 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 // Internal admin notes (max 5000 chars)
                 internal_notes: internal_notes?.trim()?.substring(0, 5000) || null,
                 // Upsell tracking - true if line_items contains is_upsell item
-                upsell_added: upsell_added || (Array.isArray(line_items) && line_items.some((item: any) => item.is_upsell))
+                upsell_added: upsell_added || (Array.isArray(line_items) && line_items.some((item: any) => item.is_upsell)),
+                // Electronic invoicing (SIFEN)
+                customer_ruc: customer_ruc || null,
+                customer_ruc_dv: customer_ruc_dv ? Number(customer_ruc_dv) : null
             }])
             .select()
             .single();
@@ -1998,6 +2011,7 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .from('orders')
             .select(`
                 sleeves_status, delivery_link_token, line_items, store_id, deleted_at,
+                customer_ruc,
                 order_line_items (id, product_id, quantity, product_name)
             `)
             .eq('id', id)
@@ -2160,6 +2174,25 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
 
         if (sleeves_status === 'delivered') {
             updateData.delivered_at = new Date().toISOString();
+
+            // Non-blocking auto-invoice: fire-and-forget if customer has RUC (PY stores only)
+            if (currentOrder.customer_ruc) {
+                // Check store country before attempting invoice (non-blocking)
+                supabaseAdmin
+                    .from('stores')
+                    .select('country')
+                    .eq('id', req.storeId)
+                    .single()
+                    .then(({ data: store }) => {
+                        if (store?.country === 'PY') {
+                            import('../services/invoicing.service').then(({ generateInvoice }) => {
+                                generateInvoice(req.storeId!, id)
+                                    .catch((err: any) => logger.error('[AutoInvoice] Failed:', err.message));
+                            }).catch(() => {}); // Ignore if invoicing module not available
+                        }
+                    })
+                    .catch(() => {}); // Silently fail - auto-invoice is best-effort
+            }
         }
 
         if (sleeves_status === 'cancelled' || sleeves_status === 'rejected') {
@@ -2883,7 +2916,9 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             mark_as_prepaid = false,  // NEW: Mark COD order as prepaid (transfer before shipping)
             prepaid_method = 'transfer',  // NEW: Method used for prepayment
             delivery_preferences = null,   // NEW: Delivery scheduling preferences (date, time slot, notes)
-            force_without_carrier = false  // NEW: Force separate flow even if courier_id provided
+            force_without_carrier = false,  // NEW: Force separate flow even if courier_id provided
+            customer_ruc = null,  // NEW: Customer RUC for electronic invoicing (SIFEN)
+            customer_ruc_dv = null  // NEW: Customer RUC DV (Modulo 11)
         } = req.body;
 
         // Use explicit is_pickup flag from frontend (not inferred from !courier_id)
@@ -3220,6 +3255,21 @@ ordersRouter.post('/:id/confirm', requirePermission(Module.ORDERS, Permission.ED
             } catch (prefError) {
                 // Continue without preferences, don't fail the confirmation
                 logger.warn('BACKEND', `[CONFIRM_ORDER] Failed to save delivery preferences for order ${id}:`, prefError);
+            }
+        }
+
+        // Save customer RUC for electronic invoicing (non-blocking)
+        if (customer_ruc) {
+            try {
+                await supabaseAdmin
+                    .from('orders')
+                    .update({
+                        customer_ruc,
+                        customer_ruc_dv: customer_ruc_dv ? Number(customer_ruc_dv) : null
+                    })
+                    .eq('id', id);
+            } catch (rucError) {
+                logger.warn('BACKEND', `[CONFIRM_ORDER] Failed to save customer_ruc for order ${id}:`, rucError);
             }
         }
 

@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FilterChips } from '@/components/FilterChips';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
+import { invoicingService } from '@/services/invoicing.service';
 import { useCarriers } from '@/hooks/useCarriers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
@@ -41,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star, StickyNote, X } from 'lucide-react';
+import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star, StickyNote, X, FileText } from 'lucide-react';
 import { format, isAfter, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -906,6 +907,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         units_per_pack: data.unitsPerPack || 1,
         // Internal notes (admin only)
         internal_notes: data.internalNotes || null,
+        // Customer RUC for electronic invoicing (Paraguay)
+        customer_ruc: data.customerRuc || null,
+        customer_ruc_dv: data.customerRucDv ?? null,
         // Upsell support
         upsell_product_id: data.upsellProductId || null,
         upsell_product_name: upsellProduct?.name || null,
@@ -1412,6 +1416,32 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     }
   }, [currentStore, getCarrierName, handleOrderPrinted, toast]);
 
+  // DTE (electronic invoice) download handler
+  const [dteLoadingOrderId, setDteLoadingOrderId] = useState<string | null>(null);
+  const handleDTEDownload = useCallback(async (order: Order) => {
+    try {
+      setDteLoadingOrderId(order.id);
+      if (order.invoice_id) {
+        // Download existing invoice XML
+        const blob = await invoicingService.downloadXML(order.invoice_id);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `DTE-${order.invoice_id.slice(0, 8)}.xml`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } else if (order.customer_ruc) {
+        // Generate invoice for delivered order with RUC
+        await invoicingService.generateInvoice(order.id);
+        toast({ title: 'Factura generada', description: 'La factura electrónica fue generada exitosamente.' });
+        refetch();
+      }
+    } catch (err: any) {
+      toast({ title: 'Error DTE', description: err.message || 'Error al procesar factura', variant: 'destructive' });
+    } finally {
+      setDteLoadingOrderId(null);
+    }
+  }, [toast, refetch]);
 
   const handleBulkPrint = useCallback(async () => {
     const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token);
@@ -2266,6 +2296,22 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
+                            )}
+                            {currentStore?.country === 'PY' && (order.invoice_id || order.customer_ruc) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[10px] bg-teal-50 dark:bg-teal-950/20 text-teal-700 dark:text-teal-400 border-teal-300 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/30"
+                                onClick={() => handleDTEDownload(order)}
+                                disabled={dteLoadingOrderId === order.id}
+                              >
+                                {dteLoadingOrderId === order.id ? (
+                                  <Loader2 size={10} className="mr-1 animate-spin" />
+                                ) : (
+                                  <FileText size={10} className="mr-1" />
+                                )}
+                                DTE
+                              </Button>
                             )}
                           </>
                         )}

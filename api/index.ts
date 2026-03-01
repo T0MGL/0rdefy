@@ -48,6 +48,7 @@ import { externalWebhooksRouter } from './routes/external-webhooks';
 import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
+import { invoicingRouter } from './routes/invoicing';
 import { supabaseAdmin } from './db/connection';
 import { requestLoggerMiddleware, logger } from './utils/logger';
 import { registerCleanup, setupShutdownHandlers } from './utils/shutdown';
@@ -661,6 +662,9 @@ app.use('/api/upload', uploadRouter);
 
 // Onboarding routes (Setup progress & first-time user experience)
 app.use('/api/onboarding', onboardingRouter);
+
+// Invoicing routes (SIFEN electronic invoicing - Paraguay only)
+app.use('/api/invoicing', invoicingRouter);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

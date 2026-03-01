@@ -176,6 +176,10 @@ export interface Order {
   delivery_rating?: number; // 1-5 stars
   delivery_rating_comment?: string;
   rated_at?: string;
+  // Electronic invoicing (SIFEN - Paraguay)
+  customer_ruc?: string;
+  customer_ruc_dv?: number;
+  invoice_id?: string;
 }
 
 export interface CreateOrderInput {

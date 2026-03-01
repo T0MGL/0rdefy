@@ -29,7 +29,8 @@ export enum Module {
   SETTINGS = 'settings',
   TEAM = 'team',
   BILLING = 'billing',
-  INTEGRATIONS = 'integrations'
+  INTEGRATIONS = 'integrations',
+  INVOICING = 'invoicing'
 }
 
 export enum Permission {
@@ -72,6 +73,7 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
     [Module.BILLING]: [Permission.VIEW, Permission.EDIT],
     [Module.INTEGRATIONS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.INVOICING]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
   },
 
   [Role.ADMIN]: {
@@ -91,6 +93,7 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [], // Sin acceso
     [Module.BILLING]: [], // Sin acceso
     [Module.INTEGRATIONS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.INVOICING]: [Permission.VIEW, Permission.CREATE, Permission.EDIT],
   },
 
   [Role.LOGISTICS]: {
@@ -110,6 +113,7 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [], // Sin acceso
     [Module.BILLING]: [], // Sin acceso
     [Module.INTEGRATIONS]: [], // Sin acceso
+    [Module.INVOICING]: [], // Sin acceso
   },
 
   [Role.CONFIRMADOR]: {
@@ -129,6 +133,7 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [], // Sin acceso
     [Module.BILLING]: [], // Sin acceso
     [Module.INTEGRATIONS]: [], // Sin acceso
+    [Module.INVOICING]: [], // Sin acceso
   },
 
   [Role.CONTADOR]: {
@@ -148,6 +153,7 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [], // Sin acceso
     [Module.BILLING]: [], // Sin acceso
     [Module.INTEGRATIONS]: [], // Sin acceso
+    [Module.INVOICING]: [Permission.VIEW], // Solo lectura para reportes fiscales
   },
 
   [Role.INVENTARIO]: {
@@ -167,6 +173,7 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [], // Sin acceso
     [Module.BILLING]: [], // Sin acceso
     [Module.INTEGRATIONS]: [], // Sin acceso
+    [Module.INVOICING]: [], // Sin acceso
   }
 };
 
@@ -302,5 +309,6 @@ export const MODULE_ROUTES: Record<Module, string> = {
   [Module.SETTINGS]: '/settings',
   [Module.TEAM]: '/settings?tab=team',
   [Module.BILLING]: '/settings?tab=billing',
-  [Module.INTEGRATIONS]: '/integrations'
+  [Module.INTEGRATIONS]: '/integrations',
+  [Module.INVOICING]: '/facturacion'
 };

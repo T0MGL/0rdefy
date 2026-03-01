@@ -31,6 +31,7 @@ import {
   BarChart3,
   Pin,
   PinOff,
+  FileText,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -49,6 +50,7 @@ interface MenuItem {
   icon: any;
   module?: Module; // Required module for permission check
   tourTarget?: string; // Optional tour target for spotlight highlighting
+  countryRequired?: string; // Only show for stores in this country (e.g., 'PY')
 }
 
 interface MenuSection {
@@ -103,6 +105,7 @@ const menuSections: MenuSection[] = [
     icon: Settings2,
     items: [
       { path: '/additional-values', label: 'Valores Adicionales', icon: PlusCircle, module: Module.ANALYTICS },
+      { path: '/facturacion', label: 'Facturación', icon: FileText, module: Module.INVOICING, countryRequired: 'PY' },
       { path: '/integrations', label: 'Integraciones', icon: Link2, module: Module.INTEGRATIONS, tourTarget: 'sidebar-integrations' },
       { path: '/support', label: 'Soporte', icon: HelpCircle }, // No module required - always visible
     ],
@@ -121,7 +124,7 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [expandedSections, setExpandedSections] = useState<string[]>(['Dashboards', 'Ventas', 'Logística']);
-  const { permissions } = useAuth();
+  const { permissions, currentStore } = useAuth();
   const { hasFeatureByPath, shouldShowLockedFeatures, loading: subscriptionLoading } = useSubscription();
   const { openModal, UpgradeModalComponent } = useUpgradeModal();
 
@@ -192,6 +195,9 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
           // If no module specified, item is always visible (e.g., Support)
           if (!item.module) return true;
 
+          // Country gating: hide items that require a specific country
+          if (item.countryRequired && currentStore?.country !== item.countryRequired) return false;
+
           // Check RBAC permission first
           const hasRbacAccess = permissions.canAccessModule(item.module);
 
@@ -207,7 +213,7 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
       }))
       // Remove sections with no visible items
       .filter(section => section.items.length > 0);
-  }, [permissions]);
+  }, [permissions, currentStore?.country]);
 
   // Flat list of all items for collapsed view
   const allItems = filteredMenuSections.flatMap(section => section.items);

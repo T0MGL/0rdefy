@@ -70,6 +70,7 @@ const Delivery = lazy(() => import("./pages/Delivery"));
 const ShopifyOAuthCallback = lazy(() => import("./pages/ShopifyOAuthCallback"));
 const Referral = lazy(() => import("./pages/Referral"));
 const OnboardingPlan = lazy(() => import("./pages/OnboardingPlan"));
+const Invoicing = lazy(() => import("./pages/Invoicing"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Optimized QueryClient configuration for production cost control
@@ -239,6 +240,9 @@ const App = () => {
 
                             {/* Settings module */}
                             <Route path="/settings" element={<PermissionLayout module={Module.SETTINGS} ><Settings /></PermissionLayout>} />
+
+                            {/* Invoicing module - Paraguay only */}
+                            <Route path="/facturacion" element={<PermissionLayout module={Module.INVOICING} ><Invoicing /></PermissionLayout>} />
 
                             {/* Billing module - Owner only */}
                             <Route path="/billing" element={<PermissionLayout module={Module.BILLING} ><Billing /></PermissionLayout>} />

@@ -148,6 +148,10 @@ export function OrderConfirmationDialog({
   // Delivery preferences state (date restrictions, time slots, notes)
   const [deliveryPreferences, setDeliveryPreferences] = useState<DeliveryPreferences | null>(null);
 
+  // Customer RUC for electronic invoicing (Paraguay only, requires fiscal config)
+  const [customerRuc, setCustomerRuc] = useState('');
+  const [showRucField, setShowRucField] = useState(false);
+
   // Track if order already has complete shipping data (manual order with city+carrier)
   const [hasPrefilledShippingData, setHasPrefilledShippingData] = useState(false);
 
@@ -230,6 +234,32 @@ export function OrderConfirmationDialog({
       abortController.abort();
     };
   }, [open, currentStore?.separate_confirmation_flow, currentStore?.role]);
+
+  // Check if fiscal config is set up (for RUC field visibility - Paraguay only)
+  useEffect(() => {
+    if (!open || currentStore?.country !== 'PY') {
+      setShowRucField(false);
+      return;
+    }
+    const controller = new AbortController();
+    const token = localStorage.getItem('auth_token');
+    const storeId = localStorage.getItem('current_store_id');
+    if (!token || !storeId) return;
+
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/invoicing/config`, {
+      headers: { Authorization: `Bearer ${token}`, 'X-Store-ID': storeId },
+      signal: controller.signal,
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(json => {
+        if (!controller.signal.aborted && json?.data?.setup_completed) {
+          setShowRucField(true);
+        }
+      })
+      .catch(() => {}); // Silently fail - RUC field just won't show
+
+    return () => controller.abort();
+  }, [open, currentStore?.country]);
 
   // Fetch products when dialog opens
   useEffect(() => {
@@ -705,6 +735,16 @@ export function OrderConfirmationDialog({
         payload.delivery_preferences = deliveryPreferences;
       }
 
+      // Add customer RUC for electronic invoicing (Paraguay)
+      // Format: "80012345-6" → ruc="80012345", dv=6
+      if (customerRuc.trim()) {
+        const rucParts = customerRuc.trim().split('-');
+        payload.customer_ruc = rucParts[0];
+        if (rucParts.length === 2 && /^\d$/.test(rucParts[1])) {
+          payload.customer_ruc_dv = parseInt(rucParts[1], 10);
+        }
+      }
+
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}/confirm`, {
         method: 'POST',
         headers: {
@@ -824,6 +864,7 @@ export function OrderConfirmationDialog({
     setDiscountAmount(0);
     setMarkAsPrepaid(false);
     setDeliveryPreferences(null);
+    setCustomerRuc('');
     onOpenChange(false);
   };
 
@@ -1654,6 +1695,20 @@ export function OrderConfirmationDialog({
                   Este link estará disponible para el transportador para navegar directamente
                 </p>
               </div>
+
+              {/* Customer RUC for electronic invoicing (Paraguay only, requires fiscal config) */}
+              {showRucField && (
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-muted-foreground">RUC del cliente (opcional - para factura electrónica)</Label>
+                  <Input
+                    placeholder="80012345-6"
+                    value={customerRuc}
+                    onChange={(e) => setCustomerRuc(e.target.value.replace(/[^0-9-]/g, ''))}
+                    maxLength={22}
+                    className="h-9"
+                  />
+                </div>
+              )}
 
               {/* Delivery Preferences (Optional) - Date restrictions, time slots, notes */}
               <DeliveryPreferencesAccordion

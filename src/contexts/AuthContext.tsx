@@ -31,7 +31,8 @@ export enum Module {
   SETTINGS = 'settings',
   TEAM = 'team',
   BILLING = 'billing',
-  INTEGRATIONS = 'integrations'
+  INTEGRATIONS = 'integrations',
+  INVOICING = 'invoicing'
 }
 
 export enum Permission {
@@ -66,6 +67,7 @@ const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
     [Module.BILLING]: [Permission.VIEW, Permission.EDIT],
     [Module.INTEGRATIONS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.INVOICING]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
   },
   [Role.ADMIN]: {
     [Module.DASHBOARD]: [Permission.VIEW],
@@ -83,6 +85,7 @@ const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [],
     [Module.BILLING]: [],
     [Module.INTEGRATIONS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.INVOICING]: [Permission.VIEW, Permission.CREATE, Permission.EDIT],
   },
   [Role.LOGISTICS]: {
     [Module.DASHBOARD]: [Permission.VIEW],
@@ -100,6 +103,7 @@ const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [],
     [Module.BILLING]: [],
     [Module.INTEGRATIONS]: [],
+    [Module.INVOICING]: [],
   },
   [Role.CONFIRMADOR]: {
     [Module.DASHBOARD]: [Permission.VIEW],
@@ -117,6 +121,7 @@ const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [],
     [Module.BILLING]: [],
     [Module.INTEGRATIONS]: [],
+    [Module.INVOICING]: [],
   },
   [Role.CONTADOR]: {
     [Module.DASHBOARD]: [Permission.VIEW],
@@ -134,6 +139,7 @@ const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [],
     [Module.BILLING]: [],
     [Module.INTEGRATIONS]: [],
+    [Module.INVOICING]: [Permission.VIEW],
   },
   [Role.INVENTARIO]: {
     [Module.DASHBOARD]: [Permission.VIEW],
@@ -151,6 +157,7 @@ const ROLE_PERMISSIONS: RolePermissions = {
     [Module.TEAM]: [],
     [Module.BILLING]: [],
     [Module.INTEGRATIONS]: [],
+    [Module.INVOICING]: [],
   }
 };
 
