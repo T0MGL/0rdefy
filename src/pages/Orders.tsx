@@ -888,7 +888,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         product_sku: product.sku || null, // Migration 098: SKU for fallback mapping
         quantity: data.quantity,
         total: orderTotal,
-        status: 'pending',
+        status: 'confirmed',
         carrier: data.isPickup ? undefined : data.carrier,
         paymentMethod: data.paymentMethod,
         confirmedByWhatsApp: false,

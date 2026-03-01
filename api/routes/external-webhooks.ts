@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { externalWebhookService, ExternalOrderPayload } from '../services/external-webhook.service';
+import { sanitizeSearchInput } from '../utils/sanitize';
 
 export const externalWebhooksRouter = Router();
 
@@ -390,6 +391,43 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
       headers: {
         'Content-Type': 'application/json',
         'X-API-Key': 'Tu API Key proporcionado por Ordefy'
+      },
+      endpoints: {
+        create_order: {
+          method: 'POST',
+          url: '/api/webhook/orders/{storeId}',
+          description: 'Crear un nuevo pedido'
+        },
+        lookup_orders: {
+          method: 'GET',
+          url: '/api/webhook/orders/{storeId}/lookup?phone=0981123456',
+          description: 'Buscar órdenes por teléfono, número de orden, o ID',
+          query_params: {
+            phone: 'Teléfono del cliente (ej: 0981123456)',
+            order_number: 'Número de orden (ej: 1315, #1315)',
+            order_id: 'UUID de la orden',
+            status: 'Filtrar por estado (pending, confirmed, delivered, etc.)',
+            limit: 'Máximo de resultados (1-100, default 20)'
+          }
+        },
+        confirm_order: {
+          method: 'POST',
+          url: '/api/webhook/orders/{storeId}/confirm',
+          description: 'Confirmar una orden pendiente o contactada. Si no se envía courier_id, la orden queda confirmada pero pendiente de asignación de transportadora (el admin la asigna desde el dashboard).',
+          body: {
+            order_number: '1315 (requerido si no se envía order_id)',
+            order_id: 'UUID (requerido si no se envía order_number)',
+            courier_id: 'UUID del transportista (opcional - si no se envía, queda pendiente de asignación)',
+            is_pickup: 'true para retiro en local (opcional)',
+            shipping_cost: 'Costo de envío en guaraníes (opcional)',
+            delivery_zone: 'Zona de entrega (opcional)',
+            delivery_preferences: '{ not_before_date, preferred_time_slot, delivery_notes } (opcional)'
+          },
+          response_fields: {
+            awaiting_carrier: 'true si la orden fue confirmada sin transportadora (pendiente de asignación)',
+            is_pickup: 'true si es retiro en local'
+          }
+        }
       }
     }
   });
@@ -398,6 +436,235 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
 // ============================================================================
 // RUTA PÚBLICA - Recepción de pedidos (Autenticada con API Key)
 // ============================================================================
+
+/**
+ * GET /api/webhook/orders/:storeId/lookup
+ * Buscar órdenes por teléfono, número de orden, o ID
+ *
+ * Headers requeridos:
+ * - X-API-Key: API Key del webhook
+ *
+ * Query params:
+ * - phone: Teléfono del cliente (ej: 0981123456, +595981123456)
+ * - order_number: Número de orden (ej: 1315, #1315, ORD-00001)
+ * - order_id: UUID de la orden
+ * - status: Filtrar por estado (pending, confirmed, delivered, etc.)
+ * - limit: Máximo de resultados (1-100, default 20)
+ */
+externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  const { storeId } = req.params;
+
+  try {
+    // 1. Validar store ID
+    if (!storeId || storeId.length !== 36) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_store_id',
+        message: 'Invalid or missing store ID'
+      });
+    }
+
+    // 2. Extraer y validar API Key
+    const apiKey = req.get('X-API-Key') || req.get('x-api-key');
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Missing X-API-Key header'
+      });
+    }
+
+    const config = await externalWebhookService.validateApiKey(storeId, apiKey);
+    if (!config) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Invalid API key'
+      });
+    }
+
+    if (!config.is_active) {
+      return res.status(403).json({
+        success: false,
+        error: 'webhook_disabled',
+        message: 'Webhook is disabled'
+      });
+    }
+
+    // 3. Extract and sanitize filters
+    const { phone, order_number, order_id, status, limit } = req.query;
+
+    if (!phone && !order_number && !order_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_filter',
+        message: 'At least one filter is required: phone, order_number, or order_id'
+      });
+    }
+
+    const filters: any = {};
+    if (phone) filters.phone = String(phone);
+    if (order_number) filters.order_number = sanitizeSearchInput(String(order_number));
+    if (order_id) filters.order_id = String(order_id);
+    if (status) filters.status = String(status);
+    if (limit) filters.limit = parseInt(String(limit), 10);
+
+    // 4. Lookup orders
+    const result = await externalWebhookService.lookupOrders(storeId, filters);
+
+    const processingTime = Date.now() - startTime;
+    logger.info('API', `[ExternalWebhook] Order lookup in ${processingTime}ms: ${result.total} results`, {
+      storeId,
+      filters: { phone: !!phone, order_number: !!order_number, order_id: !!order_id }
+    });
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error
+      });
+    }
+
+    return res.json({
+      success: true,
+      orders: result.orders,
+      total: result.total
+    });
+
+  } catch (error: any) {
+    logger.error('API', '[ExternalWebhook] Error in order lookup:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'server_error',
+      message: 'Error interno del servidor'
+    });
+  }
+});
+
+/**
+ * POST /api/webhook/orders/:storeId/confirm
+ * Confirmar una orden específica vía API
+ *
+ * Headers requeridos:
+ * - Content-Type: application/json
+ * - X-API-Key: API Key del webhook
+ *
+ * Body:
+ * - order_number: Número de orden (ej: "1315", "#1315") - requerido si no se envía order_id
+ * - order_id: UUID de la orden - requerido si no se envía order_number
+ * - courier_id: UUID del transportista (opcional)
+ * - is_pickup: boolean - marcar como retiro en local (opcional)
+ * - address: Dirección de entrega (opcional)
+ * - latitude/longitude: Coordenadas (opcional)
+ * - google_maps_link: Link de Google Maps (opcional)
+ * - delivery_zone: Zona de entrega (opcional)
+ * - shipping_cost: Costo de envío (opcional)
+ * - delivery_preferences: { not_before_date, preferred_time_slot, delivery_notes } (opcional)
+ */
+externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  const { storeId } = req.params;
+
+  try {
+    // 1. Validar store ID
+    if (!storeId || storeId.length !== 36) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_store_id',
+        message: 'Invalid or missing store ID'
+      });
+    }
+
+    // 2. Extraer y validar API Key
+    const apiKey = req.get('X-API-Key') || req.get('x-api-key');
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Missing X-API-Key header'
+      });
+    }
+
+    const config = await externalWebhookService.validateApiKey(storeId, apiKey);
+    if (!config) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Invalid API key'
+      });
+    }
+
+    if (!config.is_active) {
+      return res.status(403).json({
+        success: false,
+        error: 'webhook_disabled',
+        message: 'Webhook is disabled'
+      });
+    }
+
+    // 3. Validate body
+    const { order_number, order_id, courier_id, is_pickup, address, latitude, longitude,
+            google_maps_link, delivery_zone, shipping_cost, delivery_preferences } = req.body;
+
+    if (!order_number && !order_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_identifier',
+        message: 'Either order_number or order_id is required'
+      });
+    }
+
+    // 4. Confirm the order
+    const result = await externalWebhookService.confirmOrderViaApi(
+      storeId,
+      { order_number, order_id },
+      { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_cost, delivery_preferences },
+      config
+    );
+
+    const processingTime = Date.now() - startTime;
+    logger.info('API', `[ExternalWebhook] Order confirmation in ${processingTime}ms`, {
+      storeId,
+      orderId: result.order_id,
+      success: result.success
+    });
+
+    if (!result.success) {
+      const statusCode = result.code === 'ORDER_NOT_FOUND' ? 404
+        : result.code === 'INVALID_STATUS' ? 400
+        : result.code === 'CARRIER_NOT_FOUND' ? 404
+        : 500;
+
+      return res.status(statusCode).json({
+        success: false,
+        error: result.code || 'confirmation_error',
+        message: result.error
+      });
+    }
+
+    return res.json({
+      success: true,
+      order_id: result.order_id,
+      order_number: result.order_number,
+      status: result.status,
+      awaiting_carrier: result.awaiting_carrier || false,
+      is_pickup: result.is_pickup || false,
+      confirmed_at: result.confirmed_at,
+      carrier_name: result.carrier_name,
+      total_price: result.total_price,
+      shipping_cost: result.shipping_cost
+    });
+
+  } catch (error: any) {
+    logger.error('API', '[ExternalWebhook] Error confirming order:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'server_error',
+      message: 'Error interno del servidor'
+    });
+  }
+});
 
 /**
  * POST /api/webhook/orders/:storeId

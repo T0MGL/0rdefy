@@ -169,6 +169,8 @@ export const ordersService = {
         internal_notes: (order as any).internal_notes || null,
         // Upsell flag
         upsell_added: !!upsellProductId,
+        // Delivery preferences (scheduling)
+        delivery_preferences: (order as any).delivery_preferences || null,
       };
 
       logger.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);

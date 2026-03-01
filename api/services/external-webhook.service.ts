@@ -984,6 +984,342 @@ export class ExternalWebhookService {
       return null;
     }
   }
+
+  // ================================================================
+  // ORDER LOOKUP (Public API)
+  // ================================================================
+
+  /**
+   * Busca órdenes por teléfono, número de orden, o ID
+   * Solo devuelve órdenes del store autenticado
+   */
+  async lookupOrders(
+    storeId: string,
+    filters: {
+      phone?: string;
+      order_number?: string;
+      order_id?: string;
+      status?: string;
+      limit?: number;
+    }
+  ): Promise<{ success: boolean; orders: any[]; total: number; error?: string }> {
+    try {
+      const limit = Math.min(Math.max(filters.limit || 20, 1), 100);
+
+      // At least one filter required
+      if (!filters.phone && !filters.order_number && !filters.order_id) {
+        return { success: false, orders: [], total: 0, error: 'At least one filter required: phone, order_number, or order_id' };
+      }
+
+      let query = supabaseAdmin
+        .from('orders')
+        .select(`
+          id, order_number, shopify_order_name, shopify_order_number,
+          customer_first_name, customer_last_name, customer_phone, customer_email,
+          customer_address, shipping_address, delivery_zone, shipping_city,
+          total_price, subtotal_price, total_shipping, total_discounts,
+          cod_amount, payment_method, financial_status,
+          sleeves_status, courier_id, is_pickup,
+          delivery_preferences, delivery_notes,
+          created_at, confirmed_at, delivered_at,
+          line_items
+        `, { count: 'exact' })
+        .eq('store_id', storeId)
+        .is('deleted_at', null);
+
+      // Apply filters
+      if (filters.order_id) {
+        query = query.eq('id', filters.order_id);
+      } else if (filters.order_number) {
+        // Search across all order number formats
+        const searchNum = filters.order_number.replace(/^#/, '').trim();
+        query = query.or(
+          `shopify_order_name.ilike.%${searchNum}%,shopify_order_number.ilike.%${searchNum}%,order_number.ilike.%${searchNum}%`
+        );
+      } else if (filters.phone) {
+        const normalizedPhone = filters.phone.replace(/[^\d+]/g, '');
+        query = query.eq('customer_phone', normalizedPhone);
+      }
+
+      if (filters.status) {
+        const validStatuses = ['pending', 'contacted', 'confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'in_transit', 'delivered', 'cancelled', 'returned'];
+        if (validStatuses.includes(filters.status)) {
+          query = query.eq('sleeves_status', filters.status);
+        }
+      }
+
+      query = query.order('created_at', { ascending: false }).limit(limit);
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error looking up orders:', error);
+        return { success: false, orders: [], total: 0, error: 'Error querying orders' };
+      }
+
+      // Transform orders for external consumption
+      const orders = (data || []).map((order: any) => ({
+        id: order.id,
+        order_number: order.shopify_order_name || order.shopify_order_number || order.order_number || null,
+        status: order.sleeves_status,
+        customer_name: [order.customer_first_name, order.customer_last_name].filter(Boolean).join(' '),
+        customer_phone: order.customer_phone,
+        customer_email: order.customer_email,
+        address: order.customer_address,
+        city: order.shipping_city || order.delivery_zone,
+        total_price: order.total_price,
+        subtotal: order.subtotal_price,
+        shipping_cost: order.total_shipping,
+        discount: order.total_discounts,
+        cod_amount: order.cod_amount,
+        payment_method: order.payment_method,
+        financial_status: order.financial_status,
+        is_pickup: order.is_pickup || false,
+        delivery_preferences: order.delivery_preferences,
+        delivery_notes: order.delivery_notes,
+        created_at: order.created_at,
+        confirmed_at: order.confirmed_at,
+        delivered_at: order.delivered_at,
+        items: Array.isArray(order.line_items) ? order.line_items.map((item: any) => ({
+          name: item.name || item.title,
+          sku: item.sku || null,
+          quantity: item.quantity,
+          price: item.price,
+          variant_title: item.variant_title || null
+        })) : []
+      }));
+
+      return { success: true, orders, total: count || orders.length };
+    } catch (error: any) {
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error in lookupOrders:', error);
+      return { success: false, orders: [], total: 0, error: error.message || 'Unknown error' };
+    }
+  }
+
+  // ================================================================
+  // ORDER CONFIRMATION (Public API)
+  // ================================================================
+
+  /**
+   * Encuentra una orden por número o ID dentro de una tienda
+   */
+  private async findOrderByIdentifier(
+    storeId: string,
+    identifier: { order_number?: string; order_id?: string }
+  ): Promise<{ id: string; status: string } | null> {
+    try {
+      if (identifier.order_id) {
+        const { data } = await supabaseAdmin
+          .from('orders')
+          .select('id, sleeves_status')
+          .eq('id', identifier.order_id)
+          .eq('store_id', storeId)
+          .is('deleted_at', null)
+          .single();
+        return data ? { id: data.id, status: data.sleeves_status } : null;
+      }
+
+      if (identifier.order_number) {
+        const searchNum = identifier.order_number.replace(/^#/, '').trim();
+
+        // Try shopify_order_name first (most common: #1315)
+        const { data: byName } = await supabaseAdmin
+          .from('orders')
+          .select('id, sleeves_status')
+          .eq('store_id', storeId)
+          .is('deleted_at', null)
+          .or(`shopify_order_name.eq.#${searchNum},shopify_order_name.eq.${searchNum},shopify_order_number.eq.${searchNum},order_number.eq.ORD-${searchNum.padStart(5, '0')},order_number.eq.${identifier.order_number}`)
+          .limit(1)
+          .maybeSingle();
+
+        return byName ? { id: byName.id, status: byName.sleeves_status } : null;
+      }
+
+      return null;
+    } catch (error) {
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error finding order:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Confirma una orden vía API key (sin JWT)
+   * Usa el mismo RPC confirm_order_atomic que el dashboard
+   */
+  async confirmOrderViaApi(
+    storeId: string,
+    identifier: { order_number?: string; order_id?: string },
+    options: {
+      courier_id?: string;
+      is_pickup?: boolean;
+      address?: string;
+      latitude?: number;
+      longitude?: number;
+      google_maps_link?: string;
+      delivery_zone?: string;
+      shipping_cost?: number;
+      delivery_preferences?: any;
+    },
+    config: WebhookConfig
+  ): Promise<{
+    success: boolean;
+    order_id?: string;
+    order_number?: string;
+    status?: string;
+    awaiting_carrier?: boolean;
+    confirmed_at?: string;
+    carrier_name?: string | null;
+    is_pickup?: boolean;
+    total_price?: number;
+    shipping_cost?: number;
+    error?: string;
+    code?: string;
+  }> {
+    try {
+      // 1. Find the order
+      const order = await this.findOrderByIdentifier(storeId, identifier);
+      if (!order) {
+        return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
+      }
+
+      // 2. Validate status
+      if (order.status !== 'pending' && order.status !== 'contacted') {
+        return {
+          success: false,
+          error: `Order is already ${order.status}. Only pending or contacted orders can be confirmed.`,
+          code: 'INVALID_STATUS'
+        };
+      }
+
+      // 3. Confirm via RPC
+      // Two paths: with carrier (full confirm) or without carrier (awaiting assignment)
+      const isPickup = options.is_pickup === true;
+      const hasCarrier = !!options.courier_id;
+      const confirmWithoutCarrier = !hasCarrier && !isPickup;
+
+      let rpcResult: any;
+      let rpcError: any;
+      let finalStatus: string;
+
+      if (confirmWithoutCarrier) {
+        // Path A: Confirm without carrier - order goes to 'confirmed' awaiting carrier assignment
+        // The admin/owner assigns the carrier later from the dashboard
+        const rpc = await supabaseAdmin.rpc('confirm_order_without_carrier', {
+          p_order_id: order.id,
+          p_store_id: storeId,
+          p_confirmed_by: `api:${config.api_key_prefix}`,
+          p_address: options.address || null,
+          p_google_maps_link: options.google_maps_link || null,
+          p_discount_amount: null,
+          p_mark_as_prepaid: false,
+          p_prepaid_method: null
+        });
+        rpcResult = rpc.data;
+        rpcError = rpc.error;
+        finalStatus = 'confirmed';
+      } else {
+        // Path B: Full confirmation with carrier or pickup
+        const rpc = await supabaseAdmin.rpc('confirm_order_atomic', {
+          p_order_id: order.id,
+          p_store_id: storeId,
+          p_confirmed_by: `api:${config.api_key_prefix}`,
+          p_courier_id: isPickup ? null : (options.courier_id || null),
+          p_address: options.address || null,
+          p_latitude: options.latitude !== undefined ? Number(options.latitude) : null,
+          p_longitude: options.longitude !== undefined ? Number(options.longitude) : null,
+          p_google_maps_link: options.google_maps_link || null,
+          p_delivery_zone: options.delivery_zone || null,
+          p_shipping_cost: options.shipping_cost !== undefined ? Number(options.shipping_cost) : null,
+          p_upsell_product_id: null,
+          p_upsell_quantity: 1,
+          p_discount_amount: null,
+          p_mark_as_prepaid: false,
+          p_prepaid_method: null
+        });
+        rpcResult = rpc.data;
+        rpcError = rpc.error;
+        finalStatus = 'confirmed';
+      }
+
+      if (rpcError) {
+        const errorMessage = rpcError.message || '';
+
+        if (errorMessage.includes('ORDER_NOT_FOUND')) {
+          return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
+        }
+        if (errorMessage.includes('INVALID_STATUS')) {
+          return { success: false, error: 'Order cannot be confirmed in its current status', code: 'INVALID_STATUS' };
+        }
+        if (errorMessage.includes('CARRIER_NOT_FOUND')) {
+          return { success: false, error: 'Carrier not found or inactive', code: 'CARRIER_NOT_FOUND' };
+        }
+
+        return { success: false, error: 'Confirmation failed', code: 'CONFIRMATION_ERROR' };
+      }
+
+      if (!rpcResult?.success) {
+        return { success: false, error: 'Confirmation did not return valid data', code: 'CONFIRMATION_ERROR' };
+      }
+
+      // 4. Save delivery preferences if provided (non-blocking)
+      if (options.delivery_preferences && typeof options.delivery_preferences === 'object') {
+        try {
+          await supabaseAdmin
+            .from('orders')
+            .update({ delivery_preferences: options.delivery_preferences })
+            .eq('id', order.id);
+        } catch {
+          // Non-critical
+        }
+      }
+
+      // 5. Log status change to history (audit, non-blocking)
+      try {
+        await supabaseAdmin
+          .from('order_status_history')
+          .insert({
+            order_id: order.id,
+            store_id: storeId,
+            previous_status: order.status,
+            new_status: 'confirmed',
+            changed_by: `api:${config.api_key_prefix}`,
+            change_source: 'external_api',
+            notes: confirmWithoutCarrier
+              ? 'Order confirmed via external API (awaiting carrier assignment)'
+              : isPickup
+                ? 'Order confirmed as pickup via external API'
+                : 'Order confirmed with carrier via external API'
+          });
+      } catch {
+        // Non-critical audit
+      }
+
+      // 6. Get the order number for the response
+      const { data: orderData } = await supabaseAdmin
+        .from('orders')
+        .select('shopify_order_name, shopify_order_number, order_number, total_price, total_shipping, confirmed_at')
+        .eq('id', order.id)
+        .single();
+
+      const orderNumber = orderData?.shopify_order_name || orderData?.shopify_order_number || orderData?.order_number || null;
+
+      return {
+        success: true,
+        order_id: order.id,
+        order_number: orderNumber,
+        status: finalStatus,
+        awaiting_carrier: confirmWithoutCarrier,
+        confirmed_at: orderData?.confirmed_at || new Date().toISOString(),
+        carrier_name: confirmWithoutCarrier ? null : (rpcResult.carrier_name || null),
+        is_pickup: isPickup,
+        total_price: orderData?.total_price,
+        shipping_cost: orderData?.total_shipping
+      };
+    } catch (error: any) {
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error confirming order via API:', error);
+      return { success: false, error: error.message || 'Unknown error', code: 'SERVER_ERROR' };
+    }
+  }
 }
 
 // Singleton instance

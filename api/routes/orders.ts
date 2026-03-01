@@ -1251,7 +1251,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             upsell_added,
             // Electronic invoicing (SIFEN)
             customer_ruc,
-            customer_ruc_dv
+            customer_ruc_dv,
+            // Delivery preferences (scheduling)
+            delivery_preferences
         } = req.body;
 
         // Validation
@@ -1379,7 +1381,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 payment_status: payment_status || 'pending',
                 payment_method: payment_method || 'cash',
                 courier_id: is_pickup ? null : courier_id,
-                sleeves_status: 'pending',
+                sleeves_status: shopify_order_id ? 'pending' : 'confirmed',
+                confirmed_at: shopify_order_id ? null : new Date().toISOString(),
+                confirmed_by: shopify_order_id ? null : (req.userId || 'api'),
                 shopify_raw_json: shopify_raw_json || {},
                 // New fields for shipping info
                 google_maps_link: google_maps_link || null,
@@ -1391,6 +1395,10 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 internal_notes: internal_notes?.trim()?.substring(0, 5000) || null,
                 // Upsell tracking - true if line_items contains is_upsell item
                 upsell_added: upsell_added || (Array.isArray(line_items) && line_items.some((item: any) => item.is_upsell)),
+                // Delivery preferences (scheduling) - only for manual orders created as confirmed
+                ...(delivery_preferences && typeof delivery_preferences === 'object' && !shopify_order_id
+                    ? { delivery_preferences }
+                    : {}),
             }])
             .select()
             .single();
@@ -1409,6 +1417,23 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 .catch(() => {});
         }
 
+        // Log initial status history for manual orders created as confirmed (non-blocking)
+        // The trigger only fires on UPDATE, so we need to manually insert the history entry
+        if (!shopify_order_id && data?.id) {
+            supabaseAdmin
+                .from('order_status_history')
+                .insert({
+                    order_id: data.id,
+                    store_id: req.storeId,
+                    previous_status: 'pending',
+                    new_status: 'confirmed',
+                    changed_by: req.userId || 'api',
+                    change_source: 'dashboard',
+                    notes: 'Orden manual creada directamente como confirmada'
+                })
+                .then(() => {})
+                .catch(() => {});
+        }
 
         // Create normalized line items in order_line_items table (for manual orders)
         if (line_items && Array.isArray(line_items) && line_items.length > 0) {
