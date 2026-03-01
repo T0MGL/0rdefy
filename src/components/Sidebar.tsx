@@ -238,43 +238,43 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
         }}
         className={cn(
           'h-screen bg-sidebar border-r border-sidebar-border flex flex-col fixed top-0 left-0 overflow-hidden',
-          'z-40', // Ensure sidebar is above content
+          'z-[60]', // Above header (z-50) so sidebar header isn't clipped
           isExpanded && 'shadow-2xl shadow-black/20' // Add shadow when expanded
         )}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center border-b border-sidebar-border shrink-0">
-          {/* Collapsed: centered logo */}
-          {!isExpanded && (
-            <div className="w-full flex items-center justify-center">
+        <div className="h-16 flex items-center border-b border-sidebar-border shrink-0 px-0">
+          <div className="w-full flex items-center" style={{ paddingLeft: isExpanded ? '16px' : '0px', paddingRight: isExpanded ? '16px' : '0px', transition: 'padding 0.2s ease-out' }}>
+            {/* Logo - always centered when collapsed, left-aligned when expanded */}
+            <div className="flex items-center gap-3" style={{ width: isExpanded ? 'auto' : `${SIDEBAR_COLLAPSED_WIDTH}px`, justifyContent: isExpanded ? 'flex-start' : 'center', transition: 'width 0.2s ease-out' }}>
               <img
                 src="/favicon.ico"
                 alt="Ordefy Logo"
-                className="w-10 h-10 object-contain"
+                className="w-10 h-10 object-contain flex-shrink-0"
               />
+              <motion.span
+                initial={false}
+                animate={{
+                  opacity: isExpanded ? 1 : 0,
+                  width: isExpanded ? 'auto' : 0,
+                }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="font-bold text-xl text-sidebar-foreground whitespace-nowrap overflow-hidden"
+              >
+                Ordefy
+              </motion.span>
             </div>
-          )}
 
-          {/* Expanded: logo + name + pin button */}
-          {isExpanded && (
+            {/* Pin button - only visible when expanded */}
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.15 }}
-              className="w-full flex items-center justify-between px-4"
+              initial={false}
+              animate={{
+                opacity: isExpanded ? 1 : 0,
+                width: isExpanded ? 32 : 0,
+              }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="flex-shrink-0 overflow-hidden ml-auto"
             >
-              <div className="flex items-center gap-3">
-                <img
-                  src="/favicon.ico"
-                  alt="Ordefy Logo"
-                  className="w-10 h-10 object-contain flex-shrink-0"
-                />
-                <span className="font-bold text-xl text-sidebar-foreground">
-                  Ordefy
-                </span>
-              </div>
-
-              {/* Pin button */}
               <Button
                 variant="ghost"
                 size="icon"
@@ -288,7 +288,7 @@ export function Sidebar({ collapsed: _collapsed, onToggle: _onToggle }: SidebarP
                 {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
               </Button>
             </motion.div>
-          )}
+          </div>
         </div>
 
         {/* Navigation */}
