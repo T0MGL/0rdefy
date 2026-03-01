@@ -20,6 +20,9 @@ import {
   AlertTriangle,
   Code,
   FileJson,
+  Search,
+  CheckCheck,
+  Plus,
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -114,11 +117,50 @@ const PAYLOAD_MAPS = {
   payment_method: "cash_on_delivery"
 };
 
+// Payload CONFIRMAR ORDEN - sin carrier (n8n/WhatsApp)
+const PAYLOAD_CONFIRM_SIMPLE = {
+  order_number: "1315"
+};
+
+// Payload CONFIRMAR ORDEN - con carrier
+const PAYLOAD_CONFIRM_FULL = {
+  order_number: "1315",
+  courier_id: "uuid-del-transportista",
+  shipping_cost: 30000,
+  delivery_zone: "CENTRAL"
+};
+
 // Funcion para generar ejemplo de cURL
 const generateCurlExample = (url: string, apiKey: string) => `curl -X POST '${url}' \\
   -H 'Content-Type: application/json' \\
   -H 'X-API-Key: ${apiKey}' \\
   -d '${JSON.stringify(PAYLOAD_MINIMO)}'`;
+
+// cURL para buscar ordenes
+const generateCurlLookup = (url: string, apiKey: string) => `# Buscar por telefono
+curl '${url}/lookup?phone=0981123456' \\
+  -H 'X-API-Key: ${apiKey}'
+
+# Buscar por numero de orden
+curl '${url}/lookup?order_number=1315' \\
+  -H 'X-API-Key: ${apiKey}'
+
+# Buscar por ID + filtrar estado
+curl '${url}/lookup?order_id=uuid&status=pending' \\
+  -H 'X-API-Key: ${apiKey}'`;
+
+// cURL para confirmar orden
+const generateCurlConfirm = (url: string, apiKey: string) => `# Confirmar sin transportadora (el admin la asigna despues)
+curl -X POST '${url}/confirm' \\
+  -H 'Content-Type: application/json' \\
+  -H 'X-API-Key: ${apiKey}' \\
+  -d '{"order_number": "1315"}'
+
+# Confirmar con transportadora
+curl -X POST '${url}/confirm' \\
+  -H 'Content-Type: application/json' \\
+  -H 'X-API-Key: ${apiKey}' \\
+  -d '${JSON.stringify(PAYLOAD_CONFIRM_FULL)}'`;
 
 // Funcion para generar ejemplo de JavaScript
 const generateJsExample = (url: string, apiKey: string) => `// Enviar pedido a Ordefy
@@ -394,26 +436,81 @@ export function ExternalWebhookManagementModal({
               </div>
             </div>
 
-            {/* Webhook URL */}
-            <div className="space-y-2">
-              <Label>URL del Webhook</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={config?.webhook_url || ''}
-                  readOnly
-                  className="font-mono text-xs"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => copyToClipboard(config?.webhook_url || '', 'url')}
-                >
-                  {copied === 'url' ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </Button>
+            {/* Endpoints */}
+            <div className="space-y-3">
+              <Label>Endpoints Disponibles</Label>
+
+              {/* Crear Pedido */}
+              <div className="p-3 rounded-lg border bg-muted/20 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/30">POST</Badge>
+                  <span className="text-xs font-medium">Crear Pedido</span>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={config?.webhook_url || ''}
+                    readOnly
+                    className="font-mono text-[10px] h-8"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => copyToClipboard(config?.webhook_url || '', 'url-create')}
+                  >
+                    {copied === 'url-create' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Buscar Ordenes */}
+              <div className="p-3 rounded-lg border bg-muted/20 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/30">GET</Badge>
+                  <span className="text-xs font-medium">Buscar Ordenes</span>
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Nuevo</Badge>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={`${config?.webhook_url || ''}/lookup`}
+                    readOnly
+                    className="font-mono text-[10px] h-8"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => copyToClipboard(`${config?.webhook_url || ''}/lookup`, 'url-lookup')}
+                  >
+                    {copied === 'url-lookup' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Params: ?phone=0981... | ?order_number=1315 | ?order_id=uuid</p>
+              </div>
+
+              {/* Confirmar Orden */}
+              <div className="p-3 rounded-lg border bg-muted/20 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/30">POST</Badge>
+                  <span className="text-xs font-medium">Confirmar Orden</span>
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Nuevo</Badge>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={`${config?.webhook_url || ''}/confirm`}
+                    readOnly
+                    className="font-mono text-[10px] h-8"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => copyToClipboard(`${config?.webhook_url || ''}/confirm`, 'url-confirm')}
+                  >
+                    {copied === 'url-confirm' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Sin courier_id = queda pendiente de asignacion en el dashboard</p>
               </div>
             </div>
 
@@ -495,6 +592,14 @@ export function ExternalWebhookManagementModal({
 
           {/* Tab: Payload */}
           <TabsContent value="payload" className="flex-1 overflow-y-auto space-y-4 mt-4">
+
+            {/* Section: Crear Pedido */}
+            <div className="flex items-center gap-2 pb-1 border-b">
+              <Plus className="h-4 w-4 text-green-500" />
+              <span className="text-sm font-semibold">Crear Pedido</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/30">POST</Badge>
+            </div>
+
             {/* Payload Minimo */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -594,10 +699,149 @@ export function ExternalWebhookManagementModal({
                 <span className="text-muted-foreground">cash_on_delivery</span>
               </div>
             </div>
+
+            {/* Section: Buscar Ordenes */}
+            <div className="flex items-center gap-2 pb-1 border-b mt-6">
+              <Search className="h-4 w-4 text-blue-500" />
+              <span className="text-sm font-semibold">Buscar Ordenes</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/30">GET</Badge>
+            </div>
+
+            <div className="p-3 rounded-lg border bg-blue-500/10 border-blue-500/30 space-y-2">
+              <Label className="text-sm font-medium">Query Parameters (al menos uno requerido)</Label>
+              <div className="grid grid-cols-2 gap-1 text-xs">
+                <code className="text-blue-600">phone</code>
+                <span className="text-muted-foreground">Telefono del cliente</span>
+                <code className="text-blue-600">order_number</code>
+                <span className="text-muted-foreground">Numero de orden (ej: 1315)</span>
+                <code className="text-blue-600">order_id</code>
+                <span className="text-muted-foreground">UUID de la orden</span>
+                <code className="text-blue-600">status</code>
+                <span className="text-muted-foreground">Filtro: pending, confirmed, etc.</span>
+                <code className="text-blue-600">limit</code>
+                <span className="text-muted-foreground">Max resultados (1-100)</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
+              <Label className="text-sm font-medium">Respuesta</Label>
+              <pre className="text-xs font-mono text-blue-600">
+{`{
+  "success": true,
+  "orders": [{
+    "id": "uuid",
+    "order_number": "#1315",
+    "status": "pending",
+    "customer_name": "Juan Perez",
+    "customer_phone": "0981123456",
+    "total_price": 150000,
+    "items": [...]
+  }],
+  "total": 1
+}`}
+              </pre>
+            </div>
+
+            {/* Section: Confirmar Orden */}
+            <div className="flex items-center gap-2 pb-1 border-b mt-6">
+              <CheckCheck className="h-4 w-4 text-emerald-500" />
+              <span className="text-sm font-semibold">Confirmar Orden</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/30">POST</Badge>
+            </div>
+
+            {/* Confirm Simple */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4 text-emerald-500" />
+                  Sin transportadora (n8n / WhatsApp)
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_CONFIRM_SIMPLE, null, 2), 'confirmSimple')}
+                >
+                  {copied === 'confirmSimple' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs overflow-x-auto font-mono">
+                {JSON.stringify(PAYLOAD_CONFIRM_SIMPLE, null, 2)}
+              </pre>
+              <p className="text-[10px] text-muted-foreground">
+                La orden se confirma y queda pendiente de asignacion de transportadora. El admin la asigna desde el dashboard.
+              </p>
+            </div>
+
+            {/* Confirm Full */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4" />
+                  Con transportadora (confirmacion completa)
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(JSON.stringify(PAYLOAD_CONFIRM_FULL, null, 2), 'confirmFull')}
+                >
+                  {copied === 'confirmFull' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-muted/50 border text-xs overflow-x-auto font-mono">
+                {JSON.stringify(PAYLOAD_CONFIRM_FULL, null, 2)}
+              </pre>
+            </div>
+
+            <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
+              <Label className="text-sm font-medium">Campos de Confirmacion</Label>
+              <div className="grid grid-cols-2 gap-1 text-xs">
+                <code className="text-emerald-600">order_number*</code>
+                <span className="text-muted-foreground">Numero de orden (o order_id)</span>
+                <code className="text-muted-foreground">courier_id</code>
+                <span className="text-muted-foreground">UUID transportista (opcional)</span>
+                <code className="text-muted-foreground">is_pickup</code>
+                <span className="text-muted-foreground">true = retiro en local</span>
+                <code className="text-muted-foreground">shipping_cost</code>
+                <span className="text-muted-foreground">Costo envio (opcional)</span>
+                <code className="text-muted-foreground">delivery_zone</code>
+                <span className="text-muted-foreground">Zona (opcional)</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg border bg-muted/30 space-y-2">
+              <Label className="text-sm font-medium">Respuesta de Confirmacion</Label>
+              <pre className="text-xs font-mono text-emerald-600">
+{`{
+  "success": true,
+  "order_id": "uuid",
+  "order_number": "#1315",
+  "status": "confirmed",
+  "awaiting_carrier": true,
+  "confirmed_at": "2026-03-01T12:00:00Z"
+}`}
+              </pre>
+            </div>
           </TabsContent>
 
           {/* Tab: Codigo */}
           <TabsContent value="codigo" className="flex-1 overflow-y-auto space-y-4 mt-4">
+
+            {/* Section: Crear Pedido */}
+            <div className="flex items-center gap-2 pb-1 border-b">
+              <Plus className="h-4 w-4 text-green-500" />
+              <span className="text-sm font-semibold">Crear Pedido</span>
+            </div>
+
             {/* cURL */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -692,6 +936,72 @@ export function ExternalWebhookManagementModal({
   "order_number": "ORD-001234",
   "message": "Order created successfully"
 }`}
+              </pre>
+            </div>
+
+            {/* Section: Buscar Ordenes */}
+            <div className="flex items-center gap-2 pb-1 border-b mt-6">
+              <Search className="h-4 w-4 text-blue-500" />
+              <span className="text-sm font-semibold">Buscar Ordenes</span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-blue-500" />
+                  cURL - Buscar ordenes
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(
+                    generateCurlLookup(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY'),
+                    'curlLookup'
+                  )}
+                >
+                  {copied === 'curlLookup' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-zinc-900 text-zinc-100 text-xs overflow-x-auto max-h-[180px] font-mono">
+                {generateCurlLookup(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY')}
+              </pre>
+            </div>
+
+            {/* Section: Confirmar Orden */}
+            <div className="flex items-center gap-2 pb-1 border-b mt-6">
+              <CheckCheck className="h-4 w-4 text-emerald-500" />
+              <span className="text-sm font-semibold">Confirmar Orden</span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-emerald-500" />
+                  cURL - Confirmar orden
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(
+                    generateCurlConfirm(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY'),
+                    'curlConfirm'
+                  )}
+                >
+                  {copied === 'curlConfirm' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-1" />
+                  )}
+                  Copiar
+                </Button>
+              </div>
+              <pre className="p-3 rounded-lg bg-zinc-900 text-zinc-100 text-xs overflow-x-auto max-h-[200px] font-mono">
+                {generateCurlConfirm(config?.webhook_url || 'TU_URL', newApiKey || config?.api_key_prefix || 'TU_API_KEY')}
               </pre>
             </div>
           </TabsContent>
