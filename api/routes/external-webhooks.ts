@@ -10,7 +10,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { externalWebhookService, ExternalOrderPayload } from '../services/external-webhook.service';
-import { sanitizeSearchInput } from '../utils/sanitize';
+import { sanitizeSearchInput, isValidUUID } from '../utils/sanitize';
 
 export const externalWebhooksRouter = Router();
 
@@ -457,7 +457,7 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
 
   try {
     // 1. Validar store ID
-    if (!storeId || storeId.length !== 36) {
+    if (!storeId || !isValidUUID(storeId)) {
       return res.status(400).json({
         success: false,
         error: 'invalid_store_id',
@@ -506,7 +506,17 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
     const filters: any = {};
     if (phone) filters.phone = String(phone);
     if (order_number) filters.order_number = sanitizeSearchInput(String(order_number));
-    if (order_id) filters.order_id = String(order_id);
+    if (order_id) {
+      const oid = String(order_id);
+      if (!isValidUUID(oid)) {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_order_id',
+          message: 'order_id must be a valid UUID'
+        });
+      }
+      filters.order_id = oid;
+    }
     if (status) filters.status = String(status);
     if (limit) filters.limit = parseInt(String(limit), 10);
 
@@ -568,7 +578,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
 
   try {
     // 1. Validar store ID
-    if (!storeId || storeId.length !== 36) {
+    if (!storeId || !isValidUUID(storeId)) {
       return res.status(400).json({
         success: false,
         error: 'invalid_store_id',
@@ -612,6 +622,23 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
         success: false,
         error: 'missing_identifier',
         message: 'Either order_number or order_id is required'
+      });
+    }
+
+    // Validate UUID fields
+    if (order_id && !isValidUUID(String(order_id))) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_order_id',
+        message: 'order_id must be a valid UUID'
+      });
+    }
+
+    if (courier_id && !isValidUUID(String(courier_id))) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_courier_id',
+        message: 'courier_id must be a valid UUID'
       });
     }
 
@@ -682,7 +709,7 @@ externalWebhooksRouter.post('/orders/:storeId', async (req: Request, res: Respon
 
   try {
     // 1. Validar store ID
-    if (!storeId || storeId.length !== 36) {
+    if (!storeId || !isValidUUID(storeId)) {
       return res.status(400).json({
         success: false,
         error: 'invalid_store_id',

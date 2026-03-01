@@ -8,6 +8,7 @@
 import { logger } from '../utils/logger';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
+import { sanitizeSearchInput, isValidUUID } from '../utils/sanitize';
 
 // ================================================================
 // TYPES
@@ -1029,10 +1030,16 @@ export class ExternalWebhookService {
 
       // Apply filters
       if (filters.order_id) {
+        if (!isValidUUID(filters.order_id)) {
+          return { success: false, orders: [], total: 0, error: 'Invalid order_id format. Expected UUID.' };
+        }
         query = query.eq('id', filters.order_id);
       } else if (filters.order_number) {
-        // Search across all order number formats
-        const searchNum = filters.order_number.replace(/^#/, '').trim();
+        // Sanitize to prevent PostgREST filter injection via .or() interpolation
+        const searchNum = sanitizeSearchInput(filters.order_number.replace(/^#/, '').trim());
+        if (!searchNum) {
+          return { success: false, orders: [], total: 0, error: 'Invalid order_number' };
+        }
         query = query.or(
           `shopify_order_name.ilike.%${searchNum}%,shopify_order_number.ilike.%${searchNum}%,order_number.ilike.%${searchNum}%`
         );
@@ -1109,6 +1116,7 @@ export class ExternalWebhookService {
   ): Promise<{ id: string; status: string } | null> {
     try {
       if (identifier.order_id) {
+        if (!isValidUUID(identifier.order_id)) return null;
         const { data } = await supabaseAdmin
           .from('orders')
           .select('id, sleeves_status')
@@ -1120,7 +1128,12 @@ export class ExternalWebhookService {
       }
 
       if (identifier.order_number) {
-        const searchNum = identifier.order_number.replace(/^#/, '').trim();
+        // Sanitize to prevent PostgREST filter injection via .or() interpolation
+        const rawNum = identifier.order_number.replace(/^#/, '').trim();
+        const searchNum = sanitizeSearchInput(rawNum);
+        if (!searchNum) return null;
+
+        const sanitizedOriginal = sanitizeSearchInput(identifier.order_number);
 
         // Try shopify_order_name first (most common: #1315)
         const { data: byName } = await supabaseAdmin
@@ -1128,7 +1141,7 @@ export class ExternalWebhookService {
           .select('id, sleeves_status')
           .eq('store_id', storeId)
           .is('deleted_at', null)
-          .or(`shopify_order_name.eq.#${searchNum},shopify_order_name.eq.${searchNum},shopify_order_number.eq.${searchNum},order_number.eq.ORD-${searchNum.padStart(5, '0')},order_number.eq.${identifier.order_number}`)
+          .or(`shopify_order_name.eq.#${searchNum},shopify_order_name.eq.${searchNum},shopify_order_number.eq.${searchNum},order_number.eq.ORD-${searchNum.padStart(5, '0')},order_number.eq.${sanitizedOriginal}`)
           .limit(1)
           .maybeSingle();
 
