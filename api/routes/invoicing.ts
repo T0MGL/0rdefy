@@ -10,6 +10,7 @@
 
 import express, { Request, Response } from 'express';
 import multer from 'multer';
+import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, requireRole, PermissionRequest } from '../middleware/permissions';
 import { Module, Role, Permission } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
@@ -73,6 +74,8 @@ async function requireParaguayStore(req: PermissionRequest, res: Response, next:
 // ================================================================
 // Apply middleware chain
 // ================================================================
+invoicingRouter.use(verifyToken);
+invoicingRouter.use(extractStoreId);
 invoicingRouter.use(extractUserRole);
 invoicingRouter.use(requireModule(Module.INVOICING));
 invoicingRouter.use(requireParaguayStore);
