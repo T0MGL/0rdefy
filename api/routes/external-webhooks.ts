@@ -401,11 +401,10 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
         lookup_orders: {
           method: 'GET',
           url: '/api/webhook/orders/{storeId}/lookup?phone=0981123456',
-          description: 'Buscar órdenes por teléfono, número de orden, o ID',
+          description: 'Buscar órdenes por teléfono o número de orden',
           query_params: {
             phone: 'Teléfono del cliente (ej: 0981123456)',
             order_number: 'Número de orden (ej: 1315, #1315)',
-            order_id: 'UUID de la orden',
             status: 'Filtrar por estado (pending, confirmed, delivered, etc.)',
             limit: 'Máximo de resultados (1-100, default 20)'
           }
@@ -415,8 +414,7 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
           url: '/api/webhook/orders/{storeId}/confirm',
           description: 'Confirmar una orden pendiente o contactada. Si no se envía courier_id, la orden queda confirmada pero pendiente de asignación de transportadora (el admin la asigna desde el dashboard).',
           body: {
-            order_number: '1315 (requerido si no se envía order_id)',
-            order_id: 'UUID (requerido si no se envía order_number)',
+            order_number: '1315 (requerido)',
             courier_id: 'UUID del transportista (opcional - si no se envía, queda pendiente de asignación)',
             is_pickup: 'true para retiro en local (opcional)',
             shipping_cost: 'Costo de envío en guaraníes (opcional)',
@@ -447,7 +445,6 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
  * Query params:
  * - phone: Teléfono del cliente (ej: 0981123456, +595981123456)
  * - order_number: Número de orden (ej: 1315, #1315, ORD-00001)
- * - order_id: UUID de la orden
  * - status: Filtrar por estado (pending, confirmed, delivered, etc.)
  * - limit: Máximo de resultados (1-100, default 20)
  */
@@ -493,30 +490,19 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
     }
 
     // 3. Extract and sanitize filters
-    const { phone, order_number, order_id, status, limit } = req.query;
+    const { phone, order_number, status, limit } = req.query;
 
-    if (!phone && !order_number && !order_id) {
+    if (!phone && !order_number) {
       return res.status(400).json({
         success: false,
         error: 'missing_filter',
-        message: 'At least one filter is required: phone, order_number, or order_id'
+        message: 'At least one filter is required: phone or order_number'
       });
     }
 
     const filters: any = {};
     if (phone) filters.phone = String(phone);
     if (order_number) filters.order_number = sanitizeSearchInput(String(order_number));
-    if (order_id) {
-      const oid = String(order_id);
-      if (!isValidUUID(oid)) {
-        return res.status(400).json({
-          success: false,
-          error: 'invalid_order_id',
-          message: 'order_id must be a valid UUID'
-        });
-      }
-      filters.order_id = oid;
-    }
     if (status) filters.status = String(status);
     if (limit) filters.limit = parseInt(String(limit), 10);
 
@@ -526,7 +512,7 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
     const processingTime = Date.now() - startTime;
     logger.info('API', `[ExternalWebhook] Order lookup in ${processingTime}ms: ${result.total} results`, {
       storeId,
-      filters: { phone: !!phone, order_number: !!order_number, order_id: !!order_id }
+      filters: { phone: !!phone, order_number: !!order_number }
     });
 
     if (!result.success) {
@@ -561,8 +547,7 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
  * - X-API-Key: API Key del webhook
  *
  * Body:
- * - order_number: Número de orden (ej: "1315", "#1315") - requerido si no se envía order_id
- * - order_id: UUID de la orden - requerido si no se envía order_number
+ * - order_number: Número de orden (ej: "1315", "#1315") - requerido
  * - courier_id: UUID del transportista (opcional)
  * - is_pickup: boolean - marcar como retiro en local (opcional)
  * - address: Dirección de entrega (opcional)
@@ -614,26 +599,18 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
     }
 
     // 3. Validate body
-    const { order_number, order_id, courier_id, is_pickup, address, latitude, longitude,
+    const { order_number, courier_id, is_pickup, address, latitude, longitude,
             google_maps_link, delivery_zone, shipping_cost, delivery_preferences } = req.body;
 
-    if (!order_number && !order_id) {
+    if (!order_number) {
       return res.status(400).json({
         success: false,
-        error: 'missing_identifier',
-        message: 'Either order_number or order_id is required'
+        error: 'missing_order_number',
+        message: 'order_number is required'
       });
     }
 
     // Validate UUID fields
-    if (order_id && !isValidUUID(String(order_id))) {
-      return res.status(400).json({
-        success: false,
-        error: 'invalid_order_id',
-        message: 'order_id must be a valid UUID'
-      });
-    }
-
     if (courier_id && !isValidUUID(String(courier_id))) {
       return res.status(400).json({
         success: false,
@@ -645,7 +622,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
     // 4. Confirm the order
     const result = await externalWebhookService.confirmOrderViaApi(
       storeId,
-      { order_number, order_id },
+      { order_number },
       { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_cost, delivery_preferences },
       config
     );

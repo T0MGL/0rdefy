@@ -145,8 +145,8 @@ curl '${url}/lookup?phone=0981123456' \\
 curl '${url}/lookup?order_number=1315' \\
   -H 'X-API-Key: ${apiKey}'
 
-# Buscar por ID + filtrar estado
-curl '${url}/lookup?order_id=uuid&status=pending' \\
+# Buscar por numero de orden + filtrar estado
+curl '${url}/lookup?order_number=1315&status=pending' \\
   -H 'X-API-Key: ${apiKey}'`;
 
 // cURL para confirmar orden
@@ -485,7 +485,7 @@ export function ExternalWebhookManagementModal({
                     {copied === 'url-lookup' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Params: ?phone=0981... | ?order_number=1315 | ?order_id=uuid</p>
+                <p className="text-[10px] text-muted-foreground">Params: ?phone=0981... | ?order_number=1315</p>
               </div>
 
               {/* Confirmar Orden */}
@@ -714,8 +714,6 @@ export function ExternalWebhookManagementModal({
                 <span className="text-muted-foreground">Telefono del cliente</span>
                 <code className="text-blue-600">order_number</code>
                 <span className="text-muted-foreground">Numero de orden (ej: 1315)</span>
-                <code className="text-blue-600">order_id</code>
-                <span className="text-muted-foreground">UUID de la orden</span>
                 <code className="text-blue-600">status</code>
                 <span className="text-muted-foreground">Filtro: pending, confirmed, etc.</span>
                 <code className="text-blue-600">limit</code>
@@ -806,7 +804,7 @@ export function ExternalWebhookManagementModal({
               <Label className="text-sm font-medium">Campos de Confirmacion</Label>
               <div className="grid grid-cols-2 gap-1 text-xs">
                 <code className="text-emerald-600">order_number*</code>
-                <span className="text-muted-foreground">Numero de orden (o order_id)</span>
+                <span className="text-muted-foreground">Numero de orden (ej: 1315)</span>
                 <code className="text-muted-foreground">courier_id</code>
                 <span className="text-muted-foreground">UUID transportista (opcional)</span>
                 <code className="text-muted-foreground">is_pickup</code>

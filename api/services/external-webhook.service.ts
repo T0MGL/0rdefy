@@ -8,7 +8,7 @@
 import { logger } from '../utils/logger';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
-import { sanitizeSearchInput, isValidUUID } from '../utils/sanitize';
+import { sanitizeSearchInput } from '../utils/sanitize';
 
 // ================================================================
 // TYPES
@@ -999,7 +999,6 @@ export class ExternalWebhookService {
     filters: {
       phone?: string;
       order_number?: string;
-      order_id?: string;
       status?: string;
       limit?: number;
     }
@@ -1008,8 +1007,8 @@ export class ExternalWebhookService {
       const limit = Math.min(Math.max(filters.limit || 20, 1), 100);
 
       // At least one filter required
-      if (!filters.phone && !filters.order_number && !filters.order_id) {
-        return { success: false, orders: [], total: 0, error: 'At least one filter required: phone, order_number, or order_id' };
+      if (!filters.phone && !filters.order_number) {
+        return { success: false, orders: [], total: 0, error: 'At least one filter required: phone or order_number' };
       }
 
       let query = supabaseAdmin
@@ -1029,12 +1028,7 @@ export class ExternalWebhookService {
         .is('deleted_at', null);
 
       // Apply filters
-      if (filters.order_id) {
-        if (!isValidUUID(filters.order_id)) {
-          return { success: false, orders: [], total: 0, error: 'Invalid order_id format. Expected UUID.' };
-        }
-        query = query.eq('id', filters.order_id);
-      } else if (filters.order_number) {
+      if (filters.order_number) {
         // Sanitize to prevent PostgREST filter injection via .or() interpolation
         const searchNum = sanitizeSearchInput(filters.order_number.replace(/^#/, '').trim());
         if (!searchNum) {
@@ -1110,45 +1104,29 @@ export class ExternalWebhookService {
   /**
    * Encuentra una orden por número o ID dentro de una tienda
    */
-  private async findOrderByIdentifier(
+  private async findOrderByNumber(
     storeId: string,
-    identifier: { order_number?: string; order_id?: string }
+    orderNumber: string
   ): Promise<{ id: string; status: string } | null> {
     try {
-      if (identifier.order_id) {
-        if (!isValidUUID(identifier.order_id)) return null;
-        const { data } = await supabaseAdmin
-          .from('orders')
-          .select('id, sleeves_status')
-          .eq('id', identifier.order_id)
-          .eq('store_id', storeId)
-          .is('deleted_at', null)
-          .single();
-        return data ? { id: data.id, status: data.sleeves_status } : null;
-      }
+      // Sanitize to prevent PostgREST filter injection via .or() interpolation
+      const rawNum = orderNumber.replace(/^#/, '').trim();
+      const searchNum = sanitizeSearchInput(rawNum);
+      if (!searchNum) return null;
 
-      if (identifier.order_number) {
-        // Sanitize to prevent PostgREST filter injection via .or() interpolation
-        const rawNum = identifier.order_number.replace(/^#/, '').trim();
-        const searchNum = sanitizeSearchInput(rawNum);
-        if (!searchNum) return null;
+      const sanitizedOriginal = sanitizeSearchInput(orderNumber);
 
-        const sanitizedOriginal = sanitizeSearchInput(identifier.order_number);
+      // Try shopify_order_name first (most common: #1315)
+      const { data } = await supabaseAdmin
+        .from('orders')
+        .select('id, sleeves_status')
+        .eq('store_id', storeId)
+        .is('deleted_at', null)
+        .or(`shopify_order_name.eq.#${searchNum},shopify_order_name.eq.${searchNum},shopify_order_number.eq.${searchNum},order_number.eq.ORD-${searchNum.padStart(5, '0')},order_number.eq.${sanitizedOriginal}`)
+        .limit(1)
+        .maybeSingle();
 
-        // Try shopify_order_name first (most common: #1315)
-        const { data: byName } = await supabaseAdmin
-          .from('orders')
-          .select('id, sleeves_status')
-          .eq('store_id', storeId)
-          .is('deleted_at', null)
-          .or(`shopify_order_name.eq.#${searchNum},shopify_order_name.eq.${searchNum},shopify_order_number.eq.${searchNum},order_number.eq.ORD-${searchNum.padStart(5, '0')},order_number.eq.${sanitizedOriginal}`)
-          .limit(1)
-          .maybeSingle();
-
-        return byName ? { id: byName.id, status: byName.sleeves_status } : null;
-      }
-
-      return null;
+      return data ? { id: data.id, status: data.sleeves_status } : null;
     } catch (error) {
       logger.error('BACKEND', '❌ [ExternalWebhook] Error finding order:', error);
       return null;
@@ -1161,7 +1139,7 @@ export class ExternalWebhookService {
    */
   async confirmOrderViaApi(
     storeId: string,
-    identifier: { order_number?: string; order_id?: string },
+    identifier: { order_number: string },
     options: {
       courier_id?: string;
       is_pickup?: boolean;
@@ -1190,7 +1168,7 @@ export class ExternalWebhookService {
   }> {
     try {
       // 1. Find the order
-      const order = await this.findOrderByIdentifier(storeId, identifier);
+      const order = await this.findOrderByNumber(storeId, identifier.order_number);
       if (!order) {
         return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
       }
