@@ -426,34 +426,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // ROUTES
 // ================================================================
 
-// Health check - verifies actual database connectivity
+// Health check - always returns 200 so Railway can confirm the process is alive.
+// Database connectivity is checked at startup (process.exit(1) if unavailable)
+// and reported here for observability, but never blocks the deploy.
 app.get('/health', async (req: Request, res: Response) => {
+    let dbStatus = 'unknown';
     try {
         const { error } = await supabaseAdmin.from('stores').select('id').limit(1);
-        if (error) {
-            return res.status(503).json({
-                status: 'degraded',
-                service: 'Ordefy API',
-                timestamp: new Date().toISOString(),
-                database: 'unavailable'
-            });
-        }
-        res.json({
-            status: 'healthy',
-            service: 'Ordefy API',
-            version: '1.0.0',
-            timestamp: new Date().toISOString(),
-            database: 'connected',
-            environment: process.env.NODE_ENV || 'development'
-        });
+        dbStatus = error ? 'degraded' : 'connected';
     } catch {
-        res.status(503).json({
-            status: 'degraded',
-            service: 'Ordefy API',
-            timestamp: new Date().toISOString(),
-            database: 'unavailable'
-        });
+        dbStatus = 'degraded';
     }
+    res.json({
+        status: 'healthy',
+        service: 'Ordefy API',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        database: dbStatus,
+        environment: process.env.NODE_ENV || 'development'
+    });
 });
 
 // ================================================================
