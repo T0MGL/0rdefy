@@ -11,6 +11,7 @@ import multer from 'multer';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import storageService from '../services/storage.service';
 import { supabaseAdmin } from '../db/connection';
+import { validateUUIDParam } from '../utils/sanitize';
 
 const router = Router();
 
@@ -115,6 +116,7 @@ router.post(
   '/product/:productId',
   verifyToken,
   extractStoreId,
+  validateUUIDParam('productId'),
   upload.single('file'),
   handleMulterError,
   async (req: Request, res: Response) => {
@@ -176,6 +178,7 @@ router.post(
   '/merchandise/:shipmentId',
   verifyToken,
   extractStoreId,
+  validateUUIDParam('shipmentId'),
   upload.single('file'),
   handleMulterError,
   async (req: Request, res: Response) => {
@@ -293,6 +296,7 @@ router.delete(
   '/product/:productId',
   verifyToken,
   extractStoreId,
+  validateUUIDParam('productId'),
   async (req: Request, res: Response) => {
     try {
       const { productId } = req.params;

@@ -13,6 +13,7 @@ import { extractUserRole, requireModule, requirePermission } from '../middleware
 import { requireFeature } from '../middleware/planLimits.js';
 import { Module, Permission } from '../permissions.js';
 import * as returnsService from '../services/returns.service.js';
+import { validateUUIDParam } from '../utils/sanitize';
 
 const router = express.Router();
 
@@ -75,7 +76,7 @@ router.get('/sessions', async (req, res) => {
  * GET /api/returns/sessions/:id
  * Get return session details with items and orders
  */
-router.get('/sessions/:id', async (req, res) => {
+router.get('/sessions/:id', validateUUIDParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
     const storeId = req.storeId;
@@ -160,7 +161,7 @@ router.post('/sessions', requirePermission(Module.RETURNS, Permission.CREATE), a
  *   rejection_notes?: string
  * }
  */
-router.patch('/items/:id', requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
+router.patch('/items/:id', validateUUIDParam('id'), requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const storeId = req.storeId;
@@ -193,7 +194,7 @@ router.patch('/items/:id', requirePermission(Module.RETURNS, Permission.EDIT), a
  * POST /api/returns/sessions/:id/complete
  * Complete return session (process inventory and order status updates)
  */
-router.post('/sessions/:id/complete', requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
+router.post('/sessions/:id/complete', validateUUIDParam('id'), requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const storeId = req.storeId;
@@ -224,7 +225,7 @@ router.post('/sessions/:id/complete', requirePermission(Module.RETURNS, Permissi
  * POST /api/returns/sessions/:id/cancel
  * Cancel return session
  */
-router.post('/sessions/:id/cancel', requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
+router.post('/sessions/:id/cancel', validateUUIDParam('id'), requirePermission(Module.RETURNS, Permission.EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const storeId = req.storeId;

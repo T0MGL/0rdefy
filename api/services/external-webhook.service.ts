@@ -116,6 +116,17 @@ export class ExternalWebhookService {
   }
 
   // ================================================================
+  // API KEY HASHING
+  // ================================================================
+
+  /**
+   * Hashes an API key using SHA-256 before storing or comparing
+   */
+  private hashApiKey(key: string): string {
+    return crypto.createHash('sha256').update(key).digest('hex');
+  }
+
+  // ================================================================
   // API KEY VALIDATION
   // ================================================================
 
@@ -128,7 +139,7 @@ export class ExternalWebhookService {
         .from('external_webhook_configs')
         .select('*')
         .eq('store_id', storeId)
-        .eq('api_key', apiKey)
+        .eq('api_key', this.hashApiKey(apiKey))
         .eq('is_active', true)
         .single();
 
@@ -816,7 +827,7 @@ export class ExternalWebhookService {
         store_id: storeId,
         name: options?.name || 'Webhook Externo',
         description: options?.description || null,
-        api_key: apiKey,
+        api_key: this.hashApiKey(apiKey), // Store hashed key, never plaintext
         api_key_prefix: apiKeyPrefix,
         is_active: true,
         auto_confirm_orders: options?.autoConfirm || false,
@@ -852,7 +863,7 @@ export class ExternalWebhookService {
       const { error } = await supabaseAdmin
         .from('external_webhook_configs')
         .update({
-          api_key: apiKey,
+          api_key: this.hashApiKey(apiKey), // Store hashed key, never plaintext
           api_key_prefix: apiKeyPrefix,
           updated_at: new Date().toISOString()
         })

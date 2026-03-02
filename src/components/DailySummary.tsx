@@ -85,6 +85,8 @@ export function DailySummary() {
       return;
     }
 
+    const controller = new AbortController();
+
     const loadData = async () => {
       setIsLoading(true);
       let fetchedOrdersCount = 0;
@@ -105,25 +107,25 @@ export function DailySummary() {
           });
           ordersData = (unifiedOrders.data || []) as unknown as Order[];
           fetchedOrdersCount = ordersData.length;
-          if (!isMountedRef.current) return;
+          if (controller.signal.aborted || !isMountedRef.current) return;
           setOrders(ordersData);
         } else {
           // Use lightweight counts endpoint instead of fetching all orders
           const countsResult = await ordersService.getCountsByStatus(dateParams);
           countsData = countsResult.data || {};
           fetchedOrdersCount = countsResult.total;
-          if (!isMountedRef.current) return;
+          if (controller.signal.aborted || !isMountedRef.current) return;
           setStatusCounts(countsData);
           setOrders([]); // No full orders needed for single-store
         }
 
         // Only load analytics if user has permission
-        if (!isMountedRef.current) return;
+        if (controller.signal.aborted || !isMountedRef.current) return;
 
         if (hasAnalyticsAccess) {
           if (useGlobalViewData) {
             const unifiedOverview = await unifiedService.getAnalyticsOverview(dateParams);
-            if (!isMountedRef.current) return;
+            if (controller.signal.aborted || !isMountedRef.current) return;
             setOverview(unifiedOverview.data || {
               totalOrders: ordersData.length,
               revenue: 0,
@@ -134,10 +136,10 @@ export function DailySummary() {
             } as DashboardOverview);
           } else {
             const overviewData = await analyticsService.getOverview(dateParams);
-            if (!isMountedRef.current) return;
+            if (controller.signal.aborted || !isMountedRef.current) return;
             setOverview(overviewData);
           }
-        } else if (isMountedRef.current) {
+        } else if (!controller.signal.aborted && isMountedRef.current) {
           // Calculate basic metrics for roles without analytics access
           // For global view, use ordersData; for single-store, use counts
           const totalRevenue = ordersData.reduce((sum: number, o: Order) => sum + (o.total_price || 0), 0);
@@ -161,7 +163,7 @@ export function DailySummary() {
           setOverview(simplifiedOverview);
         }
       } catch (error) {
-        if (!isMountedRef.current) return;
+        if (controller.signal.aborted || !isMountedRef.current) return;
         logger.error('Error loading daily summary data:', error);
         // Even on error, set a basic overview to prevent crash
         setOverview({
@@ -173,10 +175,14 @@ export function DailySummary() {
           changes: null,
         } as DashboardOverview);
       } finally {
-        if (isMountedRef.current) setIsLoading(false);
+        if (!controller.signal.aborted && isMountedRef.current) setIsLoading(false);
       }
     };
     loadData();
+
+    return () => {
+      controller.abort();
+    };
   }, [dateRange, hasAnalyticsAccess, authLoading, useGlobalViewData]);
 
   if (authLoading || isLoading || !overview) {

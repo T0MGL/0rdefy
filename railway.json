@@ -6,7 +6,9 @@
   "deploy": {
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+    "restartPolicyMaxRetries": 10,
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30
   },
   "crons": [
     {
@@ -22,6 +24,21 @@
     {
       "schedule": "0 10 * * *",
       "endpoint": "/api/billing/cron/process-referral-credits",
+      "timeout": 120
+    },
+    {
+      "schedule": "*/5 * * * *",
+      "endpoint": "/api/shopify/webhook-retry/process",
+      "timeout": 120
+    },
+    {
+      "schedule": "0 3 * * *",
+      "endpoint": "/api/shopify/webhook-cleanup",
+      "timeout": 120
+    },
+    {
+      "schedule": "0 */6 * * *",
+      "endpoint": "/api/warehouse/cleanup-sessions?hours=48",
       "timeout": 120
     }
   ]

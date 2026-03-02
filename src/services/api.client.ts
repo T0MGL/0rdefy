@@ -3,6 +3,7 @@ import { config } from '@/config';
 
 const apiClient = axios.create({
   baseURL: `${config.api.baseUrl}/api`,
+  timeout: 30000, // 30s request timeout — prevents hanging requests
   headers: {
     'Content-Type': 'application/json',
   },
@@ -175,10 +176,15 @@ apiClient.interceptors.response.use(
         // Could show toast notification here
       }
 
-      // Handle 503 Service Unavailable - Could retry
+      // Handle 503 Service Unavailable - Retry with backoff
       if (status === 503 || status === 504) {
-        console.warn('⚠️ [API] Service temporarily unavailable');
-        // Could implement retry logic here
+        const originalRequest = error.config;
+        if (!originalRequest._retryCount503 || originalRequest._retryCount503 < 2) {
+          originalRequest._retryCount503 = (originalRequest._retryCount503 || 0) + 1;
+          const delay = originalRequest._retryCount503 * 1000; // 1s, 2s
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return apiClient(originalRequest);
+        }
       }
     } else if (error.request) {
       // Network error - no response received

@@ -7,7 +7,7 @@
  * @date 2025-12-02
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PackageX, RotateCcw, Check, X, AlertTriangle, ChevronLeft, Plus, TrendingDown, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -47,6 +47,8 @@ type View = 'sessions' | 'create' | 'process';
 export default function Returns() {
   const { toast } = useToast();
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [view, setView] = useState<View>('sessions');
   const [currentSession, setCurrentSession] = useState<ReturnSessionDetail | null>(null);
 
@@ -66,17 +68,29 @@ export default function Returns() {
   const [acceptedItems, setAcceptedItems] = useState<ReturnSessionItem[]>([]);
   const [rejectedItems, setRejectedItems] = useState<ReturnSessionItem[]>([]);
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Load sessions list
   const loadSessions = useCallback(async () => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setLoading(true);
     try {
       const [sessionsData, metricsData] = await Promise.all([
         returnsService.getReturnSessions(),
         analyticsService.getReturnsMetrics().catch(() => null),
       ]);
+      if (!isMountedRef.current || controller.signal.aborted) return;
       setSessions(sessionsData);
       setReturnsMetrics(metricsData);
     } catch (error) {
+      if (!isMountedRef.current || controller.signal.aborted) return;
       logger.error('Error loading sessions:', error);
       toast({
         title: 'Error',
@@ -84,12 +98,14 @@ export default function Returns() {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, [toast]);
 
   // Load eligible orders for return
   const loadEligibleOrders = useCallback(async () => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setLoading(true);
     try {
       const [orders, inProgressSessions] = await Promise.all([
@@ -97,6 +113,7 @@ export default function Returns() {
         returnsService.getReturnSessions(),
       ]);
 
+      if (!isMountedRef.current || controller.signal.aborted) return;
       setEligibleOrders(orders);
 
       // Find orders that are already in active return sessions
@@ -107,6 +124,8 @@ export default function Returns() {
       const sessionDetails = await Promise.all(
         activeSessions.map(session => returnsService.getReturnSession(session.id))
       );
+
+      if (!isMountedRef.current || controller.signal.aborted) return;
 
       // Process all session orders with null safety
       sessionDetails.forEach(sessionDetail => {
@@ -119,6 +138,7 @@ export default function Returns() {
 
       setOrdersInActiveSessions(activeSessionOrders);
     } catch (error) {
+      if (!isMountedRef.current || controller.signal.aborted) return;
       logger.error('Error loading eligible orders:', error);
       toast({
         title: 'Error',
@@ -126,15 +146,18 @@ export default function Returns() {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, [toast]);
 
   // Load session details
   const loadSession = useCallback(async (sessionId: string) => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setLoading(true);
     try {
       const session = await returnsService.getReturnSession(sessionId);
+      if (!isMountedRef.current || controller.signal.aborted) return;
       setCurrentSession(session);
       setItems(session.items);
 
@@ -144,6 +167,7 @@ export default function Returns() {
       setAcceptedItems(accepted);
       setRejectedItems(rejected);
     } catch (error) {
+      if (!isMountedRef.current || controller.signal.aborted) return;
       logger.error('Error loading session:', error);
       toast({
         title: 'Error',
@@ -151,7 +175,7 @@ export default function Returns() {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, [toast]);
 

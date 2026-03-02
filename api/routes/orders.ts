@@ -462,11 +462,11 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
 });
 
 // POST /api/orders/:id/rate-delivery - Customer rates delivery (public)
-// This endpoint is accessible without auth for customer feedback
+// This endpoint is accessible without auth but requires delivery_link_token for verification
 ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { rating, comment } = req.body;
+        const { rating, comment, delivery_token } = req.body;
 
         // Validate rating
         if (!rating || rating < 1 || rating > 5) {
@@ -476,12 +476,20 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
             });
         }
 
+        // SECURITY: Require delivery token to prevent unauthorized rating
+        if (!delivery_token || typeof delivery_token !== 'string') {
+            return res.status(401).json({
+                error: 'Token required',
+                message: 'Se requiere un token de entrega válido para calificar'
+            });
+        }
 
-        // Get the order to verify it's delivered
+        // Get the order and validate token ownership
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('id, store_id, delivery_status, courier_id, delivery_rating')
+            .select('id, store_id, delivery_status, courier_id, delivery_rating, delivery_link_token')
             .eq('id', id)
+            .eq('delivery_link_token', delivery_token)
             .single();
 
         if (fetchError || !existingOrder) {
@@ -666,34 +674,46 @@ ordersRouter.get('/stats/counts-by-status', async (req: AuthRequest, res: Respon
     try {
         const { startDate, endDate } = req.query;
 
-        let query = supabaseAdmin
-            .from('orders')
-            .select('sleeves_status')
-            .eq('store_id', req.storeId)
-            .is('deleted_at', null)
-            .or('is_test.is.null,is_test.eq.false');
+        // Build base filter conditions
+        const statuses = [
+          'pending', 'contacted', 'confirmed', 'in_preparation',
+          'ready_to_ship', 'shipped', 'in_transit', 'delivered',
+          'cancelled', 'rejected', 'returned', 'incident', 'not_delivered', 'out_for_delivery'
+        ];
 
-        if (startDate) {
-            query = query.gte('created_at', startDate as string);
-        }
-        if (endDate) {
-            const end = new Date(endDate as string);
-            end.setHours(23, 59, 59, 999);
-            query = query.lte('created_at', end.toISOString());
-        }
+        // Use parallel count queries instead of fetching all rows
+        const countPromises = statuses.map(async (status) => {
+            let query = supabaseAdmin
+                .from('orders')
+                .select('id', { count: 'exact', head: true })
+                .eq('store_id', req.storeId)
+                .eq('sleeves_status', status)
+                .is('deleted_at', null)
+                .or('is_test.is.null,is_test.eq.false');
 
-        const { data, error } = await query;
+            if (startDate) {
+                query = query.gte('created_at', startDate as string);
+            }
+            if (endDate) {
+                const end = new Date(endDate as string);
+                end.setHours(23, 59, 59, 999);
+                query = query.lte('created_at', end.toISOString());
+            }
 
-        if (error) throw error;
+            const { count } = await query;
+            return { status, count: count || 0 };
+        });
 
-        // Aggregate counts in JS (Supabase client can't GROUP BY)
+        const results = await Promise.all(countPromises);
+
         const counts: Record<string, number> = {};
         let total = 0;
-        (data || []).forEach(row => {
-            const status = row.sleeves_status || 'pending';
-            counts[status] = (counts[status] || 0) + 1;
-            total++;
-        });
+        for (const { status, count } of results) {
+            if (count > 0) {
+                counts[status] = count;
+                total += count;
+            }
+        }
 
         res.json({ data: counts, total });
     } catch (error: any) {
@@ -1440,6 +1460,34 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
             try {
                 const normalizedLineItems = [];
 
+                // Batch-fetch all variants and products to avoid N+1 queries
+                const variantIds = line_items
+                    .map((item: any) => item.variant_id)
+                    .filter(Boolean);
+                const productIds = line_items
+                    .map((item: any) => item.product_id)
+                    .filter(Boolean);
+
+                const variantsMap = new Map();
+                const productsMap = new Map();
+
+                if (variantIds.length > 0) {
+                    const { data: variants } = await supabaseAdmin
+                        .from('product_variants')
+                        .select('id, product_id, variant_title, sku, price, units_per_pack, image_url, variant_type, uses_shared_stock')
+                        .in('id', variantIds);
+                    (variants || []).forEach((v: any) => variantsMap.set(v.id, v));
+                }
+
+                if (productIds.length > 0) {
+                    const { data: products } = await supabaseAdmin
+                        .from('products')
+                        .select('id, name, image_url')
+                        .in('id', productIds)
+                        .eq('store_id', req.storeId);
+                    (products || []).forEach((p: any) => productsMap.set(p.id, p));
+                }
+
                 for (const item of line_items) {
                     // Try to find the product to get image_url
                     const productId = item.product_id || null;
@@ -1460,13 +1508,9 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
 
                     // Migration 097/101: If variant_id provided, fetch variant details including variant_type
                     if (variantId) {
-                        const { data: variant, error: variantError } = await supabaseAdmin
-                            .from('product_variants')
-                            .select('id, product_id, variant_title, sku, price, units_per_pack, image_url, variant_type, uses_shared_stock')
-                            .eq('id', variantId)
-                            .maybeSingle();
+                        const variant = variantsMap.get(variantId);
 
-                        if (variant && !variantError) {
+                        if (variant) {
                             variantTitle = variant.variant_title;
                             variantSku = variant.sku || variantSku;
                             unitPrice = safeNumber(variant.price, unitPrice);
@@ -1486,17 +1530,12 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
 
                     // Fetch product image if not from variant
                     if (productId && !imageUrl) {
-                        const { data: product, error: productError } = await supabaseAdmin
-                            .from('products')
-                            .select('id, name, image_url')
-                            .eq('id', productId)
-                            .eq('store_id', req.storeId)
-                            .maybeSingle();
+                        const product = productsMap.get(productId);
 
                         logger.debug('ORDERS', 'Product lookup', {
                             product_id: productId,
                             found: !!product,
-                            error: productError?.message
+                            error: undefined
                         });
 
                         if (product) {

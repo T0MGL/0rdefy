@@ -50,6 +50,8 @@ export function RecommendedActions() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const loadData = async () => {
       setIsLoading(true);
       try {
@@ -59,19 +61,23 @@ export function RecommendedActions() {
           carriersService.getAll(),
           analyticsService.getOverview(),
         ]);
-        if (!isMountedRef.current) return;
+        if (controller.signal.aborted || !isMountedRef.current) return;
         setProducts(productsData.data || []);
         setAds(adsData);
         setCarriers(carriersData);
         setOverview(overviewData);
       } catch (error) {
-        if (!isMountedRef.current) return;
+        if (controller.signal.aborted || !isMountedRef.current) return;
         logger.error('Error loading recommendation data:', error);
       } finally {
-        if (isMountedRef.current) setIsLoading(false);
+        if (!controller.signal.aborted && isMountedRef.current) setIsLoading(false);
       }
     };
     loadData();
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   const recommendations = overview

@@ -389,8 +389,9 @@ app.use((req: any, res: Response, next: NextFunction) => {
 });
 
 // Body parsing (for non-webhook routes)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// 1MB general limit — upload routes use multer with their own limits
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Request logging middleware with correlation IDs and PII redaction
 app.use(requestLoggerMiddleware);
@@ -425,17 +426,34 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // ROUTES
 // ================================================================
 
-// Health check
-app.get('/health', (req: Request, res: Response) => {
-    res.json({
-        status: 'healthy',
-        service: 'Ordefy API',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        database: 'connected',
-        environment: process.env.NODE_ENV || 'development',
-        author: 'Bright Idea'
-    });
+// Health check - verifies actual database connectivity
+app.get('/health', async (req: Request, res: Response) => {
+    try {
+        const { error } = await supabaseAdmin.from('stores').select('id').limit(1);
+        if (error) {
+            return res.status(503).json({
+                status: 'degraded',
+                service: 'Ordefy API',
+                timestamp: new Date().toISOString(),
+                database: 'unavailable'
+            });
+        }
+        res.json({
+            status: 'healthy',
+            service: 'Ordefy API',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            database: 'connected',
+            environment: process.env.NODE_ENV || 'development'
+        });
+    } catch {
+        res.status(503).json({
+            status: 'degraded',
+            service: 'Ordefy API',
+            timestamp: new Date().toISOString(),
+            database: 'unavailable'
+        });
+    }
 });
 
 // ================================================================
@@ -770,7 +788,20 @@ process.on('unhandledRejection', (reason, promise) => {
 // SERVER STARTUP
 // ================================================================
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
+    // Verify database connectivity on startup — exit if unreachable
+    const { testSupabaseConnection } = await import('./db/connection');
+    const dbConnected = await testSupabaseConnection();
+    if (!dbConnected) {
+        logger.error('DB', 'FATAL: Cannot connect to database on startup — aborting');
+        process.exit(1);
+    }
+
+    // Set server timeouts to prevent hanging requests
+    server.timeout = 30000; // 30s request timeout
+    server.keepAliveTimeout = 65000; // Must be > ALB idle timeout (60s)
+    server.headersTimeout = 66000; // Must be > keepAliveTimeout
+
     logger.info('================================================================');
     logger.info('🚀 ORDEFY API SERVER STARTED');
     logger.info('================================================================');

@@ -959,6 +959,13 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             query = query.lte('created_at', toEndOfDay(endDate as string));
         }
 
+        // Add default 1-year window for top products analysis
+        if (!startDate && !endDate) {
+            const oneYearAgo = new Date();
+            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+            query = query.gte('created_at', oneYearAgo.toISOString());
+        }
+
         const { data: ordersData, error: ordersError } = await query;
 
         if (ordersError) {
@@ -1257,6 +1264,13 @@ analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: 
             query = query.lte('created_at', toEndOfDay(endDate as string));
         }
 
+        // Add default 90-day window for status distribution
+        if (!startDate && !endDate) {
+            const ninetyDaysAgo = new Date();
+            ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+            query = query.gte('created_at', ninetyDaysAgo.toISOString());
+        }
+
         const { data: ordersData, error: ordersError } = await query;
 
         if (ordersError) throw ordersError;
@@ -1298,11 +1312,16 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
         const { periodType = 'week' } = req.query; // 'day' or 'week'
 
         // Get all active orders (not cancelled or returned) - OPTIMIZATION: Only required fields
+        // Add default 90-day window for cash flow projection
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
         const { data: activeOrders, error: ordersError } = await supabaseAdmin
             .from('orders')
             .select('id, total_price, sleeves_status, shipping_cost')
             .eq('store_id', req.storeId)
             .not('sleeves_status', 'in', '(cancelled,returned)')
+            .gte('created_at', ninetyDaysAgo.toISOString())
 
         if (ordersError) throw ordersError;
 
@@ -2312,11 +2331,13 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
         }
 
         // 2. Get minimal product data (only stock for low stock alerts)
+        // Limit to 500 - notification engine only needs to check stock levels
         const { data: products, error: productsError } = await supabaseAdmin
             .from('products')
             .select('id, name, stock, is_active')
             .eq('store_id', storeId)
-            .eq('is_active', true);
+            .eq('is_active', true)
+            .limit(500);
 
         if (productsError) {
             logger.error('SERVER', '[GET /api/analytics/notification-data] Products error:', productsError);

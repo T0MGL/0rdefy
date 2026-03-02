@@ -13,8 +13,8 @@ export default defineConfig({
 
   build: {
     // Generate absolute asset URLs for embedded apps
-    assetsInlineLimit: 0,
-    chunkSizeWarningLimit: 10000,
+    sourcemap: false, // Never expose source code in production
+    chunkSizeWarningLimit: 1000, // 1MB — flag large chunks for review
     // Use ES2015 for maximum compatibility
     target: 'es2015',
     // Use esbuild minifier (safer than terser for TDZ edge cases)
@@ -26,6 +26,12 @@ export default defineConfig({
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
         format: 'es',
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['framer-motion', 'recharts', 'cmdk', 'sonner'],
+          'vendor-shopify': ['@shopify/app-bridge', '@shopify/app-bridge-react'],
+          'vendor-pdf': ['jspdf', 'jspdf-autotable', 'exceljs'],
+        },
       }
     }
   },

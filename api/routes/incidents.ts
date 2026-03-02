@@ -26,7 +26,7 @@ export const incidentsRouter = Router();
 
 // GET /api/incidents/order/:order_id/active - Get active incident for order
 // Used by courier delivery page to show retry checklist
-incidentsRouter.get('/order/:order_id/active', async (req: Request, res: Response) => {
+incidentsRouter.get('/order/:order_id/active', validateUUIDParam('order_id'), async (req: Request, res: Response) => {
     try {
         const { order_id } = req.params;
 
@@ -89,7 +89,7 @@ incidentsRouter.get('/order/:order_id/active', async (req: Request, res: Respons
 });
 
 // POST /api/incidents/retry/:retry_id/complete - Complete retry attempt (public for couriers)
-incidentsRouter.post('/retry/:retry_id/complete', async (req: Request, res: Response) => {
+incidentsRouter.post('/retry/:retry_id/complete', validateUUIDParam('retry_id'), async (req: Request, res: Response) => {
     try {
         const { retry_id } = req.params;
         const {
@@ -569,7 +569,7 @@ incidentsRouter.post('/:id/resolve', validateUUIDParam('id'), async (req: AuthRe
 });
 
 // PUT /api/incidents/:id/retry/:retry_id - Update retry attempt (admin only)
-incidentsRouter.put('/:id/retry/:retry_id', async (req: AuthRequest, res: Response) => {
+incidentsRouter.put('/:id/retry/:retry_id', validateUUIDParam('id'), validateUUIDParam('retry_id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id, retry_id } = req.params;
         const updates = req.body;

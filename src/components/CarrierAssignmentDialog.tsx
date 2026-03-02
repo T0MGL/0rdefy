@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { logger } from '@/utils/logger';
 import {
   Dialog,
@@ -64,6 +64,9 @@ export function CarrierAssignmentDialog({
   const { toast } = useToast();
   const { carriers, isLoading: loadingCarriers, isError: carriersError, refetch: refetchCarriers } = useCarriers({ activeOnly: true });
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [courierId, setCourierId] = useState<string>('');
   const [shippingCost, setShippingCost] = useState<number>(0);
@@ -77,8 +80,18 @@ export function CarrierAssignmentDialog({
   const [carriersWithCoverage, setCarriersWithCoverage] = useState<CarrierWithCoverage[]>([]);
   const [loadingCoverage, setLoadingCoverage] = useState(false);
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Search cities for autocomplete (debounced)
   useEffect(() => {
+    const controller = new AbortController();
+
     const searchCities = async () => {
       if (!citySearch || citySearch.length < 2) {
         setCityResults([]);
@@ -93,12 +106,15 @@ export function CarrierAssignmentDialog({
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/locations/search?q=${encodeURIComponent(citySearch)}&limit=10`,
           {
+            signal: controller.signal,
             headers: {
               'Authorization': `Bearer ${token}`,
               'X-Store-ID': storeId || '',
             },
           }
         );
+
+        if (!isMountedRef.current || controller.signal.aborted) return;
 
         if (response.ok) {
           const { data } = await response.json();
@@ -107,20 +123,26 @@ export function CarrierAssignmentDialog({
           setCityResults([]);
         }
       } catch (error) {
+        if (!isMountedRef.current || controller.signal.aborted) return;
         logger.error('Error searching cities:', error);
         setCityResults([]);
       } finally {
-        setLoadingCities(false);
+        if (isMountedRef.current && !controller.signal.aborted) setLoadingCities(false);
       }
     };
 
     // Debounce search
     const timeoutId = setTimeout(searchCities, 300);
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [citySearch]);
 
   // Fetch carriers with coverage when city is selected
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchCarriersForCity = async () => {
       if (!selectedCity) {
         setCarriersWithCoverage([]);
@@ -135,12 +157,15 @@ export function CarrierAssignmentDialog({
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/carriers/coverage/city?city=${encodeURIComponent(selectedCity.city)}&department=${encodeURIComponent(selectedCity.department || '')}`,
           {
+            signal: controller.signal,
             headers: {
               'Authorization': `Bearer ${token}`,
               'X-Store-ID': storeId || '',
             },
           }
         );
+
+        if (!isMountedRef.current || controller.signal.aborted) return;
 
         if (response.ok) {
           const { data } = await response.json();
@@ -164,14 +189,18 @@ export function CarrierAssignmentDialog({
           setCarriersWithCoverage([]);
         }
       } catch (error) {
+        if (!isMountedRef.current || controller.signal.aborted) return;
         logger.error('Error fetching carriers for city:', error);
         setCarriersWithCoverage([]);
       } finally {
-        setLoadingCoverage(false);
+        if (isMountedRef.current && !controller.signal.aborted) setLoadingCoverage(false);
       }
     };
 
     fetchCarriersForCity();
+    return () => {
+      controller.abort();
+    };
   }, [selectedCity]);
 
   // Reset state when dialog opens

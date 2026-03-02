@@ -917,24 +917,13 @@ async function updateSubscriptionInDB(
  * SECURITY: Returns generic 'unauthorized' to avoid information disclosure
  */
 function validateCronAuth(req: Request): { valid: boolean; source: string } {
-  // Railway internal cron jobs come from private network
-  // Check for Railway-specific headers or internal IP
-  const railwayEnv = process.env.RAILWAY_ENVIRONMENT;
-  const isRailwayInternal = req.headers['x-railway-cron'] === 'true' ||
-    req.ip === '127.0.0.1' ||
-    req.ip === '::1' ||
-    req.headers.host?.includes('.railway.internal');
-
-  if (railwayEnv && isRailwayInternal) {
-    return { valid: true, source: 'railway-internal' };
-  }
-
-  // External callers must provide CRON_SECRET
-  // SECURITY: Single check to avoid information disclosure about whether secret is configured
+  // SECURITY: Only trust CRON_SECRET header — never trust spoofable headers like x-railway-cron
   const cronSecret = req.headers['x-cron-secret'];
   const expectedSecret = process.env.CRON_SECRET;
 
-  if (!expectedSecret || cronSecret !== expectedSecret) {
+  // Railway cron jobs: configured via railway.json, Railway injects the secret automatically
+  // External callers: must provide X-Cron-Secret header
+  if (!expectedSecret || !cronSecret || cronSecret !== expectedSecret) {
     return { valid: false, source: 'unauthorized' };
   }
 

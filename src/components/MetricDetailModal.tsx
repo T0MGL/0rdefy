@@ -41,28 +41,34 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
   }, []);
 
   useEffect(() => {
-    if (open) {
-      const loadData = async () => {
-        setIsLoading(true);
-        try {
-          const [ordersResponse, productsData, carriersData] = await Promise.all([
-            ordersService.getAll(),
-            productsService.getAll(),
-            carriersService.getAll(),
-          ]);
-          if (!isMountedRef.current) return;
-          setOrders(ordersResponse.data || []);
-          setProducts(productsData.data || []);
-          setCarriers(carriersData);
-        } catch (error) {
-          if (!isMountedRef.current) return;
-          logger.error('Error loading metric detail data:', error);
-        } finally {
-          if (isMountedRef.current) setIsLoading(false);
-        }
-      };
-      loadData();
-    }
+    if (!open) return;
+
+    const controller = new AbortController();
+
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        const [ordersResponse, productsData, carriersData] = await Promise.all([
+          ordersService.getAll(),
+          productsService.getAll(),
+          carriersService.getAll(),
+        ]);
+        if (controller.signal.aborted || !isMountedRef.current) return;
+        setOrders(ordersResponse.data || []);
+        setProducts(productsData.data || []);
+        setCarriers(carriersData);
+      } catch (error) {
+        if (controller.signal.aborted || !isMountedRef.current) return;
+        logger.error('Error loading metric detail data:', error);
+      } finally {
+        if (!controller.signal.aborted && isMountedRef.current) setIsLoading(false);
+      }
+    };
+    loadData();
+
+    return () => {
+      controller.abort();
+    };
   }, [open]);
 
   // Aggregate orders by day for chart data (replaces Math.random)

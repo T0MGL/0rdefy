@@ -116,19 +116,21 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
     let skipped = 0;
     const errors: any[] = [];
 
-    // Process each product
+    // Map all Shopify products to Ordefy format, then batch upsert
+    const BATCH_SIZE = 50;
+    const mappedProducts: any[] = [];
+
     for (const shopifyProduct of shopifyProducts) {
       try {
-        // Map Shopify product to Ordefy format
-        const variant = shopifyProduct.variants[0]; // Use first variant
+        const variant = shopifyProduct.variants[0];
         const image = shopifyProduct.images[0]?.src || null;
 
-        const ordefyProduct = {
+        mappedProducts.push({
           store_id: req.storeId,
           name: shopifyProduct.title,
           description: shopifyProduct.body_html || '',
           price: parseFloat(variant.price) || 0,
-          cost: 0, // Not available in Shopify API
+          cost: 0,
           stock: variant.inventory_quantity || 0,
           image_url: image,
           shopify_product_id: shopifyProduct.id.toString(),
@@ -137,28 +139,9 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
           category: shopifyProduct.product_type || null,
           is_active: shopifyProduct.status === 'active',
           modified_by: 'shopify_sync',
-        };
-
-        // Upsert product (update if exists, insert if new)
-        const { error: upsertError } = await supabaseAdmin
-          .from('products')
-          .upsert(ordefyProduct, {
-            onConflict: 'shopify_product_id',
-            ignoreDuplicates: false,
-          });
-
-        if (upsertError) {
-          throw upsertError;
-        }
-
-        synced++;
-
-        // Log progress every 10 items
-        if (synced % 10 === 0) {
-          logger.info('API', `📦 [SHOPIFY SYNC] Progress: ${synced}/${shopifyProducts.length} products`);
-        }
+        });
       } catch (error: any) {
-        logger.error('API', `❌ [SHOPIFY SYNC] Error syncing product ${shopifyProduct.id}:`, error);
+        logger.error('API', `❌ [SHOPIFY SYNC] Error mapping product ${shopifyProduct.id}:`, error);
         errors.push({
           product_id: shopifyProduct.id,
           product_name: shopifyProduct.title,
@@ -166,6 +149,27 @@ shopifySyncRouter.post('/sync/products', async (req: AuthRequest, res: Response)
         });
         skipped++;
       }
+    }
+
+    // Batch upsert in chunks (50x fewer DB round-trips)
+    for (let i = 0; i < mappedProducts.length; i += BATCH_SIZE) {
+      const batch = mappedProducts.slice(i, i + BATCH_SIZE);
+      const { error: upsertError } = await supabaseAdmin
+        .from('products')
+        .upsert(batch, {
+          onConflict: 'shopify_product_id',
+          ignoreDuplicates: false,
+        });
+
+      if (upsertError) {
+        logger.error('API', `❌ [SHOPIFY SYNC] Batch upsert error (items ${i}-${i + batch.length}):`, upsertError);
+        skipped += batch.length;
+        errors.push({ batch_start: i, error: upsertError.message });
+      } else {
+        synced += batch.length;
+      }
+
+      logger.info('API', `📦 [SHOPIFY SYNC] Progress: ${synced + skipped}/${shopifyProducts.length} products`);
     }
 
     // Update sync config
@@ -244,54 +248,48 @@ shopifySyncRouter.post('/sync/customers', async (req: AuthRequest, res: Response
     let skipped = 0;
     const errors: any[] = [];
 
-    // Process each customer
+    // Map all customers, then batch upsert
+    const BATCH_SIZE = 50;
+    const mappedCustomers: any[] = [];
+
     for (const shopifyCustomer of shopifyCustomers) {
-      try {
-        // Skip customers without email (required in Ordefy)
-        if (!shopifyCustomer.email) {
-          logger.warn('API', `⚠️  [SHOPIFY SYNC] Skipping customer ${shopifyCustomer.id}: no email`);
-          skipped++;
-          continue;
-        }
-
-        const ordefyCustomer = {
-          store_id: req.storeId,
-          shopify_customer_id: shopifyCustomer.id.toString(),
-          email: shopifyCustomer.email,
-          phone: shopifyCustomer.phone || null,
-          first_name: shopifyCustomer.first_name || '',
-          last_name: shopifyCustomer.last_name || '',
-          total_orders: shopifyCustomer.orders_count || 0,
-          total_spent: parseFloat(shopifyCustomer.total_spent) || 0,
-        };
-
-        // Upsert customer
-        const { error: upsertError } = await supabaseAdmin
-          .from('customers')
-          .upsert(ordefyCustomer, {
-            onConflict: 'shopify_customer_id',
-            ignoreDuplicates: false,
-          });
-
-        if (upsertError) {
-          throw upsertError;
-        }
-
-        synced++;
-
-        // Log progress every 10 items
-        if (synced % 10 === 0) {
-          logger.info('API', `👥 [SHOPIFY SYNC] Progress: ${synced}/${shopifyCustomers.length} customers`);
-        }
-      } catch (error: any) {
-        logger.error('API', `❌ [SHOPIFY SYNC] Error syncing customer ${shopifyCustomer.id}:`, error);
-        errors.push({
-          customer_id: shopifyCustomer.id,
-          customer_email: shopifyCustomer.email,
-          error: error.message,
-        });
+      if (!shopifyCustomer.email) {
+        logger.warn('API', `⚠️  [SHOPIFY SYNC] Skipping customer ${shopifyCustomer.id}: no email`);
         skipped++;
+        continue;
       }
+
+      mappedCustomers.push({
+        store_id: req.storeId,
+        shopify_customer_id: shopifyCustomer.id.toString(),
+        email: shopifyCustomer.email,
+        phone: shopifyCustomer.phone || null,
+        first_name: shopifyCustomer.first_name || '',
+        last_name: shopifyCustomer.last_name || '',
+        total_orders: shopifyCustomer.orders_count || 0,
+        total_spent: parseFloat(shopifyCustomer.total_spent) || 0,
+      });
+    }
+
+    // Batch upsert in chunks (50x fewer DB round-trips)
+    for (let i = 0; i < mappedCustomers.length; i += BATCH_SIZE) {
+      const batch = mappedCustomers.slice(i, i + BATCH_SIZE);
+      const { error: upsertError } = await supabaseAdmin
+        .from('customers')
+        .upsert(batch, {
+          onConflict: 'shopify_customer_id',
+          ignoreDuplicates: false,
+        });
+
+      if (upsertError) {
+        logger.error('API', `❌ [SHOPIFY SYNC] Customer batch upsert error (items ${i}-${i + batch.length}):`, upsertError);
+        skipped += batch.length;
+        errors.push({ batch_start: i, error: upsertError.message });
+      } else {
+        synced += batch.length;
+      }
+
+      logger.info('API', `👥 [SHOPIFY SYNC] Progress: ${synced + skipped}/${shopifyCustomers.length} customers`);
     }
 
     // Update sync config
@@ -376,23 +374,40 @@ shopifySyncRouter.post('/sync/inventory', async (req: AuthRequest, res: Response
     let skipped = 0;
     const errors: any[] = [];
 
-    for (const product of products) {
-      try {
-        // Note: shopify_variant_id is actually the inventory_item_id for inventory updates
-        await shopifyClient.updateInventory(product.shopify_variant_id, product.stock);
-        synced++;
+    // Process inventory updates in parallel batches (respecting Shopify 2 req/sec rate limit)
+    const CONCURRENCY = 3;
+    for (let i = 0; i < products.length; i += CONCURRENCY) {
+      const batch = products.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(async (product: any) => {
+          await shopifyClient.updateInventory(product.shopify_variant_id, product.stock);
+          return product;
+        })
+      );
 
-        if (synced % 10 === 0) {
-          logger.info('API', `📊 [SHOPIFY SYNC] Progress: ${synced}/${products.length} inventories`);
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === 'fulfilled') {
+          synced++;
+        } else {
+          const product = batch[j];
+          logger.error('API', `❌ [SHOPIFY SYNC] Error updating inventory for ${product.name}:`, result.reason);
+          errors.push({
+            product_id: product.id,
+            product_name: product.name,
+            error: result.reason?.message || 'Unknown error',
+          });
+          skipped++;
         }
-      } catch (error: any) {
-        logger.error('API', `❌ [SHOPIFY SYNC] Error updating inventory for ${product.name}:`, error);
-        errors.push({
-          product_id: product.id,
-          product_name: product.name,
-          error: error.message,
-        });
-        skipped++;
+      }
+
+      if ((i + CONCURRENCY) % 30 === 0 || i + CONCURRENCY >= products.length) {
+        logger.info('API', `📊 [SHOPIFY SYNC] Progress: ${synced + skipped}/${products.length} inventories`);
+      }
+
+      // Brief pause between batches to respect Shopify rate limits (2 req/sec)
+      if (i + CONCURRENCY < products.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 

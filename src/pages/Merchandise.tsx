@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Package, Truck, Calendar, Search, Filter, CheckCircle2, AlertCircle, Clock, PackagePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -28,6 +28,8 @@ export default function Merchandise() {
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const { currentStore } = useAuth();
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -46,10 +48,23 @@ export default function Merchandise() {
 
   const hasMerchandiseFeature = hasFeature('merchandise');
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Load initial data
   useEffect(() => {
     if (!hasMerchandiseFeature) return;
-    loadData();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    loadData(controller);
+    return () => {
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, hasMerchandiseFeature]);
 
@@ -62,7 +77,7 @@ export default function Merchandise() {
     return <FeatureBlockedPage feature="merchandise" />;
   }
 
-  const loadData = async () => {
+  const loadData = async (controller?: AbortController) => {
     setLoading(true);
     try {
       // Use Promise.allSettled to handle partial failures gracefully
@@ -71,6 +86,8 @@ export default function Merchandise() {
         productsService.getAll({ source: 'local' }), // Only load local products (not from Shopify)
         suppliersService.getAll(),
       ]);
+
+      if (!isMountedRef.current || controller?.signal.aborted) return;
 
       const [shipmentsResult, productsResult, suppliersResult] = results;
       const errors: string[] = [];
@@ -106,6 +123,7 @@ export default function Merchandise() {
         });
       }
     } catch (error) {
+      if (!isMountedRef.current || controller?.signal.aborted) return;
       // This catch is for unexpected errors in the settlement handling itself
       toast({
         title: 'Error',
@@ -113,7 +131,7 @@ export default function Merchandise() {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   };
 

@@ -385,6 +385,16 @@ export default function Settlements() {
   const { toast } = useToast();
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+    };
+  }, []);
 
   // Main tab state
   const [activeTab, setActiveTab] = useState<MainTab>('conciliaciones');
@@ -725,8 +735,9 @@ export default function Settlements() {
       setCurrentStep('complete');
 
       // Reload groups after a short delay
-      setTimeout(() => {
-        loadGroups();
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) loadGroups();
       }, 1000);
     } catch (error: any) {
       toast({
