@@ -1442,6 +1442,7 @@ export class ExternalWebhookService {
   /**
    * Updates order status via API key (no JWT).
    * Finds order by order_number or phone, validates transition, applies update.
+   * Stock restore is handled by the DB trigger (update_product_stock_on_order_status).
    */
   async updateOrderStatusViaApi(
     storeId: string,
@@ -1471,6 +1472,8 @@ export class ExternalWebhookService {
       const order = findResult.order!;
 
       // 2. Validate allowed statuses for external API
+      // Restricted set: warehouse/delivery statuses (in_preparation, ready_to_ship, shipped,
+      // in_transit, delivered) are dashboard-only to prevent accidental stock operations
       const allowedStatuses = ['pending', 'contacted', 'confirmed', 'cancelled', 'rejected'];
       if (!allowedStatuses.includes(options.status)) {
         return {
@@ -1489,9 +1492,11 @@ export class ExternalWebhookService {
         };
       }
 
-      // Basic transition validation - block impossible ones
+      // Block transitions that don't make sense or are dangerous
+      // Uses same rules as dashboard STATUS_TRANSITIONS
       const blockedTransitions: Record<string, string[]> = {
-        delivered: ['pending', 'contacted', 'confirmed', 'cancelled'],
+        delivered: ['pending', 'contacted', 'confirmed', 'cancelled', 'rejected'],
+        returned: ['cancelled', 'rejected'],
       };
       if (blockedTransitions[order.status]?.includes(options.status)) {
         return {
@@ -1501,71 +1506,88 @@ export class ExternalWebhookService {
         };
       }
 
-      // 4. Build update data
+      // 4. Sanitize reason (limit length to prevent abuse)
+      const sanitizedReason = options.reason
+        ? String(options.reason).substring(0, 500).trim()
+        : undefined;
+
+      // 5. Build update data
+      const now = new Date().toISOString();
       const updateData: any = {
         sleeves_status: options.status,
-        updated_at: new Date().toISOString()
+        updated_at: now
       };
 
       if (options.status === 'contacted') {
-        updateData.contacted_at = new Date().toISOString();
+        updateData.contacted_at = now;
         updateData.contacted_by = `api:${config.api_key_prefix}`;
         updateData.contacted_method = 'external_api';
       }
 
       if (options.status === 'cancelled' || options.status === 'rejected') {
-        updateData.cancelled_at = new Date().toISOString();
-        if (options.reason) {
-          updateData.cancel_reason = options.reason;
-          updateData.rejection_reason = options.reason;
+        updateData.cancelled_at = now;
+        if (sanitizedReason) {
+          updateData.cancel_reason = sanitizedReason;
+          updateData.rejection_reason = sanitizedReason;
         }
       }
 
       if (options.status === 'confirmed') {
-        updateData.confirmed_at = new Date().toISOString();
+        updateData.confirmed_at = now;
         updateData.confirmed_by = `api:${config.api_key_prefix}`;
         updateData.confirmation_method = 'external_api';
       }
 
-      // If reactivating from cancelled, reset delivery fields
-      if (order.status === 'cancelled' && ['pending', 'contacted', 'confirmed'].includes(options.status)) {
+      // If reactivating from cancelled/rejected, reset delivery fields
+      if ((order.status === 'cancelled' || order.status === 'rejected') &&
+          ['pending', 'contacted', 'confirmed'].includes(options.status)) {
         updateData.delivery_status = 'pending';
         updateData.delivery_failure_reason = null;
         updateData.cancelled_at = null;
       }
 
-      // 5. Apply update
+      // 6. Apply update with optimistic concurrency (verify status hasn't changed)
       const { data, error } = await supabaseAdmin
         .from('orders')
         .update(updateData)
         .eq('id', order.id)
         .eq('store_id', storeId)
+        .eq('sleeves_status', order.status) // Optimistic lock: only update if status is still what we read
+        .is('deleted_at', null)
         .select('id, shopify_order_name, shopify_order_number, order_number, sleeves_status')
         .single();
 
       if (error || !data) {
+        // If no rows updated, the order status changed between find and update (race condition)
+        if (error?.code === 'PGRST116') {
+          return {
+            success: false,
+            error: 'Order status changed concurrently. Please retry.',
+            code: 'CONCURRENT_MODIFICATION'
+          };
+        }
         logger.error('BACKEND', '❌ [ExternalWebhook] Error updating order status:', error);
         return { success: false, error: 'Failed to update order status', code: 'UPDATE_FAILED' };
       }
 
-      // 6. Log status change (audit, non-blocking)
-      try {
-        await supabaseAdmin
-          .from('order_status_history')
-          .insert({
-            order_id: order.id,
-            store_id: storeId,
-            previous_status: order.status,
-            new_status: options.status,
-            changed_by: `api:${config.api_key_prefix}`,
-            change_source: 'external_api',
-            notes: options.reason
-              ? `Status updated via external API: ${options.reason}`
-              : 'Status updated via external API'
-          });
-      } catch {
-        // Non-critical audit
-      }
+      // 7. Log status change (audit, non-blocking)
+      supabaseAdmin
+        .from('order_status_history')
+        .insert({
+          order_id: order.id,
+          store_id: storeId,
+          previous_status: order.status,
+          new_status: options.status,
+          changed_by: `api:${config.api_key_prefix}`,
+          change_source: 'external_api',
+          notes: sanitizedReason
+            ? `Status updated via external API: ${sanitizedReason}`
+            : 'Status updated via external API'
+        })
+        .then(() => {})
+        .catch((err) => {
+          logger.error('BACKEND', '❌ [ExternalWebhook] Failed to log status history:', err);
+        });
 
       const orderNumber = data.shopify_order_name || data.shopify_order_number || data.order_number || null;
 
@@ -1590,6 +1612,12 @@ export class ExternalWebhookService {
    * Updates order line items via API key (no JWT).
    * Supports adding, removing, and replacing items.
    * Only allowed before stock deduction (pre ready_to_ship).
+   *
+   * Operation order (safe):
+   *  1. Update JSONB line_items + totals on orders table FIRST
+   *     (this is protected by trigger_prevent_line_items_edit if stock was deducted)
+   *  2. Only THEN modify order_line_items normalized table
+   *     (if step 1 fails, normalized table is untouched)
    */
   async updateOrderItemsViaApi(
     storeId: string,
@@ -1628,7 +1656,9 @@ export class ExternalWebhookService {
       const order = findResult.order!;
 
       // 2. Check status allows line item editing
-      const stockDeductedStatuses = ['ready_to_ship', 'shipped', 'in_transit', 'delivered'];
+      // Must match DB trigger: ready_to_ship, shipped, delivered block JSONB edits
+      // We also block in_transit (stock deducted) and returned (already processed)
+      const stockDeductedStatuses = ['ready_to_ship', 'shipped', 'in_transit', 'delivered', 'returned'];
       if (stockDeductedStatuses.includes(order.status)) {
         return {
           success: false,
@@ -1642,12 +1672,66 @@ export class ExternalWebhookService {
         return { success: false, error: 'At least one product is required', code: 'MISSING_PRODUCTS' };
       }
 
+      // Cap products array to prevent abuse (max 50 items per request)
+      if (items.products.length > 50) {
+        return { success: false, error: 'Maximum 50 products per request', code: 'TOO_MANY_PRODUCTS' };
+      }
+
       const validActions = ['add', 'remove', 'replace'];
       if (!validActions.includes(items.action)) {
         return { success: false, error: `Invalid action. Allowed: ${validActions.join(', ')}`, code: 'INVALID_ACTION' };
       }
 
-      // 4. Resolve products by SKU or product_id
+      // 4. Batch-resolve products by SKU and product_id (avoid N+1)
+      const skusToResolve = items.products
+        .map(p => p.sku)
+        .filter((s): s is string => !!s && typeof s === 'string');
+      const productIdsToResolve = items.products
+        .map(p => p.product_id)
+        .filter((id): id is string => !!id && typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+
+      // Batch fetch products by ID
+      const productsById = new Map<string, any>();
+      if (productIdsToResolve.length > 0) {
+        const { data: productsByIdData } = await supabaseAdmin
+          .from('products')
+          .select('id, name, price, cost, sku, image_url, packaging_cost, additional_costs')
+          .eq('store_id', storeId)
+          .in('id', productIdsToResolve);
+        (productsByIdData || []).forEach((p: any) => productsById.set(p.id, p));
+      }
+
+      // Batch fetch products by SKU
+      const productsBySku = new Map<string, any>();
+      if (skusToResolve.length > 0) {
+        const { data: productsBySkuData } = await supabaseAdmin
+          .from('products')
+          .select('id, name, price, cost, sku, image_url, packaging_cost, additional_costs')
+          .eq('store_id', storeId)
+          .in('sku', skusToResolve);
+        (productsBySkuData || []).forEach((p: any) => {
+          if (p.sku) productsBySku.set(p.sku, p);
+        });
+      }
+
+      // Batch fetch variants by SKU (for SKUs not found in products)
+      const unresolvedSkus = skusToResolve.filter(sku => !productsBySku.has(sku));
+      const variantsBySku = new Map<string, any>();
+      if (unresolvedSkus.length > 0) {
+        const { data: variantsData } = await supabaseAdmin
+          .from('product_variants')
+          .select(`
+            id, product_id, variant_title, sku, price, cost, units_per_pack, image_url, variant_type, uses_shared_stock,
+            products!inner(id, name, image_url, cost, packaging_cost, additional_costs, store_id)
+          `)
+          .in('sku', unresolvedSkus)
+          .eq('products.store_id', storeId);
+        (variantsData || []).forEach((v: any) => {
+          if (v.sku) variantsBySku.set(v.sku, v);
+        });
+      }
+
+      // 5. Resolve each item using the batch-fetched data
       const resolvedProducts: Array<{
         product_id: string | null;
         variant_id: string | null;
@@ -1667,51 +1751,28 @@ export class ExternalWebhookService {
         let product: any = null;
         let variant: any = null;
 
-        // Try to resolve by product_id first
-        if (item.product_id) {
-          const { data: productData } = await supabaseAdmin
-            .from('products')
-            .select('id, name, price, cost, sku, image_url, packaging_cost, additional_costs')
-            .eq('id', item.product_id)
-            .eq('store_id', storeId)
-            .single();
-          product = productData;
+        // Resolve by product_id (already validated as UUID above)
+        if (item.product_id && productsById.has(item.product_id)) {
+          product = productsById.get(item.product_id);
         }
 
-        // Try to resolve by SKU if no product_id or not found
+        // Resolve by SKU if no product found
         if (!product && item.sku) {
-          const { data: productData } = await supabaseAdmin
-            .from('products')
-            .select('id, name, price, cost, sku, image_url, packaging_cost, additional_costs')
-            .eq('store_id', storeId)
-            .eq('sku', item.sku)
-            .single();
-          product = productData;
-
-          // Also check variants by SKU
-          if (!product) {
-            const { data: variantData } = await supabaseAdmin
-              .from('product_variants')
-              .select(`
-                id, product_id, variant_title, sku, price, cost, units_per_pack, image_url, variant_type, uses_shared_stock,
-                products!inner(id, name, image_url, cost, packaging_cost, additional_costs, store_id)
-              `)
-              .eq('sku', item.sku)
-              .eq('products.store_id', storeId)
-              .single();
-
-            if (variantData) {
-              variant = variantData;
-              product = (variantData as any).products;
-            }
+          product = productsBySku.get(item.sku) || null;
+          if (!product && variantsBySku.has(item.sku)) {
+            variant = variantsBySku.get(item.sku);
+            product = variant.products;
           }
         }
 
-        const unitPrice = item.price || product?.price || 0;
-        const productName = item.name || product?.name || 'Producto';
+        const unitPrice = Number(item.price) || product?.price || 0;
+        const productName = (item.name ? String(item.name).substring(0, 255) : null)
+          || product?.name || 'Producto';
         const productId = product?.id || null;
         const variantId = variant?.id || null;
-        const variantTitle = item.variant_title || variant?.variant_title || null;
+        const variantTitle = item.variant_title
+          ? String(item.variant_title).substring(0, 255)
+          : (variant?.variant_title || null);
         const variantType = item.variant_type || variant?.variant_type || null;
         const unitsPerPack = variant?.units_per_pack || 1;
         const imageUrl = variant?.image_url || product?.image_url || null;
@@ -1719,7 +1780,7 @@ export class ExternalWebhookService {
         // Calculate unit cost
         let unitCost = 0;
         if (variant?.cost) {
-          unitCost = Number(variant.cost);
+          unitCost = Number(variant.cost) || 0;
         } else if (product) {
           unitCost = (Number(product.cost) || 0) + (Number(product.packaging_cost) || 0) + (Number(product.additional_costs) || 0);
         }
@@ -1728,35 +1789,45 @@ export class ExternalWebhookService {
           product_id: productId,
           variant_id: variantId,
           product_name: productName,
-          sku: item.sku || variant?.sku || product?.sku || null,
-          quantity: Math.max(1, Math.floor(item.quantity || 1)),
-          unit_price: unitPrice,
+          sku: item.sku ? String(item.sku).substring(0, 100) : (variant?.sku || product?.sku || null),
+          quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
+          unit_price: Math.max(0, unitPrice),
           variant_title: variantTitle,
           variant_type: variantType,
           units_per_pack: unitsPerPack,
           image_url: imageUrl,
-          is_upsell: item.is_upsell || false,
-          unit_cost: unitCost
+          is_upsell: item.is_upsell === true,
+          unit_cost: Math.max(0, unitCost)
         });
       }
 
-      // 5. Get current order data
+      // 6. Get current order data (with store_id filter for security)
       const { data: currentOrder } = await supabaseAdmin
         .from('orders')
-        .select('id, line_items, total_price, subtotal_price, order_line_items(id, product_id, sku, is_upsell)')
+        .select('id, line_items, total_price, subtotal_price, sleeves_status, order_line_items(id, product_id, sku, is_upsell)')
         .eq('id', order.id)
+        .eq('store_id', storeId)
+        .is('deleted_at', null)
         .single();
 
       if (!currentOrder) {
         return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
       }
 
-      // 6. Execute action
+      // Re-check status (could have changed since findOrderByIdentifier)
+      if (stockDeductedStatuses.includes(currentOrder.sleeves_status)) {
+        return {
+          success: false,
+          error: `Cannot modify items when order is '${currentOrder.sleeves_status}' - stock has been deducted.`,
+          code: 'ITEMS_LOCKED'
+        };
+      }
+
+      // 7. Build final JSONB line_items
       let finalLineItems: any[];
       const existingLineItems = (currentOrder.line_items as any[]) || [];
 
       if (items.action === 'replace') {
-        // Replace all items
         finalLineItems = resolvedProducts.map(p => ({
           product_id: p.product_id,
           product_name: p.product_name,
@@ -1769,14 +1840,7 @@ export class ExternalWebhookService {
           is_upsell: p.is_upsell
         }));
 
-        // Delete all existing order_line_items and insert new ones
-        await supabaseAdmin
-          .from('order_line_items')
-          .delete()
-          .eq('order_id', order.id);
-
       } else if (items.action === 'add') {
-        // Add to existing items
         finalLineItems = [...existingLineItems];
         for (const p of resolvedProducts) {
           finalLineItems.push({
@@ -1793,7 +1857,6 @@ export class ExternalWebhookService {
         }
 
       } else if (items.action === 'remove') {
-        // Remove items by SKU or product_id
         const removeSkus = new Set(resolvedProducts.map(p => p.sku).filter(Boolean));
         const removeProductIds = new Set(resolvedProducts.map(p => p.product_id).filter(Boolean));
 
@@ -1802,51 +1865,71 @@ export class ExternalWebhookService {
           if (item.product_id && removeProductIds.has(item.product_id)) return false;
           return true;
         });
-
-        // Remove from order_line_items table
-        for (const p of resolvedProducts) {
-          if (p.sku) {
-            await supabaseAdmin
-              .from('order_line_items')
-              .delete()
-              .eq('order_id', order.id)
-              .eq('sku', p.sku);
-          } else if (p.product_id) {
-            await supabaseAdmin
-              .from('order_line_items')
-              .delete()
-              .eq('order_id', order.id)
-              .eq('product_id', p.product_id);
-          }
-        }
       } else {
         finalLineItems = existingLineItems;
       }
 
-      // 7. Recalculate total
+      // 8. Recalculate total
       const newTotal = finalLineItems.reduce((sum: number, item: any) => {
-        return sum + ((item.price || 0) * (item.quantity || 1));
+        return sum + (Math.max(0, Number(item.price) || 0) * Math.max(0, Number(item.quantity) || 1));
       }, 0);
 
-      // 8. Update JSONB line_items and totals
+      // 9. Update JSONB line_items FIRST (trigger protects against stock-deducted edits)
       const { error: updateError } = await supabaseAdmin
         .from('orders')
         .update({
           line_items: finalLineItems,
           total_price: newTotal,
           subtotal_price: newTotal,
-          upsell_added: finalLineItems.some((item: any) => item.is_upsell),
+          upsell_added: finalLineItems.some((item: any) => item.is_upsell === true),
           updated_at: new Date().toISOString()
         })
         .eq('id', order.id)
-        .eq('store_id', storeId);
+        .eq('store_id', storeId)
+        .is('deleted_at', null);
 
       if (updateError) {
+        // If trigger blocked the edit, return clear error
+        if (updateError.message?.includes('Cannot modify line_items')) {
+          return {
+            success: false,
+            error: 'Cannot modify items - stock has been deducted for this order.',
+            code: 'ITEMS_LOCKED'
+          };
+        }
         logger.error('BACKEND', '❌ [ExternalWebhook] Error updating order line_items:', updateError);
         return { success: false, error: 'Failed to update order items', code: 'UPDATE_FAILED' };
       }
 
-      // 9. Insert new order_line_items for add/replace actions
+      // 10. NOW update order_line_items normalized table (safe: JSONB already updated)
+      if (items.action === 'replace') {
+        // Delete all existing, then insert new
+        await supabaseAdmin
+          .from('order_line_items')
+          .delete()
+          .eq('order_id', order.id);
+      } else if (items.action === 'remove') {
+        // Remove matching items from normalized table
+        const removeSkus = resolvedProducts.map(p => p.sku).filter(Boolean) as string[];
+        const removeProductIds = resolvedProducts.map(p => p.product_id).filter(Boolean) as string[];
+
+        if (removeSkus.length > 0) {
+          await supabaseAdmin
+            .from('order_line_items')
+            .delete()
+            .eq('order_id', order.id)
+            .in('sku', removeSkus);
+        }
+        if (removeProductIds.length > 0) {
+          await supabaseAdmin
+            .from('order_line_items')
+            .delete()
+            .eq('order_id', order.id)
+            .in('product_id', removeProductIds);
+        }
+      }
+
+      // Insert new normalized line items for add/replace
       if (items.action === 'add' || items.action === 'replace') {
         const newLineItems = resolvedProducts.map(p => ({
           order_id: order.id,
@@ -1871,13 +1954,13 @@ export class ExternalWebhookService {
             .insert(newLineItems);
 
           if (insertError) {
-            logger.error('BACKEND', '❌ [ExternalWebhook] Error inserting order_line_items:', insertError);
-            // Non-blocking - JSONB was already updated
+            logger.error('BACKEND', '❌ [ExternalWebhook] Error inserting order_line_items (JSONB already updated):', insertError);
+            // Non-blocking: JSONB is the source of truth, normalized table is secondary
           }
         }
       }
 
-      // 10. Get order number for response
+      // 11. Get order number for response
       const { data: orderData } = await supabaseAdmin
         .from('orders')
         .select('shopify_order_name, shopify_order_number, order_number, total_price')

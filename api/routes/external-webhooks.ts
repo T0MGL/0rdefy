@@ -952,7 +952,7 @@ externalWebhooksRouter.patch('/orders/:storeId/status', async (req: Request, res
       });
     }
 
-    if (!status) {
+    if (!status || typeof status !== 'string') {
       return res.status(400).json({
         success: false,
         error: 'missing_status',
@@ -963,19 +963,28 @@ externalWebhooksRouter.patch('/orders/:storeId/status', async (req: Request, res
     // Validate phone format
     if (phone) {
       const phoneStr = String(phone).replace(/[^\d+]/g, '');
-      if (phoneStr.length < 6) {
+      if (phoneStr.length < 6 || phoneStr.length > 20) {
         return res.status(400).json({
           success: false,
           error: 'invalid_phone',
-          message: 'Phone number must have at least 6 digits'
+          message: 'Phone number must have between 6 and 20 digits'
         });
       }
+    }
+
+    // Validate order_number length
+    if (order_number && String(order_number).length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_order_number',
+        message: 'order_number must be 50 characters or less'
+      });
     }
 
     // 4. Update status
     const identifier: { order_number?: string; phone?: string } = {};
     if (order_number) {
-      identifier.order_number = String(order_number);
+      identifier.order_number = sanitizeSearchInput(String(order_number));
     } else {
       identifier.phone = String(phone);
     }
@@ -983,7 +992,7 @@ externalWebhooksRouter.patch('/orders/:storeId/status', async (req: Request, res
     const result = await externalWebhookService.updateOrderStatusViaApi(
       storeId,
       identifier,
-      { status: String(status), reason: reason ? String(reason) : undefined },
+      { status: String(status).trim(), reason: reason ? String(reason) : undefined },
       config
     );
 
@@ -1001,9 +1010,11 @@ externalWebhooksRouter.patch('/orders/:storeId/status', async (req: Request, res
     if (!result.success) {
       const statusCode = result.code === 'ORDER_NOT_FOUND' ? 404
         : result.code === 'MULTIPLE_ORDERS' ? 409
+        : result.code === 'CONCURRENT_MODIFICATION' ? 409
         : result.code === 'SAME_STATUS' ? 400
         : result.code === 'STATUS_NOT_ALLOWED' ? 400
         : result.code === 'INVALID_TRANSITION' ? 400
+        : result.code === 'INVALID_PHONE' ? 400
         : 500;
 
       const responseBody: any = {
@@ -1120,7 +1131,7 @@ externalWebhooksRouter.patch('/orders/:storeId/items', async (req: Request, res:
       });
     }
 
-    if (!action) {
+    if (!action || typeof action !== 'string') {
       return res.status(400).json({
         success: false,
         error: 'missing_action',
@@ -1136,22 +1147,68 @@ externalWebhooksRouter.patch('/orders/:storeId/items', async (req: Request, res:
       });
     }
 
+    // Validate each product has minimum required fields
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      if (!p || typeof p !== 'object') {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_product',
+          message: `products[${i}] must be an object`
+        });
+      }
+      if (action !== 'remove') {
+        // add/replace require price and quantity
+        if (typeof p.quantity !== 'number' || p.quantity < 1) {
+          return res.status(400).json({
+            success: false,
+            error: 'invalid_product',
+            message: `products[${i}].quantity must be a positive number`
+          });
+        }
+        if (typeof p.price !== 'number' || p.price < 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'invalid_product',
+            message: `products[${i}].price must be a non-negative number`
+          });
+        }
+      }
+      // remove requires at least sku or product_id to identify what to remove
+      if (action === 'remove' && !p.sku && !p.product_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_product',
+          message: `products[${i}] requires sku or product_id for remove action`
+        });
+      }
+    }
+
     // Validate phone format
     if (phone) {
       const phoneStr = String(phone).replace(/[^\d+]/g, '');
-      if (phoneStr.length < 6) {
+      if (phoneStr.length < 6 || phoneStr.length > 20) {
         return res.status(400).json({
           success: false,
           error: 'invalid_phone',
-          message: 'Phone number must have at least 6 digits'
+          message: 'Phone number must have between 6 and 20 digits'
         });
       }
+    }
+
+    // Validate order_number length
+    if (order_number && String(order_number).length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_order_number',
+        message: 'order_number must be 50 characters or less'
+      });
     }
 
     // 4. Update items
     const identifier: { order_number?: string; phone?: string } = {};
     if (order_number) {
-      identifier.order_number = String(order_number);
+      identifier.order_number = sanitizeSearchInput(String(order_number));
     } else {
       identifier.phone = String(phone);
     }
@@ -1159,7 +1216,7 @@ externalWebhooksRouter.patch('/orders/:storeId/items', async (req: Request, res:
     const result = await externalWebhookService.updateOrderItemsViaApi(
       storeId,
       identifier,
-      { action, products },
+      { action: String(action).trim() as any, products },
       config
     );
 
@@ -1180,7 +1237,9 @@ externalWebhooksRouter.patch('/orders/:storeId/items', async (req: Request, res:
         : result.code === 'MULTIPLE_ORDERS' ? 409
         : result.code === 'ITEMS_LOCKED' ? 409
         : result.code === 'MISSING_PRODUCTS' ? 400
+        : result.code === 'TOO_MANY_PRODUCTS' ? 400
         : result.code === 'INVALID_ACTION' ? 400
+        : result.code === 'INVALID_PHONE' ? 400
         : 500;
 
       const responseBody: any = {
