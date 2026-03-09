@@ -418,12 +418,14 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
             phone: '0981123456 (requerido si no se envía order_number - confirma la orden pendiente más reciente del cliente)',
             courier_id: 'UUID del transportista (opcional - si no se envía, queda pendiente de asignación)',
             is_pickup: 'true para retiro en local (opcional)',
-            shipping_cost: 'Costo de envío en guaraníes (opcional)',
+            shipping_city: 'Ciudad de entrega (opcional - si se envía sin courier_id, auto-selecciona el repartidor más barato con cobertura)',
+            shipping_cost: 'Costo de envío en guaraníes (opcional - si se auto-selecciona carrier, se usa la tarifa del carrier)',
             delivery_zone: 'Zona de entrega (opcional)',
             delivery_preferences: '{ not_before_date, preferred_time_slot, delivery_notes } (opcional)'
           },
           response_fields: {
             awaiting_carrier: 'true si la orden fue confirmada sin transportadora (pendiente de asignación)',
+            auto_carrier: 'true si el carrier fue auto-seleccionado por ciudad (el más barato con cobertura)',
             is_pickup: 'true si es retiro en local'
           },
           error_codes: {
@@ -610,7 +612,8 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
  * - latitude/longitude: Coordenadas (opcional)
  * - google_maps_link: Link de Google Maps (opcional)
  * - delivery_zone: Zona de entrega (opcional)
- * - shipping_cost: Costo de envío (opcional)
+ * - shipping_city: Ciudad de entrega (opcional - si se envía sin courier_id, auto-selecciona el repartidor más barato)
+ * - shipping_cost: Costo de envío (opcional - si se auto-selecciona carrier, se usa la tarifa del carrier)
  * - delivery_preferences: { not_before_date, preferred_time_slot, delivery_notes } (opcional)
  */
 externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res: Response) => {
@@ -656,7 +659,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
 
     // 3. Validate body - require either order_number or phone
     const { order_number, phone, courier_id, is_pickup, address, latitude, longitude,
-            google_maps_link, delivery_zone, shipping_cost, delivery_preferences } = req.body;
+            google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences } = req.body;
 
     if (!order_number && !phone) {
       return res.status(400).json({
@@ -699,7 +702,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
     const result = await externalWebhookService.confirmOrderViaApi(
       storeId,
       identifier,
-      { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_cost, delivery_preferences },
+      { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences },
       config
     );
 
@@ -743,6 +746,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
       order_number: result.order_number,
       status: result.status,
       awaiting_carrier: result.awaiting_carrier || false,
+      auto_carrier: result.auto_carrier || false,
       is_pickup: result.is_pickup || false,
       confirmed_at: result.confirmed_at,
       carrier_name: result.carrier_name,

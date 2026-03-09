@@ -573,6 +573,7 @@ export class ExternalWebhookService {
         customer_address: hasGoogleMapsOnly
           ? 'Ver ubicación en Google Maps'
           : (payload.shipping_address.address || ''),
+        shipping_city: payload.shipping_address.city || null,
         address_reference: payload.shipping_address.reference || null,
         delivery_notes: payload.shipping_address.notes || null,
         google_maps_link: sanitizedMapsUrl || null,
@@ -1229,6 +1230,91 @@ export class ExternalWebhookService {
   }
 
   /**
+   * Finds the cheapest carrier with coverage for a given city.
+   * Uses get_carriers_for_city RPC (same as dashboard) + carrier_zones fallback.
+   * Returns null if no carrier has coverage.
+   */
+  private async findCheapestCarrierForCity(
+    storeId: string,
+    city: string
+  ): Promise<{ carrier_id: string; carrier_name: string; rate: number; zone_code: string | null } | null> {
+    try {
+      // 1. Try RPC first (uses carrier_coverage table with normalized text matching)
+      const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('get_carriers_for_city', {
+        p_store_id: storeId,
+        p_city: city,
+        p_department: null
+      });
+
+      // Build candidates from RPC results
+      let candidates: Array<{ carrier_id: string; carrier_name: string; rate: number; zone_code: string | null }> = [];
+
+      if (!rpcError && rpcData && rpcData.length > 0) {
+        candidates = (rpcData as any[])
+          .filter((c: any) => c.has_coverage && c.rate != null && Number(c.rate) > 0)
+          .map((c: any) => ({
+            carrier_id: c.carrier_id,
+            carrier_name: c.carrier_name,
+            rate: Number(c.rate),
+            zone_code: c.zone_code || null
+          }));
+      }
+
+      // 2. If no RPC results, try carrier_zones fallback (legacy system)
+      if (candidates.length === 0) {
+        const normalizedCity = city
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .trim();
+
+        const { data: zoneRows } = await supabaseAdmin
+          .from('carrier_zones')
+          .select('carrier_id, rate, zone_name, zone_code, carriers!inner(id, name, is_active)')
+          .eq('store_id', storeId)
+          .eq('is_active', true)
+          .eq('carriers.is_active', true);
+
+        if (zoneRows && zoneRows.length > 0) {
+          for (const zone of zoneRows) {
+            const zoneName = (zone.zone_name || '')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .trim();
+            const zoneCode = (zone.zone_code || '')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .trim();
+
+            if (zoneName === normalizedCity || zoneCode === normalizedCity) {
+              const rate = Number(zone.rate);
+              if (Number.isFinite(rate) && rate > 0) {
+                candidates.push({
+                  carrier_id: zone.carrier_id,
+                  carrier_name: (zone as any).carriers?.name || 'Carrier',
+                  rate,
+                  zone_code: zone.zone_code || null
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (candidates.length === 0) return null;
+
+      // 3. Return cheapest
+      candidates.sort((a, b) => a.rate - b.rate);
+      return candidates[0];
+    } catch (error) {
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error finding cheapest carrier for city:', error);
+      return null;
+    }
+  }
+
+  /**
    * Confirma una orden vía API key (sin JWT)
    * Usa el mismo RPC confirm_order_atomic que el dashboard
    */
@@ -1243,6 +1329,7 @@ export class ExternalWebhookService {
       longitude?: number;
       google_maps_link?: string;
       delivery_zone?: string;
+      shipping_city?: string;
       shipping_cost?: number;
       delivery_preferences?: any;
     },
@@ -1253,6 +1340,7 @@ export class ExternalWebhookService {
     order_number?: string;
     status?: string;
     awaiting_carrier?: boolean;
+    auto_carrier?: boolean;
     confirmed_at?: string;
     carrier_name?: string | null;
     is_pickup?: boolean;
@@ -1303,6 +1391,43 @@ export class ExternalWebhookService {
         order = foundOrder;
       } else {
         return { success: false, error: 'Either order_number or phone is required', code: 'MISSING_IDENTIFIER' };
+      }
+
+      // 2.5. Auto-select cheapest carrier if city is provided but no courier_id
+      let autoCarrier = false;
+      let resolvedCity = options.shipping_city || null;
+
+      // If no city in options, try to read it from the order's existing shipping_city
+      if (!resolvedCity && !options.courier_id && !options.is_pickup) {
+        const { data: orderCity } = await supabaseAdmin
+          .from('orders')
+          .select('shipping_city')
+          .eq('id', order.id)
+          .single();
+        resolvedCity = orderCity?.shipping_city || null;
+      }
+
+      if (resolvedCity && !options.courier_id && !options.is_pickup) {
+        const cheapest = await this.findCheapestCarrierForCity(storeId, resolvedCity);
+        if (cheapest) {
+          options.courier_id = cheapest.carrier_id;
+          options.shipping_cost = options.shipping_cost ?? cheapest.rate;
+          options.delivery_zone = options.delivery_zone || cheapest.zone_code || undefined;
+          autoCarrier = true;
+          logger.info('BACKEND', `✅ [ExternalWebhook] Auto-selected carrier for city "${resolvedCity}": ${cheapest.carrier_name} (rate: ${cheapest.rate})`);
+        } else {
+          logger.info('BACKEND', `⚠️ [ExternalWebhook] No carrier coverage for city "${resolvedCity}" - confirming without carrier`);
+        }
+      }
+
+      // Save shipping_city on the order if provided (non-blocking)
+      if (resolvedCity) {
+        supabaseAdmin
+          .from('orders')
+          .update({ shipping_city: resolvedCity })
+          .eq('id', order.id)
+          .then(() => {})
+          .catch(() => {});
       }
 
       // 3. Confirm via RPC
@@ -1423,6 +1548,7 @@ export class ExternalWebhookService {
         order_number: orderNumber,
         status: finalStatus,
         awaiting_carrier: confirmWithoutCarrier,
+        auto_carrier: autoCarrier,
         confirmed_at: orderData?.confirmed_at || new Date().toISOString(),
         carrier_name: confirmWithoutCarrier ? null : (rpcResult.carrier_name || null),
         is_pickup: isPickup,
