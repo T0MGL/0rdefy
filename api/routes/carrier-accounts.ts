@@ -12,6 +12,7 @@ import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { Module, Permission } from '../permissions';
 import * as carrierAccountsService from '../services/carrier-accounts.service';
+import { validateUUIDParam } from '../utils/sanitize';
 
 export const carrierAccountsRouter = Router();
 
@@ -54,7 +55,7 @@ carrierAccountsRouter.get('/balances', requireModule(Module.CARRIERS), async (re
 // ================================================================
 // GET /api/carrier-accounts/balances/:carrierId - Get carrier balance summary
 // ================================================================
-carrierAccountsRouter.get('/balances/:carrierId', requireModule(Module.CARRIERS), async (req: PermissionRequest, res: Response) => {
+carrierAccountsRouter.get('/balances/:carrierId', validateUUIDParam('carrierId'), requireModule(Module.CARRIERS), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
     const { from_date, to_date } = req.query;

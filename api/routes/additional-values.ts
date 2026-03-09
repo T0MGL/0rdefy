@@ -117,6 +117,8 @@ additionalValuesRouter.get('/summary', async (req: AuthRequest, res: Response) =
             query = query.lte('date', to_date);
         }
 
+        query = query.limit(1000);
+
         const { data, error } = await query;
 
         if (error) {

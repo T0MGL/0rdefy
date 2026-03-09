@@ -4,7 +4,7 @@
  * Order-first approach with order numbers as protagonists
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ArrowLeft, Package, Loader2 } from 'lucide-react';
@@ -73,18 +73,36 @@ export default function WarehouseNew() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Mounted ref + abort controller for async cleanup
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // ==================== DATA LOADING ====================
 
   const loadDashboardData = useCallback(async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     try {
       const [orders, sessions] = await Promise.all([
         warehouseService.getConfirmedOrders(),
         warehouseService.getActiveSessions(),
       ]);
+      if (!isMountedRef.current) return;
       setConfirmedOrders(orders);
       setActiveSessions(sessions);
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading dashboard data:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
@@ -93,7 +111,7 @@ export default function WarehouseNew() {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, [toast]);
 

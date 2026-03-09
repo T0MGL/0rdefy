@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { carriersService } from '@/services/carriers.service';
 import { MapPin, Clock, DollarSign, TrendingUp, Trophy } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { logger } from '@/utils/logger';
 import { formatCurrency } from '@/utils/currency';
 
@@ -12,12 +12,24 @@ export function CarrierRecommender() {
   const [destination, setDestination] = useState('');
   const [carriers, setCarriers] = useState<any[]>([]);
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; abortControllerRef.current?.abort(); };
+  }, []);
+
   useEffect(() => {
     const loadCarriers = async () => {
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       try {
         const data = await carriersService.getAll();
+        if (!isMountedRef.current || controller.signal.aborted) return;
         setCarriers(data);
       } catch (error) {
+        if (!isMountedRef.current) return;
         logger.error('Error loading carriers:', error);
       }
     };

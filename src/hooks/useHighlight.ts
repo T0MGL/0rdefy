@@ -27,11 +27,11 @@ export function useHighlight() {
       return; // Prevent setState after unmount
     }
     setHighlightId(null);
-    // Remove highlight param from URL
-    const newParams = new URLSearchParams(searchParams);
+    // Remove highlight param from URL - use window.location.search to avoid stale closure
+    const newParams = new URLSearchParams(window.location.search);
     newParams.delete('highlight');
     setSearchParams(newParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [setSearchParams]);
 
   useEffect(() => {
     const id = searchParams.get('highlight');

@@ -60,14 +60,19 @@ export default function Products() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const isMountedRef = useRef(true);
 
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
   const queryClient = useQueryClient();
 
-  // Cleanup debounce timer on unmount
+  // Cleanup on unmount
   useEffect(() => {
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, []);
 
   // Debounce search input
@@ -111,7 +116,9 @@ export default function Products() {
 
   // Check Shopify integration once
   useEffect(() => {
-    productsService.checkShopifyIntegration().then(setHasShopifyIntegration);
+    productsService.checkShopifyIntegration().then((result) => {
+      if (isMountedRef.current) setHasShopifyIntegration(result);
+    }).catch(() => {});
   }, []);
 
   // Process URL query parameters for filtering and navigation from notifications

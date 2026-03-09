@@ -10,7 +10,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { externalWebhookService, ExternalOrderPayload } from '../services/external-webhook.service';
-import { sanitizeSearchInput, isValidUUID } from '../utils/sanitize';
+import { sanitizeSearchInput, isValidUUID, validateUUIDParam } from '../utils/sanitize';
 
 export const externalWebhooksRouter = Router();
 
@@ -277,7 +277,7 @@ externalWebhooksRouter.get('/logs', async (req: any, res: Response) => {
  * GET /api/external-webhooks/logs/:logId
  * Obtener detalles de un log específico
  */
-externalWebhooksRouter.get('/logs/:logId', async (req: any, res: Response) => {
+externalWebhooksRouter.get('/logs/:logId', validateUUIDParam('logId'), async (req: any, res: Response) => {
   try {
     const { storeId } = req;
     const { logId } = req.params;
@@ -412,9 +412,10 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
         confirm_order: {
           method: 'POST',
           url: '/api/webhook/orders/{storeId}/confirm',
-          description: 'Confirmar una orden pendiente o contactada. Si no se envía courier_id, la orden queda confirmada pero pendiente de asignación de transportadora (el admin la asigna desde el dashboard).',
+          description: 'Confirmar una orden pendiente o contactada. Identificar por order_number O phone (uno de los dos es requerido). Si se usa phone, debe existir exactamente 1 orden pendiente/contactada para ese número. Si no se envía courier_id, la orden queda confirmada pero pendiente de asignación de transportadora.',
           body: {
-            order_number: '1315 (requerido)',
+            order_number: '1315 (requerido si no se envía phone)',
+            phone: '0981123456 (requerido si no se envía order_number - confirma la orden pendiente más reciente del cliente)',
             courier_id: 'UUID del transportista (opcional - si no se envía, queda pendiente de asignación)',
             is_pickup: 'true para retiro en local (opcional)',
             shipping_cost: 'Costo de envío en guaraníes (opcional)',
@@ -424,6 +425,58 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
           response_fields: {
             awaiting_carrier: 'true si la orden fue confirmada sin transportadora (pendiente de asignación)',
             is_pickup: 'true si es retiro en local'
+          },
+          error_codes: {
+            ORDER_NOT_FOUND: 'No se encontró la orden (404)',
+            INVALID_STATUS: 'La orden ya fue confirmada o tiene otro estado no confirmable (400)',
+            MULTIPLE_ORDERS: 'Hay múltiples órdenes pendientes para ese teléfono - usar order_number (409)',
+            CARRIER_NOT_FOUND: 'Transportista no encontrado (404)'
+          }
+        },
+        update_status: {
+          method: 'PATCH',
+          url: '/api/webhook/orders/{storeId}/status',
+          description: 'Cambiar el estado de una orden (cancelar, contactar, etc.). Identificar por order_number O phone.',
+          body: {
+            order_number: '1315 (requerido si no se envía phone)',
+            phone: '0981123456 (requerido si no se envía order_number)',
+            status: 'Estado destino: pending, contacted, confirmed, cancelled, rejected',
+            reason: 'Motivo del cambio (opcional, usado para cancelaciones/rechazos)'
+          },
+          error_codes: {
+            ORDER_NOT_FOUND: 'No se encontró la orden (404)',
+            MULTIPLE_ORDERS: 'Múltiples órdenes activas para ese teléfono - usar order_number (409)',
+            STATUS_NOT_ALLOWED: 'Estado no permitido vía API externa (400)',
+            INVALID_TRANSITION: 'Transición de estado no válida (400)',
+            SAME_STATUS: 'La orden ya está en ese estado (400)'
+          }
+        },
+        update_items: {
+          method: 'PATCH',
+          url: '/api/webhook/orders/{storeId}/items',
+          description: 'Modificar los productos de una orden (agregar upsells, quitar productos, reemplazar todo). Solo funciona antes de que se descuente stock (pre ready_to_ship).',
+          body: {
+            order_number: '1315 (requerido si no se envía phone)',
+            phone: '0981123456 (requerido si no se envía order_number)',
+            action: '"add" (agregar), "remove" (quitar), o "replace" (reemplazar todo)',
+            products: '[{ sku: "SKU-001", quantity: 1, price: 150000, name: "Producto", is_upsell: true }]'
+          },
+          product_fields: {
+            sku: 'SKU del producto (resuelve automáticamente producto/variante existente)',
+            product_id: 'UUID del producto (alternativa al SKU)',
+            name: 'Nombre del producto (fallback si no se encuentra por SKU/product_id)',
+            quantity: 'Cantidad (requerido)',
+            price: 'Precio unitario (requerido)',
+            variant_title: 'Descripción de variante (opcional)',
+            variant_type: '"bundle" o "variation" (opcional)',
+            is_upsell: 'true para marcar como upsell (opcional)'
+          },
+          error_codes: {
+            ORDER_NOT_FOUND: 'No se encontró la orden (404)',
+            MULTIPLE_ORDERS: 'Múltiples órdenes activas para ese teléfono - usar order_number (409)',
+            ITEMS_LOCKED: 'No se pueden modificar items después de ready_to_ship (409)',
+            INVALID_ACTION: 'Acción no válida (400)',
+            MISSING_PRODUCTS: 'Array de productos vacío (400)'
           }
         }
       }
@@ -546,8 +599,11 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
  * - Content-Type: application/json
  * - X-API-Key: API Key del webhook
  *
- * Body:
- * - order_number: Número de orden (ej: "1315", "#1315") - requerido
+ * Body (one of order_number or phone is required):
+ * - order_number: Número de orden (ej: "1315", "#1315")
+ * - phone: Teléfono del cliente (ej: "0981123456", "+595981123456")
+ *          Confirma la orden pendiente/contactada más reciente para ese teléfono.
+ *          Falla si hay múltiples órdenes pendientes (usar order_number en ese caso).
  * - courier_id: UUID del transportista (opcional)
  * - is_pickup: boolean - marcar como retiro en local (opcional)
  * - address: Dirección de entrega (opcional)
@@ -598,15 +654,15 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
       });
     }
 
-    // 3. Validate body
-    const { order_number, courier_id, is_pickup, address, latitude, longitude,
+    // 3. Validate body - require either order_number or phone
+    const { order_number, phone, courier_id, is_pickup, address, latitude, longitude,
             google_maps_link, delivery_zone, shipping_cost, delivery_preferences } = req.body;
 
-    if (!order_number) {
+    if (!order_number && !phone) {
       return res.status(400).json({
         success: false,
-        error: 'missing_order_number',
-        message: 'order_number is required'
+        error: 'missing_identifier',
+        message: 'Either order_number or phone is required'
       });
     }
 
@@ -619,32 +675,66 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
       });
     }
 
+    // Validate phone format if provided (handles string or number input from JSON)
+    if (phone) {
+      const phoneStr = String(phone).replace(/[^\d+]/g, '');
+      if (phoneStr.length < 6) {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_phone',
+          message: 'Phone number must have at least 6 digits'
+        });
+      }
+    }
+
+    // Build identifier: order_number takes priority if both are provided
+    const identifier: { order_number?: string; phone?: string } = {};
+    if (order_number) {
+      identifier.order_number = String(order_number);
+    } else {
+      identifier.phone = String(phone);
+    }
+
     // 4. Confirm the order
     const result = await externalWebhookService.confirmOrderViaApi(
       storeId,
-      { order_number },
+      identifier,
       { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_cost, delivery_preferences },
       config
     );
 
     const processingTime = Date.now() - startTime;
+    // Mask phone for PII safety in logs (show last 4 digits only)
+    const maskedIdentifier = order_number
+      ? `order:${order_number}`
+      : `phone:***${String(phone).slice(-4)}`;
     logger.info('API', `[ExternalWebhook] Order confirmation in ${processingTime}ms`, {
       storeId,
       orderId: result.order_id,
+      identifier: maskedIdentifier,
       success: result.success
     });
 
     if (!result.success) {
       const statusCode = result.code === 'ORDER_NOT_FOUND' ? 404
         : result.code === 'INVALID_STATUS' ? 400
+        : result.code === 'MULTIPLE_ORDERS' ? 409
         : result.code === 'CARRIER_NOT_FOUND' ? 404
+        : result.code === 'MISSING_IDENTIFIER' ? 400
         : 500;
 
-      return res.status(statusCode).json({
+      const responseBody: any = {
         success: false,
         error: result.code || 'confirmation_error',
         message: result.error
-      });
+      };
+
+      // Include count for MULTIPLE_ORDERS so integrations can inform the user
+      if (result.code === 'MULTIPLE_ORDERS' && result.multiple_orders) {
+        responseBody.multiple_orders = result.multiple_orders;
+      }
+
+      return res.status(statusCode).json(responseBody);
     }
 
     return res.json({
@@ -784,6 +874,338 @@ externalWebhooksRouter.post('/orders/:storeId', async (req: Request, res: Respon
 
   } catch (error: any) {
     logger.error('API', '[ExternalWebhook] Error processing order:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'server_error',
+      message: 'Error interno del servidor'
+    });
+  }
+});
+
+// ============================================================================
+// PATCH /api/webhook/orders/:storeId/status
+// Actualizar estado de una orden vía API (cancelar, contactar, etc.)
+// ============================================================================
+
+/**
+ * PATCH /api/webhook/orders/:storeId/status
+ * Update order status via external API
+ *
+ * Headers:
+ * - X-API-Key: API Key del webhook
+ *
+ * Body:
+ * - order_number: "1315" or "#1315" (required if no phone)
+ * - phone: "0981123456" (required if no order_number - uses most recent active order)
+ * - status: Target status (allowed: pending, contacted, confirmed, cancelled, rejected)
+ * - reason: Reason for status change (optional, used for cancellations/rejections)
+ */
+externalWebhooksRouter.patch('/orders/:storeId/status', async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  const { storeId } = req.params;
+
+  try {
+    // 1. Validate store ID
+    if (!storeId || !isValidUUID(storeId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_store_id',
+        message: 'Invalid or missing store ID'
+      });
+    }
+
+    // 2. Validate API Key
+    const apiKey = req.get('X-API-Key') || req.get('x-api-key');
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Missing X-API-Key header'
+      });
+    }
+
+    const config = await externalWebhookService.validateApiKey(storeId, apiKey);
+    if (!config) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Invalid API key'
+      });
+    }
+
+    if (!config.is_active) {
+      return res.status(403).json({
+        success: false,
+        error: 'webhook_disabled',
+        message: 'Webhook is disabled'
+      });
+    }
+
+    // 3. Validate body
+    const { order_number, phone, status, reason } = req.body;
+
+    if (!order_number && !phone) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_identifier',
+        message: 'Either order_number or phone is required'
+      });
+    }
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_status',
+        message: 'status field is required'
+      });
+    }
+
+    // Validate phone format
+    if (phone) {
+      const phoneStr = String(phone).replace(/[^\d+]/g, '');
+      if (phoneStr.length < 6) {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_phone',
+          message: 'Phone number must have at least 6 digits'
+        });
+      }
+    }
+
+    // 4. Update status
+    const identifier: { order_number?: string; phone?: string } = {};
+    if (order_number) {
+      identifier.order_number = String(order_number);
+    } else {
+      identifier.phone = String(phone);
+    }
+
+    const result = await externalWebhookService.updateOrderStatusViaApi(
+      storeId,
+      identifier,
+      { status: String(status), reason: reason ? String(reason) : undefined },
+      config
+    );
+
+    const processingTime = Date.now() - startTime;
+    const maskedIdentifier = order_number
+      ? `order:${order_number}`
+      : `phone:***${String(phone).slice(-4)}`;
+    logger.info('API', `[ExternalWebhook] Status update in ${processingTime}ms`, {
+      storeId,
+      identifier: maskedIdentifier,
+      status,
+      success: result.success
+    });
+
+    if (!result.success) {
+      const statusCode = result.code === 'ORDER_NOT_FOUND' ? 404
+        : result.code === 'MULTIPLE_ORDERS' ? 409
+        : result.code === 'SAME_STATUS' ? 400
+        : result.code === 'STATUS_NOT_ALLOWED' ? 400
+        : result.code === 'INVALID_TRANSITION' ? 400
+        : 500;
+
+      const responseBody: any = {
+        success: false,
+        error: result.code || 'status_update_error',
+        message: result.error
+      };
+
+      if (result.code === 'MULTIPLE_ORDERS' && result.multiple_orders) {
+        responseBody.multiple_orders = result.multiple_orders;
+      }
+
+      return res.status(statusCode).json(responseBody);
+    }
+
+    return res.json({
+      success: true,
+      order_id: result.order_id,
+      order_number: result.order_number,
+      previous_status: result.previous_status,
+      new_status: result.new_status
+    });
+
+  } catch (error: any) {
+    logger.error('API', '[ExternalWebhook] Error in status update:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'server_error',
+      message: 'Error interno del servidor'
+    });
+  }
+});
+
+// ============================================================================
+// PATCH /api/webhook/orders/:storeId/items
+// Modificar line items de una orden (agregar/quitar productos, upsells)
+// ============================================================================
+
+/**
+ * PATCH /api/webhook/orders/:storeId/items
+ * Update order line items via external API
+ *
+ * Headers:
+ * - X-API-Key: API Key del webhook
+ *
+ * Body:
+ * - order_number: "1315" or "#1315" (required if no phone)
+ * - phone: "0981123456" (required if no order_number)
+ * - action: "add" | "remove" | "replace"
+ *   - add: Appends products to existing items
+ *   - remove: Removes products by SKU or product_id
+ *   - replace: Replaces ALL items with the provided list
+ * - products: Array of items to add/remove/replace
+ *   - sku: Product SKU (resolves to existing product)
+ *   - product_id: Product UUID (alternative to SKU)
+ *   - name: Product name (fallback if SKU/product_id not found)
+ *   - quantity: Number of units (required)
+ *   - price: Unit price (required)
+ *   - variant_title: Variant description (optional)
+ *   - variant_type: "bundle" | "variation" (optional)
+ *   - is_upsell: boolean (optional, marks as upsell item)
+ *
+ * NOTE: Only works for orders before stock deduction (pre ready_to_ship).
+ */
+externalWebhooksRouter.patch('/orders/:storeId/items', async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  const { storeId } = req.params;
+
+  try {
+    // 1. Validate store ID
+    if (!storeId || !isValidUUID(storeId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_store_id',
+        message: 'Invalid or missing store ID'
+      });
+    }
+
+    // 2. Validate API Key
+    const apiKey = req.get('X-API-Key') || req.get('x-api-key');
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Missing X-API-Key header'
+      });
+    }
+
+    const config = await externalWebhookService.validateApiKey(storeId, apiKey);
+    if (!config) {
+      return res.status(401).json({
+        success: false,
+        error: 'unauthorized',
+        message: 'Invalid API key'
+      });
+    }
+
+    if (!config.is_active) {
+      return res.status(403).json({
+        success: false,
+        error: 'webhook_disabled',
+        message: 'Webhook is disabled'
+      });
+    }
+
+    // 3. Validate body
+    const { order_number, phone, action, products } = req.body;
+
+    if (!order_number && !phone) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_identifier',
+        message: 'Either order_number or phone is required'
+      });
+    }
+
+    if (!action) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_action',
+        message: 'action field is required (add, remove, or replace)'
+      });
+    }
+
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_products',
+        message: 'products array is required with at least one item'
+      });
+    }
+
+    // Validate phone format
+    if (phone) {
+      const phoneStr = String(phone).replace(/[^\d+]/g, '');
+      if (phoneStr.length < 6) {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_phone',
+          message: 'Phone number must have at least 6 digits'
+        });
+      }
+    }
+
+    // 4. Update items
+    const identifier: { order_number?: string; phone?: string } = {};
+    if (order_number) {
+      identifier.order_number = String(order_number);
+    } else {
+      identifier.phone = String(phone);
+    }
+
+    const result = await externalWebhookService.updateOrderItemsViaApi(
+      storeId,
+      identifier,
+      { action, products },
+      config
+    );
+
+    const processingTime = Date.now() - startTime;
+    const maskedIdentifier = order_number
+      ? `order:${order_number}`
+      : `phone:***${String(phone).slice(-4)}`;
+    logger.info('API', `[ExternalWebhook] Items update in ${processingTime}ms`, {
+      storeId,
+      identifier: maskedIdentifier,
+      action,
+      productsCount: products.length,
+      success: result.success
+    });
+
+    if (!result.success) {
+      const statusCode = result.code === 'ORDER_NOT_FOUND' ? 404
+        : result.code === 'MULTIPLE_ORDERS' ? 409
+        : result.code === 'ITEMS_LOCKED' ? 409
+        : result.code === 'MISSING_PRODUCTS' ? 400
+        : result.code === 'INVALID_ACTION' ? 400
+        : 500;
+
+      const responseBody: any = {
+        success: false,
+        error: result.code || 'items_update_error',
+        message: result.error
+      };
+
+      if (result.code === 'MULTIPLE_ORDERS' && result.multiple_orders) {
+        responseBody.multiple_orders = result.multiple_orders;
+      }
+
+      return res.status(statusCode).json(responseBody);
+    }
+
+    return res.json({
+      success: true,
+      order_id: result.order_id,
+      order_number: result.order_number,
+      items_count: result.items_count,
+      total_price: result.total_price
+    });
+
+  } catch (error: any) {
+    logger.error('API', '[ExternalWebhook] Error in items update:', error);
     return res.status(500).json({
       success: false,
       error: 'server_error',

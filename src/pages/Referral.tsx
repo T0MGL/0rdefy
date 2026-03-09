@@ -4,7 +4,7 @@
  * Handles referral links (/r/:code) and redirects to signup with the code
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,16 +20,23 @@ export default function Referral() {
   const [referrerName, setReferrerName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
+    isMountedRef.current = true;
+
     async function validateCode() {
       if (!code) {
-        setError('Código de referido no válido');
-        setIsValidating(false);
+        if (isMountedRef.current) {
+          setError('Código de referido no válido');
+          setIsValidating(false);
+        }
         return;
       }
 
       try {
         const result = await billingService.validateReferralCode(code);
+        if (!isMountedRef.current) return;
         if (result.valid) {
           setIsValid(true);
           setReferrerName(result.referrerName || null);
@@ -39,13 +46,18 @@ export default function Referral() {
           setError(result.error || 'Código de referido no válido o expirado');
         }
       } catch (err: any) {
+        if (!isMountedRef.current) return;
         setError('Error al validar el código de referido');
       } finally {
-        setIsValidating(false);
+        if (isMountedRef.current) setIsValidating(false);
       }
     }
 
     validateCode();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [code]);
 
   const handleSignUp = () => {

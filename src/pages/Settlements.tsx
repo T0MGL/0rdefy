@@ -450,16 +450,18 @@ export default function Settlements() {
   // Payments state (Pagos tab)
   const [payments, setPayments] = useState<CarrierPayment[]>([]);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
   const [paymentCarrier, setPaymentCarrier] = useState<CarrierBalance | null>(null);
 
-  // Payment form state
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentDirection, setPaymentDirection] = useState<'from_carrier' | 'to_carrier'>('from_carrier');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [paymentReference, setPaymentReference] = useState('');
-  const [paymentNotes, setPaymentNotes] = useState('');
+  // Consolidated payment form state (reduces re-renders from 6 setters to 1)
+  const [paymentState, setPaymentState] = useState({
+    open: false,
+    amount: '',
+    direction: 'from_carrier' as 'from_carrier' | 'to_carrier',
+    method: 'cash',
+    reference: '',
+    notes: '',
+  });
   const [paymentProcessing, setPaymentProcessing] = useState(false);
 
   // Adjustment form state
@@ -773,12 +775,14 @@ export default function Settlements() {
       return;
     }
     setPaymentCarrier(carrier);
-    setPaymentAmount(Math.abs(carrier.net_balance).toString());
-    setPaymentDirection(carrier.net_balance > 0 ? 'from_carrier' : 'to_carrier');
-    setPaymentMethod('cash');
-    setPaymentReference('');
-    setPaymentNotes('');
-    setPaymentDialogOpen(true);
+    setPaymentState({
+      open: true,
+      amount: Math.abs(carrier.net_balance).toString(),
+      direction: carrier.net_balance > 0 ? 'from_carrier' : 'to_carrier',
+      method: 'cash',
+      reference: '',
+      notes: '',
+    });
   };
 
   // Open adjustment dialog for a carrier
@@ -792,9 +796,9 @@ export default function Settlements() {
 
   // Handle payment registration
   const handleRegisterPayment = async () => {
-    if (!paymentCarrier || !paymentAmount) return;
+    if (!paymentCarrier || !paymentState.amount) return;
 
-    const amount = parseFloat(paymentAmount);
+    const amount = parseFloat(paymentState.amount);
     if (isNaN(amount) || amount <= 0) {
       toast({
         variant: 'destructive',
@@ -809,11 +813,11 @@ export default function Settlements() {
       const result = await registerCarrierPayment(
         paymentCarrier.carrier_id,
         amount,
-        paymentDirection,
-        paymentMethod,
+        paymentState.direction,
+        paymentState.method,
         {
-          paymentReference: paymentReference || undefined,
-          notes: paymentNotes || undefined,
+          paymentReference: paymentState.reference || undefined,
+          notes: paymentState.notes || undefined,
         }
       );
 
@@ -822,7 +826,7 @@ export default function Settlements() {
         description: `Pago ${result.paymentCode} registrado exitosamente`,
       });
 
-      setPaymentDialogOpen(false);
+      setPaymentState(prev => ({ ...prev, open: false }));
       loadCarrierAccounts();
       loadPayments();
     } catch (error: any) {
@@ -1867,19 +1871,19 @@ export default function Settlements() {
         </Tabs>
 
         {/* Payment Registration Dialog */}
-        <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+        <Dialog open={paymentState.open} onOpenChange={(open) => setPaymentState(prev => ({ ...prev, open }))}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Registrar Pago</DialogTitle>
               <DialogDescription>
-                Registrar pago {paymentDirection === 'from_carrier' ? 'recibido de' : 'enviado a'} {paymentCarrier?.carrier_name}
+                Registrar pago {paymentState.direction === 'from_carrier' ? 'recibido de' : 'enviado a'} {paymentCarrier?.carrier_name}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Direccion del Pago</Label>
-                <Select value={paymentDirection} onValueChange={(v) => setPaymentDirection(v as 'from_carrier' | 'to_carrier')}>
+                <Select value={paymentState.direction} onValueChange={(v) => setPaymentState(prev => ({ ...prev, direction: v as 'from_carrier' | 'to_carrier' }))}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1895,14 +1899,14 @@ export default function Settlements() {
                 <Input
                   type="number"
                   placeholder="0"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  value={paymentState.amount}
+                  onChange={(e) => setPaymentState(prev => ({ ...prev, amount: e.target.value }))}
                 />
               </div>
 
               <div className="space-y-2">
                 <Label>Metodo de Pago</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <Select value={paymentState.method} onValueChange={(v) => setPaymentState(prev => ({ ...prev, method: v }))}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1920,8 +1924,8 @@ export default function Settlements() {
                 <Label>Referencia (opcional)</Label>
                 <Input
                   placeholder="Numero de transferencia, cheque, etc."
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
+                  value={paymentState.reference}
+                  onChange={(e) => setPaymentState(prev => ({ ...prev, reference: e.target.value }))}
                 />
               </div>
 
@@ -1929,17 +1933,17 @@ export default function Settlements() {
                 <Label>Notas (opcional)</Label>
                 <Textarea
                   placeholder="Notas adicionales..."
-                  value={paymentNotes}
-                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  value={paymentState.notes}
+                  onChange={(e) => setPaymentState(prev => ({ ...prev, notes: e.target.value }))}
                 />
               </div>
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPaymentDialogOpen(false)} disabled={paymentProcessing}>
+              <Button variant="outline" onClick={() => setPaymentState(prev => ({ ...prev, open: false }))} disabled={paymentProcessing}>
                 Cancelar
               </Button>
-              <Button onClick={handleRegisterPayment} disabled={paymentProcessing || !paymentAmount}>
+              <Button onClick={handleRegisterPayment} disabled={paymentProcessing || !paymentState.amount}>
                 {paymentProcessing ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />

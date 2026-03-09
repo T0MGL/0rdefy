@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -110,11 +110,17 @@ export function ProductVariantsManager({
     option1_value: ''
   });
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const fetchVariants = useCallback(async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/products/${productId}/variants`, {
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -122,23 +128,29 @@ export function ProductVariantsManager({
       }
 
       const data = await response.json();
+      if (controller.signal.aborted) return;
       setBundles(data.bundles || []);
       setVariations(data.variations || []);
       setParentStock(data.parent_stock || 0);
     } catch (error: any) {
+      if (controller.signal.aborted) return;
       toast({
         title: 'Error',
         description: error.message || 'Error al cargar variantes',
         variant: 'destructive'
       });
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [productId, toast]);
 
   // Fetch variants when dialog opens
   useEffect(() => {
-    if (open && productId) {
+    if (!open) {
+      abortControllerRef.current?.abort();
+      return;
+    }
+    if (productId) {
       fetchVariants();
     }
   }, [open, productId, fetchVariants]);

@@ -970,38 +970,40 @@ router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
 
     logger.info('BILLING', `Found ${expiringTrials?.length || 0} expiring trials`);
 
-    const processed: string[] = [];
-    const failed: string[] = [];
+    // Batch update all expiring trials at once instead of N+1 sequential updates
+    const trialIds = (expiringTrials || []).map(t => t.id);
 
-    for (const trial of expiringTrials || []) {
-      try {
-        // Mark as notified to prevent duplicate sends
-        await supabaseAdmin
-          .from('subscriptions')
-          .update({ trial_reminder_sent: new Date().toISOString() })
-          .eq('id', trial.id);
+    if (trialIds.length > 0) {
+      const { error: updateError } = await supabaseAdmin
+        .from('subscriptions')
+        .update({ trial_reminder_sent: new Date().toISOString() })
+        .in('id', trialIds);
 
-        // TODO: Send email notification
-        // await sendTrialExpiringEmail({
-        //   email: trial.users?.email,
-        //   name: trial.users?.name,
-        //   plan: trial.plan,
-        //   expiresAt: trial.trial_ends_at,
-        // });
+      if (updateError) {
+        logger.error('BILLING', 'Error batch updating trial reminders', updateError);
+        return res.status(500).json({ error: 'Error al actualizar recordatorios de prueba' });
+      }
 
-        processed.push(trial.id);
+      // TODO: Send email notifications
+      // for (const trial of expiringTrials || []) {
+      //   await sendTrialExpiringEmail({
+      //     email: trial.users?.email,
+      //     name: trial.users?.name,
+      //     plan: trial.plan,
+      //     expiresAt: trial.trial_ends_at,
+      //   });
+      // }
+
+      for (const trial of expiringTrials || []) {
         logger.info('BILLING', `Processed trial reminder for user ${trial.user_id}`);
-      } catch (err: any) {
-        logger.error('BILLING', `Error al procesar prueba ${trial.id}`, { error: err.message });
-        failed.push(trial.id);
       }
     }
 
     res.json({
       success: true,
-      processed: processed.length,
-      failed: failed.length,
-      details: { processed, failed },
+      processed: trialIds.length,
+      failed: 0,
+      details: { processed: trialIds, failed: [] },
     });
   } catch (error: any) {
     logger.error('BILLING', 'Unexpected error in expiring-trials', error);
@@ -1041,50 +1043,58 @@ router.post('/cron/past-due-enforcement', async (req: Request, res: Response) =>
 
     logger.info('BILLING', `Found ${overdueSubscriptions?.length || 0} overdue subscriptions`);
 
-    const downgraded: string[] = [];
-    const failed: string[] = [];
+    const overdueIds = (overdueSubscriptions || []).map(s => s.id);
 
-    for (const sub of overdueSubscriptions || []) {
-      try {
-        // Downgrade to free plan after grace period
-        await supabaseAdmin
-          .from('subscriptions')
-          .update({
-            plan: 'free',
-            status: 'canceled',
-            canceled_at: new Date().toISOString(),
-            cancellation_reason: 'payment_failed_grace_period_exceeded',
-          })
-          .eq('id', sub.id);
+    if (overdueIds.length > 0) {
+      // Batch downgrade all overdue subscriptions at once
+      const { error: updateError } = await supabaseAdmin
+        .from('subscriptions')
+        .update({
+          plan: 'free',
+          status: 'canceled',
+          canceled_at: new Date().toISOString(),
+          cancellation_reason: 'payment_failed_grace_period_exceeded',
+        })
+        .in('id', overdueIds);
 
-        // Log the downgrade
-        await supabaseAdmin.from('subscription_history').insert({
-          subscription_id: sub.id,
-          event_type: 'downgraded_payment_failed',
-          from_plan: sub.plan,
-          to_plan: 'free',
-          metadata: {
-            reason: 'Grace period exceeded after payment failure',
-            grace_period_days: gracePeriodDays,
-          },
-        });
-
-        downgraded.push(sub.id);
-        logger.info('BILLING', `Downgraded subscription ${sub.id} to free after grace period`);
-
-        // TODO: Send email notification about downgrade
-      } catch (err: any) {
-        logger.error('BILLING', `Error al degradar suscripción ${sub.id}`, { error: err.message });
-        failed.push(sub.id);
+      if (updateError) {
+        logger.error('BILLING', 'Error batch downgrading subscriptions', updateError);
+        return res.status(500).json({ error: 'Error al degradar suscripciones' });
       }
+
+      // Batch insert history records
+      const historyRecords = (overdueSubscriptions || []).map(sub => ({
+        subscription_id: sub.id,
+        event_type: 'downgraded_payment_failed',
+        from_plan: sub.plan,
+        to_plan: 'free',
+        metadata: {
+          reason: 'Grace period exceeded after payment failure',
+          grace_period_days: gracePeriodDays,
+        },
+      }));
+
+      const { error: historyError } = await supabaseAdmin
+        .from('subscription_history')
+        .insert(historyRecords);
+
+      if (historyError) {
+        logger.error('BILLING', 'Error batch inserting subscription history', historyError);
+      }
+
+      for (const sub of overdueSubscriptions || []) {
+        logger.info('BILLING', `Downgraded subscription ${sub.id} to free after grace period`);
+      }
+
+      // TODO: Send email notifications about downgrade
     }
 
     res.json({
       success: true,
-      downgraded: downgraded.length,
-      failed: failed.length,
+      downgraded: overdueIds.length,
+      failed: 0,
       gracePeriodDays,
-      details: { downgraded, failed },
+      details: { downgraded: overdueIds, failed: [] },
     });
   } catch (error: any) {
     logger.error('BILLING', 'Unexpected error in past-due-enforcement', error);

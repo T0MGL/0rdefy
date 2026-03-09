@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService } from '@/services/analytics.service';
@@ -28,20 +28,32 @@ export function CashFlowProjection() {
   const [isLoading, setIsLoading] = useState(true);
   const [scenario, setScenario] = useState<'conservative' | 'moderate' | 'optimistic'>('moderate');
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; abortControllerRef.current?.abort(); };
+  }, []);
+
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodType]);
 
   const loadData = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsLoading(true);
     try {
       const result = await analyticsService.getCashFlowTimeline(periodType);
+      if (!isMountedRef.current || controller.signal.aborted) return;
       setData(result);
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading cash flow timeline:', error);
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   };
 

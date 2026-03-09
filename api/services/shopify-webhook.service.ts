@@ -1126,7 +1126,7 @@ export class ShopifyWebhookService {
 
       // BATCH FIX: Split into separate queries per filter type to avoid PostgREST URL length limit
       // With 200+ line items, a single .or() query can exceed the ~8KB URL limit
-      type ProductMatch = { id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null };
+      type ProductMatch = { id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null; cost: number | null; packaging_cost: number | null; additional_costs: number | null };
       const productsMap = new Map<string, ProductMatch>();
       const BATCH_SIZE = 80; // Safe batch size for .in() queries
 
@@ -1136,7 +1136,7 @@ export class ShopifyWebhookService {
           const batch = variantIds.slice(i, i + BATCH_SIZE);
           const { data, error } = await this.supabaseAdmin
             .from('products')
-            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url, cost, packaging_cost, additional_costs')
             .eq('store_id', storeId)
             .in('shopify_variant_id', batch);
           if (error) {
@@ -1153,7 +1153,7 @@ export class ShopifyWebhookService {
           const batch = productIds.slice(i, i + BATCH_SIZE);
           const { data, error } = await this.supabaseAdmin
             .from('products')
-            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url, cost, packaging_cost, additional_costs')
             .eq('store_id', storeId)
             .in('shopify_product_id', batch);
           if (error) {
@@ -1170,7 +1170,7 @@ export class ShopifyWebhookService {
           const batch = skus.slice(i, i + BATCH_SIZE);
           const { data, error } = await this.supabaseAdmin
             .from('products')
-            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url, cost, packaging_cost, additional_costs')
             .eq('store_id', storeId)
             .in('sku', batch);
           if (error) {
@@ -1191,6 +1191,7 @@ export class ShopifyWebhookService {
         shopify_variant_id: string | null;
         sku: string | null;
         image_url: string | null;
+        cost: number | null;
         variant_type: string | null;
         uses_shared_stock: boolean | null;
       }> = [];
@@ -1203,7 +1204,7 @@ export class ShopifyWebhookService {
           const batch = variantIds.slice(i, i + BATCH_SIZE);
           const { data: variantData, error: variantError } = await this.supabaseAdmin
             .from('product_variants')
-            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .select('id, product_id, shopify_variant_id, sku, image_url, cost, variant_type, uses_shared_stock')
             .eq('store_id', storeId)
             .eq('is_active', true)
             .in('shopify_variant_id', batch);
@@ -1221,7 +1222,7 @@ export class ShopifyWebhookService {
           const batch = skus.slice(i, i + BATCH_SIZE);
           const { data: variantData, error: variantError } = await this.supabaseAdmin
             .from('product_variants')
-            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .select('id, product_id, shopify_variant_id, sku, image_url, cost, variant_type, uses_shared_stock')
             .eq('store_id', storeId)
             .eq('is_active', true)
             .in('sku', batch);
@@ -1238,9 +1239,9 @@ export class ShopifyWebhookService {
 
       // Build Maps for O(1) lookup
       // Products: priority: variant_id > product_id > SKU
-      const byVariant = new Map<string, { id: string; image_url: string | null }>();
-      const byProduct = new Map<string, { id: string; image_url: string | null }>();
-      const bySku = new Map<string, { id: string; image_url: string | null }>();
+      const byVariant = new Map<string, { id: string; image_url: string | null; cost: number }>();
+      const byProduct = new Map<string, { id: string; image_url: string | null; cost: number }>();
+      const bySku = new Map<string, { id: string; image_url: string | null; cost: number }>();
 
       // Variants: separate maps to track variant_id separately from product_id
       // Include variant_type for bundle vs variation distinction
@@ -1248,32 +1249,35 @@ export class ShopifyWebhookService {
         variant_id: string;
         product_id: string;
         image_url: string | null;
+        cost: number | null;
         variant_type: string | null;
         uses_shared_stock: boolean | null;
       };
       const variantByShopifyId = new Map<string, VariantMatch>();
       const variantBySku = new Map<string, VariantMatch>();
 
-      // Build product maps
+      // Build product maps (include cost for unit_cost snapshot)
       for (const p of products) {
+        const productCostData = { id: p.id, image_url: p.image_url, cost: (Number(p.cost) || 0) + (Number(p.packaging_cost) || 0) + (Number(p.additional_costs) || 0) };
         if (p.shopify_variant_id) {
-          byVariant.set(p.shopify_variant_id, { id: p.id, image_url: p.image_url });
+          byVariant.set(p.shopify_variant_id, productCostData);
         }
         if (p.shopify_product_id) {
-          byProduct.set(p.shopify_product_id, { id: p.id, image_url: p.image_url });
+          byProduct.set(p.shopify_product_id, productCostData);
         }
         if (p.sku) {
-          bySku.set(p.sku.toUpperCase(), { id: p.id, image_url: p.image_url });
+          bySku.set(p.sku.toUpperCase(), productCostData);
         }
       }
 
       // Build variant maps (these have higher priority for variant matching)
-      // Include variant_type for bundle vs variation tracking
+      // Include variant_type and cost for bundle vs variation tracking
       for (const v of variants) {
         const variantData: VariantMatch = {
           variant_id: v.id,
           product_id: v.product_id,
           image_url: v.image_url,
+          cost: v.cost,
           variant_type: v.variant_type || (v.uses_shared_stock ? 'bundle' : 'variation'),
           uses_shared_stock: v.uses_shared_stock
         };
@@ -1298,6 +1302,7 @@ export class ShopifyWebhookService {
         let variantId: string | null = null;
         let imageUrl: string | null = null;
         let variantType: string | null = null; // NEW: bundle or variation
+        let unitCost = 0; // Migration 128: Snapshot cost
 
         // Priority order for matching:
         // 1. product_variants by shopify_variant_id (highest priority - exact variant match)
@@ -1316,6 +1321,7 @@ export class ShopifyWebhookService {
           productId = variantMatchByShopifyId.product_id;
           imageUrl = variantMatchByShopifyId.image_url;
           variantType = variantMatchByShopifyId.variant_type;
+          unitCost = Number(variantMatchByShopifyId.cost) || 0;
           logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by shopify_variant_id: ${shopifyVariantId} (type: ${variantType})`);
         } else if (variantMatchBySku) {
           // Second best: SKU match in product_variants
@@ -1323,6 +1329,7 @@ export class ShopifyWebhookService {
           productId = variantMatchBySku.product_id;
           imageUrl = variantMatchBySku.image_url;
           variantType = variantMatchBySku.variant_type;
+          unitCost = Number(variantMatchBySku.cost) || 0;
           logger.info('SHOPIFY_WEBHOOK', `✅ Matched variant by SKU: ${sku} (type: ${variantType})`);
         } else {
           // Fallback to products table (legacy behavior for simple products)
@@ -1334,7 +1341,15 @@ export class ShopifyWebhookService {
           if (match) {
             productId = match.id;
             imageUrl = match.image_url;
-            // Products without variants default to 'variation' (safer default)
+            unitCost = match.cost || 0;
+          }
+        }
+
+        // If variant matched but cost is 0, fallback to product cost
+        if (unitCost === 0 && productId) {
+          const productMatch = Array.from(productsMap.values()).find(p => p.id === productId);
+          if (productMatch) {
+            unitCost = (Number(productMatch.cost) || 0) + (Number(productMatch.packaging_cost) || 0) + (Number(productMatch.additional_costs) || 0);
           }
         }
 
@@ -1372,6 +1387,7 @@ export class ShopifyWebhookService {
           sku: sku,
           quantity: quantity,
           unit_price: unitPrice,
+          unit_cost: unitCost, // Migration 128: Snapshot cost
           total_price: totalPrice,
           discount_amount: discountAmount,
           tax_amount: taxAmount,

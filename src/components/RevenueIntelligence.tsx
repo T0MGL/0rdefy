@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,19 @@ export function RevenueIntelligence() {
   const { currentStore } = useAuth();
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
 
+  // Refs for memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
@@ -56,6 +69,11 @@ export function RevenueIntelligence() {
   }, [getDateRange, storeTimezone]);
 
   useEffect(() => {
+    // Abort previous request
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const loadData = async () => {
       setIsLoading(true);
       try {
@@ -69,13 +87,17 @@ export function RevenueIntelligence() {
           analyticsService.getTopProducts(10, dateParams),
           ordersService.getAll(),
         ]);
+        if (!isMountedRef.current || controller.signal.aborted) return;
         setOverview(overviewData);
         setTopProducts(productsData);
         setOrders(ordersResponse.data || []);
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
         logger.error('Error loading revenue intelligence data:', error);
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current && !controller.signal.aborted) {
+          setIsLoading(false);
+        }
       }
     };
     loadData();
@@ -143,7 +165,7 @@ export function RevenueIntelligence() {
   ].filter(item => item.value > 0); // Only show non-zero costs
 
   // Calculate product profitability
-  const productProfitability = topProducts.map((product) => {
+  const productProfitability = useMemo(() => topProducts.map((product) => {
     const revenue = product.sales * Number(product.price);
     // Use total_cost from backend (includes packaging + additional costs)
     // Fallback to manual calculation if not provided
@@ -168,33 +190,36 @@ export function RevenueIntelligence() {
       isTopPerformer: marginPercent > 40,
       isTopSeller: true, // Will be marked after sorting
     };
-  }).filter(p => p.units > 0);
+  }).filter(p => p.units > 0), [topProducts]);
 
   // Sort products based on selected filter
-  const sortedProducts = [...productProfitability].sort((a, b) => {
+  const sortedProducts = useMemo(() => [...productProfitability].sort((a, b) => {
     if (productFilter === 'sales') {
       return b.units - a.units; // Sort by sales (descending)
     } else {
       return b.marginPercent - a.marginPercent; // Sort by profitability (descending)
     }
-  });
+  }), [productProfitability, productFilter]);
 
   // Mark top performers based on current filter
-  const finalProducts = sortedProducts.map((product, index) => ({
+  const finalProducts = useMemo(() => sortedProducts.map((product, index) => ({
     ...product,
     isTopPerformer: productFilter === 'profitability' ? product.marginPercent > 40 : false,
     isTopSeller: productFilter === 'sales' && index < 3,
-  }));
+  })), [sortedProducts, productFilter]);
 
   // Calculate revenue per customer
-  const totalCustomers = new Set(orders.map(o => o.customer || o.customer_email)).size;
-  const avgRevenuePerCustomer = totalCustomers > 0 ? totalRevenue / totalCustomers : 0;
-  const customerRevenues = orders.map(o => o.total || 0).sort((a, b) => a - b);
-  const medianRevenue = customerRevenues.length > 0
-    ? customerRevenues[Math.floor(customerRevenues.length / 2)]
-    : 0;
-  const minRevenue = customerRevenues.length > 0 ? customerRevenues[0] : 0;
-  const maxRevenue = customerRevenues.length > 0 ? customerRevenues[customerRevenues.length - 1] : 0;
+  const { totalCustomers, avgRevenuePerCustomer, medianRevenue, minRevenue, maxRevenue } = useMemo(() => {
+    const total = new Set(orders.map(o => o.customer || o.customer_email)).size;
+    const avgRev = total > 0 ? totalRevenue / total : 0;
+    const revenues = orders.map(o => o.total || 0).sort((a, b) => a - b);
+    const median = revenues.length > 0
+      ? revenues[Math.floor(revenues.length / 2)]
+      : 0;
+    const min = revenues.length > 0 ? revenues[0] : 0;
+    const max = revenues.length > 0 ? revenues[revenues.length - 1] : 0;
+    return { totalCustomers: total, avgRevenuePerCustomer: avgRev, medianRevenue: median, minRevenue: min, maxRevenue: max };
+  }, [orders, totalRevenue]);
 
   return (
     <div className="space-y-6">

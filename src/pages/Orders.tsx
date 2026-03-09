@@ -610,20 +610,16 @@ export default function Orders() {
     let originalOrder: Order | null = null;
 
     // Only update status if order is pending (not if already contacted)
-    const orderToUpdate = orders.find(o => o.id === orderId);
-    if (!orderToUpdate || orderToUpdate.status !== 'pending') {
-      // Just open WhatsApp if not pending
-      window.open(whatsappLink, '_blank');
-      return;
-    }
-
-    // Open WhatsApp first for better UX
-    window.open(whatsappLink, '_blank');
-
-    // Optimistic update - update UI immediately
+    // Use functional updater to read current orders without depending on `orders`
+    let shouldProceed = false;
     setOrders(prev => {
-      originalOrder = prev.find(o => o.id === orderId) || null;
-      if (!originalOrder) return prev;
+      const orderToUpdate = prev.find(o => o.id === orderId);
+      if (!orderToUpdate || orderToUpdate.status !== 'pending') {
+        // Just open WhatsApp if not pending - don't modify state
+        return prev;
+      }
+      shouldProceed = true;
+      originalOrder = orderToUpdate;
       return prev.map(o =>
         o.id === orderId
           ? { ...o, status: 'contacted' as Order['status'] }
@@ -631,7 +627,10 @@ export default function Orders() {
       );
     });
 
-    if (!originalOrder) return;
+    // Open WhatsApp regardless
+    window.open(whatsappLink, '_blank');
+
+    if (!shouldProceed || !originalOrder) return;
 
     try {
       const updatedOrder = await ordersService.contact(orderId);
@@ -652,7 +651,7 @@ export default function Orders() {
       // Don't show error - WhatsApp was opened successfully, just status update failed
       console.error('Error updating order status to contacted:', error);
     }
-  }, [toast, orders]);
+  }, [toast]);
 
   // Helper function to generate WhatsApp confirmation message
   const generateWhatsAppConfirmationLink = useCallback((order: Order) => {
@@ -743,16 +742,22 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   }, [currentStore]);
 
   const handleStatusUpdate = useCallback(async (orderId: string, newStatus: Order['status']) => {
-    // Get original order before updating
-    const originalOrder = orders.find(o => o.id === orderId);
-    if (!originalOrder) return;
+    // Capture original order via functional updater to avoid depending on `orders`
+    let originalOrder: Order | null = null;
+    setOrders(prev => {
+      const found = prev.find(o => o.id === orderId);
+      if (!found) return prev;
+      originalOrder = found;
+      return prev.map(o =>
+        o.id === orderId
+          ? { ...o, status: newStatus }
+          : o
+      );
+    });
 
-    // Optimistic update - update UI immediately
-    setOrders(prev => prev.map(o =>
-      o.id === orderId
-        ? { ...o, status: newStatus }
-        : o
-    ));
+    if (!originalOrder) return;
+    // Keep a local reference with correct type for error handling
+    const capturedOriginal: Order = originalOrder;
 
     try {
       const updatedOrder = await ordersService.updateStatus(orderId, newStatus);
@@ -776,12 +781,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         });
       } else {
         // Revert optimistic update on failure
-        setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
+        setOrders(prev => prev.map(o => (o.id === orderId ? capturedOriginal : o)));
         throw new Error('Error al actualizar estado');
       }
     } catch (error: any) {
       // Revert optimistic update on error
-      setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder : o)));
+      setOrders(prev => prev.map(o => (o.id === orderId ? capturedOriginal : o)));
 
       // Extract detailed error info from backend response
       const errorResponse = error?.response?.data;
@@ -793,8 +798,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         action: 'update_status',
         entity: 'pedido',
         details: {
-          from: errorDetails?.from || originalOrder.status,
-          fromLabel: errorDetails?.fromLabel || statusLabels[originalOrder.status],
+          from: errorDetails?.from || capturedOriginal.status,
+          fromLabel: errorDetails?.fromLabel || statusLabels[capturedOriginal.status],
           to: errorDetails?.to || newStatus,
           toLabel: errorDetails?.toLabel || statusLabels[newStatus],
           message: errorResponse?.message,
@@ -802,7 +807,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         },
       });
     }
-  }, [orders, toast]);
+  }, [toast]);
 
   // Handle internal notes update from QuickView
   const handleNotesUpdate = useCallback((orderId: string, notes: string | null) => {
@@ -919,8 +924,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
       logger.log('✅ [ORDERS] Order created:', newOrder);
 
-      const updatedOrdersResponse = await ordersService.getAll();
-      setOrders(updatedOrdersResponse.data || []);
+      // Optimistic append - avoid refetching entire order list
+      setOrders(prev => [newOrder, ...prev]);
       setDialogOpen(false);
 
       toast({

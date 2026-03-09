@@ -4,7 +4,7 @@
 // Debug panel to diagnose Shopify integration issues
 // ================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -49,12 +49,22 @@ export function ShopifyDiagnostics() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSettingUpWebhooks, setIsSettingUpWebhooks] = useState(false);
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; abortControllerRef.current?.abort(); };
+  }, []);
+
   useEffect(() => {
     loadDiagnostics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDiagnostics = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
@@ -67,8 +77,11 @@ export function ShopifyDiagnostics() {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
         },
+        signal: controller.signal,
       });
       const integrationData = await integrationRes.json();
+
+      if (!isMountedRef.current || controller.signal.aborted) return;
 
       if (integrationData.success && integrationData.integration) {
         setIntegration(integrationData.integration);
@@ -80,19 +93,24 @@ export function ShopifyDiagnostics() {
               'Authorization': `Bearer ${token}`,
               'X-Store-ID': storeId || '',
             },
+            signal: controller.signal,
           });
           const webhooksData = await webhooksRes.json();
+
+          if (!isMountedRef.current || controller.signal.aborted) return;
 
           if (webhooksData.success) {
             setWebhooks(webhooksData.webhooks || []);
           }
         } catch (err) {
+          if (!isMountedRef.current || controller.signal.aborted) return;
           logger.error('Error loading webhooks:', err);
         }
       } else {
         setIntegration(null);
       }
     } catch (error) {
+      if (!isMountedRef.current || controller.signal.aborted) return;
       logger.error('Error loading diagnostics:', error);
       toast({
         title: 'Error al cargar diagnósticos',
@@ -100,7 +118,7 @@ export function ShopifyDiagnostics() {
         variant: 'destructive',
       });
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current && !controller.signal.aborted) setIsLoading(false);
     }
   };
 

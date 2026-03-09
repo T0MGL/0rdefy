@@ -145,13 +145,27 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     .update(body, 'utf8')
     .digest('hex');
 
-  // Shopify always sends HMAC in base64 format (both OAuth and Custom Apps)
-  if (hmac === hashBase64) {
-    logger.info('SERVER', `✅ [WEBHOOK] HMAC validated (base64) for ${shopDomain}`);
+  // SECURITY: Use timing-safe comparison to prevent timing attacks
+  let hmacValid = false;
+  let hmacFormat = '';
+  try {
+    if (crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(hashBase64))) {
+      hmacValid = true;
+      hmacFormat = 'base64';
+    }
+  } catch (_) { /* length mismatch */ }
+
+  if (!hmacValid) {
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(hashHex))) {
+        hmacValid = true;
+        hmacFormat = 'hex - legacy';
+      }
+    } catch (_) { /* length mismatch */ }
   }
-  // Fallback: try hex format (legacy support, rarely used)
-  else if (hmac === hashHex) {
-    logger.info('SERVER', `✅ [WEBHOOK] HMAC validated (hex - legacy) for ${shopDomain}`);
+
+  if (hmacValid) {
+    logger.info('SERVER', `✅ [WEBHOOK] HMAC validated (${hmacFormat}) for ${shopDomain}`);
   }
   // Neither format matched - invalid HMAC
   else {
@@ -167,19 +181,11 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
   // ================================================================
   // REPLAY ATTACK PROTECTION
   // ================================================================
-  // Reject webhooks older than 5 minutes to prevent replay attacks
-  // Shopify webhooks include created_at or updated_at timestamps
-  const webhookTimestamp = req.body.created_at || req.body.updated_at;
-  if (webhookTimestamp) {
-    const webhookDate = new Date(webhookTimestamp);
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-
-    if (webhookDate < fiveMinutesAgo) {
-      logger.warn('SERVER', `⚠️ [WEBHOOK] Rejected: older than 5 minutes (timestamp: ${webhookTimestamp})`);
-      logger.warn('SERVER', `⚠️ [WEBHOOK] This could be a replay attack or network delay`);
-      return res.status(200).send('Webhook too old - rejected for security');
-    }
-  }
+  // Replay protection is handled by X-Shopify-Webhook-Id idempotency
+  // check in ShopifyWebhookService (shopify_webhook_idempotency table).
+  // REMOVED: Body-timestamp-based check (created_at/updated_at) - those are
+  // the Shopify object's dates, NOT webhook send time. Old orders being
+  // updated would carry old created_at, causing false rejections.
 
   next();
 }

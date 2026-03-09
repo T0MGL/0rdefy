@@ -24,6 +24,7 @@ export function useUndoRedo(options: UseUndoRedoOptions = {}) {
   const [undoStack, setUndoStack] = useState<UndoableAction[]>([]);
   const [redoStack, setRedoStack] = useState<UndoableAction[]>([]);
   const toastIdRef = useRef<string | null>(null);
+  const latestActionRef = useRef<UndoableAction | null>(null);
 
   // Execute action and add to undo stack
   const executeAction = useCallback(
@@ -47,6 +48,9 @@ export function useUndoRedo(options: UseUndoRedoOptions = {}) {
         data,
       };
 
+      // Store reference to latest action for toast closure
+      latestActionRef.current = undoableAction;
+
       // Add to undo stack
       setUndoStack((prev) => [undoableAction, ...prev].slice(0, maxHistorySize));
 
@@ -68,7 +72,7 @@ export function useUndoRedo(options: UseUndoRedoOptions = {}) {
             variant: 'outline',
             size: 'sm',
             onClick: async () => {
-              await undo();
+              await latestActionRef.current?.undo();
             },
           },
           createElement('div', { className: 'flex items-center gap-1.5' }, [

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,15 +39,22 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
   // Check if user has bidirectional sync feature (Growth+ plan)
   const hasBidirectionalSync = hasFeature('shopify_bidirectional');
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Load Shopify integration when modal opens
   useEffect(() => {
-    if (open) {
-      loadIntegration();
+    if (!open) {
+      abortControllerRef.current?.abort();
+      return;
     }
+    loadIntegration();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const loadIntegration = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
@@ -58,14 +65,17 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
         },
+        signal: controller.signal,
       });
 
       const data = await response.json();
 
+      if (controller.signal.aborted) return;
       if (data.success && data.integration) {
         setIntegration(data.integration);
       }
     } catch (error) {
+      if (controller.signal.aborted) return;
       logger.error('Error loading integration:', error);
       toast({
         title: 'Error al cargar',
@@ -73,7 +83,7 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
         variant: 'destructive',
       });
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) setIsLoading(false);
     }
   };
 

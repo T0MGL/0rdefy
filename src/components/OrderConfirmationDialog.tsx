@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -262,23 +262,33 @@ export function OrderConfirmationDialog({
   }, [open, currentStore?.country]);
 
   // Fetch products when dialog opens
+  const fetchProductsAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
-    const fetchProducts = async () => {
-      if (!open) return;
+    if (!open) {
+      fetchProductsAbortRef.current?.abort();
+      return;
+    }
 
+    const controller = new AbortController();
+    fetchProductsAbortRef.current = controller;
+
+    const fetchProducts = async () => {
       try {
         setLoadingProducts(true);
         const allProductsResult = await productsService.getAll();
+        if (controller.signal.aborted) return;
         setProducts(allProductsResult.data || []);
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
         logger.error('Error fetching products:', error);
-        setProducts([]);
+        if (!controller.signal.aborted) setProducts([]);
       } finally {
-        setLoadingProducts(false);
+        if (!controller.signal.aborted) setLoadingProducts(false);
       }
     };
 
     fetchProducts();
+    return () => controller.abort();
   }, [open]);
 
   // Search cities for autocomplete (debounced)
@@ -431,14 +441,16 @@ export function OrderConfirmationDialog({
 
   // Fetch carrier zones when carrier is selected (legacy system)
   useEffect(() => {
-    const fetchCarrierZones = async () => {
-      if (!courierId) {
-        setCarrierZones([]);
-        setSelectedZone('');
-        setShippingCost(0);
-        return;
-      }
+    if (!courierId) {
+      setCarrierZones([]);
+      setSelectedZone('');
+      setShippingCost(0);
+      return;
+    }
 
+    const controller = new AbortController();
+
+    const fetchCarrierZones = async () => {
       try {
         setLoadingZones(true);
         const token = localStorage.getItem('auth_token');
@@ -451,8 +463,11 @@ export function OrderConfirmationDialog({
               'Authorization': `Bearer ${token}`,
               'X-Store-ID': storeId || '',
             },
+            signal: controller.signal,
           }
         );
+
+        if (controller.signal.aborted) return;
 
         if (response.ok) {
           const { data } = await response.json();
@@ -466,15 +481,17 @@ export function OrderConfirmationDialog({
         } else {
           setCarrierZones([]);
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
         logger.error('Error fetching carrier zones:', error);
-        setCarrierZones([]);
+        if (!controller.signal.aborted) setCarrierZones([]);
       } finally {
-        setLoadingZones(false);
+        if (!controller.signal.aborted) setLoadingZones(false);
       }
     };
 
     fetchCarrierZones();
+    return () => controller.abort();
   }, [courierId]);
 
   // Update shipping cost when zone is selected

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MetricCard } from '@/components/MetricCard';
 import { CarrierTable } from '@/components/carriers/CarrierTable';
@@ -146,10 +146,55 @@ export default function Carriers() {
   const [zonesDialogOpen, setZonesDialogOpen] = useState(false);
   const [zonesCarrier, setZonesCarrier] = useState<{ id: string; name: string } | null>(null);
 
+  // Refs for memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  const loadCarriers = useCallback(async () => {
+    const data = await carriersService.getAll();
+    if (!isMountedRef.current) return;
+    setDbCarriers(data);
+    setCarriers(data);
+  }, []);
+
+  const loadPerformanceStats = useCallback(async () => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const storeId = localStorage.getItem('current_store_id');
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/all`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Store-ID': storeId || '',
+        },
+        signal: controller.signal,
+      });
+      if (!isMountedRef.current || controller.signal.aborted) return;
+      if (response.ok) {
+        const data = await response.json();
+        setPerformanceStats(data.data || []);
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+      logger.error('Error loading performance stats:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadCarriers();
     loadPerformanceStats();
-  }, []);
+  }, [loadCarriers, loadPerformanceStats]);
 
   // Process URL query parameters for filtering and navigation from notifications
   useEffect(() => {
@@ -191,32 +236,6 @@ export default function Carriers() {
       }
     }
   }, [searchParams, setSearchParams, dbCarriers, toast]);
-
-  const loadCarriers = async () => {
-    const data = await carriersService.getAll();
-    setDbCarriers(data);
-    // Map DB carriers to display format
-    setCarriers(data);
-  };
-
-  const loadPerformanceStats = async () => {
-    try {
-      const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/all`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Store-ID': storeId || '',
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPerformanceStats(data.data || []);
-      }
-    } catch (error) {
-      logger.error('Error loading performance stats:', error);
-    }
-  };
 
   const handleCreate = () => {
     setSelectedCarrier(null);
@@ -263,7 +282,7 @@ export default function Carriers() {
   };
 
   // Merge carriers with their performance stats
-  const carriersWithStats = carriers.map(carrier => {
+  const carriersWithStats = useMemo(() => carriers.map(carrier => {
     const stats = performanceStats?.find((s: any) => s.courier_id === carrier.id);
     return {
       ...carrier,
@@ -272,9 +291,9 @@ export default function Carriers() {
       failed_deliveries: stats?.failed_deliveries || 0,
       delivery_rate: stats?.delivery_rate || 0,
     };
-  });
+  }), [carriers, performanceStats]);
 
-  const filteredCarriers = carriersWithStats.filter((carrier) => {
+  const filteredCarriers = useMemo(() => carriersWithStats.filter((carrier) => {
     const matchesSearch = (carrier.name || carrier.carrier_name || '')
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
@@ -287,22 +306,29 @@ export default function Carriers() {
       performanceFilter === 'all' ||
       (performanceFilter === 'poor-performance' && (carrier.delivery_rate || 0) < 80);
     return matchesSearch && matchesStatus && matchesPerformance;
-  });
+  }), [carriersWithStats, searchTerm, statusFilter, performanceFilter]);
 
   // Calculate global metrics
-  const totalDeliveries = carriersWithStats.reduce((sum, c) => sum + (c.total_deliveries || 0), 0);
+  const { totalDeliveries, avgDeliveryRate, avgRating } = useMemo(() => {
+    const total = carriersWithStats.reduce((sum, c) => sum + (c.total_deliveries || 0), 0);
 
-  // Only include carriers with at least 1 delivery for average calculation
-  const carriersWithDeliveries = carriersWithStats.filter(c => (c.total_deliveries || 0) > 0);
-  const avgDeliveryRate = carriersWithDeliveries.length > 0
-    ? carriersWithDeliveries.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / carriersWithDeliveries.length
-    : 0;
+    const withDeliveries = carriersWithStats.filter(c => (c.total_deliveries || 0) > 0);
+    const avgRate = withDeliveries.length > 0
+      ? withDeliveries.reduce((sum, c) => sum + (c.delivery_rate || 0), 0) / withDeliveries.length
+      : 0;
 
-  // Calculate average rating (only from carriers with ratings)
-  const carriersWithRatings = carriersWithStats.filter(c => c.average_rating > 0);
-  const avgRating = carriersWithRatings.length > 0
-    ? carriersWithRatings.reduce((sum, c) => sum + (c.average_rating || 0), 0) / carriersWithRatings.length
-    : 0;
+    const withRatings = carriersWithStats.filter(c => c.average_rating > 0);
+    const avgRat = withRatings.length > 0
+      ? withRatings.reduce((sum, c) => sum + (c.average_rating || 0), 0) / withRatings.length
+      : 0;
+
+    return { totalDeliveries: total, avgDeliveryRate: avgRate, avgRating: avgRat };
+  }, [carriersWithStats]);
+
+  const handleRefresh = useCallback(async () => {
+    await loadCarriers();
+    await loadPerformanceStats();
+  }, [loadCarriers, loadPerformanceStats]);
 
   return (
     <div className="space-y-6">
@@ -416,10 +442,7 @@ export default function Carriers() {
         carriers={filteredCarriers}
         onEdit={handleEdit}
         onManageZones={handleManageZones}
-        onRefresh={async () => {
-          await loadCarriers();
-          await loadPerformanceStats();
-        }}
+        onRefresh={handleRefresh}
         isHighlighted={isHighlighted}
       />
 

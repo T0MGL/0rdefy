@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Plus, Package, Truck, Calendar, Search, Filter, CheckCircle2, AlertCircle, Clock, PackagePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -204,14 +204,14 @@ export default function Merchandise() {
   };
 
   // Filter shipments
-  const filteredShipments = shipments.filter(shipment => {
+  const filteredShipments = useMemo(() => shipments.filter(shipment => {
     const matchesSearch =
       shipment.internal_reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
       shipment.supplier_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       shipment.tracking_code?.toLowerCase().includes(searchTerm.toLowerCase());
 
     return matchesSearch;
-  });
+  }), [shipments, searchTerm]);
 
   // Status badge helper
   const getStatusBadge = (status: string) => {

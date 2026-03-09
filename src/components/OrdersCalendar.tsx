@@ -1,7 +1,7 @@
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Calendar } from './ui/calendar';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ordersService } from '@/services/orders.service';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import type { Order } from '@/types';
@@ -27,16 +27,28 @@ export function OrdersCalendar() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; abortControllerRef.current?.abort(); };
+  }, []);
+
   useEffect(() => {
     const loadOrders = async () => {
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       setIsLoading(true);
       try {
         const ordersResponse = await ordersService.getAll();
+        if (!isMountedRef.current || controller.signal.aborted) return;
         setOrders(ordersResponse.data || []);
       } catch (error) {
+        if (!isMountedRef.current) return;
         logger.error('Error loading orders:', error);
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current) setIsLoading(false);
       }
     };
     loadOrders();

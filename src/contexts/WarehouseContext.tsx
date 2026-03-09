@@ -4,7 +4,7 @@
  * Provides a seamless, progressive flow without page reloads
  */
 
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import * as warehouseService from '@/services/warehouse.service';
 import { ordersService } from '@/services/orders.service';
 import { useToast } from '@/hooks/use-toast';
@@ -147,6 +147,16 @@ const initialState: WarehouseState = {
 export function WarehouseProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [state, setState] = useState<WarehouseState>(initialState);
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Helper to update state
   const updateState = useCallback((updates: Partial<WarehouseState>) => {
@@ -159,9 +169,11 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     updateState({ loading: true });
     try {
       const orders = await warehouseService.getConfirmedOrders();
+      if (!isMountedRef.current) return;
       updateState({ confirmedOrders: orders, loading: false });
     } catch (error) {
       logger.error('Error loading confirmed orders:', error);
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error',
         description: 'No se pudieron cargar los pedidos confirmados',
@@ -193,6 +205,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
   const loadPackingData = useCallback(async (sessionId: string) => {
     try {
       const data = await warehouseService.getPackingList(sessionId);
+      if (!isMountedRef.current) return data;
       updateState({ packingData: data });
       return data;
     } catch (error) {
@@ -262,8 +275,12 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         Array.from(state.selectedOrderIds)
       );
 
+      if (!isMountedRef.current) return;
+
       // Load picking data
       const pickingData = await loadPickingData(session.id);
+
+      if (!isMountedRef.current) return;
 
       updateState({
         session,
@@ -278,6 +295,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error: any) {
       logger.error('Error creating session:', error);
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error',
         description: error.message || 'No se pudo crear la sesión',
@@ -293,13 +311,16 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     try {
       if (session.status === 'picking') {
         await loadPickingData(session.id);
+        if (!isMountedRef.current) return;
         updateState({ currentStep: 'picking', actionLoading: false });
       } else if (session.status === 'packing') {
         await loadPackingData(session.id);
+        if (!isMountedRef.current) return;
         updateState({ currentStep: 'packing', actionLoading: false });
       }
     } catch (error) {
       logger.error('Error resuming session:', error);
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error',
         description: 'No se pudo cargar la sesión',
@@ -344,8 +365,10 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     updateState({ actionLoading: true });
     try {
       const updated = await warehouseService.finishPicking(state.session.id);
+      if (!isMountedRef.current) return;
       await loadPackingData(state.session.id);
 
+      if (!isMountedRef.current) return;
       updateState({
         session: updated,
         currentStep: 'packing',
@@ -359,6 +382,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error: any) {
       logger.error('Error finishing picking:', error);
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error',
         description: error.message || 'No se pudo completar la recolección',
@@ -375,10 +399,12 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
 
     try {
       await warehouseService.updatePackingProgress(state.session.id, orderId, productId);
+      if (!isMountedRef.current) return;
       // Reload packing data to get updated state
       await loadPackingData(state.session.id);
     } catch (error: any) {
       logger.error('Error packing item:', error);
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error',
         description: error.message || 'No se pudo empacar el producto',
@@ -396,6 +422,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     // Pack all items that aren't complete yet
     for (const item of order.items) {
       while (item.quantity_packed < item.quantity_needed) {
+        if (!isMountedRef.current) break;
         await packItem(orderId, item.product_id);
       }
     }
@@ -427,15 +454,18 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
   const printLabel = useCallback(async (order: OrderForPacking) => {
     try {
       await ordersService.markAsPrinted(order.id);
+      if (!isMountedRef.current) return;
       if (state.session) {
         await loadPackingData(state.session.id);
       }
+      if (!isMountedRef.current) return;
       toast({
         title: 'Etiqueta impresa',
         description: `Etiqueta del pedido #${order.order_number} marcada como impresa`,
       });
     } catch (error) {
       logger.error('Error marking as printed:', error);
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error',
         description: 'No se pudo marcar la etiqueta como impresa',
@@ -452,13 +482,17 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     );
 
     for (const order of ordersToPrint) {
+      if (!isMountedRef.current) return;
       await ordersService.markAsPrinted(order.id);
     }
+
+    if (!isMountedRef.current) return;
 
     if (state.session) {
       await loadPackingData(state.session.id);
     }
 
+    if (!isMountedRef.current) return;
     toast({
       title: 'Etiquetas marcadas',
       description: `${ordersToPrint.length} etiquetas marcadas como impresas`,
@@ -472,6 +506,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     try {
       await warehouseService.completeSession(state.session.id);
 
+      if (!isMountedRef.current) return;
       updateState({
         currentStep: 'verification',
         actionLoading: false,
@@ -483,6 +518,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error: any) {
       logger.error('Error completing session:', error);
+      if (!isMountedRef.current) return;
       toast({
         title: 'Error',
         description: error.message || 'No se pudo completar la sesión',

@@ -8,7 +8,7 @@
  * antes de proceder, evitando conflictos de autenticación.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,9 +62,17 @@ export default function AcceptInvitation() {
   const [showSessionWarning, setShowSessionWarning] = useState(false);
   const [sessionAcknowledged, setSessionAcknowledged] = useState(false);
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
+    isMountedRef.current = true;
     checkActiveSession();
     validateToken();
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -117,20 +125,30 @@ export default function AcceptInvitation() {
   };
 
   const validateToken = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
-      const res = await fetch(`${config.api.baseUrl}/api/collaborators/validate-token/${token}`);
+      const res = await fetch(`${config.api.baseUrl}/api/collaborators/validate-token/${token}`, {
+        signal: controller.signal,
+      });
       const data = await res.json();
+
+      if (!isMountedRef.current) return;
 
       if (!data.valid) {
         setError(data.error || 'Invitación inválida o expirada');
       } else {
         setInvitation(data.invitation);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       logger.error('Error validating token:', err);
+      if (!isMountedRef.current) return;
       setError('Error al validar la invitación');
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   };
 

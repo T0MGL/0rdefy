@@ -12,6 +12,7 @@ import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';
 import { Module } from '../permissions';
 import * as shippingService from '../services/shipping.service';
+import { validateUUIDParam } from '../utils/sanitize';
 
 const router = Router();
 
@@ -134,7 +135,7 @@ router.post('/dispatch-batch', async (req: PermissionRequest, res: Response) => 
  * GET /api/shipping/order/:orderId
  * Gets shipment history for a specific order
  */
-router.get('/order/:orderId', async (req: PermissionRequest, res: Response) => {
+router.get('/order/:orderId', validateUUIDParam('orderId'), async (req: PermissionRequest, res: Response) => {
   try {
     const storeId = req.storeId;
     const { orderId } = req.params;

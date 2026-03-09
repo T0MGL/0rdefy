@@ -673,7 +673,7 @@ export class ShopifyImportService {
       const BATCH_SIZE = 80;
 
       // Batch fetch products by variant_id, product_id, and SKU (3 queries max instead of 3×N)
-      type ProductMatch = { id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null };
+      type ProductMatch = { id: string; shopify_variant_id: string | null; shopify_product_id: string | null; sku: string | null; image_url: string | null; cost: number | null; packaging_cost: number | null; additional_costs: number | null };
       const productsMap = new Map<string, ProductMatch>();
 
       if (variantIds.length > 0) {
@@ -681,7 +681,7 @@ export class ShopifyImportService {
           const batch = variantIds.slice(i, i + BATCH_SIZE);
           const { data } = await this.supabaseAdmin
             .from('products')
-            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url, cost, packaging_cost, additional_costs')
             .eq('store_id', storeId)
             .in('shopify_variant_id', batch);
           data?.forEach(p => productsMap.set(p.id, p));
@@ -693,7 +693,7 @@ export class ShopifyImportService {
           const batch = productIds.slice(i, i + BATCH_SIZE);
           const { data } = await this.supabaseAdmin
             .from('products')
-            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url, cost, packaging_cost, additional_costs')
             .eq('store_id', storeId)
             .in('shopify_product_id', batch);
           data?.forEach(p => productsMap.set(p.id, p));
@@ -705,7 +705,7 @@ export class ShopifyImportService {
           const batch = skus.slice(i, i + BATCH_SIZE);
           const { data } = await this.supabaseAdmin
             .from('products')
-            .select('id, shopify_variant_id, shopify_product_id, sku, image_url')
+            .select('id, shopify_variant_id, shopify_product_id, sku, image_url, cost, packaging_cost, additional_costs')
             .eq('store_id', storeId)
             .in('sku', batch);
           data?.forEach(p => productsMap.set(p.id, p));
@@ -715,7 +715,7 @@ export class ShopifyImportService {
       const products = Array.from(productsMap.values());
 
       // Also fetch from product_variants table (supports multi-variant products)
-      type VariantMatch = { variant_id: string; product_id: string; image_url: string | null; variant_type: string | null; uses_shared_stock: boolean | null };
+      type VariantMatch = { variant_id: string; product_id: string; image_url: string | null; cost: number | null; variant_type: string | null; uses_shared_stock: boolean | null };
       const variantByShopifyId = new Map<string, VariantMatch>();
       const variantBySku = new Map<string, VariantMatch>();
 
@@ -724,7 +724,7 @@ export class ShopifyImportService {
           const batch = variantIds.slice(i, i + BATCH_SIZE);
           const { data } = await this.supabaseAdmin
             .from('product_variants')
-            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .select('id, product_id, shopify_variant_id, sku, image_url, cost, variant_type, uses_shared_stock')
             .eq('store_id', storeId)
             .eq('is_active', true)
             .in('shopify_variant_id', batch);
@@ -733,6 +733,7 @@ export class ShopifyImportService {
               variant_id: v.id,
               product_id: v.product_id,
               image_url: v.image_url,
+              cost: v.cost,
               variant_type: v.variant_type || (v.uses_shared_stock ? 'bundle' : 'variation'),
               uses_shared_stock: v.uses_shared_stock
             };
@@ -747,7 +748,7 @@ export class ShopifyImportService {
           const batch = skus.slice(i, i + BATCH_SIZE);
           const { data } = await this.supabaseAdmin
             .from('product_variants')
-            .select('id, product_id, shopify_variant_id, sku, image_url, variant_type, uses_shared_stock')
+            .select('id, product_id, shopify_variant_id, sku, image_url, cost, variant_type, uses_shared_stock')
             .eq('store_id', storeId)
             .eq('is_active', true)
             .in('sku', batch);
@@ -756,6 +757,7 @@ export class ShopifyImportService {
               variant_id: v.id,
               product_id: v.product_id,
               image_url: v.image_url,
+              cost: v.cost,
               variant_type: v.variant_type || (v.uses_shared_stock ? 'bundle' : 'variation'),
               uses_shared_stock: v.uses_shared_stock
             };
@@ -765,15 +767,16 @@ export class ShopifyImportService {
         }
       }
 
-      // Build product lookup maps for O(1) access
-      const byVariant = new Map<string, { id: string; image_url: string | null }>();
-      const byProduct = new Map<string, { id: string; image_url: string | null }>();
-      const bySku = new Map<string, { id: string; image_url: string | null }>();
+      // Build product lookup maps for O(1) access (include cost for unit_cost snapshot)
+      const byVariant = new Map<string, { id: string; image_url: string | null; cost: number }>();
+      const byProduct = new Map<string, { id: string; image_url: string | null; cost: number }>();
+      const bySku = new Map<string, { id: string; image_url: string | null; cost: number }>();
 
       for (const p of products) {
-        if (p.shopify_variant_id) byVariant.set(p.shopify_variant_id, { id: p.id, image_url: p.image_url });
-        if (p.shopify_product_id) byProduct.set(p.shopify_product_id, { id: p.id, image_url: p.image_url });
-        if (p.sku) bySku.set(p.sku.toUpperCase(), { id: p.id, image_url: p.image_url });
+        const productCostData = { id: p.id, image_url: p.image_url, cost: (Number(p.cost) || 0) + (Number(p.packaging_cost) || 0) + (Number(p.additional_costs) || 0) };
+        if (p.shopify_variant_id) byVariant.set(p.shopify_variant_id, productCostData);
+        if (p.shopify_product_id) byProduct.set(p.shopify_product_id, productCostData);
+        if (p.sku) bySku.set(p.sku.toUpperCase(), productCostData);
       }
 
       // Build all line items for batch insert
@@ -788,6 +791,7 @@ export class ShopifyImportService {
         let variantId: string | null = null;
         let imageUrl: string | null = null;
         let variantType: string | null = null;
+        let unitCost = 0; // Migration 128: Snapshot cost
 
         // Priority: product_variants by shopify_variant_id > SKU > products by variant_id > product_id > SKU
         const variantMatchById = shopifyVariantId ? variantByShopifyId.get(shopifyVariantId) : null;
@@ -798,11 +802,13 @@ export class ShopifyImportService {
           productId = variantMatchById.product_id;
           imageUrl = variantMatchById.image_url;
           variantType = variantMatchById.variant_type;
+          unitCost = Number(variantMatchById.cost) || 0;
         } else if (variantMatchBySku) {
           variantId = variantMatchBySku.variant_id;
           productId = variantMatchBySku.product_id;
           imageUrl = variantMatchBySku.image_url;
           variantType = variantMatchBySku.variant_type;
+          unitCost = Number(variantMatchBySku.cost) || 0;
         } else {
           // Fallback to products table
           const matchByVariant = shopifyVariantId ? byVariant.get(shopifyVariantId) : null;
@@ -812,6 +818,15 @@ export class ShopifyImportService {
           if (match) {
             productId = match.id;
             imageUrl = match.image_url;
+            unitCost = match.cost || 0;
+          }
+        }
+
+        // If variant matched but cost is 0, fallback to product cost
+        if (unitCost === 0 && productId) {
+          const productMatch = Array.from(productsMap.values()).find(p => p.id === productId);
+          if (productMatch) {
+            unitCost = (Number(productMatch.cost) || 0) + (Number(productMatch.packaging_cost) || 0) + (Number(productMatch.additional_costs) || 0);
           }
         }
 
@@ -848,6 +863,7 @@ export class ShopifyImportService {
           sku: sku,
           quantity: quantity,
           unit_price: unitPrice,
+          unit_cost: unitCost, // Migration 128: Snapshot cost
           total_price: totalPrice,
           discount_amount: discountAmount,
           tax_amount: taxAmount,

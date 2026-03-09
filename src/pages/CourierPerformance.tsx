@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
@@ -26,11 +26,27 @@ export default function CourierPerformance() {
   const [topCouriers, setTopCouriers] = useState<CourierStats[]>([]);
   const [underperforming, setUnderperforming] = useState<CourierStats[]>([]);
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     fetchPerformanceData();
   }, []);
 
   const fetchPerformanceData = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const token = localStorage.getItem('auth_token');
       const storeId = localStorage.getItem('current_store_id');
@@ -41,7 +57,10 @@ export default function CourierPerformance() {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
         },
+        signal: controller.signal,
       });
+
+      if (!isMountedRef.current) return;
 
       if (allResponse.ok) {
         const allData = await allResponse.json();
@@ -54,7 +73,10 @@ export default function CourierPerformance() {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
         },
+        signal: controller.signal,
       });
+
+      if (!isMountedRef.current) return;
 
       if (topResponse.ok) {
         const topData = await topResponse.json();
@@ -67,16 +89,20 @@ export default function CourierPerformance() {
           'Authorization': `Bearer ${token}`,
           'X-Store-ID': storeId || '',
         },
+        signal: controller.signal,
       });
+
+      if (!isMountedRef.current) return;
 
       if (underResponse.ok) {
         const underData = await underResponse.json();
         setUnderperforming(underData.data || []);
       }
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error fetching courier performance:', error);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   };
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -266,36 +266,47 @@ export function ExternalWebhookManagementModal({
   const [payloadAction, setPayloadAction] = useState<ApiAction>('crear');
   const [codeAction, setCodeAction] = useState<ApiAction>('crear');
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
-    if (open) {
-      loadConfig();
-      loadLogs();
+    if (!open) {
+      abortControllerRef.current?.abort();
+      return;
     }
+    loadConfig();
+    loadLogs();
   }, [open]);
 
   const loadConfig = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsLoading(true);
     try {
       const result = await externalWebhookService.getConfig();
+      if (controller.signal.aborted) return;
       if (result.success && result.config) {
         setConfig(result.config);
       }
     } catch (error) {
+      if (controller.signal.aborted) return;
       logger.error('[ExternalWebhookManagement] Error loading config:', error);
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) setIsLoading(false);
     }
   };
 
   const loadLogs = async (page: number = 1) => {
     try {
       const result = await externalWebhookService.getLogs(page, 10);
+      if (abortControllerRef.current?.signal.aborted) return;
       if (result.success) {
         setLogs(result.logs || []);
         setTotalLogs(result.total || 0);
         setLogsPage(page);
       }
     } catch (error) {
+      if (abortControllerRef.current?.signal.aborted) return;
       logger.error('[ExternalWebhookManagement] Error loading logs:', error);
     }
   };

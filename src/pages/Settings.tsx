@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -114,6 +114,18 @@ export default function Settings() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingActivity, setLoadingActivity] = useState(false);
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Update form data when user or store changes
   useEffect(() => {
     if (user) {
@@ -176,15 +188,21 @@ export default function Settings() {
   }, [activeTab]);
 
   const loadSessions = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoadingSessions(true);
     try {
       const data = await getSessions();
+      if (!isMountedRef.current) return;
       // Mark the most recent session as current (it's the current one)
       if (data.length > 0) {
         data[0].isCurrent = true;
       }
       setSessions(data);
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading sessions:', error);
       toast({
         title: 'Error',
@@ -192,16 +210,22 @@ export default function Settings() {
         variant: 'destructive'
       });
     } finally {
-      setLoadingSessions(false);
+      if (isMountedRef.current) setLoadingSessions(false);
     }
   };
 
   const loadActivity = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoadingActivity(true);
     try {
       const response = await getActivity(20, 0);
+      if (!isMountedRef.current) return;
       setActivityLog(response.data);
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading activity:', error);
       toast({
         title: 'Error',
@@ -209,7 +233,7 @@ export default function Settings() {
         variant: 'destructive'
       });
     } finally {
-      setLoadingActivity(false);
+      if (isMountedRef.current) setLoadingActivity(false);
     }
   };
 

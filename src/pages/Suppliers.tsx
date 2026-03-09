@@ -12,7 +12,7 @@ import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
 import { Plus, Star, Edit, Trash2, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Supplier } from '@/types';
 import { suppliersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
@@ -107,12 +107,29 @@ export default function Suppliers() {
   const [supplierToDelete, setSupplierToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     loadSuppliers();
   }, []);
 
   const loadSuppliers = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const data = await suppliersService.getAll();
+    if (!isMountedRef.current) return;
     setSuppliers(data);
     setIsLoading(false);
   };

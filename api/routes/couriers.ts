@@ -91,7 +91,7 @@ couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/couriers/:id - Get single courier
 // ================================================================
-couriersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+couriersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -173,7 +173,7 @@ couriersRouter.post('/', requirePermission(Module.CARRIERS, Permission.CREATE), 
 // ================================================================
 // PUT /api/couriers/:id - Update courier
 // ================================================================
-couriersRouter.put('/:id', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+couriersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const {
@@ -224,7 +224,7 @@ couriersRouter.put('/:id', requirePermission(Module.CARRIERS, Permission.EDIT), 
 // ================================================================
 // PATCH /api/couriers/:id/toggle - Toggle courier active status
 // ================================================================
-couriersRouter.patch('/:id/toggle', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+couriersRouter.patch('/:id/toggle', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -280,7 +280,7 @@ couriersRouter.patch('/:id/toggle', requirePermission(Module.CARRIERS, Permissio
 // ================================================================
 // DELETE /api/couriers/:id - Delete courier
 // ================================================================
-couriersRouter.delete('/:id', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+couriersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -318,7 +318,7 @@ couriersRouter.delete('/:id', requirePermission(Module.CARRIERS, Permission.DELE
 // ================================================================
 // GET /api/couriers/:id/performance - Get courier performance metrics
 // ================================================================
-couriersRouter.get('/:id/performance', async (req: AuthRequest, res: Response) => {
+couriersRouter.get('/:id/performance', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -424,7 +424,7 @@ couriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
 // ================================================================
 // GET /api/couriers/:id/zones - List zones for a courier
 // ================================================================
-couriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
+couriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
@@ -473,7 +473,7 @@ couriersRouter.get('/:id/zones', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/couriers/:id/zones - Create a zone for a courier
 // ================================================================
-couriersRouter.post('/:id/zones', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+couriersRouter.post('/:id/zones', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { zone_name, zone_code, rate, is_active = true } = req.body;
@@ -552,7 +552,7 @@ couriersRouter.post('/:id/zones', requirePermission(Module.CARRIERS, Permission.
 // ================================================================
 // PUT /api/couriers/zones/:zoneId - Update a zone
 // ================================================================
-couriersRouter.put('/zones/:zoneId', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+couriersRouter.put('/zones/:zoneId', validateUUIDParam('zoneId'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
     try {
         const { zoneId } = req.params;
         const { zone_name, zone_code, rate, is_active } = req.body;
@@ -608,7 +608,7 @@ couriersRouter.put('/zones/:zoneId', requirePermission(Module.CARRIERS, Permissi
 // ================================================================
 // DELETE /api/couriers/zones/:zoneId - Delete a zone
 // ================================================================
-couriersRouter.delete('/zones/:zoneId', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+couriersRouter.delete('/zones/:zoneId', validateUUIDParam('zoneId'), requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
     try {
         const { zoneId } = req.params;
 
@@ -770,7 +770,7 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
 // ================================================================
 // GET /api/couriers/:id/zones/calculate - Calculate shipping cost
 // ================================================================
-couriersRouter.get('/:id/zones/calculate', async (req: AuthRequest, res: Response) => {
+couriersRouter.get('/:id/zones/calculate', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { zone_name } = req.query;

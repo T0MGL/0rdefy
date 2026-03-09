@@ -14,7 +14,7 @@ import { onboardingService } from '@/services/onboarding.service';
 import { additionalValuesService } from '@/services/additional-values.service';
 import { recurringAdditionalValuesService, RecurringAdditionalValue } from '@/services/recurring-additional-values.service';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AdditionalValue } from '@/types';
 import { formatCurrency, getCurrencySymbol } from '@/utils/currency';
 import { useAuth } from '@/contexts/AuthContext';
@@ -268,25 +268,38 @@ export default function AdditionalValues() {
   const [ordefyStartDate, setOrdefyStartDate] = useState(formatLocalDate(new Date(), storeTimezone));
 
   const { toast } = useToast();
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    isMountedRef.current = true;
     loadData();
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   const loadData = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const [valuesData, summaryData, recurringData] = await Promise.all([
         additionalValuesService.getAll(),
         additionalValuesService.getSummary(),
         recurringAdditionalValuesService.getAll()
       ]);
+      if (!isMountedRef.current) return;
       setValues(valuesData);
       setSummary(summaryData);
       setRecurringValues(recurringData);
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error("Failed to load data", error);
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   };
 

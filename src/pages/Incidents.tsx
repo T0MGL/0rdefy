@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -121,19 +121,37 @@ export default function Incidents() {
   const [statusFilter, setStatusFilter] = useState('active');
   const { toast } = useToast();
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     loadIncidents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
   const loadIncidents = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoading(true);
     try {
       const response = await apiClient.get('/incidents', {
         params: { status: statusFilter }
       });
+      if (!isMountedRef.current) return;
       setIncidents(response.data.data || []);
     } catch (error: any) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading incidents:', error);
       toast({
         variant: 'destructive',
@@ -141,7 +159,7 @@ export default function Incidents() {
         description: error.response?.data?.error || 'No se pudieron cargar las incidencias'
       });
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   };
 

@@ -4,7 +4,7 @@
 // Manages zone-based pricing for a carrier
 // ================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,26 +34,37 @@ export function CarrierZonesDialog({ open, onOpenChange, carrierId, carrierName 
   });
   const { toast } = useToast();
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
-    if (open && carrierId) {
+    if (!open) {
+      abortControllerRef.current?.abort();
+      return;
+    }
+    if (carrierId) {
       loadZones();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, carrierId]);
 
   const loadZones = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
       setLoading(true);
       const response = await carrierZonesService.getZonesByCarrier(carrierId);
+      if (controller.signal.aborted) return;
       setZones(response.zones);
     } catch (error: any) {
+      if (controller.signal.aborted) return;
       toast({
         variant: 'destructive',
         title: 'Error',
         description: error.message || 'No se pudieron cargar las zonas',
       });
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 

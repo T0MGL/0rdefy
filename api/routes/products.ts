@@ -96,7 +96,8 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             .select('product_id, quantity, orders!inner(sleeves_status, store_id)')
             .eq('orders.store_id', req.storeId)
             .in('orders.sleeves_status', ['confirmed', 'shipped', 'delivered'])
-            .not('product_id', 'is', null);
+            .not('product_id', 'is', null)
+            .limit(10000);
 
         // Aggregate sales per product in memory (much lighter than iterating JSONB)
         const salesByProduct: Record<string, number> = {};

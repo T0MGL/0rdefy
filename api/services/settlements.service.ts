@@ -1260,15 +1260,23 @@ async function processSettlementLegacy(
       };
     });
 
-  // Batch update orders (still sequential but prepared for batch)
+  // Batch update orders by status
+  const updateGroups: Record<string, string[]> = {};
   for (const update of orderUpdates) {
+    const key = `${update.sleeves_status}|${update.delivered_at || ''}`;
+    if (!updateGroups[key]) updateGroups[key] = [];
+    updateGroups[key].push(update.id);
+  }
+
+  for (const [key, ids] of Object.entries(updateGroups)) {
+    const [sleeves_status, delivered_at] = key.split('|');
     await supabaseAdmin
       .from('orders')
       .update({
-        sleeves_status: update.sleeves_status,
-        delivered_at: update.delivered_at
+        sleeves_status,
+        ...(delivered_at ? { delivered_at } : {})
       })
-      .eq('id', update.id);
+      .in('id', ids);
   }
 
   return settlement;

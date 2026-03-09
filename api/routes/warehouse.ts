@@ -484,6 +484,13 @@ router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessi
  * Query: { hours?: number } - default 48
  */
 router.post('/cleanup-sessions', async (req, res) => {
+  const cronSecret = req.headers['x-cron-secret'];
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret || !cronSecret || cronSecret !== expectedSecret) {
+    logger.warn('API', 'Unauthorized warehouse cleanup-sessions attempt');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const hoursInactive = parseInt(req.query.hours as string, 10) || 48;
 

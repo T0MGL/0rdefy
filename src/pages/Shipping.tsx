@@ -4,7 +4,7 @@
  * Shows orders in 'ready_to_ship' status and allows marking them as 'shipped'
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
@@ -40,6 +40,18 @@ export default function Shipping() {
 
   const hasWarehouseFeature = hasFeature('warehouse');
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     if (!hasWarehouseFeature) return;
     loadOrders();
@@ -47,11 +59,17 @@ export default function Shipping() {
   }, [hasWarehouseFeature]);
 
   async function loadOrders() {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     try {
       const data = await shippingService.getReadyToShipOrders();
+      if (!isMountedRef.current) return;
       setOrders(data);
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading ready to ship orders:', error);
       toast({
         title: 'Error',
@@ -59,7 +77,7 @@ export default function Shipping() {
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -92,6 +92,8 @@ export default function OnboardingPlan() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [referralCode, setReferralCode] = useState<string | null>(null);
 
+  const isMountedRef = useRef(true);
+
   // Capture referral code from URL or localStorage
   useEffect(() => {
     const refFromUrl = searchParams.get('ref');
@@ -106,11 +108,15 @@ export default function OnboardingPlan() {
 
   // Load plans
   useEffect(() => {
+    isMountedRef.current = true;
+
     async function loadPlans() {
       try {
         const data = await billingService.getPlans();
+        if (!isMountedRef.current) return;
         setPlans(data);
       } catch (error) {
+        if (!isMountedRef.current) return;
         logger.error('Error loading plans:', error);
         // Fallback plans if API fails - prices in dollars (API returns dollars, not cents)
         setPlans([
@@ -120,10 +126,14 @@ export default function OnboardingPlan() {
           { plan: 'professional', priceMonthly: 169, priceAnnual: 1704, has_trial: false, trial_days: 0 } as Plan,
         ]);
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current) setIsLoading(false);
       }
     }
     loadPlans();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const handleSelectPlan = async (planName: string) => {

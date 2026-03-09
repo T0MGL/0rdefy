@@ -3,7 +3,7 @@
  * Visual guide showing setup progress for new users
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -63,6 +63,13 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
   // Check if user has Shopify feature in their plan
   const hasShopifyAccess = hasFeature('shopify_import');
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; abortControllerRef.current?.abort(); };
+  }, []);
+
   useEffect(() => {
     // Skip loading if not owner
     if (!isOwner) {
@@ -73,14 +80,19 @@ export function OnboardingChecklist({ className, onDismiss }: OnboardingChecklis
   }, [isOwner]);
 
   async function loadProgress() {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
       const data = await onboardingService.getProgress();
+      if (!isMountedRef.current || controller.signal.aborted) return;
       setProgress(data);
       setIsDismissed(data.hasDismissed);
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading onboarding progress:', error);
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   }
 

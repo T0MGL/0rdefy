@@ -3,6 +3,7 @@ import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { RecurringValuesService } from '../services/recurring-values.service';
+import { validateUUIDParam } from '../utils/sanitize';
 
 export const recurringValuesRouter = Router();
 
@@ -121,7 +122,7 @@ recurringValuesRouter.post('/ordefy-subscription', async (req: AuthRequest, res:
 // ================================================================
 // PUT /api/recurring-values/:id - Update
 // ================================================================
-recurringValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+recurringValuesRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
         const updates = req.body;
@@ -152,7 +153,7 @@ recurringValuesRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // DELETE /api/recurring-values/:id - Delete
 // ================================================================
-recurringValuesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+recurringValuesRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 

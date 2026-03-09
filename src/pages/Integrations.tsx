@@ -72,6 +72,18 @@ export default function Integrations() {
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([]);
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   const hasShopifyImport = hasFeature('shopify_import');
 
   useEffect(() => {
@@ -95,10 +107,15 @@ export default function Integrations() {
     if (!hasShopifyImport) return;
 
     const checkExistingIntegrations = async () => {
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       setIsLoadingIntegrations(true);
       try {
         // Check Shopify
         const shopifyResponse = await shopifyService.getIntegration();
+        if (!isMountedRef.current) return;
         if (shopifyResponse.success && shopifyResponse.integration) {
           setConnectedIntegrations(prev =>
             prev.includes('shopify') ? prev : [...prev, 'shopify']
@@ -107,15 +124,17 @@ export default function Integrations() {
 
         // Check External Webhook
         const webhookResponse = await externalWebhookService.getConfig();
+        if (!isMountedRef.current) return;
         if (webhookResponse.success && webhookResponse.config) {
           setConnectedIntegrations(prev =>
             prev.includes('external-webhook') ? prev : [...prev, 'external-webhook']
           );
         }
       } catch (error) {
+        if (!isMountedRef.current) return;
         logger.error('Error checking existing integrations:', error);
       } finally {
-        setIsLoadingIntegrations(false);
+        if (isMountedRef.current) setIsLoadingIntegrations(false);
       }
     };
 

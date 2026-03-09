@@ -68,18 +68,25 @@ suppliersRouter.get('/', async (req: AuthRequest, res: Response) => {
             throw error;
         }
 
-        // Count products supplied by each supplier (future-proof for when we add this relationship)
-        const suppliersWithCounts = await Promise.all((data || []).map(async (supplier) => {
-            // This will be useful when we add supplier_id to products table
-            const { count: productsCount } = await supabaseAdmin
-                .from('products')
-                .select('*', { count: 'exact', head: true })
-                .eq('supplier_id', supplier.id);
+        // Count products per supplier with single query instead of N+1
+        const supplierIds = (data || []).map(s => s.id);
+        const productCountsBySupplier: Record<string, number> = {};
 
-            return {
-                ...supplier,
-                products_supplied: productsCount || 0
-            };
+        if (supplierIds.length > 0) {
+            const { data: countData } = await supabaseAdmin
+                .from('products')
+                .select('supplier_id')
+                .in('supplier_id', supplierIds)
+                .eq('store_id', req.storeId);
+
+            countData?.forEach(item => {
+                productCountsBySupplier[item.supplier_id] = (productCountsBySupplier[item.supplier_id] || 0) + 1;
+            });
+        }
+
+        const suppliersWithCounts = (data || []).map(supplier => ({
+            ...supplier,
+            products_supplied: productCountsBySupplier[supplier.id] || 0
         }));
 
         res.json({

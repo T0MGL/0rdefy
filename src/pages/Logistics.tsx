@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ExportButton } from '@/components/ExportButton';
@@ -45,6 +45,18 @@ export default function Logistics() {
   const { currentStore } = useAuth();
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
     const range = getDateRange();
@@ -56,6 +68,10 @@ export default function Logistics() {
 
   useEffect(() => {
     const loadData = async () => {
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       setIsLoading(true);
       try {
         const dateParams = {
@@ -68,12 +84,15 @@ export default function Logistics() {
           analyticsService.getLogisticsMetrics(dateParams).catch(() => null),
         ]);
 
+        if (!isMountedRef.current) return;
+
         setShippingCosts(shippingData);
         setLogisticsMetrics(logisticsData);
       } catch (error) {
+        if (!isMountedRef.current) return;
         logger.error('Error loading logistics data:', error);
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current) setIsLoading(false);
       }
     };
     loadData();

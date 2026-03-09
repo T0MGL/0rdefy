@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { generateAlerts } from '@/utils/alertEngine';
 import { useAuth, Module } from '@/contexts/AuthContext';
@@ -176,10 +176,10 @@ export function Header() {
   }, [loadData]); // Now properly tracks loadData changes
 
   // Only generate alerts if user has smart_alerts feature
-  const alerts = (hasSmartAlerts && overview)
+  const alerts = useMemo(() => (hasSmartAlerts && overview)
     ? generateAlerts({ orders, overview, carriers })
-    : [];
-  const criticalAlerts = hasSmartAlerts ? alerts.filter(a => a.severity === 'critical').length : 0;
+    : [], [hasSmartAlerts, overview, orders, carriers]);
+  const criticalAlerts = useMemo(() => hasSmartAlerts ? alerts.filter(a => a.severity === 'critical').length : 0, [hasSmartAlerts, alerts]);
 
   const handleSignOut = async () => {
     await signOut();

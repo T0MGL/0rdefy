@@ -16,6 +16,7 @@ import { extractUserRole, requireModule, requirePermission, PermissionRequest } 
 import { Module, Permission } from '../permissions';
 import { getTodayInTimezone } from '../utils/dateUtils';
 import { uploadDeliveryPhoto } from '../services/delivery-photo-cleanup.service';
+import { validateUUIDParam } from '../utils/sanitize';
 
 // Configure multer for file uploads
 const upload = multer({
@@ -140,7 +141,7 @@ deliveryAttemptsRouter.get('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/delivery-attempts/:id - Get single attempt
 // ================================================================
-deliveryAttemptsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+deliveryAttemptsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -234,7 +235,7 @@ deliveryAttemptsRouter.post('/', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // PUT /api/delivery-attempts/:id - Update attempt
 // ================================================================
-deliveryAttemptsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
+deliveryAttemptsRouter.put('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -275,7 +276,7 @@ deliveryAttemptsRouter.put('/:id', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // POST /api/delivery-attempts/:id/mark-delivered - Mark as delivered
 // ================================================================
-deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res: Response) => {
+deliveryAttemptsRouter.post('/:id/mark-delivered', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { photo_url, notes, payment_method } = req.body;
@@ -367,7 +368,7 @@ deliveryAttemptsRouter.post('/:id/mark-delivered', async (req: AuthRequest, res:
 // ================================================================
 // POST /api/delivery-attempts/:id/mark-failed - Mark as failed
 // ================================================================
-deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Response) => {
+deliveryAttemptsRouter.post('/:id/mark-failed', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { failed_reason, notes, failure_notes, status = 'failed' } = req.body;
@@ -427,7 +428,7 @@ deliveryAttemptsRouter.post('/:id/mark-failed', async (req: AuthRequest, res: Re
 // ================================================================
 // DELETE /api/delivery-attempts/:id - Delete attempt
 // ================================================================
-deliveryAttemptsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+deliveryAttemptsRouter.delete('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 

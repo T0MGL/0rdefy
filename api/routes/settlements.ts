@@ -7,7 +7,7 @@ import { Module, Permission } from '../permissions';
 import * as settlementsService from '../services/settlements.service';
 import { getTodayInTimezone } from '../utils/dateUtils';
 import { logger } from '../utils/logger';
-import { parsePagination } from '../utils/sanitize';
+import { parsePagination, validateUUIDParam } from '../utils/sanitize';
 
 export const settlementsRouter = Router();
 
@@ -191,7 +191,7 @@ settlementsRouter.get('/dispatch-sessions', async (req: AuthRequest, res: Respon
  * GET /api/settlements/dispatch-sessions/:id
  * Get dispatch session by ID with orders
  */
-settlementsRouter.get('/dispatch-sessions/:id', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/dispatch-sessions/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const session = await settlementsService.getDispatchSessionById(id, req.storeId!);
@@ -243,7 +243,7 @@ settlementsRouter.post('/dispatch-sessions', requirePermission(Module.CARRIERS, 
  * Export dispatch session as Excel or CSV for courier
  * Query param: format=xlsx (default) or format=csv
  */
-settlementsRouter.get('/dispatch-sessions/:id/export', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/dispatch-sessions/:id/export', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const format = (req.query.format as string)?.toLowerCase() || 'xlsx';
@@ -271,7 +271,7 @@ settlementsRouter.get('/dispatch-sessions/:id/export', async (req: AuthRequest, 
  * POST /api/settlements/dispatch-sessions/:id/import
  * Import delivery results from CSV
  */
-settlementsRouter.post('/dispatch-sessions/:id/import', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.post('/dispatch-sessions/:id/import', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { results } = req.body;
@@ -297,7 +297,7 @@ settlementsRouter.post('/dispatch-sessions/:id/import', requirePermission(Module
  * POST /api/settlements/dispatch-sessions/:id/process
  * Process dispatch session and create settlement
  */
-settlementsRouter.post('/dispatch-sessions/:id/process', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.post('/dispatch-sessions/:id/process', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -346,7 +346,7 @@ settlementsRouter.get('/v2', async (req: AuthRequest, res: Response) => {
  * GET /api/settlements/v2/:id
  * Get settlement by ID with full details
  */
-settlementsRouter.get('/v2/:id', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/v2/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const settlement = await settlementsService.getSettlementById(id, req.storeId!);
@@ -361,7 +361,7 @@ settlementsRouter.get('/v2/:id', async (req: AuthRequest, res: Response) => {
  * POST /api/settlements/v2/:id/pay
  * Record payment for settlement
  */
-settlementsRouter.post('/v2/:id/pay', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.post('/v2/:id/pay', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { amount, method, reference, notes } = req.body;
@@ -483,7 +483,7 @@ settlementsRouter.post('/zones/bulk', requirePermission(Module.CARRIERS, Permiss
  * DELETE /api/settlements/zones/:id
  * Delete carrier zone
  */
-settlementsRouter.delete('/zones/:id', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.delete('/zones/:id', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -559,7 +559,7 @@ settlementsRouter.get('/pending-reconciliation', async (req: AuthRequest, res: R
 /**
  * GET /api/settlements/pending-reconciliation/:date/:carrierId - Get orders for specific date/carrier
  */
-settlementsRouter.get('/pending-reconciliation/:date/:carrierId', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/pending-reconciliation/:date/:carrierId', validateUUIDParam('carrierId'), async (req: AuthRequest, res: Response) => {
   try {
     const { date, carrierId } = req.params;
 
@@ -927,7 +927,7 @@ settlementsRouter.get('/carrier-accounts/summary', async (req: AuthRequest, res:
 // ================================================================
 // GET /api/settlements/carrier-accounts/:carrierId - Get carrier detail
 // ================================================================
-settlementsRouter.get('/carrier-accounts/:carrierId', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/carrier-accounts/:carrierId', validateUUIDParam('carrierId'), async (req: AuthRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
     const { from_date, to_date } = req.query;
@@ -957,7 +957,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId', async (req: AuthRequest, r
 // ================================================================
 // GET /api/settlements/carrier-accounts/:carrierId/movements - Get movements
 // ================================================================
-settlementsRouter.get('/carrier-accounts/:carrierId/movements', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/carrier-accounts/:carrierId/movements', validateUUIDParam('carrierId'), async (req: AuthRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
     const { from_date, to_date, movement_type, limit, offset } = req.query;
@@ -986,7 +986,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId/movements', async (req: Auth
 // ================================================================
 // GET /api/settlements/carrier-accounts/:carrierId/unsettled - Get unsettled
 // ================================================================
-settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', validateUUIDParam('carrierId'), async (req: AuthRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
 
@@ -1004,7 +1004,7 @@ settlementsRouter.get('/carrier-accounts/:carrierId/unsettled', async (req: Auth
 // ================================================================
 // PATCH /api/settlements/carrier-accounts/:carrierId/config - Update config
 // ================================================================
-settlementsRouter.patch('/carrier-accounts/:carrierId/config', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.patch('/carrier-accounts/:carrierId/config', validateUUIDParam('carrierId'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
     const { settlement_type, charges_failed_attempts, payment_schedule, failed_attempt_fee_percent } = req.body;
@@ -1036,7 +1036,7 @@ settlementsRouter.patch('/carrier-accounts/:carrierId/config', requirePermission
 // ================================================================
 // POST /api/settlements/carrier-accounts/:carrierId/adjustment - Create adjustment
 // ================================================================
-settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.post('/carrier-accounts/:carrierId/adjustment', validateUUIDParam('carrierId'), requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
   try {
     const { carrierId } = req.params;
     const { amount, type, description } = req.body;
@@ -1192,7 +1192,7 @@ settlementsRouter.post('/backfill-movements', requirePermission(Module.CARRIERS,
 // GET /api/settlements/:id - Get single settlement with orders
 // IMPORTANT: This MUST be AFTER all specific routes to avoid conflicts
 // ================================================================
-settlementsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+settlementsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -1341,7 +1341,7 @@ settlementsRouter.post('/', requirePermission(Module.CARRIERS, Permission.CREATE
 // ================================================================
 // PUT /api/settlements/:id - Update settlement
 // ================================================================
-settlementsRouter.put('/:id', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -1381,7 +1381,7 @@ settlementsRouter.put('/:id', requirePermission(Module.CARRIERS, Permission.EDIT
 // ================================================================
 // POST /api/settlements/:id/complete - Complete/close settlement
 // ================================================================
-settlementsRouter.post('/:id/complete', requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.post('/:id/complete', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { collected_cash, notes } = req.body;
@@ -1434,7 +1434,7 @@ settlementsRouter.post('/:id/complete', requirePermission(Module.CARRIERS, Permi
 // ================================================================
 // DELETE /api/settlements/:id - Delete settlement
 // ================================================================
-settlementsRouter.delete('/:id', requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
+settlementsRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
   try {
     const { id } = req.params;
 

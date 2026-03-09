@@ -1434,7 +1434,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 .update({ customer_ruc, customer_ruc_dv: customer_ruc_dv ? Number(customer_ruc_dv) : null })
                 .eq('id', data.id)
                 .then(() => {})
-                .catch(() => {});
+                .catch((err) => { logger.error('API', 'Failed to save customer RUC:', err); });
         }
 
         // Log initial status history for manual orders created as confirmed (non-blocking)
@@ -1452,7 +1452,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     notes: 'Orden manual creada directamente como confirmada'
                 })
                 .then(() => {})
-                .catch(() => {});
+                .catch((err) => { logger.error('API', 'Failed to log initial status history:', err); });
         }
 
         // Create normalized line items in order_line_items table (for manual orders)
@@ -1474,7 +1474,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 if (variantIds.length > 0) {
                     const { data: variants } = await supabaseAdmin
                         .from('product_variants')
-                        .select('id, product_id, variant_title, sku, price, units_per_pack, image_url, variant_type, uses_shared_stock')
+                        .select('id, product_id, variant_title, sku, price, cost, units_per_pack, image_url, variant_type, uses_shared_stock')
                         .in('id', variantIds);
                     (variants || []).forEach((v: any) => variantsMap.set(v.id, v));
                 }
@@ -1482,7 +1482,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 if (productIds.length > 0) {
                     const { data: products } = await supabaseAdmin
                         .from('products')
-                        .select('id, name, image_url')
+                        .select('id, name, image_url, cost, packaging_cost, additional_costs')
                         .in('id', productIds)
                         .eq('store_id', req.storeId);
                     (products || []).forEach((p: any) => productsMap.set(p.id, p));
@@ -1543,6 +1543,25 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         }
                     }
 
+                    // Migration 128: Snapshot unit_cost at order creation time
+                    let unitCost = 0;
+                    if (variantId) {
+                        const variant = variantsMap.get(variantId);
+                        if (variant && variant.cost !== null && variant.cost !== undefined && Number(variant.cost) > 0) {
+                            unitCost = safeNumber(variant.cost, 0);
+                        } else if (productId) {
+                            const product = productsMap.get(productId);
+                            if (product) {
+                                unitCost = safeNumber(product.cost, 0) + safeNumber(product.packaging_cost, 0) + safeNumber(product.additional_costs, 0);
+                            }
+                        }
+                    } else if (productId) {
+                        const product = productsMap.get(productId);
+                        if (product) {
+                            unitCost = safeNumber(product.cost, 0) + safeNumber(product.packaging_cost, 0) + safeNumber(product.additional_costs, 0);
+                        }
+                    }
+
                     normalizedLineItems.push({
                         order_id: data.id,
                         product_id: productId,
@@ -1553,6 +1572,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         sku: variantSku,
                         quantity: safeNumber(item.quantity, 1),
                         unit_price: unitPrice,
+                        unit_cost: unitCost, // Migration 128: Snapshot cost
                         total_price: safeNumber(item.quantity, 1) * unitPrice,
                         units_per_pack: unitsPerPack, // Migration 097: Snapshot for audit
                         image_url: imageUrl,
@@ -2262,12 +2282,12 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                                 import('../services/invoicing.service').then(({ generateInvoice }) => {
                                     generateInvoice(req.storeId!, id)
                                         .catch((err: any) => logger.error('[AutoInvoice] Failed:', err.message));
-                                }).catch(() => {});
+                                }).catch((err) => { logger.error('API', 'Failed to import invoicing service:', err); });
                             }
                         })
-                        .catch(() => {});
+                        .catch((err) => { logger.error('API', 'Failed to fetch store country for auto-invoice:', err); });
                 })
-                .catch(() => {}); // Silently fail - column may not exist yet
+                .catch((err) => { logger.error('API', 'Failed to fetch customer_ruc for auto-invoice:', err); });
         }
 
         if (sleeves_status === 'cancelled' || sleeves_status === 'rejected') {

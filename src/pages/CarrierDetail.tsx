@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -80,14 +80,32 @@ export default function CarrierDetail() {
   const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution>({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
   const [reviewsLoading, setReviewsLoading] = useState(false);
 
+  // Memory leak prevention
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     const loadData = async () => {
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       try {
         setLoading(true);
         const [allCarriers, ordersResponse] = await Promise.all([
           carriersService.getAll(),
           ordersService.getAll() // Fetching all orders to client-side filter. Optimize later if needed.
         ]);
+
+        if (!isMountedRef.current) return;
 
         const foundCarrier = allCarriers.find((c) => c.id === id);
         setCarrier(foundCarrier);
@@ -107,6 +125,7 @@ export default function CarrierDetail() {
           setReviewsLoading(true);
           try {
             const reviewsData = await carriersService.getReviews(foundCarrier.id, { limit: 50 });
+            if (!isMountedRef.current) return;
             setReviews(reviewsData.reviews);
             setRatingDistribution(reviewsData.rating_distribution);
             // Update carrier with latest rating from reviews endpoint
@@ -118,17 +137,19 @@ export default function CarrierDetail() {
               }));
             }
           } catch (reviewError) {
+            if (!isMountedRef.current) return;
             logger.error('Error loading reviews:', reviewError);
           } finally {
-            setReviewsLoading(false);
+            if (isMountedRef.current) setReviewsLoading(false);
           }
         }
 
       } catch (error) {
+        if (!isMountedRef.current) return;
         logger.error('Error loading carrier data:', error);
         toast({ title: 'Error', description: 'No se pudieron cargar los datos', variant: 'destructive' });
       } finally {
-        setLoading(false);
+        if (isMountedRef.current) setLoading(false);
       }
     };
     loadData();

@@ -79,6 +79,11 @@ export function useRealtimeSubscription({
 }: UseRealtimeSubscriptionOptions) {
   const { toast } = useToast();
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  });
 
   useEffect(() => {
     if (!enabled) {
@@ -121,7 +126,7 @@ export function useRealtimeSubscription({
       },
       (payload) => {
         logger.log(`[Realtime] ${table} ${payload.eventType}:`, payload);
-        callback(payload);
+        callbackRef.current(payload);
       }
     );
 

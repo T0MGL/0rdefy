@@ -298,7 +298,8 @@ customersRouter.get('/stats/overview', async (req: AuthRequest, res: Response) =
         const { data: allCustomers, error: customersError } = await supabaseAdmin
             .from('customers')
             .select('total_orders, total_spent')
-            .eq('store_id', req.storeId);
+            .eq('store_id', req.storeId)
+            .limit(50000);
 
         if (customersError) {
             throw customersError;

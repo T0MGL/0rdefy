@@ -700,6 +700,48 @@ export class ExternalWebhookService {
         });
       }
 
+      // Migration 128: Batch-fetch costs for all found products/variants
+      if (orderLineItems.length > 0) {
+        const foundProductIds = [...new Set(orderLineItems.map(i => i.product_id).filter(Boolean))] as string[];
+        const foundVariantIds = [...new Set(orderLineItems.map(i => i.variant_id).filter(Boolean))] as string[];
+
+        const productCostMap = new Map<string, number>();
+        if (foundProductIds.length > 0) {
+          const { data: costData } = await supabaseAdmin
+            .from('products')
+            .select('id, cost, packaging_cost, additional_costs')
+            .in('id', foundProductIds);
+          costData?.forEach((p: any) => {
+            productCostMap.set(p.id, (Number(p.cost) || 0) + (Number(p.packaging_cost) || 0) + (Number(p.additional_costs) || 0));
+          });
+        }
+
+        const variantCostMap = new Map<string, number>();
+        if (foundVariantIds.length > 0) {
+          const { data: costData } = await supabaseAdmin
+            .from('product_variants')
+            .select('id, cost')
+            .in('id', foundVariantIds);
+          costData?.forEach((v: any) => {
+            if (v.cost !== null && v.cost !== undefined) {
+              variantCostMap.set(v.id, Number(v.cost) || 0);
+            }
+          });
+        }
+
+        // Add unit_cost to each line item
+        for (const item of orderLineItems) {
+          let unitCost = 0;
+          if (item.variant_id && variantCostMap.has(item.variant_id)) {
+            unitCost = variantCostMap.get(item.variant_id)!;
+          }
+          if (unitCost === 0 && item.product_id && productCostMap.has(item.product_id)) {
+            unitCost = productCostMap.get(item.product_id)!;
+          }
+          (item as any).unit_cost = unitCost;
+        }
+      }
+
       // Insert order_line_items
       if (orderLineItems.length > 0) {
         const { error: lineItemsError } = await supabaseAdmin
@@ -1145,12 +1187,54 @@ export class ExternalWebhookService {
   }
 
   /**
+   * Finds confirmable orders (pending/contacted) by customer phone.
+   * Single query fetching up to 2 rows to detect ambiguity atomically
+   * (avoids race condition between separate count + find queries).
+   * Returns: { order, count } where count is total confirmable orders.
+   */
+  private async findConfirmableOrdersByPhone(
+    storeId: string,
+    phone: string
+  ): Promise<{ order: { id: string; status: string } | null; count: number }> {
+    try {
+      const normalizedPhone = phone.replace(/[^\d+]/g, '');
+      if (!normalizedPhone || normalizedPhone.length < 6) {
+        return { order: null, count: 0 };
+      }
+
+      // Fetch up to 2 to detect ambiguity in a single query.
+      // Uses idx_orders_customer_phone (store_id, customer_phone).
+      const { data, error } = await supabaseAdmin
+        .from('orders')
+        .select('id, sleeves_status')
+        .eq('store_id', storeId)
+        .eq('customer_phone', normalizedPhone)
+        .in('sleeves_status', ['pending', 'contacted'])
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(2);
+
+      if (error || !data || data.length === 0) {
+        return { order: null, count: 0 };
+      }
+
+      return {
+        order: { id: data[0].id, status: data[0].sleeves_status },
+        count: data.length
+      };
+    } catch (error) {
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error finding order by phone:', error);
+      return { order: null, count: 0 };
+    }
+  }
+
+  /**
    * Confirma una orden vía API key (sin JWT)
    * Usa el mismo RPC confirm_order_atomic que el dashboard
    */
   async confirmOrderViaApi(
     storeId: string,
-    identifier: { order_number: string },
+    identifier: { order_number?: string; phone?: string },
     options: {
       courier_id?: string;
       is_pickup?: boolean;
@@ -1176,21 +1260,49 @@ export class ExternalWebhookService {
     shipping_cost?: number;
     error?: string;
     code?: string;
+    multiple_orders?: number;
   }> {
     try {
-      // 1. Find the order
-      const order = await this.findOrderByNumber(storeId, identifier.order_number);
-      if (!order) {
-        return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
-      }
+      // 1. Find the order by order_number or phone
+      let order: { id: string; status: string } | null = null;
 
-      // 2. Validate status
-      if (order.status !== 'pending' && order.status !== 'contacted') {
-        return {
-          success: false,
-          error: `Order is already ${order.status}. Only pending or contacted orders can be confirmed.`,
-          code: 'INVALID_STATUS'
-        };
+      if (identifier.order_number) {
+        // Primary path: find by order number (exact match)
+        order = await this.findOrderByNumber(storeId, identifier.order_number);
+        if (!order) {
+          return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
+        }
+
+        // Validate status
+        if (order.status !== 'pending' && order.status !== 'contacted') {
+          return {
+            success: false,
+            error: `Order is already ${order.status}. Only pending or contacted orders can be confirmed.`,
+            code: 'INVALID_STATUS'
+          };
+        }
+      } else if (identifier.phone) {
+        // Secondary path: find most recent confirmable order by phone
+        // Single atomic query - fetches up to 2 to detect ambiguity
+        const { order: foundOrder, count } = await this.findConfirmableOrdersByPhone(storeId, identifier.phone);
+
+        if (count === 0 || !foundOrder) {
+          return { success: false, error: 'No pending or contacted orders found for this phone number', code: 'ORDER_NOT_FOUND' };
+        }
+
+        if (count > 1) {
+          return {
+            success: false,
+            error: 'Multiple pending/contacted orders found for this phone number. Use order_number to specify which order to confirm, or use the lookup endpoint to list them.',
+            code: 'MULTIPLE_ORDERS',
+            multiple_orders: count
+          };
+        }
+
+        // Exactly 1 confirmable order - safe to confirm
+        order = foundOrder;
+      } else {
+        return { success: false, error: 'Either order_number or phone is required', code: 'MISSING_IDENTIFIER' };
       }
 
       // 3. Confirm via RPC
@@ -1321,6 +1433,535 @@ export class ExternalWebhookService {
       logger.error('BACKEND', '❌ [ExternalWebhook] Error confirming order via API:', error);
       return { success: false, error: error.message || 'Unknown error', code: 'SERVER_ERROR' };
     }
+  }
+
+  // ================================================================
+  // ORDER STATUS UPDATE (Public API)
+  // ================================================================
+
+  /**
+   * Updates order status via API key (no JWT).
+   * Finds order by order_number or phone, validates transition, applies update.
+   */
+  async updateOrderStatusViaApi(
+    storeId: string,
+    identifier: { order_number?: string; phone?: string },
+    options: {
+      status: string;
+      reason?: string;
+    },
+    config: WebhookConfig
+  ): Promise<{
+    success: boolean;
+    order_id?: string;
+    order_number?: string;
+    previous_status?: string;
+    new_status?: string;
+    error?: string;
+    code?: string;
+    multiple_orders?: number;
+  }> {
+    try {
+      // 1. Find the order
+      const findResult = await this.findOrderByIdentifier(storeId, identifier);
+      if (!findResult.success) {
+        return { success: false, error: findResult.error, code: findResult.code, multiple_orders: findResult.multiple_orders };
+      }
+
+      const order = findResult.order!;
+
+      // 2. Validate allowed statuses for external API
+      const allowedStatuses = ['pending', 'contacted', 'confirmed', 'cancelled', 'rejected'];
+      if (!allowedStatuses.includes(options.status)) {
+        return {
+          success: false,
+          error: `Status '${options.status}' is not allowed via external API. Allowed: ${allowedStatuses.join(', ')}`,
+          code: 'STATUS_NOT_ALLOWED'
+        };
+      }
+
+      // 3. Validate transition
+      if (order.status === options.status) {
+        return {
+          success: false,
+          error: `Order is already in status '${options.status}'`,
+          code: 'SAME_STATUS'
+        };
+      }
+
+      // Basic transition validation - block impossible ones
+      const blockedTransitions: Record<string, string[]> = {
+        delivered: ['pending', 'contacted', 'confirmed', 'cancelled'],
+      };
+      if (blockedTransitions[order.status]?.includes(options.status)) {
+        return {
+          success: false,
+          error: `Cannot transition from '${order.status}' to '${options.status}'`,
+          code: 'INVALID_TRANSITION'
+        };
+      }
+
+      // 4. Build update data
+      const updateData: any = {
+        sleeves_status: options.status,
+        updated_at: new Date().toISOString()
+      };
+
+      if (options.status === 'contacted') {
+        updateData.contacted_at = new Date().toISOString();
+        updateData.contacted_by = `api:${config.api_key_prefix}`;
+        updateData.contacted_method = 'external_api';
+      }
+
+      if (options.status === 'cancelled' || options.status === 'rejected') {
+        updateData.cancelled_at = new Date().toISOString();
+        if (options.reason) {
+          updateData.cancel_reason = options.reason;
+          updateData.rejection_reason = options.reason;
+        }
+      }
+
+      if (options.status === 'confirmed') {
+        updateData.confirmed_at = new Date().toISOString();
+        updateData.confirmed_by = `api:${config.api_key_prefix}`;
+        updateData.confirmation_method = 'external_api';
+      }
+
+      // If reactivating from cancelled, reset delivery fields
+      if (order.status === 'cancelled' && ['pending', 'contacted', 'confirmed'].includes(options.status)) {
+        updateData.delivery_status = 'pending';
+        updateData.delivery_failure_reason = null;
+        updateData.cancelled_at = null;
+      }
+
+      // 5. Apply update
+      const { data, error } = await supabaseAdmin
+        .from('orders')
+        .update(updateData)
+        .eq('id', order.id)
+        .eq('store_id', storeId)
+        .select('id, shopify_order_name, shopify_order_number, order_number, sleeves_status')
+        .single();
+
+      if (error || !data) {
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error updating order status:', error);
+        return { success: false, error: 'Failed to update order status', code: 'UPDATE_FAILED' };
+      }
+
+      // 6. Log status change (audit, non-blocking)
+      try {
+        await supabaseAdmin
+          .from('order_status_history')
+          .insert({
+            order_id: order.id,
+            store_id: storeId,
+            previous_status: order.status,
+            new_status: options.status,
+            changed_by: `api:${config.api_key_prefix}`,
+            change_source: 'external_api',
+            notes: options.reason
+              ? `Status updated via external API: ${options.reason}`
+              : 'Status updated via external API'
+          });
+      } catch {
+        // Non-critical audit
+      }
+
+      const orderNumber = data.shopify_order_name || data.shopify_order_number || data.order_number || null;
+
+      return {
+        success: true,
+        order_id: order.id,
+        order_number: orderNumber,
+        previous_status: order.status,
+        new_status: options.status
+      };
+    } catch (error: any) {
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error updating order status via API:', error);
+      return { success: false, error: error.message || 'Unknown error', code: 'SERVER_ERROR' };
+    }
+  }
+
+  // ================================================================
+  // ORDER ITEMS UPDATE (Public API)
+  // ================================================================
+
+  /**
+   * Updates order line items via API key (no JWT).
+   * Supports adding, removing, and replacing items.
+   * Only allowed before stock deduction (pre ready_to_ship).
+   */
+  async updateOrderItemsViaApi(
+    storeId: string,
+    identifier: { order_number?: string; phone?: string },
+    items: {
+      action: 'add' | 'remove' | 'replace';
+      products: Array<{
+        sku?: string;
+        product_id?: string;
+        name?: string;
+        quantity: number;
+        price: number;
+        variant_title?: string;
+        variant_type?: 'bundle' | 'variation';
+        is_upsell?: boolean;
+      }>;
+    },
+    config: WebhookConfig
+  ): Promise<{
+    success: boolean;
+    order_id?: string;
+    order_number?: string;
+    items_count?: number;
+    total_price?: number;
+    error?: string;
+    code?: string;
+    multiple_orders?: number;
+  }> {
+    try {
+      // 1. Find the order
+      const findResult = await this.findOrderByIdentifier(storeId, identifier);
+      if (!findResult.success) {
+        return { success: false, error: findResult.error, code: findResult.code, multiple_orders: findResult.multiple_orders };
+      }
+
+      const order = findResult.order!;
+
+      // 2. Check status allows line item editing
+      const stockDeductedStatuses = ['ready_to_ship', 'shipped', 'in_transit', 'delivered'];
+      if (stockDeductedStatuses.includes(order.status)) {
+        return {
+          success: false,
+          error: `Cannot modify items when order is '${order.status}' - stock has been deducted. Cancel the order and create a new one.`,
+          code: 'ITEMS_LOCKED'
+        };
+      }
+
+      // 3. Validate items payload
+      if (!items.products || !Array.isArray(items.products) || items.products.length === 0) {
+        return { success: false, error: 'At least one product is required', code: 'MISSING_PRODUCTS' };
+      }
+
+      const validActions = ['add', 'remove', 'replace'];
+      if (!validActions.includes(items.action)) {
+        return { success: false, error: `Invalid action. Allowed: ${validActions.join(', ')}`, code: 'INVALID_ACTION' };
+      }
+
+      // 4. Resolve products by SKU or product_id
+      const resolvedProducts: Array<{
+        product_id: string | null;
+        variant_id: string | null;
+        product_name: string;
+        sku: string | null;
+        quantity: number;
+        unit_price: number;
+        variant_title: string | null;
+        variant_type: string | null;
+        units_per_pack: number;
+        image_url: string | null;
+        is_upsell: boolean;
+        unit_cost: number;
+      }> = [];
+
+      for (const item of items.products) {
+        let product: any = null;
+        let variant: any = null;
+
+        // Try to resolve by product_id first
+        if (item.product_id) {
+          const { data: productData } = await supabaseAdmin
+            .from('products')
+            .select('id, name, price, cost, sku, image_url, packaging_cost, additional_costs')
+            .eq('id', item.product_id)
+            .eq('store_id', storeId)
+            .single();
+          product = productData;
+        }
+
+        // Try to resolve by SKU if no product_id or not found
+        if (!product && item.sku) {
+          const { data: productData } = await supabaseAdmin
+            .from('products')
+            .select('id, name, price, cost, sku, image_url, packaging_cost, additional_costs')
+            .eq('store_id', storeId)
+            .eq('sku', item.sku)
+            .single();
+          product = productData;
+
+          // Also check variants by SKU
+          if (!product) {
+            const { data: variantData } = await supabaseAdmin
+              .from('product_variants')
+              .select(`
+                id, product_id, variant_title, sku, price, cost, units_per_pack, image_url, variant_type, uses_shared_stock,
+                products!inner(id, name, image_url, cost, packaging_cost, additional_costs, store_id)
+              `)
+              .eq('sku', item.sku)
+              .eq('products.store_id', storeId)
+              .single();
+
+            if (variantData) {
+              variant = variantData;
+              product = (variantData as any).products;
+            }
+          }
+        }
+
+        const unitPrice = item.price || product?.price || 0;
+        const productName = item.name || product?.name || 'Producto';
+        const productId = product?.id || null;
+        const variantId = variant?.id || null;
+        const variantTitle = item.variant_title || variant?.variant_title || null;
+        const variantType = item.variant_type || variant?.variant_type || null;
+        const unitsPerPack = variant?.units_per_pack || 1;
+        const imageUrl = variant?.image_url || product?.image_url || null;
+
+        // Calculate unit cost
+        let unitCost = 0;
+        if (variant?.cost) {
+          unitCost = Number(variant.cost);
+        } else if (product) {
+          unitCost = (Number(product.cost) || 0) + (Number(product.packaging_cost) || 0) + (Number(product.additional_costs) || 0);
+        }
+
+        resolvedProducts.push({
+          product_id: productId,
+          variant_id: variantId,
+          product_name: productName,
+          sku: item.sku || variant?.sku || product?.sku || null,
+          quantity: Math.max(1, Math.floor(item.quantity || 1)),
+          unit_price: unitPrice,
+          variant_title: variantTitle,
+          variant_type: variantType,
+          units_per_pack: unitsPerPack,
+          image_url: imageUrl,
+          is_upsell: item.is_upsell || false,
+          unit_cost: unitCost
+        });
+      }
+
+      // 5. Get current order data
+      const { data: currentOrder } = await supabaseAdmin
+        .from('orders')
+        .select('id, line_items, total_price, subtotal_price, order_line_items(id, product_id, sku, is_upsell)')
+        .eq('id', order.id)
+        .single();
+
+      if (!currentOrder) {
+        return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
+      }
+
+      // 6. Execute action
+      let finalLineItems: any[];
+      const existingLineItems = (currentOrder.line_items as any[]) || [];
+
+      if (items.action === 'replace') {
+        // Replace all items
+        finalLineItems = resolvedProducts.map(p => ({
+          product_id: p.product_id,
+          product_name: p.product_name,
+          name: p.product_name,
+          sku: p.sku,
+          quantity: p.quantity,
+          price: p.unit_price,
+          variant_title: p.variant_title,
+          variant_type: p.variant_type,
+          is_upsell: p.is_upsell
+        }));
+
+        // Delete all existing order_line_items and insert new ones
+        await supabaseAdmin
+          .from('order_line_items')
+          .delete()
+          .eq('order_id', order.id);
+
+      } else if (items.action === 'add') {
+        // Add to existing items
+        finalLineItems = [...existingLineItems];
+        for (const p of resolvedProducts) {
+          finalLineItems.push({
+            product_id: p.product_id,
+            product_name: p.product_name,
+            name: p.product_name,
+            sku: p.sku,
+            quantity: p.quantity,
+            price: p.unit_price,
+            variant_title: p.variant_title,
+            variant_type: p.variant_type,
+            is_upsell: p.is_upsell
+          });
+        }
+
+      } else if (items.action === 'remove') {
+        // Remove items by SKU or product_id
+        const removeSkus = new Set(resolvedProducts.map(p => p.sku).filter(Boolean));
+        const removeProductIds = new Set(resolvedProducts.map(p => p.product_id).filter(Boolean));
+
+        finalLineItems = existingLineItems.filter((item: any) => {
+          if (item.sku && removeSkus.has(item.sku)) return false;
+          if (item.product_id && removeProductIds.has(item.product_id)) return false;
+          return true;
+        });
+
+        // Remove from order_line_items table
+        for (const p of resolvedProducts) {
+          if (p.sku) {
+            await supabaseAdmin
+              .from('order_line_items')
+              .delete()
+              .eq('order_id', order.id)
+              .eq('sku', p.sku);
+          } else if (p.product_id) {
+            await supabaseAdmin
+              .from('order_line_items')
+              .delete()
+              .eq('order_id', order.id)
+              .eq('product_id', p.product_id);
+          }
+        }
+      } else {
+        finalLineItems = existingLineItems;
+      }
+
+      // 7. Recalculate total
+      const newTotal = finalLineItems.reduce((sum: number, item: any) => {
+        return sum + ((item.price || 0) * (item.quantity || 1));
+      }, 0);
+
+      // 8. Update JSONB line_items and totals
+      const { error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update({
+          line_items: finalLineItems,
+          total_price: newTotal,
+          subtotal_price: newTotal,
+          upsell_added: finalLineItems.some((item: any) => item.is_upsell),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', order.id)
+        .eq('store_id', storeId);
+
+      if (updateError) {
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error updating order line_items:', updateError);
+        return { success: false, error: 'Failed to update order items', code: 'UPDATE_FAILED' };
+      }
+
+      // 9. Insert new order_line_items for add/replace actions
+      if (items.action === 'add' || items.action === 'replace') {
+        const newLineItems = resolvedProducts.map(p => ({
+          order_id: order.id,
+          product_id: p.product_id,
+          variant_id: p.variant_id,
+          variant_type: p.variant_type,
+          product_name: p.product_name,
+          variant_title: p.variant_title,
+          sku: p.sku,
+          quantity: p.quantity,
+          unit_price: p.unit_price,
+          unit_cost: p.unit_cost,
+          total_price: p.quantity * p.unit_price,
+          units_per_pack: p.units_per_pack,
+          image_url: p.image_url,
+          is_upsell: p.is_upsell
+        }));
+
+        if (newLineItems.length > 0) {
+          const { error: insertError } = await supabaseAdmin
+            .from('order_line_items')
+            .insert(newLineItems);
+
+          if (insertError) {
+            logger.error('BACKEND', '❌ [ExternalWebhook] Error inserting order_line_items:', insertError);
+            // Non-blocking - JSONB was already updated
+          }
+        }
+      }
+
+      // 10. Get order number for response
+      const { data: orderData } = await supabaseAdmin
+        .from('orders')
+        .select('shopify_order_name, shopify_order_number, order_number, total_price')
+        .eq('id', order.id)
+        .single();
+
+      const orderNumber = orderData?.shopify_order_name || orderData?.shopify_order_number || orderData?.order_number || null;
+
+      return {
+        success: true,
+        order_id: order.id,
+        order_number: orderNumber,
+        items_count: finalLineItems.length,
+        total_price: orderData?.total_price || newTotal
+      };
+    } catch (error: any) {
+      logger.error('BACKEND', '❌ [ExternalWebhook] Error updating order items via API:', error);
+      return { success: false, error: error.message || 'Unknown error', code: 'SERVER_ERROR' };
+    }
+  }
+
+  // ================================================================
+  // SHARED: Find order by identifier (order_number or phone)
+  // ================================================================
+
+  /**
+   * Finds a single order by order_number or by phone (most recent non-delivered).
+   * Unlike findConfirmableOrdersByPhone, this doesn't filter by confirmable status.
+   */
+  private async findOrderByIdentifier(
+    storeId: string,
+    identifier: { order_number?: string; phone?: string }
+  ): Promise<{
+    success: boolean;
+    order?: { id: string; status: string };
+    error?: string;
+    code?: string;
+    multiple_orders?: number;
+  }> {
+    if (identifier.order_number) {
+      const order = await this.findOrderByNumber(storeId, identifier.order_number);
+      if (!order) {
+        return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
+      }
+      return { success: true, order };
+    }
+
+    if (identifier.phone) {
+      const normalizedPhone = identifier.phone.replace(/[^\d+]/g, '');
+      if (!normalizedPhone || normalizedPhone.length < 6) {
+        return { success: false, error: 'Invalid phone number', code: 'INVALID_PHONE' };
+      }
+
+      // Find most recent active (non-delivered, non-returned) orders for this phone
+      const { data, error } = await supabaseAdmin
+        .from('orders')
+        .select('id, sleeves_status')
+        .eq('store_id', storeId)
+        .eq('customer_phone', normalizedPhone)
+        .not('sleeves_status', 'in', '(delivered,returned)')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(2);
+
+      if (error || !data || data.length === 0) {
+        return { success: false, error: 'No active orders found for this phone number', code: 'ORDER_NOT_FOUND' };
+      }
+
+      if (data.length > 1) {
+        return {
+          success: false,
+          error: 'Multiple active orders found for this phone number. Use order_number to specify which order.',
+          code: 'MULTIPLE_ORDERS',
+          multiple_orders: data.length
+        };
+      }
+
+      return {
+        success: true,
+        order: { id: data[0].id, status: data[0].sleeves_status }
+      };
+    }
+
+    return { success: false, error: 'Either order_number or phone is required', code: 'MISSING_IDENTIFIER' };
   }
 }
 

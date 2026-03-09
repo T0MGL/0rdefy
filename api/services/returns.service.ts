@@ -90,7 +90,8 @@ export async function getEligibleOrders(storeId: string): Promise<EligibleOrder[
     `)
     .eq('store_id', storeId)
     .or('sleeves_status.in.(delivered,shipped,cancelled),delivery_status.eq.failed')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   if (error) {
     logger.error('SERVICE', 'Error fetching eligible orders:', error);
@@ -403,7 +404,8 @@ export async function getReturnSessions(storeId: string): Promise<ReturnSession[
     .from('return_sessions')
     .select('*')
     .eq('store_id', storeId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(200);
 
   if (error) {
     logger.error('SERVICE', 'Error fetching sessions:', error);
@@ -544,9 +546,10 @@ export async function cancelReturnSession(sessionId: string): Promise<void> {
 export async function getReturnStats(storeId: string): Promise<any> {
   const { data: sessions, error } = await supabaseAdmin
     .from('return_sessions')
-    .select('*')
+    .select('id, processed_orders, accepted_items, rejected_items')
     .eq('store_id', storeId)
-    .eq('status', 'completed');
+    .eq('status', 'completed')
+    .limit(1000);
 
   if (error) {
     logger.error('SERVICE', 'Error fetching return stats:', error);

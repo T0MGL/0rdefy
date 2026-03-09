@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -112,17 +112,33 @@ export default function Delivery() {
   const [amountCollected, setAmountCollected] = useState('');
   const [showFailureSection, setShowFailureSection] = useState(false);
 
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
+    isMountedRef.current = true;
     if (token) {
       fetchOrderByToken(token);
     }
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
   }, [token]);
 
   const fetchOrderByToken = async (token: string) => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const response = await fetch(`${apiUrl}/api/orders/token/${token}`);
+      const response = await fetch(`${apiUrl}/api/orders/token/${token}`, {
+        signal: controller.signal,
+      });
       const result = await response.json();
+
+      if (!isMountedRef.current) return;
 
       if (result.already_delivered) {
         setState({
@@ -149,8 +165,12 @@ export default function Delivery() {
       } else {
         // Check if order has active incident
         try {
-          const incidentResponse = await fetch(`${apiUrl}/api/incidents/order/${result.data.id}/active`);
+          const incidentResponse = await fetch(`${apiUrl}/api/incidents/order/${result.data.id}/active`, {
+            signal: controller.signal,
+          });
           const incidentResult = await incidentResponse.json();
+
+          if (!isMountedRef.current) return;
 
           setState({
             type: 'pending',
@@ -158,16 +178,20 @@ export default function Delivery() {
             hasIncident: incidentResult.has_incident,
             incident: incidentResult.has_incident ? incidentResult.data : null,
           });
-        } catch (incidentError) {
+        } catch (incidentError: any) {
+          if (incidentError?.name === 'AbortError') return;
           logger.error('Error fetching incident:', incidentError);
+          if (!isMountedRef.current) return;
           setState({
             type: 'pending',
             data: result.data,
           });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return;
       logger.error('Error fetching order:', error);
+      if (!isMountedRef.current) return;
       setState({
         type: 'not_found',
         message: 'Error al cargar el pedido',
