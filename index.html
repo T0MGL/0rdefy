@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="shopify-api-key" content="" />
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+    <script>
+      // Only load Shopify App Bridge CDN when embedded in Shopify admin (iframe)
+      if (window.top !== window.self) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
+        document.head.appendChild(s);
+      }
+    </script>
     <title>Ordefy - Panel de Gestión de E-commerce</title>
     <meta name="description" content="Plataforma profesional de gestión de e-commerce. Gestiona pedidos, productos, inventario y estadísticas en un solo lugar. Desarrollado por Bright Idea." />
     <meta name="author" content="Bright Idea" />
