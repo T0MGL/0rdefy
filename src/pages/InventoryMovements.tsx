@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { inventoryService, InventoryMovement } from '@/services/inventory';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -20,7 +21,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Search, Filter, TrendingDown, TrendingUp, Package, Calendar } from 'lucide-react';
+import { Search, Filter, TrendingDown, TrendingUp, Package } from 'lucide-react';
 import { formatInTimeZone } from 'date-fns-tz';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { es } from 'date-fns/locale';
@@ -261,15 +262,10 @@ export function InventoryMovements() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Desde
                 </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
+                <DateInput
+                  value={dateFrom}
+                  onChange={(val) => setDateFrom(val)}
+                />
               </div>
 
               {/* Date To */}
@@ -277,15 +273,10 @@ export function InventoryMovements() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Hasta
                 </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
+                <DateInput
+                  value={dateTo}
+                  onChange={(val) => setDateTo(val)}
+                />
               </div>
 
               {/* Clear Filters Button */}

@@ -1449,7 +1449,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   }, [toast, refetch]);
 
   const handleBulkPrint = useCallback(async () => {
-    const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token);
+    const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token && (o.is_pickup || o.carrier_id));
     if (printableOrders.length === 0) {
       toast({
         title: 'Sin selección',
@@ -1928,12 +1928,27 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                       </td>
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-mono">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const orderNum = order.shopify_order_name ||
+                                (order.shopify_order_number ? `#${order.shopify_order_number}` : null) ||
+                                (order.shopify_order_id ? `SH#${order.shopify_order_id}` : null) ||
+                                `OR#${order.id.substring(0, 8)}`;
+                              navigator.clipboard.writeText(orderNum);
+                              toast({
+                                title: 'Número de orden copiado',
+                                description: orderNum,
+                              });
+                            }}
+                            className="text-sm font-mono hover:text-primary hover:underline cursor-pointer transition-colors"
+                            title="Click para copiar"
+                          >
                             {order.shopify_order_name ||
                               (order.shopify_order_number ? `#${order.shopify_order_number}` : null) ||
                               (order.shopify_order_id ? `SH#${order.shopify_order_id}` : null) ||
                               `OR#${order.id.substring(0, 8)}`}
-                          </span>
+                          </button>
                           {order.shopify_order_id && (
                             <Badge
                               variant="outline"
@@ -2082,6 +2097,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                             <Store size={12} />
                             Retiro en local
+                          </span>
+                        ) : order.status === 'confirmed' && !order.carrier_id ? (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                            <AlertTriangle size={12} />
+                            Necesita repartidor
                           </span>
                         ) : (
                           getCarrierName(order.carrier)
@@ -2414,7 +2434,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48">
                               {/* Imprimir etiqueta */}
-                              {order.delivery_link_token && (
+                              {order.delivery_link_token && (order.is_pickup || order.carrier_id) && (
                                 <DropdownMenuItem
                                   onClick={() => handlePrintLabel(order)}
                                   disabled={printingOrderId === order.id}

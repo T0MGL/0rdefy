@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -288,11 +289,10 @@ export function DeliveryAttemptsPanel({ orderId, orderNumber }: DeliveryAttempts
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="scheduled_date">Fecha programada</Label>
-              <Input
+              <DateInput
                 id="scheduled_date"
-                type="date"
                 value={formData.scheduled_date}
-                onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })}
+                onChange={(val) => setFormData({ ...formData, scheduled_date: val })}
               />
             </div>
             <div className="space-y-2">

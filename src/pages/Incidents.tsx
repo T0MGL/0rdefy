@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
@@ -623,10 +624,9 @@ export default function Incidents() {
               <label className="text-sm font-medium mb-1 block">
                 Nueva Fecha *
               </label>
-              <Input
-                type="date"
+              <DateInput
                 value={scheduledDate}
-                onChange={(e) => setScheduledDate(e.target.value)}
+                onChange={(val) => setScheduledDate(val)}
                 min={formatLocalDate(new Date(), storeTimezone)}
               />
             </div>

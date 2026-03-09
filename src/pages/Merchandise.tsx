@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -596,10 +597,9 @@ function CreateShipmentModal({ open, onClose, onSubmit, products, suppliers, loa
 
             <div className="space-y-2">
               <Label>Fecha Estimada de Llegada</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={eta}
-                onChange={(e) => setEta(e.target.value)}
+                onChange={(val) => setEta(val)}
               />
             </div>
 

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { DateInput } from '@/components/ui/date-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -108,10 +109,9 @@ function AdditionalValueForm({ value, onSubmit, onCancel }: { value?: Additional
 
       <div className="space-y-2">
         <label className="text-sm font-medium">Fecha *</label>
-        <Input
-          type="date"
+        <DateInput
           value={formData.date}
-          onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+          onChange={(val) => setFormData({ ...formData, date: val })}
           required
         />
       </div>
@@ -220,10 +220,9 @@ function RecurringValueForm({ value, onSubmit, onCancel }: { value?: RecurringAd
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Fecha Inicio *</label>
-          <Input
-            type="date"
+          <DateInput
             value={formData.start_date}
-            onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+            onChange={(val) => setFormData({ ...formData, start_date: val })}
             required
           />
         </div>
@@ -633,7 +632,7 @@ export default function AdditionalValues() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Fecha de Inicio</label>
-              <Input type="date" value={ordefyStartDate} onChange={(e) => setOrdefyStartDate(e.target.value)} />
+              <DateInput value={ordefyStartDate} onChange={(val) => setOrdefyStartDate(val)} />
             </div>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setOrdefyDialogOpen(false)}>Cancelar</Button>
