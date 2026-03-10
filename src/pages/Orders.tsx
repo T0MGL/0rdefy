@@ -1300,11 +1300,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
   // Selection handlers
   const handleToggleSelectAll = useCallback(() => {
-    if (selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length) {
+    if (selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length) {
       setSelectedOrderIds(new Set());
     } else {
       const printableIds = filteredOrders
-        .filter(o => o.delivery_link_token)
+        .filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id))
         .map(o => o.id);
       setSelectedOrderIds(new Set(printableIds));
     }
@@ -1713,8 +1713,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         />
 
         {/* Filtro de pedidos programados */}
-        <div className="flex items-center gap-2 flex-wrap border-t pt-3">
-          <span className="text-sm text-muted-foreground mr-2">Programación:</span>
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1 lg:flex-wrap lg:overflow-x-visible lg:pb-0 border-t pt-3">
+          <span className="text-sm text-muted-foreground mr-2 shrink-0">Programación:</span>
           <Badge
             variant="outline"
             className={`cursor-pointer px-3 py-1.5 text-sm transition-colors ${
@@ -1852,13 +1852,13 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                         size="icon"
                         className="h-8 w-8"
                         onClick={handleToggleSelectAll}
-                        disabled={filteredOrders.filter(o => o.delivery_link_token).length === 0}
+                        disabled={filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length === 0}
                       >
-                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0
+                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length && selectedOrderIds.size > 0
                           ? 'bg-primary border-primary'
                           : 'border-muted-foreground/40 hover:border-primary'
                           }`}>
-                          {selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token).length && selectedOrderIds.size > 0 && (
+                          {selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length && selectedOrderIds.size > 0 && (
                             <Check size={12} className="text-primary-foreground" />
                           )}
                         </div>
@@ -1906,7 +1906,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                         }`}
                     >
                       <td className="py-4 px-3 text-center">
-                        {order.delivery_link_token && !isDeleted ? (
+                        {order.delivery_link_token && !isDeleted && (order.is_pickup || order.carrier_id) ? (
                           <Button
                             variant="ghost"
                             size="icon"

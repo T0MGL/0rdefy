@@ -196,6 +196,14 @@ All colors MUST be HSL.
   .animate-pulse-error {
     animation: pulseError 0.6s ease-out;
   }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ================================================================

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { Eye, EyeOff, Mail, Lock, Zap } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 import { z } from 'zod';
 import { preserveShopifyParams } from '@/utils/shopifyNavigation';
 import { logger } from '@/utils/logger';
@@ -147,10 +147,12 @@ export default function Login() {
           className="w-full max-w-md relative z-10"
         >
           {/* Mobile Logo */}
-          <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
-            <div className="bg-primary/10 rounded-xl p-2">
-              <Zap className="w-6 h-6 text-primary" />
-            </div>
+          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
+            <img
+              src="/favicon.ico"
+              alt="Ordefy Logo"
+              className="w-10 h-10 object-contain"
+            />
             <h1 className="text-2xl font-bold text-white">Ordefy</h1>
           </div>
 

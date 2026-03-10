@@ -153,19 +153,19 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
   };
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1 lg:flex-wrap lg:overflow-x-visible lg:pb-0">
       {savedFilters.map((filter) => (
         <Badge
           key={filter.id}
           variant="outline"
-          className={`cursor-pointer px-3 py-1.5 text-sm transition-colors ${
+          className={`cursor-pointer px-3 py-1.5 text-sm transition-colors whitespace-nowrap ${
             activeFilter === filter.id
               ? 'bg-primary/20 text-primary border-primary'
               : 'hover:bg-muted'
           }`}
           onClick={() => handleFilterClick(filter)}
         >
-          <span className="mr-2">{filter.icon}</span>
+          <span className="mr-1.5">{filter.icon}</span>
           {filter.name}
           {/* Solo mostrar botón X si NO es permanente */}
           {!filter.isPermanent && (
@@ -178,7 +178,6 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
           )}
         </Badge>
       ))}
-      {/* Ocultar botón de guardar filtro por ahora */}
     </div>
   );
 }
