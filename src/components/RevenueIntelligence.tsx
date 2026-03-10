@@ -103,72 +103,9 @@ export function RevenueIntelligence() {
     loadData();
   }, [dateRange]);
 
-  if (isLoading || !overview) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-64 bg-muted animate-pulse rounded" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="p-6">
-              <div className="space-y-4">
-                <div className="h-4 w-32 bg-muted animate-pulse rounded" />
-                <div className="h-24 bg-muted animate-pulse rounded" />
-              </div>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ===== MÉTRICAS REALES (Solo pedidos entregados) =====
-  // Usamos métricas "real" para mostrar números precisos de dinero efectivamente cobrado
-  const totalRevenue = overview.realRevenue ?? overview.revenue;
-  const totalProductCosts = overview.realProductCosts ?? overview.productCosts ?? 0;
-  const totalDeliveryCosts = overview.realDeliveryCosts ?? overview.deliveryCosts ?? 0;
-  const totalConfirmationCosts = overview.realConfirmationCosts ?? overview.confirmationCosts ?? 0;
-  const gasto_publicitario = overview.gasto_publicitario ?? 0;
-
-  // COGS = Costo de productos solamente (sin envío ni publicidad)
-  const totalCOGS = totalProductCosts;
-
-  // Margen bruto = Ingresos - Costo de productos
-  const grossMargin = overview.realGrossProfit ?? (totalRevenue - totalCOGS);
-  const grossMarginPercent = overview.realGrossMargin ?? (totalRevenue > 0 ? ((grossMargin / totalRevenue) * 100) : 0);
-
-  const revenueBreakdown = [
-    { name: 'Margen Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
-    { name: 'COGS', value: Math.round(totalCOGS), color: 'hsl(0, 84%, 60%)' },
-  ];
-
-  // ===== DESGLOSE DE MARGEN NETO =====
-  // Margen neto = Ingresos - (Productos + Envío + Publicidad)
-  const netProfit = overview.realNetProfit ?? overview.netProfit;
-
-  // Net margin breakdown: Gross Margin - Operating Costs = Net Profit
-  // Shows how gross margin is reduced by operating expenses to arrive at net profit
-  const netMarginData = [
-    { name: 'Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
-    { name: 'Gasto Publicitario', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
-    { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
-    { name: 'Confirmación', value: Math.round(totalConfirmationCosts), color: 'hsl(280, 91%, 60%)' },
-    { name: 'NETO', value: Math.round(netProfit), color: 'hsl(84, 81%, 63%)' },
-  ];
-
-  // ===== DESGLOSE DE COSTOS OPERATIVOS =====
-  const totalCosts = totalProductCosts + totalDeliveryCosts + totalConfirmationCosts + gasto_publicitario;
-  const costBreakdown = [
-    { name: 'Productos', value: Math.round(totalProductCosts), color: 'hsl(0, 84%, 60%)' },
-    { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
-    { name: 'Confirmación', value: Math.round(totalConfirmationCosts), color: 'hsl(280, 91%, 60%)' },
-    { name: 'Publicidad', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
-  ].filter(item => item.value > 0); // Only show non-zero costs
-
-  // Calculate product profitability
+  // Calculate product profitability (must be before early return to respect Rules of Hooks)
   const productProfitability = useMemo(() => topProducts.map((product) => {
     const revenue = product.sales * Number(product.price);
-    // Use total_cost from backend (includes packaging + additional costs)
-    // Fallback to manual calculation if not provided
     const totalUnitCost = product.total_cost
       ? Number(product.total_cost)
       : (Number(product.cost || 0) + Number(product.packaging_cost || 0) + Number(product.additional_costs || 0));
@@ -188,30 +125,30 @@ export function RevenueIntelligence() {
       marginPercent,
       roi,
       isTopPerformer: marginPercent > 40,
-      isTopSeller: true, // Will be marked after sorting
+      isTopSeller: true,
     };
   }).filter(p => p.units > 0), [topProducts]);
 
-  // Sort products based on selected filter
   const sortedProducts = useMemo(() => [...productProfitability].sort((a, b) => {
     if (productFilter === 'sales') {
-      return b.units - a.units; // Sort by sales (descending)
+      return b.units - a.units;
     } else {
-      return b.marginPercent - a.marginPercent; // Sort by profitability (descending)
+      return b.marginPercent - a.marginPercent;
     }
   }), [productProfitability, productFilter]);
 
-  // Mark top performers based on current filter
   const finalProducts = useMemo(() => sortedProducts.map((product, index) => ({
     ...product,
     isTopPerformer: productFilter === 'profitability' ? product.marginPercent > 40 : false,
     isTopSeller: productFilter === 'sales' && index < 3,
   })), [sortedProducts, productFilter]);
 
-  // Calculate revenue per customer
+  // Derived revenue value (safe for use in useMemo below even when overview is null)
+  const totalRevenueForCustomers = overview ? (overview.realRevenue ?? overview.revenue) : 0;
+
   const { totalCustomers, avgRevenuePerCustomer, medianRevenue, minRevenue, maxRevenue } = useMemo(() => {
     const total = new Set(orders.map(o => o.customer || o.customer_email)).size;
-    const avgRev = total > 0 ? totalRevenue / total : 0;
+    const avgRev = total > 0 ? totalRevenueForCustomers / total : 0;
     const revenues = orders.map(o => o.total || 0).sort((a, b) => a - b);
     const median = revenues.length > 0
       ? revenues[Math.floor(revenues.length / 2)]
@@ -219,7 +156,60 @@ export function RevenueIntelligence() {
     const min = revenues.length > 0 ? revenues[0] : 0;
     const max = revenues.length > 0 ? revenues[revenues.length - 1] : 0;
     return { totalCustomers: total, avgRevenuePerCustomer: avgRev, medianRevenue: median, minRevenue: min, maxRevenue: max };
-  }, [orders, totalRevenue]);
+  }, [orders, totalRevenueForCustomers]);
+
+  if (isLoading || !overview) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-64 bg-muted animate-pulse rounded" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="p-6">
+              <div className="space-y-4">
+                <div className="h-4 w-32 bg-muted animate-pulse rounded" />
+                <div className="h-24 bg-muted animate-pulse rounded" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ===== MÉTRICAS REALES (Solo pedidos entregados) =====
+  const totalRevenue = overview.realRevenue ?? overview.revenue;
+  const totalProductCosts = overview.realProductCosts ?? overview.productCosts ?? 0;
+  const totalDeliveryCosts = overview.realDeliveryCosts ?? overview.deliveryCosts ?? 0;
+  const totalConfirmationCosts = overview.realConfirmationCosts ?? overview.confirmationCosts ?? 0;
+  const gasto_publicitario = overview.gasto_publicitario ?? 0;
+
+  const totalCOGS = totalProductCosts;
+
+  const grossMargin = overview.realGrossProfit ?? (totalRevenue - totalCOGS);
+  const grossMarginPercent = overview.realGrossMargin ?? (totalRevenue > 0 ? ((grossMargin / totalRevenue) * 100) : 0);
+
+  const revenueBreakdown = [
+    { name: 'Margen Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
+    { name: 'COGS', value: Math.round(totalCOGS), color: 'hsl(0, 84%, 60%)' },
+  ];
+
+  const netProfit = overview.realNetProfit ?? overview.netProfit;
+
+  const netMarginData = [
+    { name: 'Bruto', value: Math.round(grossMargin), color: 'hsl(142, 76%, 45%)' },
+    { name: 'Gasto Publicitario', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
+    { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
+    { name: 'Confirmación', value: Math.round(totalConfirmationCosts), color: 'hsl(280, 91%, 60%)' },
+    { name: 'NETO', value: Math.round(netProfit), color: 'hsl(84, 81%, 63%)' },
+  ];
+
+  const totalCosts = totalProductCosts + totalDeliveryCosts + totalConfirmationCosts + gasto_publicitario;
+  const costBreakdown = [
+    { name: 'Productos', value: Math.round(totalProductCosts), color: 'hsl(0, 84%, 60%)' },
+    { name: 'Envío', value: Math.round(totalDeliveryCosts), color: 'hsl(48, 96%, 53%)' },
+    { name: 'Confirmación', value: Math.round(totalConfirmationCosts), color: 'hsl(280, 91%, 60%)' },
+    { name: 'Publicidad', value: Math.round(gasto_publicitario), color: 'hsl(217, 91%, 60%)' },
+  ].filter(item => item.value > 0);
 
   return (
     <div className="space-y-6">
