@@ -427,17 +427,27 @@ export class ExternalWebhookService {
       variants.add(local);                    // 983912902
       variants.add('+595' + local);           // +595983912902
       variants.add('595' + local);            // 595983912902
+      // Spaced formats (legacy data from landing pages)
+      variants.add('+595 ' + local);          // +595 983912902
+      variants.add('+595 0' + local);         // +595 0983912902
     } else if (digits.startsWith('0')) {
       const core = digits.slice(1);           // 983912902
       variants.add('595' + core);             // 595983912902
       variants.add('+595' + core);            // +595983912902
       variants.add(core);                     // 983912902
       variants.add(digits);                   // 0983912902
+      // Spaced formats (legacy data from landing pages)
+      variants.add('+595 ' + core);           // +595 983912902
+      variants.add('+595 0' + core);          // +595 0983912902
+      variants.add('+595 ' + digits);         // +595 0983912902
     } else {
       // Bare number without prefix (e.g. 983912902)
       variants.add('0' + digits);             // 0983912902
       variants.add('595' + digits);           // 595983912902
       variants.add('+595' + digits);          // +595983912902
+      // Spaced formats (legacy data from landing pages)
+      variants.add('+595 ' + digits);         // +595 983912902
+      variants.add('+595 0' + digits);        // +595 0983912902
     }
 
     return Array.from(variants);
@@ -602,7 +612,7 @@ export class ExternalWebhookService {
         customer_first_name: payload.customer.name.trim().split(' ')[0] || 'Cliente',
         customer_last_name: payload.customer.name.trim().split(' ').slice(1).join(' ') || '',
         customer_email: payload.customer.email || null,
-        customer_phone: payload.customer.phone || null,
+        customer_phone: payload.customer.phone ? this.normalizePhone(payload.customer.phone) : null,
 
         // Shipping - customer_address es el campo denormalizado que se muestra en la UI
         shipping_address: shippingAddressJson,
