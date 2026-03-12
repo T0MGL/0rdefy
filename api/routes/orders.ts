@@ -15,6 +15,7 @@ import { checkOrderLimit, PlanLimitRequest } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
+import { OutboundWebhookService } from '../services/outbound-webhook.service';
 import { isValidUUID, validateUUIDParam, sanitizeSearchInput } from '../utils/sanitize';
 import { getTodayInTimezone } from '../utils/dateUtils';
 
@@ -335,6 +336,28 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 amount_collected: updateData.amount_collected,
                 has_discrepancy: updateData.has_amount_discrepancy
             }
+        });
+
+        // ================================================================
+        // OUTBOUND WEBHOOKS: Fire on courier delivery confirmation
+        // ================================================================
+        OutboundWebhookService.fireOrderStatusEvent(
+            existingOrder.store_id,
+            'delivered',
+            existingOrder.sleeves_status || 'confirmed',
+            {
+                order_id: id,
+                order_number: data.shopify_order_name || data.order_number || id?.substring(0, 8),
+                customer_name: data.customer_name,
+                customer_phone: data.customer_phone,
+                total_price: data.total_price,
+                payment_method: payment_method || data.payment_method,
+                delivered_at: updateData.delivered_at,
+                delivery_source: 'courier_app',
+                amount_collected: updateData.amount_collected,
+            }
+        ).catch((err) => {
+            logger.error('ORDERS', 'Outbound webhook fire on delivery-confirm failed (non-blocking):', err.message);
         });
     } catch (error: any) {
         res.status(500).json({
@@ -797,16 +820,24 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 n8n_sent,
                 n8n_processed_at,
                 shopify_shipping_method,
+                shipping_city_normalized,
+                shipping_cost,
+                customer_ruc,
+                customer_ruc_dv,
+                invoice_id,
                 line_items,
                 order_line_items (
                     id,
                     product_id,
+                    variant_id,
                     product_name,
                     variant_title,
+                    sku,
                     quantity,
                     unit_price,
                     total_price,
-                    image_url
+                    image_url,
+                    is_upsell
                 ),
                 carriers!orders_courier_id_fkey (
                     id,
@@ -1048,6 +1079,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 customer_address: order.customer_address,
                 // NEW: Shopify city extraction
                 shipping_city: order.shipping_city,
+                shipping_city_normalized: order.shipping_city_normalized,
+                shipping_cost: order.shipping_cost,
                 delivery_zone: order.delivery_zone,
                 // NEW: Internal admin notes (truncated indicator for list)
                 internal_notes: order.internal_notes,
@@ -1637,6 +1670,15 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             payment_method,
             payment_status,
             internal_notes,
+            customer_ruc,
+            customer_ruc_dv,
+            // Shipping & delivery fields
+            shipping_city,
+            shipping_city_normalized,
+            is_pickup,
+            delivery_preferences,
+            google_maps_link,
+            delivery_zone,
             version // Optimistic locking: client sends current version
         } = req.body;
 
@@ -1715,6 +1757,23 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         if (internal_notes !== undefined) {
             updateData.internal_notes = internal_notes?.trim()?.substring(0, 5000) || null;
         }
+
+        // Handle customer RUC for electronic invoicing
+        if (customer_ruc !== undefined) {
+            updateData.customer_ruc = customer_ruc || null;
+            updateData.customer_ruc_dv = customer_ruc_dv != null ? Number(customer_ruc_dv) : null;
+        }
+
+        // Handle shipping & delivery fields
+        if (shipping_city !== undefined) {
+            updateData.shipping_city = shipping_city;
+            labelDataChanged = true;
+        }
+        if (shipping_city_normalized !== undefined) updateData.shipping_city_normalized = shipping_city_normalized;
+        if (is_pickup !== undefined) updateData.is_pickup = is_pickup;
+        if (delivery_preferences !== undefined) updateData.delivery_preferences = delivery_preferences;
+        if (google_maps_link !== undefined) updateData.google_maps_link = google_maps_link;
+        if (delivery_zone !== undefined) updateData.delivery_zone = delivery_zone;
 
         // ================================================================
         // CRITICAL: Invalidate printed label if label-critical data changed
@@ -2383,6 +2442,36 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         res.json({
             message: 'Order status updated successfully',
             data: responseData
+        });
+
+        // ================================================================
+        // OUTBOUND WEBHOOKS: Fire-and-forget notification
+        // Non-blocking — errors logged but never affect the response
+        // ================================================================
+        OutboundWebhookService.fireOrderStatusEvent(
+            req.storeId!,
+            toStatus,
+            fromStatus,
+            {
+                order_id: data.id,
+                order_number: data.shopify_order_name || data.order_number || data.id?.substring(0, 8),
+                customer_name: data.customer_name,
+                customer_phone: data.customer_phone,
+                customer_email: data.customer_email,
+                total_price: data.total_price,
+                payment_method: data.payment_method,
+                carrier_name: data.carriers?.name || null,
+                shipping_city: data.shipping_city,
+                delivered_at: data.delivered_at,
+                line_items: (data.order_line_items || []).map((item: any) => ({
+                    product_name: item.product_name,
+                    sku: item.sku,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                })),
+            }
+        ).catch((err) => {
+            logger.error('ORDERS', 'Outbound webhook fire failed (non-blocking):', err.message);
         });
     } catch (error: any) {
         res.status(500).json({

@@ -44,6 +44,7 @@ import { incidentsRouter } from './routes/incidents';
 import { unifiedRouter } from './routes/unified';
 import { collaboratorsRouter } from './routes/collaborators';
 import { externalWebhooksRouter } from './routes/external-webhooks';
+import { outboundWebhooksRouter } from './routes/outbound-webhooks';
 // import phoneVerificationRouter from './routes/phone-verification'; // TODO: Enable when WhatsApp number is ready
 import billingRouter from './routes/billing';
 import uploadRouter from './routes/upload';
@@ -657,6 +658,9 @@ app.use('/api/collaborators', collaboratorsRouter);
 // External Webhooks routes (Landing pages & external systems)
 app.use('/api/external-webhooks', externalWebhooksRouter);
 app.use('/api/webhook', externalWebhooksRouter); // Public endpoint for receiving orders
+
+// Outbound Webhooks routes (Send notifications to external systems on events)
+app.use('/api/outbound-webhooks', outboundWebhooksRouter);
 
 // Phone verification routes (WhatsApp verification)
 // TODO: Enable when WhatsApp Business number is ready

@@ -9,11 +9,13 @@ import { ShopifyManualConnectDialog } from '@/components/ShopifyManualConnectDia
 import { ShopifyConnectDialog } from '@/components/ShopifyConnectDialog';
 import { ExternalWebhookSetupDialog } from '@/components/ExternalWebhookSetupDialog';
 import { ExternalWebhookManagementModal } from '@/components/ExternalWebhookManagementModal';
-import { Store, Package, Clock, CheckCircle2, Settings, Webhook } from 'lucide-react';
+import { OutboundWebhookManager } from '@/components/OutboundWebhookManager';
+import { Store, Package, Clock, CheckCircle2, Settings, Webhook, Zap, Lock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import { shopifyService } from '@/services/shopify.service';
 import { externalWebhookService } from '@/services/external-webhook.service';
+import { outboundWebhookService } from '@/services/outbound-webhook.service';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
@@ -55,6 +57,14 @@ const integrations: Integration[] = [
     status: 'available',
     category: 'custom',
   },
+  {
+    id: 'outbound-webhook',
+    name: 'Webhooks de Salida',
+    description: 'Envía notificaciones automáticas a n8n, Zapier o cualquier sistema cuando cambia el estado de un pedido',
+    icon: Zap,
+    status: 'available',
+    category: 'automation',
+  },
 ];
 
 export default function Integrations() {
@@ -69,6 +79,7 @@ export default function Integrations() {
   const [shopifyManualDialogOpen, setShopifyManualDialogOpen] = useState(false);
   const [externalWebhookSetupOpen, setExternalWebhookSetupOpen] = useState(false);
   const [externalWebhookManagementOpen, setExternalWebhookManagementOpen] = useState(false);
+  const [outboundWebhookOpen, setOutboundWebhookOpen] = useState(false);
   const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([]);
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(true);
 
@@ -85,6 +96,7 @@ export default function Integrations() {
   }, []);
 
   const hasShopifyImport = hasFeature('shopify_import');
+  const hasCustomWebhooks = hasFeature('custom_webhooks');
 
   useEffect(() => {
     if (didRefreshAfterOAuth.current) return;
@@ -130,6 +142,21 @@ export default function Integrations() {
             prev.includes('external-webhook') ? prev : [...prev, 'external-webhook']
           );
         }
+
+        // Check Outbound Webhooks (only if plan supports it)
+        if (hasCustomWebhooks) {
+          try {
+            const outboundRes = await outboundWebhookService.getConfigs();
+            if (!isMountedRef.current) return;
+            if (outboundRes.success && outboundRes.configs.length > 0) {
+              setConnectedIntegrations(prev =>
+                prev.includes('outbound-webhook') ? prev : [...prev, 'outbound-webhook']
+              );
+            }
+          } catch {
+            // Ignore - feature may not be available
+          }
+        }
       } catch (error) {
         if (!isMountedRef.current) return;
         logger.error('Error checking existing integrations:', error);
@@ -139,7 +166,7 @@ export default function Integrations() {
     };
 
     checkExistingIntegrations();
-  }, [hasShopifyImport]);
+  }, [hasShopifyImport, hasCustomWebhooks]);
 
   // Check shopify_import feature access - AFTER all hooks
   // Wait for subscription to load to prevent flash of upgrade modal
@@ -189,6 +216,16 @@ export default function Integrations() {
         // If not connected, show setup dialog
         setExternalWebhookSetupOpen(true);
       }
+    } else if (integration.id === 'outbound-webhook') {
+      if (!hasCustomWebhooks) {
+        toast({
+          title: 'Plan Professional requerido',
+          description: 'Los webhooks de salida están disponibles en el plan Professional.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      setOutboundWebhookOpen(true);
     } else if (integration.status === 'coming_soon') {
       toast({
         title: `${integration.name} - Próximamente`,
@@ -211,6 +248,25 @@ export default function Integrations() {
     setShopifyOAuthDialogOpen(false);
     setShopifyManualDialogOpen(false);
     setShopifyMethodDialogOpen(true);
+  };
+
+  const handleOutboundWebhookClose = (open: boolean) => {
+    setOutboundWebhookOpen(open);
+    if (!open && hasCustomWebhooks) {
+      // Re-check connected status after dialog closes
+      outboundWebhookService.getConfigs().then(res => {
+        if (!isMountedRef.current) return;
+        if (res.success) {
+          setConnectedIntegrations(prev => {
+            const hasConfigs = res.configs.length > 0;
+            const alreadyConnected = prev.includes('outbound-webhook');
+            if (hasConfigs && !alreadyConnected) return [...prev, 'outbound-webhook'];
+            if (!hasConfigs && alreadyConnected) return prev.filter(id => id !== 'outbound-webhook');
+            return prev;
+          });
+        }
+      }).catch(() => {});
+    }
   };
 
   const IntegrationSkeleton = ({ index }: { index: number }) => (
@@ -245,6 +301,7 @@ export default function Integrations() {
   const IntegrationCard = ({ integration, index }: { integration: Integration; index: number }) => {
     const Icon = integration.icon;
     const isConnected = connectedIntegrations.includes(integration.id);
+    const isLocked = integration.id === 'outbound-webhook' && !hasCustomWebhooks;
     const status = isConnected ? 'connected' : integration.status;
 
     return (
@@ -288,6 +345,12 @@ export default function Integrations() {
                   Próximamente
                 </Badge>
               )}
+              {isLocked && (
+                <Badge variant="outline" className="gap-1 text-amber-600 border-amber-300">
+                  <Lock size={12} />
+                  Professional
+                </Badge>
+              )}
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -313,8 +376,12 @@ export default function Integrations() {
                 </>
               ) : (
                 <>
-                  <Store size={16} />
-                  Conectar tienda
+                  {integration.category === 'automation' ? (
+                    <Zap size={16} />
+                  ) : (
+                    <Store size={16} />
+                  )}
+                  {integration.category === 'automation' ? 'Configurar' : 'Conectar tienda'}
                 </>
               )}
             </Button>
@@ -397,6 +464,32 @@ export default function Integrations() {
         </div>
       </div>
 
+      {/* Automation Category */}
+      <div className="space-y-4">
+        <div className="border-l-4 border-amber-500 pl-4">
+          <h3 className="text-lg font-semibold">Automatización</h3>
+          <p className="text-sm text-muted-foreground">
+            Envía notificaciones automáticas a sistemas externos cuando ocurren eventos en tus pedidos
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {isLoadingIntegrations ? (
+            integrations
+              .filter(int => int.category === 'automation')
+              .map((integration, index) => (
+                <IntegrationSkeleton key={integration.id} index={index} />
+              ))
+          ) : (
+            integrations
+              .filter(int => int.category === 'automation')
+              .map((integration, index) => (
+                <IntegrationCard key={integration.id} integration={integration} index={index} />
+              ))
+          )}
+        </div>
+      </div>
+
       {/* Custom Integrations Category */}
       <div className="space-y-4">
         <div className="border-l-4 border-purple-500 pl-4">
@@ -468,6 +561,12 @@ export default function Integrations() {
         open={externalWebhookManagementOpen}
         onOpenChange={setExternalWebhookManagementOpen}
         onDisconnect={handleExternalWebhookDisconnect}
+      />
+
+      {/* Outbound Webhook Manager */}
+      <OutboundWebhookManager
+        open={outboundWebhookOpen}
+        onOpenChange={handleOutboundWebhookClose}
       />
     </div>
   );

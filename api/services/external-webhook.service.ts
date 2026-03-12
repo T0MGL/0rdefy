@@ -676,6 +676,7 @@ export class ExternalWebhookService {
         let productId: string | null = null;
         let variantId: string | null = null;
         let variantType: string | null = item.variant_type || null; // Accept from payload for external control
+        let imageUrl: string | null = null;
 
         // Buscar producto o variante por SKU
         if (item.sku) {
@@ -690,6 +691,7 @@ export class ExternalWebhookService {
               const result = match[0];
               productId = result.product_id;
               variantId = result.variant_id;
+              imageUrl = result.image_url || null;
               logger.info('BACKEND', `✅ [ExternalWebhook] SKU "${item.sku}" mapped to ${result.entity_type}: ${result.variant_id || result.product_id}`);
             } else {
               logger.info('BACKEND', `⚠️ [ExternalWebhook] SKU "${item.sku}" not found in inventory - order will be created without stock tracking`);
@@ -701,7 +703,7 @@ export class ExternalWebhookService {
             // Migration 101: Also fetch variant_type and uses_shared_stock
             const { data: variantMatch } = await supabaseAdmin
               .from('product_variants')
-              .select('id, product_id, variant_type, uses_shared_stock')
+              .select('id, product_id, variant_type, uses_shared_stock, image_url')
               .eq('store_id', storeId)
               .ilike('sku', item.sku)
               .eq('is_active', true)
@@ -710,15 +712,25 @@ export class ExternalWebhookService {
             if (variantMatch) {
               productId = variantMatch.product_id;
               variantId = variantMatch.id;
+              imageUrl = variantMatch.image_url || null;
               // Migration 101: Get variant_type from DB if not in payload
               if (!variantType) {
                 variantType = variantMatch.variant_type || (variantMatch.uses_shared_stock ? 'bundle' : 'variation');
+              }
+              // Fallback to parent product image if variant has none
+              if (!imageUrl) {
+                const { data: parentProduct } = await supabaseAdmin
+                  .from('products')
+                  .select('image_url')
+                  .eq('id', variantMatch.product_id)
+                  .maybeSingle();
+                imageUrl = parentProduct?.image_url || null;
               }
               logger.info('BACKEND', `✅ [ExternalWebhook] Variant found by SKU: ${item.sku} (type: ${variantType})`);
             } else {
               const { data: productMatch } = await supabaseAdmin
                 .from('products')
-                .select('id')
+                .select('id, image_url')
                 .eq('store_id', storeId)
                 .ilike('sku', item.sku)
                 .eq('is_active', true)
@@ -726,7 +738,7 @@ export class ExternalWebhookService {
 
               if (productMatch) {
                 productId = productMatch.id;
-                // Products without variants default to null (no variant_type)
+                imageUrl = productMatch.image_url || null;
               }
             }
           }
@@ -743,6 +755,7 @@ export class ExternalWebhookService {
           quantity: item.quantity,
           unit_price: item.price,
           total_price: item.price * item.quantity,
+          image_url: imageUrl,
           stock_deducted: false
         });
       }
@@ -753,13 +766,15 @@ export class ExternalWebhookService {
         const foundVariantIds = [...new Set(orderLineItems.map(i => i.variant_id).filter(Boolean))] as string[];
 
         const productCostMap = new Map<string, number>();
+        const productImageMap = new Map<string, string>();
         if (foundProductIds.length > 0) {
           const { data: costData } = await supabaseAdmin
             .from('products')
-            .select('id, cost, packaging_cost, additional_costs')
+            .select('id, cost, packaging_cost, additional_costs, image_url')
             .in('id', foundProductIds);
           costData?.forEach((p: any) => {
             productCostMap.set(p.id, (Number(p.cost) || 0) + (Number(p.packaging_cost) || 0) + (Number(p.additional_costs) || 0));
+            if (p.image_url) productImageMap.set(p.id, p.image_url);
           });
         }
 
@@ -776,7 +791,7 @@ export class ExternalWebhookService {
           });
         }
 
-        // Add unit_cost to each line item
+        // Add unit_cost and fallback image_url to each line item
         for (const item of orderLineItems) {
           let unitCost = 0;
           if (item.variant_id && variantCostMap.has(item.variant_id)) {
@@ -786,6 +801,10 @@ export class ExternalWebhookService {
             unitCost = productCostMap.get(item.product_id)!;
           }
           (item as any).unit_cost = unitCost;
+          // Fallback: if image_url not set from RPC, use batch-fetched product image
+          if (!item.image_url && item.product_id && productImageMap.has(item.product_id)) {
+            item.image_url = productImageMap.get(item.product_id)!;
+          }
         }
       }
 

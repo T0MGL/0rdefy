@@ -6,6 +6,7 @@
 
 import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
+import { OutboundWebhookService } from './outbound-webhook.service';
 
 // ============================================================================
 // BATCHED QUERY UTILITY
@@ -588,6 +589,23 @@ export async function createSession(
       .insert(pickingItems);
 
     if (pickingItemsError) throw pickingItemsError;
+
+    // Fire outbound webhook for status change: confirmed → in_preparation
+    for (const orderId of orderIds) {
+      OutboundWebhookService.fireOrderStatusEvent(
+        storeId,
+        'in_preparation',
+        'confirmed',
+        {
+          order_id: orderId,
+          order_number: orderId.substring(0, 8),
+          picking_session_id: session.id,
+          picking_session_code: session.code,
+        }
+      ).catch((err) => {
+        logger.error('WAREHOUSE', 'Outbound webhook fire failed (non-blocking):', err.message);
+      });
+    }
 
     return session;
   } catch (error) {
@@ -2446,6 +2464,23 @@ export async function completeSession(
           .single();
 
         if (updateError) throw updateError;
+
+        // Fire outbound webhooks for status change: in_preparation → ready_to_ship (fallback path)
+        for (const orderId of orderIds) {
+          OutboundWebhookService.fireOrderStatusEvent(
+            storeId,
+            'ready_to_ship',
+            'in_preparation',
+            {
+              order_id: orderId,
+              order_number: orderId.substring(0, 8),
+              picking_session_id: sessionId,
+            }
+          ).catch((err) => {
+            logger.error('WAREHOUSE', 'Outbound webhook fire failed (non-blocking):', err.message);
+          });
+        }
+
         return updated;
       }
 
@@ -2461,6 +2496,23 @@ export async function completeSession(
       .single();
 
     if (fetchError) throw fetchError;
+
+    // Fire outbound webhooks for status change: in_preparation → ready_to_ship (RPC path)
+    const completedOrderIds = Array.from(new Set((packingProgress || []).map((p: any) => p.order_id).filter(Boolean)));
+    for (const orderId of completedOrderIds) {
+      OutboundWebhookService.fireOrderStatusEvent(
+        storeId,
+        'ready_to_ship',
+        'in_preparation',
+        {
+          order_id: orderId,
+          order_number: orderId.substring(0, 8),
+          picking_session_id: sessionId,
+        }
+      ).catch((err) => {
+        logger.error('WAREHOUSE', 'Outbound webhook fire failed (non-blocking):', err.message);
+      });
+    }
 
     return updated;
   } catch (error) {

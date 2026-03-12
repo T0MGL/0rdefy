@@ -22,6 +22,7 @@ import {
 } from '../utils/payment';
 import { isValidUUID } from '../utils/sanitize';
 import { logger } from '../utils/logger';
+import { OutboundWebhookService } from './outbound-webhook.service';
 
 /**
  * Normalize city text for comparison: remove accents, lowercase, trim.
@@ -689,6 +690,25 @@ export async function createDispatchSession(
     })
     .in('id', orderIds);
 
+  // Fire outbound webhooks for status change: ready_to_ship/confirmed → shipped
+  for (const order of orders) {
+    OutboundWebhookService.fireOrderStatusEvent(
+      storeId,
+      'shipped',
+      order.sleeves_status || 'ready_to_ship',
+      {
+        order_id: order.id,
+        order_number: order.order_number || order.id?.substring(0, 8),
+        customer_name: order.customers?.name || order.customer_name || '',
+        dispatch_session_id: session.id,
+        dispatch_session_code: session.session_code,
+        carrier_id: carrierId,
+      }
+    ).catch((err) => {
+      logger.error('SETTLEMENTS', 'Outbound webhook fire failed (non-blocking):', err.message);
+    });
+  }
+
   return session;
 }
 
@@ -1277,6 +1297,27 @@ async function processSettlementLegacy(
         ...(delivered_at ? { delivered_at } : {})
       })
       .in('id', ids);
+  }
+
+  // Fire outbound webhooks for orders changed to 'delivered'
+  for (const order of session.orders) {
+    if (order.delivery_status === 'delivered') {
+      OutboundWebhookService.fireOrderStatusEvent(
+        storeId,
+        'delivered',
+        'shipped',
+        {
+          order_id: order.order_id,
+          order_number: order.order_number || order.order_id?.substring(0, 8),
+          customer_name: order.customer_name || '',
+          dispatch_session_id: sessionId,
+          settlement_id: settlement.id,
+          settlement_code: settlement.settlement_code,
+        }
+      ).catch((err) => {
+        logger.error('SETTLEMENTS', 'Outbound webhook fire failed (non-blocking):', err.message);
+      });
+    }
   }
 
   return settlement;
@@ -2318,6 +2359,7 @@ async function processManualReconciliationLegacy(
   const errors: string[] = [];
 
   // Update delivered orders
+  const dbOrderMap = new Map(dbOrders.map(o => [o.id, o]));
   for (const update of updatesDelivered) {
     const { error } = await supabaseAdmin
       .from('orders')
@@ -2331,6 +2373,22 @@ async function processManualReconciliationLegacy(
     if (error) {
       logger.error('SETTLEMENTS', `[RECONCILIATION] Error updating order ${update.id}`, error);
       errors.push(`Error actualizando pedido ${update.id}: ${error.message}`);
+    } else {
+      // Fire outbound webhook for status change: shipped → delivered
+      const dbOrder = dbOrderMap.get(update.id);
+      OutboundWebhookService.fireOrderStatusEvent(
+        storeId,
+        'delivered',
+        'shipped',
+        {
+          order_id: update.id,
+          order_number: dbOrder?.order_number || update.id?.substring(0, 8),
+          customer_name: dbOrder?.customer_name || '',
+          carrier_id: carrier_id,
+        }
+      ).catch((err) => {
+        logger.error('SETTLEMENTS', 'Outbound webhook fire failed (non-blocking):', err.message);
+      });
     }
   }
 

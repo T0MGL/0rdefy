@@ -14,6 +14,7 @@ import { requireFeature } from '../middleware/planLimits.js';
 import { Module, Permission } from '../permissions.js';
 import * as returnsService from '../services/returns.service.js';
 import { validateUUIDParam } from '../utils/sanitize';
+import { OutboundWebhookService } from '../services/outbound-webhook.service.js';
 
 const router = express.Router();
 
@@ -211,6 +212,33 @@ router.post('/sessions/:id/complete', validateUUIDParam('id'), requirePermission
     }
 
     const result = await returnsService.completeReturnSession(id);
+
+    // Fire outbound webhooks for each order marked as 'returned' (fire-and-forget)
+    if (session.orders && Array.isArray(session.orders)) {
+      for (const sessionOrder of session.orders) {
+        const order = sessionOrder.order;
+        if (!order) continue;
+
+        const customerName = `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Sin nombre';
+
+        OutboundWebhookService.fireOrderStatusEvent(
+          storeId,
+          'returned',
+          sessionOrder.original_status || 'delivered',
+          {
+            order_id: order.id,
+            order_number: order.shopify_order_number || order.id?.substring(0, 8),
+            customer_name: customerName,
+            customer_phone: order.customer_phone,
+            total_price: order.total_price,
+            return_session_code: session.session_code,
+          }
+        ).catch((err) => {
+          logger.error('RETURNS', 'Outbound webhook fire failed (non-blocking):', err.message);
+        });
+      }
+    }
+
     res.json(result);
   } catch (error) {
     logger.error('API', 'Error completing return session:', error);

@@ -141,6 +141,51 @@ Create shipments from suppliers → receive (qty_received/qty_rejected) → delt
 
 **Crons:** `*/5 * * * * .../webhook-retry/process`, `0 3 * * * .../webhook-cleanup`
 
+### Outbound Webhooks (Migration 130)
+**Files:** `src/components/OutboundWebhookManager.tsx`, `api/routes/outbound-webhooks.ts`, `api/services/outbound-webhook.service.ts`, `src/services/outbound-webhook.service.ts`, `db/migrations/130_outbound_webhooks.sql`
+
+Send HTTP POST notifications to user-configured URLs on order status changes. Professional plan only (`custom_webhooks` feature).
+
+**Events:** `order.status_changed` (any), `order.confirmed`, `order.in_preparation`, `order.ready_to_ship`, `order.shipped`, `order.delivered`, `order.cancelled`, `order.returned`
+
+**Features:** HMAC-SHA256 signing (`X-Webhook-Signature: sha256=<hex>`), max 5 configs per store, retry with exponential backoff (3 attempts), delivery logging, test endpoint, fire-and-forget (non-blocking).
+
+**Hooks:** Fires from `PATCH /api/orders/:id/status` (manual status changes) and `POST /token/:token/delivery-confirm` (courier delivery confirmation).
+
+**Endpoints (all require JWT + Professional plan):**
+- `GET /api/outbound-webhooks/configs` - List configs
+- `POST /api/outbound-webhooks/configs` - Create config (returns signing_secret one-time)
+- `PUT /api/outbound-webhooks/configs/:id` - Update config
+- `DELETE /api/outbound-webhooks/configs/:id` - Delete config
+- `POST /api/outbound-webhooks/configs/:id/test` - Send test webhook
+- `POST /api/outbound-webhooks/configs/:id/regenerate-secret` - Regenerate signing secret
+- `GET /api/outbound-webhooks/deliveries` - Delivery history
+- `GET /api/outbound-webhooks/events` - List supported events
+
+**Tables:** outbound_webhook_configs, outbound_webhook_deliveries
+**Triggers:** trigger_check_outbound_webhook_limit (max 5), trigger_update_outbound_webhook_stats (auto-increment counters)
+**Functions:** cleanup_outbound_webhook_deliveries (30-day retention)
+**Views:** v_outbound_webhook_summary
+
+**Payload Format:**
+```json
+{
+  "event": "order.delivered",
+  "timestamp": "ISO8601",
+  "store_id": "uuid",
+  "data": {
+    "order_id": "uuid", "order_number": "#1234",
+    "previous_status": "shipped", "new_status": "delivered",
+    "customer_name": "...", "customer_phone": "...",
+    "total_price": 150000, "payment_method": "cash_on_delivery",
+    "carrier_name": "...", "delivered_at": "ISO8601",
+    "line_items": [{ "product_name": "...", "sku": "...", "quantity": 1, "unit_price": 150000 }]
+  }
+}
+```
+
+**UI:** OutboundWebhookManager dialog in Integrations page (Automation category). Create/edit/delete configs, toggle active, send test, view delivery history, event selector with checkboxes.
+
 ### Returns System
 **Files:** `src/pages/Returns.tsx`, `api/routes/returns.ts`, `api/services/returns.service.ts`, `db/migrations/022, 110`
 
@@ -300,6 +345,7 @@ Glassmorphism, iOS safe areas, Framer Motion, permission-filtered. Layout: sideb
 - **Billing:** subscriptions, subscription_history, subscription_trials, plan_limits, referral_codes, referrals, referral_credits, discount_codes, discount_redemptions, usage_tracking, stripe_billing_events
 - **Onboarding:** onboarding_progress
 - **Shopify:** shopify_integrations, shopify_oauth_states, shopify_import_jobs, shopify_webhook_events, shopify_sync_conflicts, shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
+- **Outbound Webhooks:** outbound_webhook_configs, outbound_webhook_deliveries
 
 **Key Triggers:**
 - Auto-update: customer/carrier stats, order status history, delivery tokens, COD calc, warehouse timestamps
@@ -377,3 +423,4 @@ Revenue = Sum(total_price), Costs = Sum(cost*qty), Marketing = Sum(active campai
 | 108 | Warehouse variant support |
 | 110 | Returns variant & bundle support |
 | 124 | customers.city VARCHAR(150) fix |
+| 130 | Outbound webhooks (status change notifications to external URLs) |
