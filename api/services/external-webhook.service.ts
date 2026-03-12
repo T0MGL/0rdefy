@@ -140,7 +140,6 @@ export class ExternalWebhookService {
         .select('*')
         .eq('store_id', storeId)
         .eq('api_key', this.hashApiKey(apiKey))
-        .eq('is_active', true)
         .single();
 
       if (error || !data) {
@@ -407,6 +406,43 @@ export class ExternalWebhookService {
     return phone.replace(/[^\d+]/g, '');
   }
 
+  /**
+   * Generates all plausible phone format variations for flexible matching.
+   * Paraguay numbers: +595981123456 = 595981123456 = 0981123456
+   */
+  private getPhoneVariants(phone: string): string[] {
+    const digits = phone.replace(/[^\d]/g, '');
+    if (!digits || digits.length < 6) return [];
+
+    const variants = new Set<string>();
+
+    // Always include the raw normalized forms
+    variants.add(digits);                     // 595983912902
+    variants.add('+' + digits);               // +595983912902
+
+    // Paraguay country code: 595
+    if (digits.startsWith('595')) {
+      const local = digits.slice(3);          // 983912902
+      variants.add('0' + local);              // 0983912902
+      variants.add(local);                    // 983912902
+      variants.add('+595' + local);           // +595983912902
+      variants.add('595' + local);            // 595983912902
+    } else if (digits.startsWith('0')) {
+      const core = digits.slice(1);           // 983912902
+      variants.add('595' + core);             // 595983912902
+      variants.add('+595' + core);            // +595983912902
+      variants.add(core);                     // 983912902
+      variants.add(digits);                   // 0983912902
+    } else {
+      // Bare number without prefix (e.g. 983912902)
+      variants.add('0' + digits);             // 0983912902
+      variants.add('595' + digits);           // 595983912902
+      variants.add('+595' + digits);          // +595983912902
+    }
+
+    return Array.from(variants);
+  }
+
   // ================================================================
   // ORDER CREATION
   // ================================================================
@@ -618,7 +654,7 @@ export class ExternalWebhookService {
 
         return {
           success: false,
-          error: `Error al crear pedido: ${orderError.message}`
+          error: 'Failed to create order'
         };
       }
 
@@ -981,6 +1017,8 @@ export class ExternalWebhookService {
     limit: number = 20
   ): Promise<{ logs: WebhookLog[]; total: number; page: number; totalPages: number }> {
     try {
+      limit = Math.min(Math.max(limit, 1), 100); // Cap between 1 and 100
+      page = Math.max(page, 1);
       const offset = (page - 1) * limit;
 
       // Obtener total
@@ -1092,8 +1130,12 @@ export class ExternalWebhookService {
           `shopify_order_name.ilike.%${searchNum}%,shopify_order_number.ilike.%${searchNum}%,order_number.ilike.%${searchNum}%`
         );
       } else if (filters.phone) {
-        const normalizedPhone = filters.phone.replace(/[^\d+]/g, '');
-        query = query.eq('customer_phone', normalizedPhone);
+        const phoneVariants = this.getPhoneVariants(filters.phone);
+        if (phoneVariants.length === 1) {
+          query = query.eq('customer_phone', phoneVariants[0]);
+        } else {
+          query = query.in('customer_phone', phoneVariants);
+        }
       }
 
       if (filters.status) {
@@ -1198,8 +1240,8 @@ export class ExternalWebhookService {
     phone: string
   ): Promise<{ order: { id: string; status: string } | null; count: number }> {
     try {
-      const normalizedPhone = phone.replace(/[^\d+]/g, '');
-      if (!normalizedPhone || normalizedPhone.length < 6) {
+      const phoneVariants = this.getPhoneVariants(phone);
+      if (phoneVariants.length === 0) {
         return { order: null, count: 0 };
       }
 
@@ -1209,7 +1251,7 @@ export class ExternalWebhookService {
         .from('orders')
         .select('id, sleeves_status')
         .eq('store_id', storeId)
-        .eq('customer_phone', normalizedPhone)
+        .in('customer_phone', phoneVariants)
         .in('sleeves_status', ['pending', 'contacted'])
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
@@ -1427,7 +1469,9 @@ export class ExternalWebhookService {
           .update({ shipping_city: resolvedCity })
           .eq('id', order.id)
           .then(() => {})
-          .catch(() => {});
+          .catch((err) => {
+            logger.warn('BACKEND', `⚠️ [ExternalWebhook] Failed to save shipping_city for order ${order.id}:`, err?.message);
+          });
       }
 
       // 3. Confirm via RPC
@@ -1441,20 +1485,39 @@ export class ExternalWebhookService {
       let finalStatus: string;
 
       if (confirmWithoutCarrier) {
-        // Path A: Confirm without carrier - order goes to 'confirmed' awaiting carrier assignment
-        // The admin/owner assigns the carrier later from the dashboard
-        const rpc = await supabaseAdmin.rpc('confirm_order_without_carrier', {
-          p_order_id: order.id,
-          p_store_id: storeId,
-          p_confirmed_by: `api:${config.api_key_prefix}`,
-          p_address: options.address || null,
-          p_google_maps_link: options.google_maps_link || null,
-          p_discount_amount: null,
-          p_mark_as_prepaid: false,
-          p_prepaid_method: null
-        });
-        rpcResult = rpc.data;
-        rpcError = rpc.error;
+        // Path A: Confirm without carrier via direct update.
+        // Cannot use confirm_order_without_carrier RPC (requires separate_confirmation_flow = TRUE and sets 'awaiting_carrier').
+        // Cannot use confirm_order_atomic RPC (NULL courier_id sets is_pickup = TRUE).
+        // Webhook-confirmed orders without carrier stay 'confirmed' with carrier_id = NULL for dashboard assignment.
+        const now = new Date().toISOString();
+        const { data: directResult, error: directError } = await supabaseAdmin
+          .from('orders')
+          .update({
+            sleeves_status: 'confirmed',
+            confirmed_at: now,
+            confirmed_by: `api:${config.api_key_prefix}`,
+            confirmation_method: 'external_api',
+            customer_address: options.address || undefined,
+            google_maps_link: options.google_maps_link || undefined,
+            updated_at: now
+          })
+          .eq('id', order.id)
+          .eq('store_id', storeId)
+          .in('sleeves_status', ['pending', 'contacted']) // Only confirm from valid statuses
+          .is('deleted_at', null)
+          .select('id')
+          .single();
+
+        if (directError || !directResult) {
+          if (directError?.code === 'PGRST116') {
+            return { success: false, error: 'Order status changed concurrently or is not in a confirmable state', code: 'CONCURRENT_MODIFICATION' };
+          }
+          logger.error('BACKEND', '❌ [ExternalWebhook] Error confirming without carrier:', directError);
+          return { success: false, error: 'Confirmation failed', code: 'CONFIRMATION_ERROR' };
+        }
+
+        rpcResult = { success: true, carrier_name: null, is_pickup: false };
+        rpcError = null;
         finalStatus = 'confirmed';
       } else {
         // Path B: Full confirmation with carrier or pickup
@@ -1618,11 +1681,16 @@ export class ExternalWebhookService {
         };
       }
 
-      // Block transitions that don't make sense or are dangerous
-      // Uses same rules as dashboard STATUS_TRANSITIONS
+      // Block transitions that don't make sense or are dangerous via external API.
+      // Stock is deducted at ready_to_ship/shipped/delivered — only allow cancel (trigger handles stock restore).
+      // External API should not revert warehouse/delivery statuses to pre-warehouse states.
       const blockedTransitions: Record<string, string[]> = {
         delivered: ['pending', 'contacted', 'confirmed', 'cancelled', 'rejected'],
-        returned: ['cancelled', 'rejected'],
+        returned: ['pending', 'contacted', 'confirmed', 'cancelled', 'rejected'],
+        shipped: ['pending', 'contacted', 'confirmed', 'rejected'],
+        in_transit: ['pending', 'contacted', 'confirmed', 'rejected'],
+        ready_to_ship: ['pending', 'contacted', 'confirmed', 'rejected'],
+        in_preparation: ['pending', 'contacted', 'rejected'],
       };
       if (blockedTransitions[order.status]?.includes(options.status)) {
         return {
@@ -2135,8 +2203,8 @@ export class ExternalWebhookService {
     }
 
     if (identifier.phone) {
-      const normalizedPhone = identifier.phone.replace(/[^\d+]/g, '');
-      if (!normalizedPhone || normalizedPhone.length < 6) {
+      const phoneVariants = this.getPhoneVariants(identifier.phone);
+      if (phoneVariants.length === 0) {
         return { success: false, error: 'Invalid phone number', code: 'INVALID_PHONE' };
       }
 
@@ -2145,7 +2213,7 @@ export class ExternalWebhookService {
         .from('orders')
         .select('id, sleeves_status')
         .eq('store_id', storeId)
-        .eq('customer_phone', normalizedPhone)
+        .in('customer_phone', phoneVariants)
         .not('sleeves_status', 'in', '(delivered,returned)')
         .is('deleted_at', null)
         .order('created_at', { ascending: false })

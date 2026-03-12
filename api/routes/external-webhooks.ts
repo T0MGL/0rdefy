@@ -90,6 +90,14 @@ externalWebhooksRouter.post('/setup', async (req: any, res: Response) => {
       return res.status(400).json({ error: 'Store ID and User ID are required' });
     }
 
+    // Validate setup fields
+    if (name && (typeof name !== 'string' || name.length > 100)) {
+      return res.status(400).json({ error: 'name must be a string of 100 characters or less' });
+    }
+    if (description && (typeof description !== 'string' || description.length > 500)) {
+      return res.status(400).json({ error: 'description must be a string of 500 characters or less' });
+    }
+
     // Verificar si ya existe
     const existing = await externalWebhookService.getConfig(storeId);
     if (existing) {
@@ -681,19 +689,28 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
     // Validate phone format if provided (handles string or number input from JSON)
     if (phone) {
       const phoneStr = String(phone).replace(/[^\d+]/g, '');
-      if (phoneStr.length < 6) {
+      if (phoneStr.length < 6 || phoneStr.length > 20) {
         return res.status(400).json({
           success: false,
           error: 'invalid_phone',
-          message: 'Phone number must have at least 6 digits'
+          message: 'Phone number must have between 6 and 20 digits'
         });
       }
+    }
+
+    // Validate order_number length if provided
+    if (order_number && String(order_number).length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_order_number',
+        message: 'order_number must be 50 characters or less'
+      });
     }
 
     // Build identifier: order_number takes priority if both are provided
     const identifier: { order_number?: string; phone?: string } = {};
     if (order_number) {
-      identifier.order_number = String(order_number);
+      identifier.order_number = sanitizeSearchInput(String(order_number));
     } else {
       identifier.phone = String(phone);
     }
@@ -1163,18 +1180,18 @@ externalWebhooksRouter.patch('/orders/:storeId/items', async (req: Request, res:
       }
       if (action !== 'remove') {
         // add/replace require price and quantity
-        if (typeof p.quantity !== 'number' || p.quantity < 1) {
+        if (typeof p.quantity !== 'number' || !Number.isFinite(p.quantity) || p.quantity < 1 || p.quantity > 99999) {
           return res.status(400).json({
             success: false,
             error: 'invalid_product',
-            message: `products[${i}].quantity must be a positive number`
+            message: `products[${i}].quantity must be a positive integer (max 99999)`
           });
         }
-        if (typeof p.price !== 'number' || p.price < 0) {
+        if (typeof p.price !== 'number' || !Number.isFinite(p.price) || p.price < 0 || p.price > 999999999) {
           return res.status(400).json({
             success: false,
             error: 'invalid_product',
-            message: `products[${i}].price must be a non-negative number`
+            message: `products[${i}].price must be a non-negative number (max 999999999)`
           });
         }
       }
