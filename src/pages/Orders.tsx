@@ -1043,6 +1043,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         upsell_quantity: data.upsellQuantity,
         // Internal notes (admin only)
         internal_notes: data.internalNotes || null,
+        // Customer RUC for electronic invoicing (Paraguay)
+        customer_ruc: data.customerRuc || null,
+        customer_ruc_dv: data.customerRucDv ?? null,
       } as any);
 
       if (updatedOrder) {
@@ -2598,7 +2601,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       </Dialog>
 
       {/* Edit Order Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setOrderToEdit(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Editar Pedido</DialogTitle>
@@ -2611,6 +2614,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
             return (
               <OrderForm
+                key={orderToEdit.id}
                 initialData={{
                   customer: orderToEdit.customer,
                   phone: orderToEdit.phone,
@@ -2626,7 +2630,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   // Shipping info
                   shippingCity: orderToEdit.shipping_city,
                   shippingCityNormalized: orderToEdit.shipping_city_normalized,
+                  shippingCost: orderToEdit.shipping_cost,
+                  deliveryZone: orderToEdit.delivery_zone,
                   isPickup: orderToEdit.is_pickup || false,
+                  // Variant from main line item
+                  variantId: mainItem?.variant_id || undefined,
                   // Delivery preferences (scheduling)
                   deliveryPreferences: (orderToEdit as any).delivery_preferences || null,
                   // Upsell data (if exists)
@@ -2634,6 +2642,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   upsellQuantity: upsellItem?.quantity || undefined,
                   // Internal notes
                   internalNotes: orderToEdit.internal_notes || '',
+                  // Customer RUC (electronic invoicing)
+                  customerRuc: orderToEdit.customer_ruc ? `${orderToEdit.customer_ruc}${orderToEdit.customer_ruc_dv !== undefined && orderToEdit.customer_ruc_dv !== null ? '-' + orderToEdit.customer_ruc_dv : ''}` : '',
                 }}
                 onSubmit={handleUpdateOrder}
                 onCancel={() => {

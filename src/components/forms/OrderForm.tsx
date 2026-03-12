@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/popover';
 import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote } from 'lucide-react';
 import { productsService } from '@/services/products.service';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Product, ProductVariant } from '@/types';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
@@ -129,6 +129,9 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   const [loadingCoverage, setLoadingCoverage] = useState(false);
   const [selectedCarrierId, setSelectedCarrierId] = useState<string>('');
   const [shippingCost, setShippingCost] = useState<number>(0);
+
+  // Track if initial carrier from edit should be preserved (prevents auto-select overwrite)
+  const initialCarrierRef = useRef<string | null>(initialData?.carrier || null);
 
   // Pickup option
   const [isPickup, setIsPickup] = useState(false);
@@ -230,6 +233,7 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
 
   // Load variants when product is selected (Migration 097)
   const selectedProductId = form.watch('product');
+  const initialVariantRef = useRef<string | null>(initialData?.variantId || null);
   useEffect(() => {
     let isMounted = true;
 
@@ -248,12 +252,20 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
           if (result.has_variants && result.variants.length > 0) {
             setSelectedProductVariants(result.variants);
             setParentStock(result.parent_stock);
-            // Auto-select first active variant if only one exists
-            const activeVariants = result.variants.filter(v => v.is_active);
-            if (activeVariants.length === 1) {
-              setSelectedVariantId(activeVariants[0].id);
+            // If editing and initial variant exists, preserve it
+            const preserveVariant = initialVariantRef.current;
+            if (preserveVariant && result.variants.some(v => v.id === preserveVariant)) {
+              setSelectedVariantId(preserveVariant);
+              initialVariantRef.current = null;
             } else {
-              setSelectedVariantId(null);
+              // Auto-select first active variant if only one exists
+              const activeVariants = result.variants.filter(v => v.is_active);
+              if (activeVariants.length === 1) {
+                setSelectedVariantId(activeVariants[0].id);
+              } else if (!preserveVariant) {
+                setSelectedVariantId(null);
+              }
+              initialVariantRef.current = null;
             }
           } else {
             setSelectedProductVariants([]);
@@ -372,16 +384,37 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
           });
           setCarriersWithCoverage(sorted);
 
-          // Auto-select cheapest carrier with coverage
-          const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
-          if (cheapest) {
-            setSelectedCarrierId(cheapest.carrier_id);
-            setShippingCost(cheapest.rate || 0);
-            form.setValue('carrier', cheapest.carrier_id);
+          // If editing and initial carrier exists in the loaded carriers, preserve it
+          const preserveInitialCarrier = initialCarrierRef.current;
+          if (preserveInitialCarrier) {
+            const initialCarrier = sorted.find((c: CarrierWithCoverage) => c.carrier_id === preserveInitialCarrier);
+            if (initialCarrier) {
+              setSelectedCarrierId(initialCarrier.carrier_id);
+              setShippingCost(initialCarrier.rate || initialData?.shippingCost || 0);
+              form.setValue('carrier', initialCarrier.carrier_id);
+              initialCarrierRef.current = null; // Only preserve once
+            } else {
+              // Initial carrier not found in coverage, auto-select cheapest
+              const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+              if (cheapest) {
+                setSelectedCarrierId(cheapest.carrier_id);
+                setShippingCost(cheapest.rate || 0);
+                form.setValue('carrier', cheapest.carrier_id);
+              }
+              initialCarrierRef.current = null;
+            }
           } else {
-            setSelectedCarrierId('');
-            setShippingCost(0);
-            form.setValue('carrier', '');
+            // Auto-select cheapest carrier with coverage (new order or city changed)
+            const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+            if (cheapest) {
+              setSelectedCarrierId(cheapest.carrier_id);
+              setShippingCost(cheapest.rate || 0);
+              form.setValue('carrier', cheapest.carrier_id);
+            } else {
+              setSelectedCarrierId('');
+              setShippingCost(0);
+              form.setValue('carrier', '');
+            }
           }
         } else if (isMounted) {
           setCarriersWithCoverage([]);
@@ -450,10 +483,20 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         setUpsellProductId(initialData.upsellProductId);
         setUpsellQuantity(initialData.upsellQuantity || 1);
       }
+
+      // Set variant if provided (editing order with variant)
+      if (initialData.variantId) {
+        setSelectedVariantId(initialData.variantId);
+      }
+
+      // Set customer RUC if provided
+      if (initialData.customerRuc) {
+        setCustomerRuc(initialData.customerRuc);
+      }
     }
-    // Only run on mount or when initialData changes
+    // Only run on mount (key prop forces remount on order change)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialData?.customer]); // Use customer as dependency to detect when order changes
+  }, []);
 
   const handleSubmit = async (data: OrderFormValues) => {
     // Validate: either pickup or city+carrier required

@@ -215,6 +215,12 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                 <Phone size={14} />
                 <span>{order.phone}</span>
               </div>
+              {order.customer_ruc && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">RUC:</span>
+                  <span>{order.customer_ruc}{order.customer_ruc_dv !== undefined && order.customer_ruc_dv !== null ? `-${order.customer_ruc_dv}` : ''}</span>
+                </div>
+              )}
               {(order.address || order.google_maps_link) && (
                 <div className="flex items-start gap-2 text-sm text-muted-foreground mt-2">
                   <MapPin size={14} className="mt-0.5 flex-shrink-0" />

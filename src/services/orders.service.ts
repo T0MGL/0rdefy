@@ -267,6 +267,12 @@ export const ordersService = {
         backendData.internal_notes = (data as any).internal_notes;
       }
 
+      // Customer RUC for electronic invoicing
+      if ((data as any).customer_ruc !== undefined) {
+        backendData.customer_ruc = (data as any).customer_ruc;
+        backendData.customer_ruc_dv = (data as any).customer_ruc_dv;
+      }
+
       // Update main order data
       const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
         method: 'PUT',

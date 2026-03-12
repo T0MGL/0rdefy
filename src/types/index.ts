@@ -114,6 +114,8 @@ export interface Order {
   // NEW: City extraction from Shopify
   shipping_city?: string;
   shipping_city_normalized?: string;
+  shipping_cost?: number;
+  delivery_zone?: string;
   // NEW: Shopify shipping method (from checkout)
   shopify_shipping_method?: string;
   shopify_shipping_method_code?: string;
@@ -157,6 +159,8 @@ export interface Order {
     units_per_pack?: number; // Snapshot for audit (Migration 097)
     shopify_product_id?: string;
     shopify_variant_id?: string;
+    is_upsell?: boolean;
+    image_url?: string;
     products?: {
       id: string;
       name: string;
