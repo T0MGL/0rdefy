@@ -98,10 +98,11 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
 
   // 5. Determine amount to collect:
   //    - If prepaid (manually marked) → collect nothing
-  //    - If paid online → collect nothing
+  //    - If paid online (Shopify financial_status = paid/authorized) → collect nothing
   //    - If cod_amount > 0, use it (backend explicitly set this)
-  //    - If NOT paid AND gateway is COD, use totalPrice as fallback (legacy)
-  //    - Otherwise, collect nothing (PAGADO)
+  //    - Otherwise (pending, unknown, webhook without payment_method) → collect totalPrice
+  //    NOTE: PAGADO only shows when there is an EXPLICIT paid signal.
+  //    Falling through without an explicit signal means the order needs to be collected.
   let amountToCollect = 0;
   if (isPrepaid || isPaidOnline) {
     // Order is already paid - do NOT collect anything
@@ -109,8 +110,9 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
   } else if (codAmountFromBackend > 0) {
     // Backend says collect this exact amount
     amountToCollect = codAmountFromBackend;
-  } else if (isCODGateway || isCODMethod) {
-    // Legacy fallback for orders without cod_amount set
+  } else {
+    // Not explicitly paid → collect totalPrice
+    // Covers: pending orders, unknown payment method, webhook orders with payment_method='pending'
     amountToCollect = data.totalPrice || 0;
   }
 
@@ -456,11 +458,14 @@ export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob>
                         data.paymentMethod === 'cod' ||
                         data.paymentMethod === 'cash_on_delivery';
 
+    const isPrepaid = !!data.prepaidMethod;
     const codAmountFromBackend = data.codAmount ?? 0;
     let amountToCollect = 0;
-    if (codAmountFromBackend > 0) {
+    if (isPrepaid || isPaidOnline) {
+      amountToCollect = 0;
+    } else if (codAmountFromBackend > 0) {
       amountToCollect = codAmountFromBackend;
-    } else if (!isPaidOnline && (isCODGateway || isCODMethod)) {
+    } else {
       amountToCollect = data.totalPrice || 0;
     }
     const isCOD = amountToCollect > 0;
