@@ -462,6 +462,7 @@ export default function WarehouseNew() {
         paymentMethod: order.payment_method,
         paymentGateway: order.payment_gateway, // Critical for COD detection
         financialStatus: order.financial_status,
+        prepaidMethod: order.prepaid_method,
         deliveryToken: order.delivery_link_token || '',
         items: order.items.map(item => ({
           name: item.product_name,
@@ -516,6 +517,7 @@ export default function WarehouseNew() {
         discountAmount: order.total_discounts,
         paymentMethod: order.payment_method,
         financialStatus: order.financial_status,
+        prepaidMethod: order.prepaid_method,
         deliveryToken: order.delivery_link_token || '',
         items: order.items.map(item => ({
           name: item.product_name,

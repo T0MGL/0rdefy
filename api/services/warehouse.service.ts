@@ -161,6 +161,7 @@ export interface OrderForPacking {
   payment_method?: string;
   payment_gateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
+  prepaid_method?: string; // Set when order was manually marked as paid
   printed?: boolean;
   printed_at?: string;
   created_at?: string;
@@ -1281,6 +1282,7 @@ export async function getPackingList(
           payment_method,
           payment_gateway,
           financial_status,
+          prepaid_method,
           printed,
           printed_at,
           created_at
@@ -1528,6 +1530,7 @@ export async function getPackingList(
         payment_method: order.payment_method,
         payment_gateway: order.payment_gateway,
         financial_status: order.financial_status,
+        prepaid_method: order.prepaid_method,
         printed: order.printed,
         printed_at: order.printed_at,
         created_at: order.created_at,

@@ -103,6 +103,7 @@ export interface OrderForPacking {
   payment_method?: string;
   payment_gateway?: string; // From Shopify: 'cash_on_delivery', 'shopify_payments', etc.
   financial_status?: 'pending' | 'paid' | 'authorized' | 'refunded' | 'voided';
+  prepaid_method?: string; // Set when order was manually marked as paid
   printed?: boolean;
   printed_at?: string;
   created_at?: string;

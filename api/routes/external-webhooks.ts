@@ -429,12 +429,14 @@ externalWebhooksRouter.get('/payload-example', async (req: any, res: Response) =
             shipping_city: 'Ciudad de entrega (opcional - si se envía sin courier_id, auto-selecciona el repartidor más barato con cobertura)',
             shipping_cost: 'Costo de envío en guaraníes (opcional - si se auto-selecciona carrier, se usa la tarifa del carrier)',
             delivery_zone: 'Zona de entrega (opcional)',
-            delivery_preferences: '{ not_before_date, preferred_time_slot, delivery_notes } (opcional)'
+            delivery_preferences: '{ not_before_date, preferred_time_slot, delivery_notes } (opcional)',
+            payment_status: '"paid" para marcar el pedido como pagado al confirmar. La etiqueta de impresión mostrará PAGADO y no se cobrará al repartidor.'
           },
           response_fields: {
             awaiting_carrier: 'true si la orden fue confirmada sin transportadora (pendiente de asignación)',
             auto_carrier: 'true si el carrier fue auto-seleccionado por ciudad (el más barato con cobertura)',
-            is_pickup: 'true si es retiro en local'
+            is_pickup: 'true si es retiro en local',
+            paid: 'true si la orden fue marcada como pagada en esta confirmación'
           },
           error_codes: {
             ORDER_NOT_FOUND: 'No se encontró la orden (404)',
@@ -667,13 +669,23 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
 
     // 3. Validate body - require either order_number or phone
     const { order_number, phone, courier_id, is_pickup, address, latitude, longitude,
-            google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences } = req.body;
+            google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences,
+            payment_status } = req.body;
 
     if (!order_number && !phone) {
       return res.status(400).json({
         success: false,
         error: 'missing_identifier',
         message: 'Either order_number or phone is required'
+      });
+    }
+
+    // Validate payment_status if provided
+    if (payment_status !== undefined && payment_status !== 'paid') {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_payment_status',
+        message: 'payment_status only accepts "paid"'
       });
     }
 
@@ -719,7 +731,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
     const result = await externalWebhookService.confirmOrderViaApi(
       storeId,
       identifier,
-      { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences },
+      { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences, payment_status },
       config
     );
 
@@ -768,7 +780,8 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
       confirmed_at: result.confirmed_at,
       carrier_name: result.carrier_name,
       total_price: result.total_price,
-      shipping_cost: result.shipping_cost
+      shipping_cost: result.shipping_cost,
+      paid: result.paid || false
     });
 
   } catch (error: any) {

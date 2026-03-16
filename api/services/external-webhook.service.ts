@@ -1403,6 +1403,7 @@ export class ExternalWebhookService {
       shipping_city?: string;
       shipping_cost?: number;
       delivery_preferences?: any;
+      payment_status?: 'paid';
     },
     config: WebhookConfig
   ): Promise<{
@@ -1417,6 +1418,7 @@ export class ExternalWebhookService {
     is_pickup?: boolean;
     total_price?: number;
     shipping_cost?: number;
+    paid?: boolean;
     error?: string;
     code?: string;
     multiple_orders?: number;
@@ -1513,23 +1515,31 @@ export class ExternalWebhookService {
       let rpcError: any;
       let finalStatus: string;
 
+      const markAsPaid = options.payment_status === 'paid';
+
       if (confirmWithoutCarrier) {
         // Path A: Confirm without carrier via direct update.
         // Cannot use confirm_order_without_carrier RPC (requires separate_confirmation_flow = TRUE and sets 'awaiting_carrier').
         // Cannot use confirm_order_atomic RPC (NULL courier_id sets is_pickup = TRUE).
         // Webhook-confirmed orders without carrier stay 'confirmed' with carrier_id = NULL for dashboard assignment.
         const now = new Date().toISOString();
+        const updatePayload: Record<string, any> = {
+          sleeves_status: 'confirmed',
+          confirmed_at: now,
+          confirmed_by: `api:${config.api_key_prefix}`,
+          confirmation_method: 'external_api',
+          customer_address: options.address || undefined,
+          google_maps_link: options.google_maps_link || undefined,
+          updated_at: now
+        };
+        if (markAsPaid) {
+          updatePayload.prepaid_method = 'transferencia';
+          updatePayload.prepaid_at = now;
+          updatePayload.cod_amount = 0;
+        }
         const { data: directResult, error: directError } = await supabaseAdmin
           .from('orders')
-          .update({
-            sleeves_status: 'confirmed',
-            confirmed_at: now,
-            confirmed_by: `api:${config.api_key_prefix}`,
-            confirmation_method: 'external_api',
-            customer_address: options.address || undefined,
-            google_maps_link: options.google_maps_link || undefined,
-            updated_at: now
-          })
+          .update(updatePayload)
           .eq('id', order.id)
           .eq('store_id', storeId)
           .in('sleeves_status', ['pending', 'contacted']) // Only confirm from valid statuses
@@ -1564,8 +1574,8 @@ export class ExternalWebhookService {
           p_upsell_product_id: null,
           p_upsell_quantity: 1,
           p_discount_amount: null,
-          p_mark_as_prepaid: false,
-          p_prepaid_method: null
+          p_mark_as_prepaid: markAsPaid,
+          p_prepaid_method: markAsPaid ? 'transferencia' : null
         });
         rpcResult = rpc.data;
         rpcError = rpc.error;
@@ -1645,7 +1655,8 @@ export class ExternalWebhookService {
         carrier_name: confirmWithoutCarrier ? null : (rpcResult.carrier_name || null),
         is_pickup: isPickup,
         total_price: orderData?.total_price,
-        shipping_cost: orderData?.total_shipping
+        shipping_cost: orderData?.total_shipping,
+        paid: markAsPaid
       };
     } catch (error: any) {
       logger.error('BACKEND', '❌ [ExternalWebhook] Error confirming order via API:', error);
