@@ -237,6 +237,7 @@ export default function Login() {
               </div>
               <button
                 type="button"
+                onClick={() => navigate('/forgot-password')}
                 className="text-sm text-primary hover:underline font-medium"
               >
                 ¿Olvidaste tu contraseña?

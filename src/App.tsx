@@ -71,6 +71,8 @@ const ShopifyOAuthCallback = lazy(() => import("./pages/ShopifyOAuthCallback"));
 const Referral = lazy(() => import("./pages/Referral"));
 const OnboardingPlan = lazy(() => import("./pages/OnboardingPlan"));
 const Invoicing = lazy(() => import("./pages/Invoicing"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Optimized QueryClient configuration for production cost control
@@ -181,6 +183,8 @@ const App = () => {
                             {/* Public routes - wrapped in Suspense for lazy loading */}
                             <Route path="/login" element={<Suspense fallback={<div className="hidden" />}><LoginDemo /></Suspense>} />
                             <Route path="/signup" element={<Suspense fallback={<div className="hidden" />}><SignUp /></Suspense>} />
+                            <Route path="/forgot-password" element={<Suspense fallback={<div className="hidden" />}><ForgotPassword /></Suspense>} />
+                            <Route path="/reset-password" element={<Suspense fallback={<div className="hidden" />}><ResetPassword /></Suspense>} />
                             <Route path="/onboarding" element={<Suspense fallback={<div className="hidden" />}><Onboarding /></Suspense>} />
                             <Route path="/i/:token" element={<Suspense fallback={<div className="hidden" />}><AcceptInvitation /></Suspense>} />
                             <Route path="/accept-invite/:token" element={<Suspense fallback={<div className="hidden" />}><AcceptInvitation /></Suspense>} />

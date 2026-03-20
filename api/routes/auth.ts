@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, AuthRequest } from '../middleware/auth';
 import {
@@ -12,6 +14,7 @@ import {
     logPasswordChange,
     logAccountDeleted
 } from '../services/security.service';
+import { sendPasswordReset } from '../services/email.service';
 import { logger } from '../utils/logger';
 
 export const authRouter = Router();
@@ -902,6 +905,261 @@ authRouter.post('/change-password', changePasswordRateLimiter, verifyToken, asyn
         });
     } catch (error: any) {
         log.error('Unexpected error during password change', error);
+        return res.status(500).json({
+            success: false,
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
+        });
+    }
+});
+
+// ================================================================
+// Zod schemas for password reset
+// ================================================================
+const forgotPasswordSchema = z.object({
+    email: z.string().email('Invalid email format').max(255)
+});
+
+const resetPasswordSchema = z.object({
+    token: z.string().min(1, 'Token is required'),
+    password: z.string().min(8, 'Password must be at least 8 characters')
+});
+
+// Token config
+const RESET_TOKEN_BYTES = 32; // 64 hex chars
+const RESET_TOKEN_EXPIRY_MINUTES = 30;
+const RESET_MAX_REQUESTS_PER_HOUR = 3;
+
+function generateResetToken(): string {
+    return crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
+}
+
+function hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// ================================================================
+// POST /api/auth/forgot-password - Request password reset email
+// ================================================================
+authRouter.post('/forgot-password', forgotPasswordRateLimiter, async (req: Request, res: Response) => {
+    try {
+        const parsed = forgotPasswordSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({
+                success: false,
+                error: 'Ingresa un email valido',
+                code: 'VALIDATION_ERROR'
+            });
+        }
+
+        const { email } = parsed.data;
+        const normalizedEmail = email.toLowerCase().trim();
+
+        log.info('Forgot password request received');
+
+        // Rate limit by email: max N requests per hour
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { count: recentCount, error: countError } = await supabaseAdmin
+            .from('password_reset_tokens')
+            .select('id', { count: 'exact', head: true })
+            .eq('email', normalizedEmail)
+            .gte('created_at', oneHourAgo);
+
+        if (!countError && (recentCount ?? 0) >= RESET_MAX_REQUESTS_PER_HOUR) {
+            log.security('Password reset rate limit exceeded for email');
+            // Return success anyway to avoid leaking info
+            return res.json({
+                success: true,
+                message: 'Si el email esta registrado, enviamos instrucciones para restablecer tu contrasena.'
+            });
+        }
+
+        // Lookup user (but always return same response regardless)
+        const { data: user } = await supabaseAdmin
+            .from('users')
+            .select('id, name, email')
+            .eq('email', normalizedEmail)
+            .eq('is_active', true)
+            .single();
+
+        if (user) {
+            // Generate token
+            const rawToken = generateResetToken();
+            const tokenHash = hashToken(rawToken);
+            const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MINUTES * 60 * 1000);
+
+            // Store hashed token
+            const { error: insertError } = await supabaseAdmin
+                .from('password_reset_tokens')
+                .insert({
+                    email: normalizedEmail,
+                    token_hash: tokenHash,
+                    expires_at: expiresAt.toISOString()
+                });
+
+            if (insertError) {
+                log.error('Failed to store password reset token', insertError);
+                // Still return success to avoid leaking info
+            } else {
+                // Build reset link
+                const appUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://app.ordefy.io';
+                const resetLink = `${appUrl}/reset-password?token=${rawToken}`;
+
+                // Send email via Resend
+                const emailResult = await sendPasswordReset(normalizedEmail, {
+                    userName: user.name || 'Usuario',
+                    resetLink,
+                    expiresInMinutes: RESET_TOKEN_EXPIRY_MINUTES
+                });
+
+                if (!emailResult.success) {
+                    log.error('Failed to send password reset email', { error: emailResult.error });
+                } else {
+                    log.info('Password reset email sent', { userId: user.id });
+                }
+            }
+        } else {
+            log.info('Forgot password request for non-existent email (no action taken)');
+        }
+
+        // Always return the same response (prevents email enumeration)
+        res.json({
+            success: true,
+            message: 'Si el email esta registrado, enviamos instrucciones para restablecer tu contrasena.'
+        });
+    } catch (error: unknown) {
+        log.error('Unexpected error during forgot-password', error);
+        return res.status(500).json({
+            success: false,
+            error: 'An error occurred',
+            code: 'INTERNAL_ERROR'
+        });
+    }
+});
+
+// ================================================================
+// POST /api/auth/reset-password - Reset password with token
+// ================================================================
+authRouter.post('/reset-password', forgotPasswordRateLimiter, async (req: Request, res: Response) => {
+    try {
+        const parsed = resetPasswordSchema.safeParse(req.body);
+        if (!parsed.success) {
+            const firstError = parsed.error.errors[0]?.message || 'Datos invalidos';
+            return res.status(400).json({
+                success: false,
+                error: firstError,
+                code: 'VALIDATION_ERROR'
+            });
+        }
+
+        const { token, password } = parsed.data;
+        const tokenHash = hashToken(token);
+
+        log.info('Reset password request received');
+
+        // Find valid, unused token
+        const { data: resetRecord, error: lookupError } = await supabaseAdmin
+            .from('password_reset_tokens')
+            .select('id, email, expires_at, used_at')
+            .eq('token_hash', tokenHash)
+            .single();
+
+        if (lookupError || !resetRecord) {
+            log.security('Reset password attempt with invalid token');
+            return res.status(400).json({
+                success: false,
+                error: 'El enlace de restablecimiento es invalido o ha expirado.',
+                code: 'INVALID_TOKEN'
+            });
+        }
+
+        // Check if already used
+        if (resetRecord.used_at) {
+            log.security('Reset password attempt with already-used token');
+            return res.status(400).json({
+                success: false,
+                error: 'Este enlace ya fue utilizado. Solicita uno nuevo.',
+                code: 'TOKEN_USED'
+            });
+        }
+
+        // Check expiration
+        if (new Date(resetRecord.expires_at) < new Date()) {
+            log.security('Reset password attempt with expired token');
+            return res.status(400).json({
+                success: false,
+                error: 'El enlace ha expirado. Solicita uno nuevo.',
+                code: 'TOKEN_EXPIRED'
+            });
+        }
+
+        // Find the user by email
+        const { data: user, error: userError } = await supabaseAdmin
+            .from('users')
+            .select('id, email')
+            .eq('email', resetRecord.email)
+            .eq('is_active', true)
+            .single();
+
+        if (userError || !user) {
+            log.error('User not found during password reset', { email: resetRecord.email });
+            return res.status(400).json({
+                success: false,
+                error: 'No se pudo restablecer la contrasena. Contacta a soporte.',
+                code: 'USER_NOT_FOUND'
+            });
+        }
+
+        // Hash new password and update
+        const newPasswordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+        const { error: updateError } = await supabaseAdmin
+            .from('users')
+            .update({
+                password_hash: newPasswordHash,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', user.id);
+
+        if (updateError) {
+            log.error('Failed to update password during reset', updateError);
+            return res.status(500).json({
+                success: false,
+                error: 'An error occurred',
+                code: 'PASSWORD_UPDATE_FAILED'
+            });
+        }
+
+        // Mark token as used
+        await supabaseAdmin
+            .from('password_reset_tokens')
+            .update({ used_at: new Date().toISOString() })
+            .eq('id', resetRecord.id);
+
+        // Invalidate all other pending tokens for this email
+        await supabaseAdmin
+            .from('password_reset_tokens')
+            .update({ used_at: new Date().toISOString() })
+            .eq('email', resetRecord.email)
+            .is('used_at', null);
+
+        // Log password change activity
+        try {
+            const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
+            const userAgent = req.headers['user-agent'] || 'unknown';
+            await logPasswordChange(user.id, ipAddress, userAgent);
+        } catch (logErr) {
+            log.warn('Failed to log password reset activity', logErr);
+        }
+
+        log.info('Password reset completed', { userId: user.id });
+
+        res.json({
+            success: true,
+            message: 'Tu contrasena fue restablecida exitosamente. Ya puedes iniciar sesion.'
+        });
+    } catch (error: unknown) {
+        log.error('Unexpected error during reset-password', error);
         return res.status(500).json({
             success: false,
             error: 'An error occurred',
