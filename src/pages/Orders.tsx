@@ -1960,15 +1960,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                               Shopify
                             </Badge>
                           )}
-                          {!order.shopify_order_id && (order.n8n_sent || order.n8n_processed_at) && (
-                            <Badge
-                              variant="outline"
-                              className="bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 text-xs px-1.5 py-0"
-                            >
-                              WEBHOOK
-                            </Badge>
-                          )}
-                          {!order.shopify_order_id && !order.n8n_sent && !order.n8n_processed_at && (
+                          {!order.shopify_order_id && (
                             <Badge
                               variant="outline"
                               className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 text-xs px-1.5 py-0"

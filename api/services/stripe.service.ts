@@ -114,6 +114,11 @@ const priceIdToPlan: Record<string, PlanType> = {
   // Professional
   'price_1SlGWI8jew17tEHtmMXcP9zG': 'professional',
   'price_1SlGbk8jew17tEHtKaxvPuBc': 'professional',
+  // TODO: Verify the correct plan for price_1T8Dy0A7nachsTLZUqlarBde before going live.
+  // This price ID was found in Stripe webhooks but not in the dashboard config above.
+  // Confirm via Stripe dashboard: Dashboard > Products > find this price and match to plan.
+  // Temporarily mapping to 'starter' to unblock webhook processing — update if incorrect.
+  'price_1T8Dy0A7nachsTLZUqlarBde': 'starter',
 };
 
 /**

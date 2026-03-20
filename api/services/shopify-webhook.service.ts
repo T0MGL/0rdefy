@@ -1,11 +1,9 @@
 // Shopify Webhook Service
-// Procesa webhooks de pedidos de Shopify y los envia a n8n para confirmacion automatica
+// Procesa webhooks de pedidos de Shopify y sincroniza ordenes con Ordefy
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import axios from 'axios';
-import http from 'http';
 import https from 'https';
-import crypto from 'crypto';
 import { ShopifyOrder } from '../types/shopify';
 import { logger } from '../utils/logger';
 
@@ -21,33 +19,17 @@ const httpsAgent = new https.Agent({
   timeout: 60000
 });
 
-const httpAgent = new http.Agent({
-  keepAlive: true,
-  maxSockets: 50,
-  maxFreeSockets: 10,
-  timeout: 60000
-});
-
 // Axios instance configured for Shopify API calls (always HTTPS)
 const shopifyAxios = axios.create({
   httpsAgent,
   timeout: 10000
 });
 
-// Axios instance for internal webhook calls (n8n, etc.) - supports both HTTP and HTTPS
-const webhookAxios = axios.create({
-  httpAgent,
-  httpsAgent,
-  timeout: 30000
-});
-
 export class ShopifyWebhookService {
   private supabaseAdmin: SupabaseClient;
-  private n8nWebhookUrl: string;
 
   constructor(supabase: SupabaseClient) {
     this.supabaseAdmin = supabase;
-    this.n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || '';
   }
 
   /**
@@ -765,9 +747,6 @@ export class ShopifyWebhookService {
 
       // Marcar webhook como procesado
       await this.markWebhookProcessed(shopifyOrder.id.toString(), storeId);
-
-      // Enviar pedido a n8n para confirmación automática
-      await this.sendOrderToN8n(newOrder.id, shopifyOrder, storeId);
 
       return { success: true, order_id: newOrder.id };
 
@@ -1690,119 +1669,6 @@ export class ShopifyWebhookService {
     if (financialStatus === 'paid' && !fulfillmentStatus) return 'confirmed';
     if (financialStatus === 'paid' && fulfillmentStatus === 'partial') return 'in_transit';
     return 'pending';
-  }
-
-  // FIX: Retry n8n for orders where the webhook was processed but n8n failed.
-  // Called from the route handler when a duplicate webhook is detected.
-  async retryN8nIfNeeded(shopifyOrderId: string, shopifyOrder: any, storeId: string): Promise<void> {
-    try {
-      if (!this.n8nWebhookUrl) return;
-
-      // Check if the order exists and n8n was NOT sent
-      const { data: order } = await this.supabaseAdmin
-        .from('orders')
-        .select('id, n8n_sent')
-        .eq('shopify_order_id', shopifyOrderId)
-        .eq('store_id', storeId)
-        .single();
-
-      if (!order || order.n8n_sent) return;
-
-      logger.info('SHOPIFY_WEBHOOK', `Retrying n8n for order ${order.id} (shopify: ${shopifyOrderId}) on duplicate webhook`);
-      await this.sendOrderToN8n(order.id, shopifyOrder, storeId);
-    } catch (error: any) {
-      logger.error('SHOPIFY_WEBHOOK', `n8n retry failed for shopify order ${shopifyOrderId}:`, error.message);
-    }
-  }
-
-  // Enviar pedido a n8n para confirmación automática
-  private async sendOrderToN8n(
-    orderId: string,
-    shopifyOrder: ShopifyOrder,
-    storeId: string
-  ): Promise<void> {
-    if (!this.n8nWebhookUrl) {
-      logger.warn('SHOPIFY_WEBHOOK','URL de webhook de n8n no configurada, omitiendo envío');
-      return;
-    }
-
-    try {
-      // Obtener datos completos del pedido de la base de datos
-      const { data: order, error } = await this.supabaseAdmin
-        .from('orders')
-        .select('*')
-        .eq('id', orderId)
-        .single();
-
-      if (error || !order) {
-        throw new Error('No se pudo obtener el pedido de la base de datos');
-      }
-
-      // Preparar payload para n8n
-      const n8nPayload = {
-        order_id: orderId,
-        store_id: storeId,
-        shopify_order_id: shopifyOrder.id.toString(),
-        shopify_order_number: shopifyOrder.order_number,
-        customer_name: order.customer,
-        customer_email: order.email,
-        customer_phone: order.phone,
-        total: order.total,
-        products: order.product,
-        quantity: order.quantity,
-        shipping_address: {
-          address: order.shipping_address,
-          city: order.shipping_city,
-          state: order.shipping_state,
-          postal_code: order.shipping_postal_code,
-          country: order.shipping_country
-        },
-        order_date: order.date,
-        status: order.status,
-        notes: order.notes,
-        shopify_data: shopifyOrder
-      };
-
-      // Crear firma HMAC para autenticación
-      const n8nSecret = process.env.N8N_WEBHOOK_SECRET || process.env.N8N_API_KEY || '';
-      const signature = crypto
-        .createHmac('sha256', n8nSecret)
-        .update(JSON.stringify(n8nPayload))
-        .digest('hex');
-
-      // Enviar a n8n con autenticación (uses connection pooling via webhookAxios)
-      const response = await webhookAxios.post(this.n8nWebhookUrl, n8nPayload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': process.env.N8N_API_KEY || '',
-          'X-Signature': signature,
-          'X-Timestamp': new Date().toISOString()
-        }
-      });
-
-      logger.info('SHOPIFY_WEBHOOK', `Pedido ${orderId} enviado a n8n exitosamente`, { status: response.status });
-
-      // Registrar envío exitoso
-      await this.supabaseAdmin
-        .from('orders')
-        .update({
-          n8n_sent: true,
-          n8n_sent_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
-
-    } catch (error: any) {
-      logger.error('SHOPIFY_WEBHOOK', 'Error enviando pedido a n8n', error);
-
-      // Registrar error pero no fallar el proceso principal
-      await this.supabaseAdmin
-        .from('orders')
-        .update({
-          n8n_error: error.message,
-          n8n_retry_count: 0
-        })
-        .eq('id', orderId);
-    }
   }
 
   // Registrar evento de webhook en la base de datos

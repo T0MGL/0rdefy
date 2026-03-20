@@ -283,7 +283,7 @@ export default function OnboardingPlan() {
         </motion.div>
 
         {/* Plans Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-6 mb-8 max-w-5xl mx-auto">
           {['starter', 'growth', 'professional'].map((planName, index) => {
             const plan = plans.find(p => p.plan === planName);
             const isPopular = planName === 'growth';
@@ -298,6 +298,7 @@ export default function OnboardingPlan() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 * (index + 1) }}
+                className="pt-4"
               >
                 <Card
                   className={`relative h-full flex flex-col ${

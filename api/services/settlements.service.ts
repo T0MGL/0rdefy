@@ -1266,37 +1266,32 @@ async function processSettlementLegacy(
   logger.info('SETTLEMENTS', `Linked carrier movements to settlement ${settlement.id}`);
 
   // Update order statuses in main orders table (batch update)
-  const orderUpdates = session.orders
-    .filter(o => o.delivery_status !== 'pending')
-    .map(order => {
-      let newStatus = order.delivery_status;
-      if (order.delivery_status === 'not_delivered') {
-        newStatus = 'shipped'; // Keep as shipped for retry
-      }
-      return {
-        id: order.order_id,
-        sleeves_status: newStatus,
-        delivered_at: order.delivery_status === 'delivered' ? order.delivered_at : null
-      };
-    });
+  // Separate delivered vs not-delivered so we can set payment_status correctly
+  const deliveredSessionOrders = session.orders.filter(o => o.delivery_status === 'delivered');
+  const notDeliveredSessionOrders = session.orders.filter(o =>
+    o.delivery_status !== 'pending' && o.delivery_status !== 'delivered'
+  );
 
-  // Batch update orders by status
-  const updateGroups: Record<string, string[]> = {};
-  for (const update of orderUpdates) {
-    const key = `${update.sleeves_status}|${update.delivered_at || ''}`;
-    if (!updateGroups[key]) updateGroups[key] = [];
-    updateGroups[key].push(update.id);
-  }
-
-  for (const [key, ids] of Object.entries(updateGroups)) {
-    const [sleeves_status, delivered_at] = key.split('|');
+  if (deliveredSessionOrders.length > 0) {
+    // Delivered orders: set sleeves_status + payment_status in one batch.
+    // Do NOT override delivered_at here — each order already has its own delivered_at
+    // set when the courier scanned the QR or the CSV was imported.
     await supabaseAdmin
       .from('orders')
       .update({
-        sleeves_status,
-        ...(delivered_at ? { delivered_at } : {})
+        sleeves_status: 'delivered',
+        payment_status: 'collected',
       })
-      .in('id', ids);
+      .in('id', deliveredSessionOrders.map(o => o.order_id));
+  }
+
+  if (notDeliveredSessionOrders.length > 0) {
+    await supabaseAdmin
+      .from('orders')
+      .update({
+        sleeves_status: 'shipped', // Keep as shipped for retry
+      })
+      .in('id', notDeliveredSessionOrders.map(o => o.order_id));
   }
 
   // Fire outbound webhooks for orders changed to 'delivered'
@@ -2366,6 +2361,8 @@ async function processManualReconciliationLegacy(
       .update({
         sleeves_status: 'delivered',
         delivered_at: update.delivered_at,
+        // payment_status = 'collected' marks cash deposit step (step 7 of COD cycle)
+        payment_status: 'collected',
       })
       .eq('id', update.id)
       .eq('store_id', storeId); // Extra safety
@@ -3827,24 +3824,52 @@ async function processOrderUpdatesAndReturn(
   }>
 ): Promise<any> {
   // Update orders in batches of 50 for performance
+  // Split into delivered and not-delivered groups so we can set payment_status correctly
+  const deliveredUpdates = orderUpdates.filter(o => o.delivered);
+  const notDeliveredUpdates = orderUpdates.filter(o => !o.delivered);
+
   const batchSize = 50;
-  for (let i = 0; i < orderUpdates.length; i += batchSize) {
-    const batch = orderUpdates.slice(i, i + batchSize);
-    const ids = batch.map(o => o.id);
-    const reconciled_at = batch[0].reconciled_at;
+
+  // Delivered COD orders: reconciled + payment collected
+  // Delivered prepaid orders: reconciled + payment already marked collected at delivery
+  const deliveredIds = deliveredUpdates.map(o => o.id);
+  for (let i = 0; i < deliveredIds.length; i += batchSize) {
+    const batch = deliveredIds.slice(i, i + batchSize);
+    const reconciled_at = deliveredUpdates[i].reconciled_at;
+
+    const { error: updateError } = await supabaseAdmin
+      .from('orders')
+      .update({
+        reconciled_at,
+        // payment_status = 'collected' confirms cash deposit step (step 7 of COD cycle)
+        payment_status: 'collected',
+      })
+      .in('id', batch);
+
+    if (updateError) {
+      logger.error('SETTLEMENTS', 'Error updating delivered orders batch', {
+        batch: i / batchSize,
+        error: updateError
+      });
+    }
+  }
+
+  // Not-delivered orders: reconciled only, payment_status stays pending (no cash was collected)
+  const notDeliveredIds = notDeliveredUpdates.map(o => o.id);
+  for (let i = 0; i < notDeliveredIds.length; i += batchSize) {
+    const batch = notDeliveredIds.slice(i, i + batchSize);
+    const reconciled_at = notDeliveredUpdates[i].reconciled_at;
 
     const { error: updateError } = await supabaseAdmin
       .from('orders')
       .update({ reconciled_at })
-      .in('id', ids);
+      .in('id', batch);
 
     if (updateError) {
-      logger.error('SETTLEMENTS', 'Error updating orders batch', {
+      logger.error('SETTLEMENTS', 'Error updating not-delivered orders batch', {
         batch: i / batchSize,
         error: updateError
       });
-      // Don't throw - settlement already created, orders will be updated on next reconciliation attempt
-      // This is a tradeoff: we prefer not to orphan the settlement record
     }
   }
 

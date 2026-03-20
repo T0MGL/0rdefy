@@ -182,7 +182,6 @@ The application uses environment variables for configuration. Key variables in `
 - `SUPABASE_SERVICE_ROLE_KEY` - Service role key for admin operations
 
 **Integrations:**
-- `N8N_WEBHOOK_URL_NEWORDER` - N8N webhook for order confirmations
 - `SHOPIFY_API_KEY` - Shopify app API key
 - `SHOPIFY_API_SECRET` - Shopify app secret
 - `SHOPIFY_SCOPES` - OAuth scopes

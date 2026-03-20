@@ -735,6 +735,7 @@ export function DemoTourProvider({ children }: DemoTourProviderProps) {
       isTransitioning: false,
       hasCompletedTour: false,
       tourId: null,
+      isAutoStarted: false,
     });
   }, []);
 

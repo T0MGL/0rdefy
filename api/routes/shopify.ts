@@ -639,12 +639,6 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       logger.warn('SHOPIFY', `Duplicate webhook (atomic check): ${idempotencyKey}`);
       await webhookManager.recordMetric(integrationId!, storeId!, 'duplicate');
 
-      // FIX: Retry n8n if the order was saved but n8n failed (fire-and-forget)
-      const webhookServiceRetry = new ShopifyWebhookService(supabaseAdmin);
-      webhookServiceRetry.retryN8nIfNeeded(orderId, req.body, storeId!).catch(e =>
-        logger.error('SHOPIFY', 'n8n retry on duplicate webhook failed:', e)
-      );
-
       return res.status(200).json({
         success: true,
         message: 'Already processed',
@@ -1647,7 +1641,15 @@ shopifyRouter.get('/webhook-health', async (req: AuthRequest, res: Response) => 
 
 // POST /api/shopify/webhook-retry/process
 // Procesar cola de reintentos manualmente (también se ejecuta como cron job)
-shopifyRouter.post('/webhook-retry/process', async (req: AuthRequest, res: Response) => {
+shopifyRouter.post('/webhook-retry/process', async (req: Request, res: Response) => {
+  // SECURITY: Validate cron secret — same pattern as billing cron routes
+  const cronSecret = req.headers['x-cron-secret'];
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret || !cronSecret || cronSecret !== expectedSecret) {
+    logger.warn('SHOPIFY', 'Unauthorized cron attempt on webhook-retry/process');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
     const result = await webhookManager.processRetryQueue();
@@ -1669,7 +1671,15 @@ shopifyRouter.post('/webhook-retry/process', async (req: AuthRequest, res: Respo
 
 // POST /api/shopify/webhook-cleanup
 // Limpiar idempotency keys expirados (ejecutar como cron job diario)
-shopifyRouter.post('/webhook-cleanup', async (req: AuthRequest, res: Response) => {
+shopifyRouter.post('/webhook-cleanup', async (req: Request, res: Response) => {
+  // SECURITY: Validate cron secret — same pattern as billing cron routes
+  const cronSecret = req.headers['x-cron-secret'];
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret || !cronSecret || cronSecret !== expectedSecret) {
+    logger.warn('SHOPIFY', 'Unauthorized cron attempt on webhook-cleanup');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const webhookManager = new ShopifyWebhookManager(supabaseAdmin);
     const deleted = await webhookManager.cleanupExpiredKeys();

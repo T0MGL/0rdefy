@@ -5,6 +5,7 @@
 // Developed by Bright Idea - All Rights Reserved
 // ================================================================
 
+import * as Sentry from '@sentry/node';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -62,6 +63,17 @@ import { webhookQueue } from './routes/shopify';
 dotenv.config();
 
 // ================================================================
+// SENTRY - Error tracking (must initialize before routes)
+// ================================================================
+if (process.env.SENTRY_DSN) {
+    Sentry.init({
+        dsn: process.env.SENTRY_DSN,
+        environment: process.env.NODE_ENV || 'development',
+        tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    });
+}
+
+// ================================================================
 // ENVIRONMENT VALIDATION
 // ================================================================
 // Validate all required environment variables at startup
@@ -76,7 +88,6 @@ const REQUIRED_ENV_VARS = [
 ] as const;
 
 const OPTIONAL_ENV_VARS = [
-    'N8N_WEBHOOK_URL_NEWORDER',
     'SHOPIFY_API_SECRET',
     'SHOPIFY_API_KEY',
 ] as const;
@@ -727,6 +738,9 @@ app.use((req: Request, res: Response) => {
 // Global error handler
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     logger.error('[ERROR]', err);
+    if (process.env.SENTRY_DSN) {
+        Sentry.captureException(err);
+    }
 
     // Database errors - generic messages only (no schema leakage)
     if (err.code === '23505') {
@@ -769,12 +783,18 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 process.on('uncaughtException', (error) => {
     logger.error('BACKEND', '💀 FATAL: Uncaught exception:', error);
+    if (process.env.SENTRY_DSN) {
+        Sentry.captureException(error);
+    }
     // Give time for logs to flush, then exit
     setTimeout(() => process.exit(1), 1000);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     logger.error('BACKEND', '💀 FATAL: Unhandled rejection:', reason);
+    if (process.env.SENTRY_DSN) {
+        Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
+    }
     // Give time for logs to flush, then exit
     setTimeout(() => process.exit(1), 1000);
 });

@@ -23,4 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 .env
+.env.local
+.env.production
+.env.*.local
+.env.backup*
+.env.new-*
+.env.migration
+api/.env
 .mcp.json
+health-reports/
+.vercel

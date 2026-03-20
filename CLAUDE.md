@@ -129,7 +129,7 @@ Create shipments from suppliers → receive (qty_received/qty_rejected) → delt
 **Files:** `api/routes/shopify.ts`, `api/services/shopify-*.service.ts`, `src/components/ShopifyIntegrationModal.tsx`
 **Docs:** `SHOPIFY_ORDER_LINE_ITEMS.md`, `SHOPIFY_PRODUCT_SYNC_GUIDE.md`, `SHOPIFY_INVENTORY_SYNC.md`, `SHOPIFY_AUTOMATIC_INBOUND_SHIPMENT.md`
 
-**Features:** One-time import (products/customers/orders), bidirectional product sync, automatic inventory sync to Shopify, automatic inbound shipment on product import, normalized order_line_items with product mapping. Webhooks: orders/create, orders/updated, products/delete. Reliability: idempotency (24h TTL), exponential backoff retries (60s→960s, max 5). Rate limit: 2 req/sec. HMAC verification. Auto-send new orders to n8n.
+**Features:** One-time import (products/customers/orders), bidirectional product sync, automatic inventory sync to Shopify, automatic inbound shipment on product import, normalized order_line_items with product mapping. Webhooks: orders/create, orders/updated, products/delete. Reliability: idempotency (24h TTL), exponential backoff retries (60s, max 5). Rate limit: 2 req/sec. HMAC verification. Outbound webhooks configurable per store via Integrations page.
 
 **Auto Inbound Shipment:** On Shopify product import → creates received shipment (ISH-YYYYMMDD-XXX) for products with stock > 0. Non-blocking.
 

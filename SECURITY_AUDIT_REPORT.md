@@ -27,8 +27,8 @@ Se encontraron **6 problemas de seguridad** que deben ser resueltos antes del la
 Password de PostgreSQL hardcodeado en `package.json` líneas 17-18:
 
 ```json
-"db:migrate": "PGPASSWORD=Kp9mN2vL8xR4zT7wQ5yH3bF6dG1jM0sX9cV8aE2nB4kL9mP2rQ8t psql..."
-"db:seed": "PGPASSWORD=Kp9mN2vL8xR4zT7wQ5yH3bF6dG1jM0sX9cV8aE2nB4kL9mP2rQ8t psql..."
+"db:migrate": "PGPASSWORD=REDACTED_DB_PASSWORD psql..."
+"db:seed": "PGPASSWORD=REDACTED_DB_PASSWORD psql..."
 ```
 
 ### Impacto
@@ -52,21 +52,21 @@ Password de PostgreSQL hardcodeado en `package.json` líneas 17-18:
 
 ```bash
 # .env (NO commitear)
-PGHOST=ecommerce-software-supabase.aqiebe.easypanel.host
+PGHOST=REDACTED_DB_HOST
 PGUSER=postgres
 PGDATABASE=postgres
-PGPASSWORD=Kp9mN2vL8xR4zT7wQ5yH3bF6dG1jM0sX9cV8aE2nB4kL9mP2rQ8t
+PGPASSWORD=REDACTED_DB_PASSWORD
 ```
 
 #### Opción 2: .pgpass file (más segura)
 ```bash
 # ~/.pgpass (chmod 600)
-ecommerce-software-supabase.aqiebe.easypanel.host:5432:postgres:postgres:Kp9mN2vL8xR4zT7wQ5yH3bF6dG1jM0sX9cV8aE2nB4kL9mP2rQ8t
+REDACTED_DB_HOST:5432:postgres:postgres:REDACTED_DB_PASSWORD
 ```
 
 ```json
 // package.json (sin password)
-"db:migrate": "psql -h ecommerce-software-supabase.aqiebe.easypanel.host -U postgres -d postgres -f db/migrations/001_create_base_schema.sql"
+"db:migrate": "psql -h REDACTED_DB_HOST -U postgres -d postgres -f db/migrations/001_create_base_schema.sql"
 ```
 
 #### Opción 3: Script wrapper
@@ -381,7 +381,7 @@ API Key de Shopify hardcodeada en código:
 
 ```typescript
 // src/components/ShopifyAppBridgeProvider.tsx:10
-const API_KEY = 'e4ac05aaca557fdb387681f0f209335d';
+const API_KEY = 'SHOPIFY_API_KEY_REDACTED';
 ```
 
 ### Impacto
@@ -401,12 +401,12 @@ export default defineConfig({
 });
 
 // src/components/ShopifyAppBridgeProvider.tsx
-const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY || 'e4ac05aaca557fdb387681f0f209335d';
+const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY || 'SHOPIFY_API_KEY_REDACTED';
 ```
 
 ```bash
 # .env
-VITE_SHOPIFY_API_KEY=e4ac05aaca557fdb387681f0f209335d
+VITE_SHOPIFY_API_KEY=your-shopify-api-key
 
 # .env.production
 VITE_SHOPIFY_API_KEY=<production_key>

@@ -240,9 +240,12 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
             updateData.courier_notes = notes;
         }
 
-        // Handle amount_collected based on payment type
+        // Handle amount_collected and payment_status based on payment type
         if (isCodPayment) {
             // COD payment: courier collected cash
+            // payment_status = 'collected' means cash is in the courier's hands (step 6 of the COD cycle)
+            // It will be reconciled against the settlement when the courier deposits
+            updateData.payment_status = 'collected';
             if (has_amount_discrepancy && amount_collected !== undefined) {
                 // Courier explicitly reported a different amount
                 updateData.amount_collected = amount_collected;
@@ -254,8 +257,9 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
                 updateData.has_amount_discrepancy = false;
             }
         } else {
-            // PREPAID payment (tarjeta, qr, transferencia): no cash collected
-            // The payment already went directly to the store
+            // PREPAID payment (tarjeta, qr, transferencia): no cash collected by courier
+            // The payment already went directly to the store — mark as collected immediately
+            updateData.payment_status = 'collected';
             updateData.amount_collected = 0;
             updateData.has_amount_discrepancy = false;
             // IMPORTANT: Set prepaid_method so reconciliation knows this is NOT COD
@@ -817,8 +821,6 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 delivery_preferences,
                 delivery_notes,
                 internal_notes,
-                n8n_sent,
-                n8n_processed_at,
                 shopify_shipping_method,
                 shipping_city_normalized,
                 shipping_cost,

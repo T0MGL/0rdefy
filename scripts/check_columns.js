@@ -1,8 +1,13 @@
 // Check which columns exist in orders table
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://vgqecqqleuowvoimcoxg.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZncWVjcXFsZXVvd3ZvaW1jb3hnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzA1Njk3NywiZXhwIjoyMDgyNjMyOTc3fQ.IjLDyb3WCjddkszPyXgDblfi3Pyfq8wb3C9blZOaZO4';
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
+  process.exit(1);
+}
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 

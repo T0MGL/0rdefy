@@ -2,7 +2,7 @@
 // OUTBOUND WEBHOOK SERVICE
 // ================================================================
 // Handles outbound webhook configuration API calls.
-// Allows sending notifications to external systems (n8n, Zapier, etc.)
+// Allows sending notifications to external systems (Zapier, Make, etc.)
 // when order events occur (e.g., order.delivered).
 // ================================================================
 

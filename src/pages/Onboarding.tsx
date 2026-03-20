@@ -312,8 +312,8 @@ export default function Onboarding() {
       </div>
 
       {/* Right Side - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background">
-        <div className="w-full max-w-md">
+      <div className="w-full lg:w-1/2 flex items-start lg:items-center justify-center p-6 sm:p-8 bg-background overflow-y-auto min-h-screen lg:min-h-0">
+        <div className="w-full max-w-md py-6 lg:py-0">
           {/* Progress Indicators */}
           <div className="flex items-center justify-center gap-4 mb-12">
             {[1, 2, 3].map((step) => (

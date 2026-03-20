@@ -44,7 +44,7 @@ interface HealthReport {
 // CONFIGURATION
 // ================================================================
 
-const OWNER_EMAIL = 'gaston@thebrightidea.ai';
+const OWNER_EMAIL = process.env.OWNER_EMAIL || '';
 const OUTPUT_DIR = path.join(__dirname, '../health-reports');
 
 // ================================================================

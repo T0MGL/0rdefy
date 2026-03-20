@@ -77,7 +77,7 @@ export function FollowUpSettings() {
               Configuración de Follow-Ups
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Gestiona el seguimiento automático de pedidos vía WhatsApp (conectado a n8n)
+              Gestiona el seguimiento automatico de pedidos via WhatsApp
             </p>
           </div>
           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">

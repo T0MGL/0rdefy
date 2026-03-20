@@ -65,7 +65,7 @@ logger.info('DB', `Supabase client (ANON) initialized: ${SUPABASE_URL}`);
 // ================================================================
 // ⚠️ DANGER: This client has FULL DATABASE ACCESS
 // Use ONLY for:
-// - Webhook handlers (Shopify, n8n, WhatsApp)
+// - Webhook handlers (Shopify, WhatsApp)
 // - System background jobs
 // - Administrative operations that need to bypass RLS
 //

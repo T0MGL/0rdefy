@@ -10,10 +10,10 @@ export const CONFIG = {
   apiUrl: 'https://api.ordefy.io/api',
   frontendUrl: 'https://app.ordefy.io',
 
-  // Test credentials (owner account)
+  // Test credentials (owner account) - loaded from environment
   credentials: {
-    email: 'gaston@thebrightidea.ai',
-    password: 'rorito28'
+    email: process.env.TEST_USER_EMAIL || '',
+    password: process.env.TEST_USER_PASSWORD || ''
   },
 
   // Test data identification

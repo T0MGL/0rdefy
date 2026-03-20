@@ -114,8 +114,8 @@ export const CONFIG = {
   apiUrl: 'https://api.ordefy.io/api',
   frontendUrl: 'https://app.ordefy.io',
   credentials: {
-    email: 'gaston@thebrightidea.ai',
-    password: 'rorito28'
+    email: process.env.TEST_USER_EMAIL,
+    password: process.env.TEST_USER_PASSWORD
   },
   testPrefix: 'TEST_E2E_',
   timeout: 30000
@@ -230,7 +230,7 @@ jobs:
 ║     🧪  ORDEFY E2E TEST SUITE - PRODUCTION                   ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  API URL:    https://api.ordefy.io/api                       ║
-║  User:       gaston@thebrightidea.ai                         ║
+║  User:       (from TEST_USER_EMAIL env var)                   ║
 ║  Prefix:     TEST_E2E_                                       ║
 ╚══════════════════════════════════════════════════════════════╝
 

@@ -440,7 +440,6 @@ storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, re
             whatsapp_phone_number_id,
             whatsapp_business_account_id,
             whatsapp_api_token,
-            n8n_webhook_url,
             agent_name,
             follow_up_template_1,
             follow_up_template_2,
@@ -471,7 +470,6 @@ storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, re
                     whatsapp_phone_number_id,
                     whatsapp_business_account_id,
                     whatsapp_api_token,
-                    n8n_webhook_url,
                     agent_name,
                     follow_up_template_1,
                     follow_up_template_2,
@@ -497,7 +495,6 @@ storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, re
             if (whatsapp_phone_number_id !== undefined) updateData.whatsapp_phone_number_id = whatsapp_phone_number_id;
             if (whatsapp_business_account_id !== undefined) updateData.whatsapp_business_account_id = whatsapp_business_account_id;
             if (whatsapp_api_token !== undefined) updateData.whatsapp_api_token = whatsapp_api_token;
-            if (n8n_webhook_url !== undefined) updateData.n8n_webhook_url = n8n_webhook_url;
             if (agent_name !== undefined) updateData.agent_name = agent_name;
             if (follow_up_template_1 !== undefined) updateData.follow_up_template_1 = follow_up_template_1;
             if (follow_up_template_2 !== undefined) updateData.follow_up_template_2 = follow_up_template_2;

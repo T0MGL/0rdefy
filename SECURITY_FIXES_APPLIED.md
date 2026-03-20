@@ -176,10 +176,10 @@ These files contain `console.log` statements that output **sensitive information
 **Change:**
 ```typescript
 // BEFORE
-const API_KEY = 'e4ac05aaca557fdb387681f0f209335d';
+const API_KEY = 'SHOPIFY_API_KEY_REDACTED';
 
 // AFTER
-const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY || 'e4ac05aaca557fdb387681f0f209335d';
+const API_KEY = import.meta.env.VITE_SHOPIFY_API_KEY || 'SHOPIFY_API_KEY_REDACTED';
 ```
 
 **.env.example Documentation:**
@@ -214,7 +214,7 @@ VITE_SHOPIFY_API_KEY=your-shopify-api-key
 **Recommendation for Future:**
 ```bash
 # Current (INSECURE):
-"test:login": "NODE_ENV=development tsx api/tests/test-login.ts gaston@thebrightidea.ai rorito28"
+"test:login": "NODE_ENV=development tsx api/tests/test-login.ts gaston@thebrightidea.ai REDACTED_PASSWORD"
 
 # Recommended:
 "test:login": "NODE_ENV=development tsx api/tests/test-login.ts"

@@ -60,7 +60,7 @@ const integrations: Integration[] = [
   {
     id: 'outbound-webhook',
     name: 'Webhooks de Salida',
-    description: 'Envía notificaciones automáticas a n8n, Zapier o cualquier sistema cuando cambia el estado de un pedido',
+    description: 'Envia notificaciones automaticas a Zapier, Make o cualquier sistema cuando cambia el estado de un pedido',
     icon: Zap,
     status: 'available',
     category: 'automation',

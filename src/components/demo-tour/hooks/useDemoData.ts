@@ -10,6 +10,7 @@ import {
 } from '../utils/demoDataTemplates';
 import type { Carrier } from '@/services/carriers.service';
 import type { Product, Order, Customer } from '@/types';
+import { logger } from '@/utils/logger';
 
 const API_BASE = '/api';
 
@@ -64,10 +65,10 @@ export function useDemoData() {
       // Update demo data context
       updateDemoData({ carrier });
 
-      console.log('[DemoData] Created demo carrier:', carrier.id);
+      logger.log('[DemoData] Created demo carrier:', carrier.id);
       return carrier;
     } catch (error) {
-      console.error('[DemoData] Error creating demo carrier:', error);
+      logger.error('[DemoData] Error creating demo carrier:', error);
       return null;
     }
   }, [updateDemoData]);
@@ -96,10 +97,10 @@ export function useDemoData() {
       const product = await response.json();
       updateDemoData({ product });
 
-      console.log('[DemoData] Created demo product:', product.id);
+      logger.log('[DemoData] Created demo product:', product.id);
       return product;
     } catch (error) {
-      console.error('[DemoData] Error creating demo product:', error);
+      logger.error('[DemoData] Error creating demo product:', error);
       return null;
     }
   }, [updateDemoData]);
@@ -127,10 +128,10 @@ export function useDemoData() {
       const customer = await response.json();
       updateDemoData({ customer });
 
-      console.log('[DemoData] Created demo customer:', customer.id);
+      logger.log('[DemoData] Created demo customer:', customer.id);
       return customer;
     } catch (error) {
-      console.error('[DemoData] Error creating demo customer:', error);
+      logger.error('[DemoData] Error creating demo customer:', error);
       return null;
     }
   }, [updateDemoData]);
@@ -140,7 +141,7 @@ export function useDemoData() {
     const { carrier, product, customer } = demoData;
 
     if (!carrier || !product) {
-      console.error('[DemoData] Cannot create order: missing carrier or product');
+      logger.error('[DemoData] Cannot create order: missing carrier or product');
       return null;
     }
 
@@ -200,10 +201,10 @@ export function useDemoData() {
       const order = await response.json();
       updateDemoData({ order });
 
-      console.log('[DemoData] Created demo order:', order.id);
+      logger.log('[DemoData] Created demo order:', order.id);
       return order;
     } catch (error) {
-      console.error('[DemoData] Error creating demo order:', error);
+      logger.error('[DemoData] Error creating demo order:', error);
       return null;
     }
   }, [demoData, updateDemoData]);
@@ -213,7 +214,7 @@ export function useDemoData() {
     const { order } = demoData;
 
     if (!order?.id) {
-      console.error('[DemoData] Cannot confirm: no demo order');
+      logger.error('[DemoData] Cannot confirm: no demo order');
       return false;
     }
 
@@ -231,10 +232,10 @@ export function useDemoData() {
       const updatedOrder = await response.json();
       updateDemoData({ order: updatedOrder });
 
-      console.log('[DemoData] Confirmed demo order:', order.id);
+      logger.log('[DemoData] Confirmed demo order:', order.id);
       return true;
     } catch (error) {
-      console.error('[DemoData] Error confirming demo order:', error);
+      logger.error('[DemoData] Error confirming demo order:', error);
       return false;
     }
   }, [demoData, updateDemoData]);
@@ -244,7 +245,7 @@ export function useDemoData() {
     const { order } = demoData;
 
     if (!order?.id) {
-      console.error('[DemoData] Cannot create picking session: no demo order');
+      logger.error('[DemoData] Cannot create picking session: no demo order');
       return null;
     }
 
@@ -264,10 +265,10 @@ export function useDemoData() {
       const session = await response.json();
       updateDemoData({ pickingSessionId: session.id });
 
-      console.log('[DemoData] Created picking session:', session.id);
+      logger.log('[DemoData] Created picking session:', session.id);
       return session.id;
     } catch (error) {
-      console.error('[DemoData] Error creating picking session:', error);
+      logger.error('[DemoData] Error creating picking session:', error);
       return null;
     }
   }, [demoData, updateDemoData]);
@@ -277,7 +278,7 @@ export function useDemoData() {
     const { pickingSessionId } = demoData;
 
     if (!pickingSessionId) {
-      console.error('[DemoData] Cannot complete picking: no session');
+      logger.error('[DemoData] Cannot complete picking: no session');
       return false;
     }
 
@@ -311,10 +312,10 @@ export function useDemoData() {
         headers: getAuthHeaders(),
       });
 
-      console.log('[DemoData] Completed picking for session:', pickingSessionId);
+      logger.log('[DemoData] Completed picking for session:', pickingSessionId);
       return true;
     } catch (error) {
-      console.error('[DemoData] Error completing picking:', error);
+      logger.error('[DemoData] Error completing picking:', error);
       return false;
     }
   }, [demoData]);
@@ -324,7 +325,7 @@ export function useDemoData() {
     const { pickingSessionId, order } = demoData;
 
     if (!pickingSessionId || !order?.id) {
-      console.error('[DemoData] Cannot complete packing: missing data');
+      logger.error('[DemoData] Cannot complete packing: missing data');
       return false;
     }
 
@@ -348,10 +349,10 @@ export function useDemoData() {
         updateDemoData({ order: updatedOrder });
       }
 
-      console.log('[DemoData] Completed packing for order:', order.id);
+      logger.log('[DemoData] Completed packing for order:', order.id);
       return true;
     } catch (error) {
-      console.error('[DemoData] Error completing packing:', error);
+      logger.error('[DemoData] Error completing packing:', error);
       return false;
     }
   }, [demoData, updateDemoData]);
@@ -361,7 +362,7 @@ export function useDemoData() {
     const { order } = demoData;
 
     if (!order?.id) {
-      console.error('[DemoData] Cannot create dispatch: no demo order');
+      logger.error('[DemoData] Cannot create dispatch: no demo order');
       return null;
     }
 
@@ -381,10 +382,10 @@ export function useDemoData() {
       const session = await response.json();
       updateDemoData({ dispatchSessionId: session.id });
 
-      console.log('[DemoData] Created dispatch session:', session.id);
+      logger.log('[DemoData] Created dispatch session:', session.id);
       return session.id;
     } catch (error) {
-      console.error('[DemoData] Error creating dispatch session:', error);
+      logger.error('[DemoData] Error creating dispatch session:', error);
       return null;
     }
   }, [demoData, updateDemoData]);

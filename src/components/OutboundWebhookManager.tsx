@@ -483,7 +483,7 @@ export function OutboundWebhookManager({ open, onOpenChange }: OutboundWebhookMa
                       <div className="space-y-2">
                         <Label>Nombre</Label>
                         <Input
-                          placeholder="Ej: n8n Producción"
+                          placeholder="Ej: Webhook Produccion"
                           value={formName}
                           onChange={e => setFormName(e.target.value)}
                           maxLength={100}
@@ -493,7 +493,7 @@ export function OutboundWebhookManager({ open, onOpenChange }: OutboundWebhookMa
                       <div className="space-y-2">
                         <Label>URL del Webhook *</Label>
                         <Input
-                          placeholder="https://tu-n8n.com/webhook/..."
+                          placeholder="https://tu-servidor.com/webhook/..."
                           value={formUrl}
                           onChange={e => setFormUrl(e.target.value)}
                           type="url"
@@ -561,7 +561,7 @@ export function OutboundWebhookManager({ open, onOpenChange }: OutboundWebhookMa
                           <div>
                             <h3 className="font-semibold text-lg">Sin webhooks configurados</h3>
                             <p className="text-sm text-muted-foreground mt-1">
-                              Crea tu primer webhook para recibir notificaciones automáticas en n8n, Zapier, o cualquier sistema.
+                              Crea tu primer webhook para recibir notificaciones automaticas en Zapier, Make, o cualquier sistema externo.
                             </p>
                           </div>
                           <Button onClick={() => setShowCreateForm(true)}>

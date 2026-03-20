@@ -114,10 +114,11 @@ export function DemoTourTooltip() {
   useEffect(() => {
     if (!isActive || !currentStep) return;
 
-    // Center placement
+    // Center placement — shift down by half the progress bar height (28px)
+    // so the modal doesn't render behind the fixed top progress bar
     if (currentStep.placement === 'center' || !currentStep.target) {
       setTooltipPosition({
-        top: '50%',
+        top: 'calc(50% + 28px)',
         left: '50%',
         transform: 'translate(-50%, -50%)',
       });
@@ -214,9 +215,11 @@ export function DemoTourTooltip() {
       }
 
       // If no placement works, force center as fallback
+      // Shift down by 28px (half the fixed progress bar height) so the modal
+      // doesn't render behind the top progress bar on small viewports
       if (!finalPosition) {
         setTooltipPosition({
-          top: '50%',
+          top: 'calc(50% + 28px)',
           left: '50%',
           transform: 'translate(-50%, -50%)',
         });
@@ -336,7 +339,7 @@ export function DemoTourTooltip() {
             exit={{ opacity: 0, scale: 0.95 }}
             className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)]"
             style={{
-              top: '50%',
+              top: 'calc(50% + 28px)',
               left: '50%',
               transform: 'translate(-50%, -50%)',
             }}
@@ -358,9 +361,9 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100dvh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100dvh-88px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
           style={{
-            top: '50%',
+            top: 'calc(50% + 28px)',
             left: '50%',
             transform: 'translate(-50%, -50%)',
           }}
@@ -473,9 +476,9 @@ export function DemoTourTooltip() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100dvh-64px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+          className="fixed z-[10002] w-[480px] max-w-[calc(100vw-32px)] max-h-[min(700px,calc(100dvh-88px))] overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
           style={{
-            top: '50%',
+            top: 'calc(50% + 28px)',
             left: '50%',
             transform: 'translate(-50%, -50%)',
           }}
@@ -538,9 +541,10 @@ export function DemoTourTooltip() {
         className={cn(
           'fixed z-[10002] w-[400px] max-w-[calc(100vw-32px)]',
           'bg-card border border-border rounded-2xl shadow-2xl',
-          // Smart max-height: respect safe areas and ensure buttons always visible
+          // Smart max-height: respect safe areas and progress bar height (56px)
+          // Centered modals shift down 28px, so budget 56px top + 28px offset + 32px bottom safe = 116px
           tooltipPosition.transform?.includes('translate(-50%, -50%)')
-            ? 'max-h-[min(600px,calc(100dvh-110px))]' // Centered: generous height
+            ? 'max-h-[min(560px,calc(100dvh-140px))]' // Centered: account for progress bar shift
             : 'max-h-[calc(100dvh-120px)]', // Positioned: conservative height
           'overflow-y-auto scroll-smooth scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent'
         )}
