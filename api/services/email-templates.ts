@@ -7,9 +7,9 @@
  *
  * Brand tokens (from the app design system):
  *   Primary (lime green): #b0e636
- *   Dark bg: #131318
- *   Card bg: #1c1d22
- *   Card border: #2a2b33
+ *   Dark bg: #09090b
+ *   Card bg: #131318
+ *   Card border: #1f1f26
  *   Text primary: #f2f2f2
  *   Text secondary: #9ca3af
  *   Text muted: #6b7280
@@ -18,16 +18,18 @@
 const BRAND = {
   primary: '#b0e636',
   primaryDark: '#9acd2e',
-  bg: '#131318',
-  card: '#1c1d22',
-  cardBorder: '#2a2b33',
+  bg: '#09090b',
+  card: '#131318',
+  cardBorder: '#1f1f26',
   text: '#f2f2f2',
   textSecondary: '#9ca3af',
   textMuted: '#6b7280',
   white: '#ffffff',
-  divider: '#2a2b33',
-  footerBg: '#0e0e12',
+  divider: '#1f1f26',
+  footerBg: '#060608',
 } as const;
+
+const LOGO_URL = 'https://app.ordefy.io/favicon.png';
 
 const APP_URL = process.env.APP_URL || process.env.FRONTEND_URL || 'https://app.ordefy.io';
 const CURRENT_YEAR = new Date().getFullYear();
@@ -92,13 +94,9 @@ function baseLayout({ preheader, content }: BaseLayoutOptions): string {
           <!-- Logo header -->
           <tr>
             <td class="header-cell" align="center" style="padding: 0 0 32px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td style="font-size: 28px; font-weight: 700; letter-spacing: -0.5px; color: ${BRAND.white};">
-                    <span style="color: ${BRAND.primary};">O</span>rdefy
-                  </td>
-                </tr>
-              </table>
+              <a href="${APP_URL}" style="text-decoration: none;">
+                <img src="${LOGO_URL}" alt="Ordefy" width="140" height="auto" style="display: block; max-width: 140px; height: auto;" />
+              </a>
             </td>
           </tr>
 
@@ -202,7 +200,7 @@ function infoRow(label: string, value: string): string {
 
 function infoTable(rows: Array<{ label: string; value: string }>): string {
   const inner = rows.map((r) => infoRow(r.label, r.value)).join('');
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 20px 0; background-color: ${BRAND.bg}; border-radius: 8px; padding: 4px 16px;">
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 20px 0; background-color: ${BRAND.footerBg}; border-radius: 8px; padding: 4px 16px;">
   ${inner}
 </table>`;
 }
