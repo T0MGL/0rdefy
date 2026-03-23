@@ -436,7 +436,6 @@ storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, re
         const { id } = req.params;
         const {
             shopify_store_url,
-            shopify_access_token,
             whatsapp_phone_number_id,
             whatsapp_business_account_id,
             whatsapp_api_token,
@@ -466,7 +465,6 @@ storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, re
                 .insert([{
                     store_id: id,
                     shopify_store_url,
-                    shopify_access_token,
                     whatsapp_phone_number_id,
                     whatsapp_business_account_id,
                     whatsapp_api_token,
@@ -491,7 +489,6 @@ storesRouter.put('/:id/config', verifyToken, extractStoreId, extractUserRole, re
             };
 
             if (shopify_store_url !== undefined) updateData.shopify_store_url = shopify_store_url;
-            if (shopify_access_token !== undefined) updateData.shopify_access_token = shopify_access_token;
             if (whatsapp_phone_number_id !== undefined) updateData.whatsapp_phone_number_id = whatsapp_phone_number_id;
             if (whatsapp_business_account_id !== undefined) updateData.whatsapp_business_account_id = whatsapp_business_account_id;
             if (whatsapp_api_token !== undefined) updateData.whatsapp_api_token = whatsapp_api_token;
