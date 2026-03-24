@@ -4,10 +4,7 @@ import jwt from 'jsonwebtoken';
 import { supabaseAdmin } from '../db/connection';
 
 // JWT Configuration Constants
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error('FATAL: JWT_SECRET environment variable is required');
-}
+const JWT_SECRET: string = process.env.JWT_SECRET ?? (() => { throw new Error('FATAL: JWT_SECRET environment variable is required'); })();
 
 // Shopify App Secret for session token validation
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
@@ -27,6 +24,7 @@ export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
+    name?: string;
     stores: Array<{ id: string; name: string; role: string }>;
   };
   storeId?: string;

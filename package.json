@@ -6,9 +6,10 @@
   "author": "Bright Idea",
   "description": "Ordefy - E-commerce management dashboard - Developed by Bright Idea - Deploy: 2026-02-10",
   "engines": {
-    "node": "20.x"
+    "node": ">=20"
   },
   "scripts": {
+    "postinstall": "patch-package",
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
@@ -126,6 +127,7 @@
     "@tailwindcss/typography": "^0.5.16",
     "@types/bcrypt": "^6.0.0",
     "@types/canvas-confetti": "^1.9.0",
+    "@types/cors": "^2.8.19",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.16.5",
     "@types/node-forge": "^1.3.14",
@@ -137,6 +139,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
+    "patch-package": "^8.0.1",
     "typescript-eslint": "^8.38.0"
   }
 }

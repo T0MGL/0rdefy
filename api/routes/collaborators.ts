@@ -127,9 +127,10 @@ collaboratorsRouter.post(
 
       // Check user limit for subscription plan
       // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
-      const { data: planCheck, error: canAddError } = await supabaseAdmin
+      const { data: planCheckRaw, error: canAddError } = await supabaseAdmin
         .rpc('can_add_user_to_store', { p_store_id: storeId })
         .single();
+      const planCheck = planCheckRaw as { can_add: boolean; current_users: number; max_users: number; reason: string } | null;
 
       if (canAddError) {
         return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
@@ -266,10 +267,9 @@ collaboratorsRouter.post(
         },
         emailSent,
         // If email failed, warn user that they need to share the link manually
-        ...(emailSent ? {} : {
-          warning: 'No se pudo enviar el email de invitación. Por favor comparte el link manualmente.',
-          emailError: process.env.NODE_ENV === 'development' ? emailResult.error : undefined
-        })
+        ...(!emailSent ? {
+          warning: 'No se pudo enviar el email de invitación. Por favor comparte el link manualmente.'
+        } : {})
       });
     } catch (error) {
       res.status(500).json({ error: 'Error interno del servidor' });
@@ -466,9 +466,10 @@ collaboratorsRouter.post(
       // SECURITY FIX: Validate plan limit at acceptance time (not just at creation)
       // This prevents race conditions where multiple invitations exceed the limit
       // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
-      const { data: planCheck, error: canAddError } = await supabaseAdmin
+      const { data: planCheckRaw2, error: canAddError } = await supabaseAdmin
         .rpc('can_add_user_to_store', { p_store_id: invitation.store_id })
         .single();
+      const planCheck = planCheckRaw2 as { can_add: boolean; current_users: number; max_users: number; reason: string } | null;
 
       if (canAddError) {
         // Rollback: Mark invitation as unused
@@ -880,9 +881,10 @@ collaboratorsRouter.patch(
 
       // Check user limit for subscription plan before reactivation
       // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
-      const { data: planCheck, error: canAddError } = await supabaseAdmin
+      const { data: planCheckRaw, error: canAddError } = await supabaseAdmin
         .rpc('can_add_user_to_store', { p_store_id: storeId })
         .single();
+      const planCheck = planCheckRaw as { can_add: boolean; current_users: number; max_users: number; reason: string } | null;
 
       if (canAddError) {
         return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
@@ -948,7 +950,7 @@ collaboratorsRouter.get(
     try {
       const { storeId } = req;
 
-      const { data: stats, error } = await supabaseAdmin
+      const { data: statsRaw, error } = await supabaseAdmin
         .rpc('get_store_user_stats', { p_store_id: storeId })
         .single();
 
@@ -956,8 +958,10 @@ collaboratorsRouter.get(
         return res.status(500).json({ error: 'Error al obtener estadísticas' });
       }
 
+      const stats = statsRaw as { slots_available: number; [key: string]: unknown } | null;
+
       // Add can_add_more field based on slots_available
-      const canAddMore = stats.slots_available > 0 || stats.slots_available === -1;
+      const canAddMore = stats && (stats.slots_available > 0 || stats.slots_available === -1);
 
       res.json({
         ...stats,

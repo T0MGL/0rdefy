@@ -1012,14 +1012,14 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             const normalizedItems = order.order_line_items || [];
             const jsonbItems = order.line_items || [];
 
-            let lineItems = normalizedItems;
+            let lineItems: Array<Record<string, unknown>> = normalizedItems;
             if (normalizedItems.length === 0 && Array.isArray(jsonbItems)) {
                 // Fallback to JSONB format for backwards compatibility
-                lineItems = jsonbItems.map((item: any) => ({
+                lineItems = jsonbItems.map((item: Record<string, unknown>) => ({
                     product_name: item.name || item.title || 'Producto',
                     quantity: item.quantity || 1,
                     unit_price: safeNumber(item.price),
-                    total_price: (item.quantity || 1) * safeNumber(item.price)
+                    total_price: (Number(item.quantity) || 1) * safeNumber(item.price)
                 }));
             }
 
@@ -1046,7 +1046,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                 total: order.total_price || 0,
                 status: mapStatus(order.sleeves_status),
                 payment_status: order.payment_status,
-                carrier: order.carriers?.name || 'Sin transportadora',
+                carrier: (Array.isArray(order.carriers) ? order.carriers[0]?.name : (order.carriers as Record<string, unknown>)?.name) || 'Sin transportadora',
                 carrier_id: order.courier_id,
                 date: order.created_at,
                 phone: order.customer_phone || '',
@@ -1468,8 +1468,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                 .from('orders')
                 .update({ customer_ruc, customer_ruc_dv: customer_ruc_dv ? Number(customer_ruc_dv) : null })
                 .eq('id', data.id)
-                .then(() => {})
-                .catch((err) => { logger.error('API', 'Failed to save customer RUC:', err); });
+                .then(() => {}, (err: unknown) => { logger.error('API', 'Failed to save customer RUC:', err); });
         }
 
         // Log initial status history for manual orders created as confirmed (non-blocking)
@@ -1486,8 +1485,7 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                     change_source: 'dashboard',
                     notes: 'Orden manual creada directamente como confirmada'
                 })
-                .then(() => {})
-                .catch((err) => { logger.error('API', 'Failed to log initial status history:', err); });
+                .then(() => {}, (err: unknown) => { logger.error('API', 'Failed to log initial status history:', err); });
         }
 
         // Create normalized line items in order_line_items table (for manual orders)
@@ -2345,10 +2343,8 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
                                         .catch((err: any) => logger.error('[AutoInvoice] Failed:', err.message));
                                 }).catch((err) => { logger.error('API', 'Failed to import invoicing service:', err); });
                             }
-                        })
-                        .catch((err) => { logger.error('API', 'Failed to fetch store country for auto-invoice:', err); });
-                })
-                .catch((err) => { logger.error('API', 'Failed to fetch customer_ruc for auto-invoice:', err); });
+                        }, (err: unknown) => { logger.error('API', 'Failed to fetch store country for auto-invoice:', err); });
+                }, (err: unknown) => { logger.error('API', 'Failed to fetch customer_ruc for auto-invoice:', err); });
         }
 
         if (sleeves_status === 'cancelled' || sleeves_status === 'rejected') {

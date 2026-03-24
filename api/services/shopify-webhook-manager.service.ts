@@ -512,7 +512,7 @@ export class ShopifyWebhookManager {
             payload,
             retry.store_id,
             retry.integration_id,
-            null // Integration object not available in retry
+            undefined // Integration object not available in retry
           );
           return {
             success: result.success,

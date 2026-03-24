@@ -22,6 +22,9 @@ const router = express.Router();
 router.get('/sessions', verifyToken, async (req, res) => {
   try {
     const userId = req.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'No autorizado' });
+    }
 
     const sessions = await getUserSessions(userId);
 
@@ -52,12 +55,15 @@ router.get('/sessions', verifyToken, async (req, res) => {
 router.delete('/sessions/:sessionId', verifyToken, async (req, res) => {
   try {
     const userId = req.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'No autorizado' });
+    }
     const { sessionId } = req.params;
 
     await terminateSession(sessionId, userId);
 
     // Log the activity
-    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip;
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
 
     await logActivity({
@@ -89,12 +95,15 @@ router.delete('/sessions/:sessionId', verifyToken, async (req, res) => {
 router.delete('/sessions', verifyToken, async (req, res) => {
   try {
     const userId = req.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'No autorizado' });
+    }
     const currentToken = req.headers.authorization?.replace('Bearer ', '');
 
     await terminateAllSessions(userId, currentToken);
 
     // Log the activity
-    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip;
+    const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || '';
     const userAgent = req.headers['user-agent'] || '';
 
     await logActivity({
@@ -129,6 +138,9 @@ router.delete('/sessions', verifyToken, async (req, res) => {
 router.get('/activity', verifyToken, async (req, res) => {
   try {
     const userId = req.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'No autorizado' });
+    }
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const offset = parseInt(req.query.offset as string, 10) || 0;
 
@@ -159,6 +171,9 @@ router.get('/activity', verifyToken, async (req, res) => {
 router.get('/activity/recent', verifyToken, async (req, res) => {
   try {
     const userId = req.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'No autorizado' });
+    }
 
     const activities = await getUserActivity(userId, 10, 0);
 

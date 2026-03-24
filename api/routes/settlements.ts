@@ -717,7 +717,7 @@ settlementsRouter.post('/reconcile-delivery', requirePermission(Module.CARRIERS,
     res.json({
       message: 'Conciliacion completada',
       data: result,
-      warnings: result.warnings || []
+      warnings: (result as Record<string, unknown>).warnings || []
     });
   } catch (error: any) {
     logger.error('💥 [SETTLEMENTS] Error processing delivery reconciliation:', {

@@ -99,7 +99,7 @@ export class ShopifyInventorySyncService {
           last_synced_at: new Date().toISOString()
         })
         .eq('id', params.productId)
-        .catch(err => logger.error('BACKEND', 'Error updating sync status:', err));
+        .then(() => {}, (err: unknown) => logger.error('BACKEND', 'Error updating sync status:', err));
 
       return {
         success: false,

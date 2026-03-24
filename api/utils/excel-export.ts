@@ -140,13 +140,13 @@ export async function generateDispatchExcel(
   const dataEndRow = 4 + orders.length;
 
   if (orders.length > 0) {
-    worksheet.dataValidations.add(`I${dataStartRow}:I${dataEndRow}`, {
+    (worksheet as unknown as { dataValidations: { add: (range: string, opts: Record<string, unknown>) => void } }).dataValidations.add(`I${dataStartRow}:I${dataEndRow}`, {
       type: 'list', allowBlank: true,
       formulae: ['"ENTREGADO,NO ENTREGADO,RECHAZADO,REPROGRAMADO"'],
       showErrorMessage: true, errorTitle: 'Estado inválido',
       error: 'Seleccione: ENTREGADO, NO ENTREGADO, RECHAZADO o REPROGRAMADO'
     });
-    worksheet.dataValidations.add(`K${dataStartRow}:K${dataEndRow}`, {
+    (worksheet as unknown as { dataValidations: { add: (range: string, opts: Record<string, unknown>) => void } }).dataValidations.add(`K${dataStartRow}:K${dataEndRow}`, {
       type: 'list', allowBlank: true,
       formulae: ['"NO CONTESTA,DIRECCION INCORRECTA,CLIENTE AUSENTE,RECHAZADO,SIN DINERO,REPROGRAMADO,OTRO"'],
       showErrorMessage: true, errorTitle: 'Motivo inválido',

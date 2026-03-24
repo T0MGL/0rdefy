@@ -97,7 +97,7 @@ class WhatsAppService {
       throw new Error(`WhatsApp API Error: ${JSON.stringify(error)}`);
     }
 
-    return response.json();
+    return response.json() as Promise<WhatsAppMessageResponse>;
   }
 
   /**

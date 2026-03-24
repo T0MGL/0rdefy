@@ -223,7 +223,7 @@ shopifyComplianceRouter.post(
             })
             .eq('shopify_customer_id', customerId)
             .eq('store_id', storeId)
-            .select('id', { count: 'exact', head: true });
+            .select('id');
 
           redactedCount.customers = custCount || 0;
 
@@ -240,7 +240,7 @@ shopifyComplianceRouter.post(
             })
             .eq('shopify_customer_id', customerId)
             .eq('store_id', storeId)
-            .select('id', { count: 'exact', head: true });
+            .select('id');
 
           redactedCount.orders = orderCount || 0;
         }

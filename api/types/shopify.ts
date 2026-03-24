@@ -3,28 +3,38 @@
 
 // Shopify Integration Configuration
 export interface ShopifyIntegration {
-  id: string;
-  store_id: string;
+  id?: string;
+  store_id?: string;
   shop_domain: string;
-  api_key: string;
-  api_secret_key: string; // Used for HMAC verification of webhooks
+  api_key?: string;
+  api_secret_key?: string; // Used for HMAC verification of webhooks
   access_token: string;
-  import_products: boolean;
-  import_customers: boolean;
-  import_orders: boolean;
-  import_historical_orders: boolean;
-  status: 'active' | 'inactive' | 'error' | 'syncing';
-  last_sync_at: string | null;
-  sync_error: string | null;
-  shopify_shop_id: string | null;
-  shop_name: string | null;
-  shop_email: string | null;
-  shop_currency: string | null;
-  shop_timezone: string | null;
-  shop_data: Record<string, any> | null;
-  created_at: string;
-  updated_at: string;
+  import_products?: boolean;
+  import_customers?: boolean;
+  import_orders?: boolean;
+  import_historical_orders?: boolean;
+  status?: 'active' | 'inactive' | 'error' | 'syncing';
+  last_sync_at?: string | null;
+  sync_error?: string | null;
+  shopify_shop_id?: string | null;
+  shop_name?: string | null;
+  shop_email?: string | null;
+  shop_currency?: string | null;
+  shop_timezone?: string | null;
+  shop_data?: Record<string, any> | null;
+  created_at?: string;
+  updated_at?: string;
+  webhook_signature?: string | null;
+  scope?: string | null;
+  is_custom_app?: boolean | null;
+  user_id?: string | null;
 }
+
+/**
+ * Partial integration returned from Supabase .select() with limited columns.
+ * Used when only a subset of fields is queried.
+ */
+export type ShopifyIntegrationPartial = Pick<ShopifyIntegration, 'id' | 'shop_domain' | 'access_token' | 'status'> & Partial<ShopifyIntegration>;
 
 // Configuration request payload
 export interface ShopifyConfigRequest {
@@ -36,6 +46,7 @@ export interface ShopifyConfigRequest {
   import_customers: boolean;
   import_orders: boolean;
   import_historical_orders: boolean;
+  webhook_signature?: string;
 }
 
 // Import Job Tracking
@@ -208,101 +219,105 @@ export interface ShopifyCustomer {
 }
 
 export interface ShopifyAddress {
-  id: number;
-  customer_id: number;
+  id?: number;
+  customer_id?: number;
   first_name: string;
   last_name: string;
-  company: string | null;
+  company?: string | null;
   address1: string;
-  address2: string | null;
+  address2?: string | null;
   city: string;
   province: string;
   country: string;
   zip: string;
   phone: string;
-  name: string;
-  province_code: string;
-  country_code: string;
-  country_name: string;
-  default: boolean;
+  name?: string;
+  province_code?: string;
+  country_code?: string;
+  country_name?: string;
+  default?: boolean;
+  neighborhood?: string | null;
 }
 
 // Shopify API Order structure
+// Many fields are optional because GraphQL API returns a subset of REST fields
 export interface ShopifyOrder {
   id: number;
-  admin_graphql_api_id: string;
-  app_id: number | null;
-  browser_ip: string | null;
-  buyer_accepts_marketing: boolean;
-  cancel_reason: string | null;
-  cancelled_at: string | null;
-  cart_token: string | null;
-  checkout_id: number | null;
-  checkout_token: string | null;
-  client_details: Record<string, any> | null;
-  closed_at: string | null;
-  confirmed: boolean;
-  contact_email: string | null;
-  created_at: string;
-  currency: string;
-  current_subtotal_price: string;
-  current_total_discounts: string;
-  current_total_duties_set: any;
-  current_total_price: string;
-  current_total_tax: string;
-  customer_locale: string | null;
-  device_id: number | null;
-  discount_codes: any[];
-  email: string;
-  estimated_taxes: boolean;
-  financial_status: string;
-  fulfillment_status: string | null;
-  gateway: string;
-  landing_site: string | null;
-  landing_site_ref: string | null;
-  location_id: number | null;
-  name: string;
-  note: string | null;
-  note_attributes: any[];
-  number: number;
+  admin_graphql_api_id?: string;
+  app_id?: number | null;
+  browser_ip?: string | null;
+  buyer_accepts_marketing?: boolean;
+  cancel_reason?: string | null;
+  cancelled_at?: string | null;
+  cart_token?: string | null;
+  checkout_id?: number | null;
+  checkout_token?: string | null;
+  client_details?: Record<string, any> | null;
+  closed_at?: string | null;
+  confirmed?: boolean;
+  contact_email?: string | null;
+  created_at?: string;
+  currency?: string;
+  current_subtotal_price?: string;
+  current_total_discounts?: string;
+  current_total_duties_set?: any;
+  current_total_price?: string;
+  current_total_tax?: string;
+  customer_locale?: string | null;
+  device_id?: number | null;
+  discount_codes?: any[];
+  email?: string;
+  estimated_taxes?: boolean;
+  financial_status?: string;
+  fulfillment_status?: string | null;
+  gateway?: string;
+  landing_site?: string | null;
+  landing_site_ref?: string | null;
+  location_id?: number | null;
+  name?: string;
+  note?: string | null;
+  note_attributes?: any[];
+  number?: number;
   order_number: number;
-  order_status_url: string;
-  original_total_duties_set: any;
-  payment_gateway_names: string[];
-  phone: string | null;
-  presentment_currency: string;
-  processed_at: string;
-  processing_method: string;
-  reference: string | null;
-  referring_site: string | null;
-  source_identifier: string | null;
-  source_name: string;
-  source_url: string | null;
-  subtotal_price: string;
-  tags: string;
-  tax_lines: any[];
-  taxes_included: boolean;
-  test: boolean;
-  token: string;
-  total_discounts: string;
-  total_line_items_price: string;
-  total_outstanding: string;
-  total_price: string;
-  total_shipping_price_set: any;
-  total_tax: string;
-  total_tip_received: string;
-  total_weight: number;
-  updated_at: string;
-  user_id: number | null;
-  billing_address: ShopifyAddress | null;
-  customer: ShopifyCustomer;
-  discount_applications: any[];
-  fulfillments: any[];
-  line_items: ShopifyLineItem[];
-  payment_details: any;
-  refunds: any[];
-  shipping_address: ShopifyAddress | null;
-  shipping_lines: any[];
+  order_status_url?: string;
+  original_total_duties_set?: any;
+  payment_gateway_names?: string[];
+  phone?: string | null;
+  presentment_currency?: string;
+  processed_at?: string;
+  processing_method?: string;
+  reference?: string | null;
+  referring_site?: string | null;
+  source_identifier?: string | null;
+  source_name?: string;
+  source_url?: string | null;
+  subtotal_price?: string;
+  tags?: string;
+  tax_lines?: any[];
+  taxes_included?: boolean;
+  test?: boolean;
+  token?: string;
+  total_discounts?: string;
+  total_line_items_price?: string;
+  total_outstanding?: string;
+  total_price?: string;
+  total_shipping_price_set?: any;
+  total_tax?: string;
+  total_tip_received?: string;
+  total_weight?: number;
+  total_shipping?: string;
+  delivery_notes?: string;
+  updated_at?: string;
+  user_id?: number | null;
+  billing_address?: ShopifyAddress | null;
+  customer?: ShopifyCustomer;
+  discount_applications?: any[];
+  fulfillments?: any[];
+  line_items?: ShopifyLineItem[];
+  payment_details?: any;
+  refunds?: any[];
+  shipping_address?: ShopifyAddress | null;
+  shipping_lines?: any[];
 }
 
 export interface ShopifyLineItem {

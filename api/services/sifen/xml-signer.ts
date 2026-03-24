@@ -82,11 +82,11 @@ export async function signXML(xml: string, certBuffer: Buffer, password: string)
   });
 
   // Add KeyInfo with X509 certificate
-  sig.keyInfoProvider = {
+  (sig as unknown as { keyInfoProvider: { getKeyInfo(): string } }).keyInfoProvider = {
     getKeyInfo(): string {
       return `<X509Data><X509Certificate>${cleanCert}</X509Certificate></X509Data>`;
     },
-  } as any;
+  };
 
   sig.computeSignature(xml, {
     location: { reference: "//*[local-name(.)='DE']", action: 'append' },

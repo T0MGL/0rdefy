@@ -1,0 +1,13 @@
+diff --git a/node_modules/@types/qs/index.d.ts b/node_modules/@types/qs/index.d.ts
+index 1234567..abcdefg 100644
+--- a/node_modules/@types/qs/index.d.ts
++++ b/node_modules/@types/qs/index.d.ts
+@@ -70,7 +70,7 @@ declare namespace QueryString {
+     }
+
+     interface ParsedQs {
+-        [key: string]: undefined | string | ParsedQs | (string | ParsedQs)[];
++        [key: string]: undefined | string | string[];
+     }
+
+     function stringify(obj: any, options?: IStringifyOptions<BooleanOptional>): string;

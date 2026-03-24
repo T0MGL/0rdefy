@@ -300,39 +300,65 @@ function log(level: LogLevel, module: string, message: string, data?: any, durat
     }
 }
 
+/**
+ * Resolves flexible log arguments to the (module, message, data) tuple.
+ * Supports: (module, message), (module, message, data),
+ * (message-only), and legacy (label, nonStringData, ...extra)
+ */
+function resolveLogArgs(
+    first: string,
+    second?: string | unknown,
+    rest: unknown[] = []
+): [string, string, unknown | undefined] {
+    // Standard call: (module, message, data?)
+    if (typeof second === 'string') {
+        return [first, second, rest.length > 0 ? (rest.length === 1 ? rest[0] : rest) : undefined];
+    }
+    // Single arg: (message)
+    if (second === undefined && rest.length === 0) {
+        return ['APP', first, undefined];
+    }
+    // Legacy: (label, nonStringData, ...extra)
+    return [first, '', rest.length > 0 ? [second, ...rest] : second];
+}
+
 export const logger = {
     /**
      * Debug level - Detailed debugging information
      * In production: Always suppressed (unless VERBOSE_LOGS=true)
      */
-    debug: (module: string, message: string, data?: any): void => {
+    debug: (moduleOrMessage: string, message?: string | unknown, ...rest: unknown[]): void => {
         if (isProduction && !VERBOSE_LOGS) return;
-        log('DEBUG', module, message, data);
+        const [mod, msg, data] = resolveLogArgs(moduleOrMessage, message, rest);
+        log('DEBUG', mod, msg, data);
     },
 
     /**
      * Info level - General information about application flow
      * In production: Suppressed unless VERBOSE_LOGS=true
      */
-    info: (module: string, message: string, data?: any): void => {
+    info: (moduleOrMessage: string, message?: string | unknown, ...rest: unknown[]): void => {
         if (isProduction && !VERBOSE_LOGS) return;
-        log('INFO', module, message, data);
+        const [mod, msg, data] = resolveLogArgs(moduleOrMessage, message, rest);
+        log('INFO', mod, msg, data);
     },
 
     /**
      * Warning level - Non-critical issues that should be addressed
      * In production: Always shown (sanitized)
      */
-    warn: (module: string, message: string, data?: any): void => {
-        log('WARN', module, message, data);
+    warn: (moduleOrMessage: string, message?: string | unknown, ...rest: unknown[]): void => {
+        const [mod, msg, data] = resolveLogArgs(moduleOrMessage, message, rest);
+        log('WARN', mod, msg, data);
     },
 
     /**
      * Error level - Errors that need attention
      * In production: Always shown with sanitized details
      */
-    error: (module: string, message: string, error?: any): void => {
-        log('ERROR', module, message, error);
+    error: (moduleOrMessage: string, message?: string | unknown, ...rest: unknown[]): void => {
+        const [mod, msg, data] = resolveLogArgs(moduleOrMessage, message, rest);
+        log('ERROR', mod, msg, data);
     },
 
     /**

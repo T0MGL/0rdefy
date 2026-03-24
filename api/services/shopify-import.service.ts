@@ -541,7 +541,7 @@ export class ShopifyImportService {
                           (shopifyOrder.financial_status === 'pending' ? 'pending' : 'unknown');
 
     // Calculate cod_amount based on payment status
-    const totalPrice = Number.isFinite(parseFloat(shopifyOrder.total_price)) ? parseFloat(shopifyOrder.total_price) : 0;
+    const totalPrice = Number.isFinite(parseFloat(shopifyOrder.total_price || '0')) ? parseFloat(shopifyOrder.total_price || '0') : 0;
     const financialStatus = (shopifyOrder.financial_status || 'pending').toLowerCase();
     const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
     // cod_amount = 0 if already paid online, otherwise full total_price
@@ -590,8 +590,8 @@ export class ShopifyImportService {
       line_items: shopifyOrder.line_items,
 
       // Pricing - FIX: Number.isFinite guards against NaN propagation
-      total_price: Number.isFinite(parseFloat(shopifyOrder.total_price)) ? parseFloat(shopifyOrder.total_price) : 0,
-      subtotal_price: Number.isFinite(parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price)) ? parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price) : 0,
+      total_price: Number.isFinite(parseFloat(shopifyOrder.total_price || '0')) ? parseFloat(shopifyOrder.total_price || '0') : 0,
+      subtotal_price: Number.isFinite(parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price || '0')) ? parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price || '0') : 0,
       total_tax: Number.isFinite(parseFloat(shopifyOrder.total_tax || '0')) ? parseFloat(shopifyOrder.total_tax || '0') : 0,
       total_discounts: Number.isFinite(parseFloat(shopifyOrder.total_discounts || '0')) ? parseFloat(shopifyOrder.total_discounts || '0') : 0,
       total_shipping: Number.isFinite(parseFloat(shopifyOrder.total_shipping || '0')) ? parseFloat(shopifyOrder.total_shipping || '0') : 0,
@@ -633,7 +633,7 @@ export class ShopifyImportService {
     if (upsertedOrder && shopifyOrder.line_items) {
       await this.createLineItemsForOrder(
         upsertedOrder.id,
-        this.integration.store_id,
+        this.integration.store_id!,
         shopifyOrder.line_items
       );
     }

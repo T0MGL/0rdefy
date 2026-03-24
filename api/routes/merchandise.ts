@@ -491,7 +491,7 @@ merchandiseRouter.post('/:id/receive', validateUUIDParam('id'), requirePermissio
             const syncService = new ShopifyInventorySyncService(supabaseAdmin);
 
             const syncResult = await syncService.batchSyncInventoryToShopify({
-              storeId: req.storeId,
+              storeId: req.storeId!,
               products: productsToSync
             });
 

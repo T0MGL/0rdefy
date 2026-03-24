@@ -557,7 +557,7 @@ export async function changeSubscriptionPlan(
   billingCycle: BillingCycle,
   userId?: string
 ): Promise<Stripe.Subscription> {
-  const priceId = stripePrices[newPlan]?.[billingCycle];
+  const priceId = (stripePrices as Record<string, { monthly: string; annual: string }>)[newPlan]?.[billingCycle];
   if (!priceId) {
     throw new Error(`Price not found for ${newPlan} ${billingCycle}`);
   }

@@ -39,6 +39,7 @@ export interface CarrierMovement {
   movement_date: string;
   created_at: string;
   created_by: string | null;
+  carrier_name?: string;
 }
 
 export interface CarrierBalance {

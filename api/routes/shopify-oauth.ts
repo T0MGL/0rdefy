@@ -508,7 +508,7 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     // Validate state parameter (CSRF protection)
     const { data: stateData, error: stateError } = await supabaseAdmin
       .from('shopify_oauth_states')
-      .select('id, state, shop_domain, store_id, user_id, expires_at, used')
+      .select('id, state, shop_domain, store_id, user_id, expires_at, used, is_popup')
       .eq('state', state)
       .eq('shop_domain', shop)
       .eq('used', false)

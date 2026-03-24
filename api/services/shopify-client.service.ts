@@ -322,7 +322,7 @@ export class ShopifyClientService {
       location = activeLocation.id;
     }
 
-    await this.graphqlClient.updateInventory(inventoryItemId, location, quantity);
+    await this.graphqlClient.updateInventory(inventoryItemId, location!, quantity);
   }
 
   // Helper: Convert GraphQL product format to REST format for backward compatibility

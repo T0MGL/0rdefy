@@ -116,7 +116,7 @@ storesRouter.get('/', verifyToken, async (req: AuthRequest, res: Response) => {
 // ================================================================
 storesRouter.get('/current', verifyToken, extractStoreId, extractUserRole, requireModule(Module.SETTINGS), async (req: AuthRequest, res: Response) => {
     try {
-        const store = await getStore(req.storeId);
+        const store = await getStore(req.storeId!);
 
         if (!store) {
             return res.status(404).json({

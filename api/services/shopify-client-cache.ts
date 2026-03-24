@@ -32,7 +32,7 @@ let cleanupInterval: NodeJS.Timeout | null = null;
  * @returns ShopifyClientService instance (may be cached)
  */
 export function getShopifyClient(integration: ShopifyIntegration): ShopifyClientService {
-  const key = integration.id;
+  const key = integration.id!;
   const cached = clientCache.get(key);
 
   // Return cached client if valid
@@ -56,7 +56,7 @@ export function getShopifyClient(integration: ShopifyIntegration): ShopifyClient
     evictLeastRecentlyUsed();
   }
 
-  clientCache.set(key, {
+  clientCache.set(key!, {
     client,
     createdAt: now,
     lastUsedAt: now,

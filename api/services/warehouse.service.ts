@@ -444,17 +444,18 @@ export async function createSession(
     }
 
     // If RPC succeeded, extract session data
-    let session: any = null;
-    if (result && result.success) {
+    let session: PickingSession | null = null;
+    const rpcResult = result as { success?: boolean; session_id?: string; session_code?: string; session_status?: string; error_message?: string } | null;
+    if (rpcResult && rpcResult.success) {
       session = {
-        id: result.session_id,
-        code: result.session_code,
-        status: result.session_status,
+        id: rpcResult.session_id,
+        code: rpcResult.session_code,
+        status: rpcResult.session_status,
         user_id: userId,
         store_id: storeId
-      };
-    } else if (result && !result.success) {
-      throw new Error(result.error_message || 'Error al crear sesión de picking');
+      } as PickingSession;
+    } else if (rpcResult && !rpcResult.success) {
+      throw new Error(rpcResult.error_message || 'Error al crear sesión de picking');
     }
 
     // LEGACY FALLBACK (only if RPC doesn't exist)
@@ -535,11 +536,12 @@ export async function createSession(
         .single();
 
       if (sessionError) throw sessionError;
-      session = sessionData;
+      if (!sessionData) throw new Error('Failed to create picking session');
+      session = sessionData as PickingSession;
 
       // 4. Link orders to session
       const sessionOrders = orderIds.map(orderId => ({
-        picking_session_id: session.id,
+        picking_session_id: session!.id,
         order_id: orderId
       }));
 

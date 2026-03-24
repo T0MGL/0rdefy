@@ -74,9 +74,9 @@ couriersRouter.get('/', async (req: AuthRequest, res: Response) => {
             data: data || [],
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string, 10),
-                offset: parseInt(offset as string, 10),
-                hasMore: parseInt(offset as string, 10) + (data?.length || 0) < (count || 0)
+                limit,
+                offset,
+                hasMore: offset + (data?.length || 0) < (count || 0)
             }
         });
     } catch (error: any) {
@@ -351,7 +351,7 @@ couriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) =
     try {
         logger.info('API', `📊 [COURIERS] Fetching all courier performance for store ${req.storeId}`);
 
-        const performance = await getCourierPerformanceByStore(req.storeId);
+        const performance = await getCourierPerformanceByStore(req.storeId!);
 
         res.json({
             data: performance,
@@ -361,7 +361,7 @@ couriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) =
         logger.error('API', '[GET /api/couriers/performance/all] Error:', error);
         res.status(500).json({
             error: 'Error al obtener rendimiento del courier',
-            message: error.message
+            message: error instanceof Error ? error.message : String(error)
         });
     }
 });
@@ -375,7 +375,7 @@ couriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
 
         logger.info('API', `🏆 [COURIERS] Fetching top ${limit} couriers for store ${req.storeId}`);
 
-        const topCouriers = await getTopCouriers(req.storeId, parseInt(limit as string, 10));
+        const topCouriers = await getTopCouriers(req.storeId!, parseInt(String(limit), 10));
 
         res.json({
             data: topCouriers,
@@ -400,8 +400,8 @@ couriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
         logger.info('API', `⚠️ [COURIERS] Fetching underperforming couriers (threshold: ${threshold}%)`);
 
         const underperformingCouriers = await getUnderperformingCouriers(
-            req.storeId,
-            parseInt(threshold as string, 10)
+            req.storeId!,
+            parseInt(String(threshold), 10)
         );
 
         res.json({
@@ -753,9 +753,9 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
             rating_distribution: ratingDistribution,
             pagination: {
                 total: count || 0,
-                limit: parseInt(limit as string, 10),
-                offset: parseInt(offset as string, 10),
-                hasMore: parseInt(offset as string, 10) + (formattedReviews.length) < (count || 0)
+                limit,
+                offset,
+                hasMore: offset + (formattedReviews.length) < (count || 0)
             }
         });
     } catch (error: any) {

@@ -1529,7 +1529,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
         // Get all orders in the period - OPTIMIZATION: Only required fields
         const { data: ordersData, error: ordersError } = await supabaseAdmin
             .from('orders')
-            .select('id, sleeves_status, shipped_at, total_price, delivery_status, failed_reason, payment_collected')
+            .select('id, sleeves_status, shipped_at, total_price, delivery_status, failed_reason, payment_collected, payment_status, created_at, delivered_at, delivery_attempts, shipping_cost')
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
@@ -1857,7 +1857,7 @@ analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response
         // Get all incidents in the period - OPTIMIZATION: Select specific fields if delivery_incidents table exists
         const { data: incidentsData, error: incidentsError } = await supabaseAdmin
             .from('delivery_incidents')
-            .select('id, created_at, incident_type, severity, resolution_status')
+            .select('id, created_at, incident_type, severity, resolution_status, status, resolution_type, current_retry_count')
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())

@@ -317,9 +317,9 @@ export async function exportOrdersExcel(
     // Extract city from address if not available
     let city = order.customer_city || '';
     if (!city && order.customer_address) {
-      const addressParts = order.customer_address.split(',').map(part => part.trim());
+      const addressParts = order.customer_address.split(',').map((part: string) => part.trim());
       // Remove empty strings from split result
-      const validParts = addressParts.filter(p => p.length > 0);
+      const validParts = addressParts.filter((p: string) => p.length > 0);
 
       if (validParts.length > 0) {
         // Use last non-empty part as city

@@ -5,6 +5,9 @@
 // Developed by Bright Idea - All Rights Reserved
 // ================================================================
 
+// Sentry must initialize before everything else (side-effect import).
+import './instrument.js';
+
 import * as Sentry from '@sentry/node';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -63,17 +66,6 @@ import { webhookQueue } from './routes/shopify';
 dotenv.config();
 
 // ================================================================
-// SENTRY - Error tracking (must initialize before routes)
-// ================================================================
-if (process.env.SENTRY_DSN) {
-    Sentry.init({
-        dsn: process.env.SENTRY_DSN,
-        environment: process.env.NODE_ENV || 'development',
-        tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-    });
-}
-
-// ================================================================
 // ENVIRONMENT VALIDATION
 // ================================================================
 // Validate all required environment variables at startup
@@ -113,29 +105,29 @@ function validateEnvironment() {
     }
 
     if (missing.length > 0) {
-        logger.error('================================================================');
-        logger.error('❌ FATAL: Missing required environment variables:');
-        missing.forEach(v => logger.error(`   - ${v}`));
-        logger.error('================================================================');
-        logger.error('Please set these variables in your .env file');
+        logger.error('ENV', '================================================================');
+        logger.error('ENV', 'FATAL: Missing required environment variables:');
+        missing.forEach(v => logger.error('ENV', `   - ${v}`));
+        logger.error('ENV', '================================================================');
+        logger.error('ENV', 'Please set these variables in your .env file');
         process.exit(1);
     }
 
     if (warnings.length > 0) {
-        logger.warn('================================================================');
-        logger.warn('⚠️  WARNING: Optional environment variables not set:');
-        warnings.forEach(v => logger.warn(`   - ${v}`));
-        logger.warn('================================================================');
-        logger.warn('Some features may not work correctly');
+        logger.warn('ENV', '================================================================');
+        logger.warn('ENV', 'WARNING: Optional environment variables not set:');
+        warnings.forEach(v => logger.warn('ENV', `   - ${v}`));
+        logger.warn('ENV', '================================================================');
+        logger.warn('ENV', 'Some features may not work correctly');
     }
 
     // Validate JWT_SECRET length
     const jwtSecret = process.env.JWT_SECRET;
     if (jwtSecret && jwtSecret.length < 32) {
-        logger.warn('⚠️  WARNING: JWT_SECRET should be at least 32 characters');
+        logger.warn('ENV', 'WARNING: JWT_SECRET should be at least 32 characters');
     }
 
-    logger.info('✅ Environment validation passed');
+    logger.info('ENV', 'Environment validation passed');
 }
 
 // Run validation before starting server
@@ -217,7 +209,7 @@ const apiLimiter = rateLimit({
     standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
     legacyHeaders: false,  // Disable `X-RateLimit-*` headers
     handler: (req: Request, res: Response) => {
-        logger.warn(`⚠️ Rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn('RATE_LIMIT', `Rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Requests',
             message: 'You have exceeded the rate limit. Please try again later.',
@@ -239,7 +231,7 @@ const authLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req: Request, res: Response) => {
-        logger.warn(`🚨 Auth rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn('RATE_LIMIT', `Auth rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Authentication Attempts',
             message: 'Too many authentication attempts from this IP. Please try again later.',
@@ -262,7 +254,7 @@ const webhookLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req: Request, res: Response) => {
-        logger.warn(`⚠️ Webhook rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn('RATE_LIMIT', `Webhook rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Webhook Rate Limit Exceeded',
             message: 'Too many webhook requests. Please slow down.',
@@ -284,7 +276,7 @@ const writeOperationsLimiter = rateLimit({
     legacyHeaders: false,
     skip: (req: Request) => req.method === 'GET', // Only apply to write operations
     handler: (req: Request, res: Response) => {
-        logger.warn(`⚠️ Write operations rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn('RATE_LIMIT', `Write operations rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Write Operations',
             message: 'You have exceeded the write operations limit. Please try again later.',
@@ -306,7 +298,7 @@ const deliveryTokenLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req: Request, res: Response) => {
-        logger.warn(`🚨 Delivery token rate limit exceeded for IP: ${req.ip} on ${req.path}`);
+        logger.warn('RATE_LIMIT', `Delivery token rate limit exceeded for IP: ${req.ip} on ${req.path}`);
         res.status(429).json({
             error: 'Too Many Requests',
             message: 'Demasiados intentos. Por favor intenta nuevamente en un minuto.',
@@ -317,7 +309,7 @@ const deliveryTokenLimiter = rateLimit({
 
 // CORS configuration
 app.use(cors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
         // Allow requests with no origin (mobile apps, Postman, etc.)
         if (!origin) {
             return callback(null, true);
@@ -339,7 +331,7 @@ app.use(cors({
             return callback(null, true);
         }
 
-        logger.warn(`⚠️ CORS rejected request from origin: ${origin}`);
+        logger.warn('CORS', `Rejected request from origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
@@ -354,7 +346,7 @@ app.use(cors({
 // We need raw body for Shopify webhook signature verification
 // CRITICAL FIX: Support both /webhook/ AND /webhooks/ (Shopify uses plural in URLs)
 // ================================================================
-app.use((req: any, res: Response, next: NextFunction) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
     // Handle all Shopify webhook routes (including GDPR and app uninstall)
     // Support both singular and plural: /api/shopify/webhook/ AND /api/shopify/webhooks/
     const isWebhookRoute = req.path.startsWith('/api/shopify/webhook/') ||
@@ -430,7 +422,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
             delete body.constraint;
         }
         return originalJson(body);
-    } as any;
+    } as typeof res.json;
     next();
 });
 
@@ -449,13 +441,16 @@ app.get('/health', async (req: Request, res: Response) => {
     } catch {
         dbStatus = 'degraded';
     }
+    const isProduction = process.env.NODE_ENV === 'production';
     res.json({
         status: 'healthy',
-        service: 'Ordefy API',
-        version: '1.0.0',
         timestamp: new Date().toISOString(),
         database: dbStatus,
-        environment: process.env.NODE_ENV || 'development'
+        ...(isProduction ? {} : {
+            service: 'Ordefy API',
+            version: '1.0.0',
+            environment: process.env.NODE_ENV || 'development',
+        }),
     });
 });
 
@@ -499,7 +494,7 @@ app.get('/api/debug/hmac-diagnostic', async (req: Request, res: Response) => {
         }
 
         // Helper function to determine which secret is used
-        const getWebhookSecretInfo = (integration: any) => {
+        const getWebhookSecretInfo = (integration: { is_custom_app: boolean | null; webhook_signature: string | null; api_secret_key: string | null; scope: string | null }) => {
             if (integration.is_custom_app === true) {
                 const secret = integration.webhook_signature?.trim() || integration.api_secret_key?.trim() || null;
                 return { secret, source: 'database (Custom App - Dev Dashboard 2026)' };
@@ -556,9 +551,9 @@ app.get('/api/debug/hmac-diagnostic', async (req: Request, res: Response) => {
             }))
         });
 
-    } catch (error: any) {
+    } catch (error) {
         logger.error('DEBUG', 'Error in HMAC diagnostics', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
     }
 });
 } // end NODE_ENV !== 'production' guard
@@ -694,16 +689,23 @@ app.use('/api/invoicing', invoicingRouter);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
+    const isProduction = process.env.NODE_ENV === 'production';
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        deployedAt: process.env.RAILWAY_DEPLOYMENT_ID || 'local',
-        externalWebhooksRouterRegistered: true
+        ...(isProduction ? {} : {
+            deployedAt: process.env.RAILWAY_DEPLOYMENT_ID || 'local',
+            externalWebhooksRouterRegistered: true,
+        }),
     });
 });
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+        return res.json({ status: 'ok' });
+    }
     res.json({
         message: 'Ordefy API Server',
         version: '1.0.0',
@@ -725,6 +727,22 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 // ================================================================
+// SENTRY: Debug route (non-production only)
+// ================================================================
+if (process.env.NODE_ENV !== 'production') {
+    app.get('/debug-sentry', () => {
+        throw new Error('Sentry test error (intentional)');
+    });
+}
+
+// ================================================================
+// SENTRY: Express error handler
+// ================================================================
+// Must be registered after all controllers and before any other error middleware.
+// Automatically captures unhandled errors and sends them to Sentry.
+Sentry.setupExpressErrorHandler(app);
+
+// ================================================================
 // ERROR HANDLING
 // ================================================================
 
@@ -738,11 +756,9 @@ app.use((req: Request, res: Response) => {
 });
 
 // Global error handler
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    logger.error('[ERROR]', err);
-    if (process.env.SENTRY_DSN) {
-        Sentry.captureException(err);
-    }
+// Sentry.setupExpressErrorHandler already captures exceptions before this runs.
+app.use((err: Error & { code?: string; status?: number; name?: string }, req: Request, res: Response, _next: NextFunction) => {
+    logger.error('ERROR', 'Unhandled error', err);
 
     // Database errors - generic messages only (no schema leakage)
     if (err.code === '23505') {
@@ -783,22 +799,18 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 // CRASH HANDLERS - Prevent silent crashes
 // ================================================================
 
-process.on('uncaughtException', (error) => {
-    logger.error('BACKEND', '💀 FATAL: Uncaught exception:', error);
-    if (process.env.SENTRY_DSN) {
-        Sentry.captureException(error);
-    }
-    // Give time for logs to flush, then exit
-    setTimeout(() => process.exit(1), 1000);
+process.on('uncaughtException', async (error) => {
+    logger.error('BACKEND', 'FATAL: Uncaught exception:', error);
+    Sentry.captureException(error);
+    await Sentry.close(2000);
+    process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    logger.error('BACKEND', '💀 FATAL: Unhandled rejection:', reason);
-    if (process.env.SENTRY_DSN) {
-        Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
-    }
-    // Give time for logs to flush, then exit
-    setTimeout(() => process.exit(1), 1000);
+process.on('unhandledRejection', async (reason) => {
+    logger.error('BACKEND', 'FATAL: Unhandled rejection:', reason);
+    Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
+    await Sentry.close(2000);
+    process.exit(1);
 });
 
 // ================================================================
@@ -819,27 +831,27 @@ const server = app.listen(PORT, async () => {
     server.keepAliveTimeout = 65000; // Must be > ALB idle timeout (60s)
     server.headersTimeout = 66000; // Must be > keepAliveTimeout
 
-    logger.info('================================================================');
-    logger.info('🚀 ORDEFY API SERVER STARTED');
-    logger.info('================================================================');
-    logger.info(`📡 Server running on: http://localhost:${PORT}`);
-    logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    logger.info(`🔗 CORS Origins: ${ALLOWED_ORIGINS.join(', ')}`);
-    logger.info('================================================================');
-    logger.info('📚 Available Endpoints:');
-    logger.info('   GET  /health                    - Health check');
-    logger.info('   GET  /api/stores                - List stores');
-    logger.info('   GET  /api/orders                - List orders');
-    logger.info('   POST /api/orders                - Create order');
-    logger.info('   GET  /api/products              - List products');
-    logger.info('   POST /api/products              - Create product');
-    logger.info('   GET  /api/customers             - List customers');
-    logger.info('   GET  /api/suppliers             - List suppliers');
-    logger.info('   GET  /api/analytics/*           - Analytics endpoints');
-    logger.info('   GET  /api/additional-values     - List additional values');
-    logger.info('   GET  /api/campaigns             - List campaigns/ads');
-    logger.info('   GET  /api/carriers              - List carriers');
-    logger.info('================================================================');
+    logger.info('STARTUP', '================================================================');
+    logger.info('STARTUP', 'ORDEFY API SERVER STARTED');
+    logger.info('STARTUP', '================================================================');
+    logger.info('STARTUP', `Server running on: http://localhost:${PORT}`);
+    logger.info('STARTUP', `Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info('STARTUP', `CORS Origins: ${ALLOWED_ORIGINS.join(', ')}`);
+    logger.info('STARTUP', '================================================================');
+    logger.info('STARTUP', 'Available Endpoints:');
+    logger.info('STARTUP', '   GET  /health                    - Health check');
+    logger.info('STARTUP', '   GET  /api/stores                - List stores');
+    logger.info('STARTUP', '   GET  /api/orders                - List orders');
+    logger.info('STARTUP', '   POST /api/orders                - Create order');
+    logger.info('STARTUP', '   GET  /api/products              - List products');
+    logger.info('STARTUP', '   POST /api/products              - Create product');
+    logger.info('STARTUP', '   GET  /api/customers             - List customers');
+    logger.info('STARTUP', '   GET  /api/suppliers             - List suppliers');
+    logger.info('STARTUP', '   GET  /api/analytics/*           - Analytics endpoints');
+    logger.info('STARTUP', '   GET  /api/additional-values     - List additional values');
+    logger.info('STARTUP', '   GET  /api/campaigns             - List campaigns/ads');
+    logger.info('STARTUP', '   GET  /api/carriers              - List carriers');
+    logger.info('STARTUP', '================================================================');
 
     // ================================================================
     // GRACEFUL SHUTDOWN REGISTRATION
@@ -870,9 +882,9 @@ const server = app.listen(PORT, async () => {
     // This will close the server first, then run cleanup handlers
     setupShutdownHandlers(server, 30000);
 
-    logger.info('================================================================');
-    logger.info('✅ Graceful shutdown handlers registered');
-    logger.info('================================================================');
+    logger.info('STARTUP', '================================================================');
+    logger.info('STARTUP', 'Graceful shutdown handlers registered');
+    logger.info('STARTUP', '================================================================');
 });
 
 export default app;

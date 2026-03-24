@@ -386,7 +386,7 @@ shopifyRouter.post('/manual-sync', requireFeature('shopify_bidirectional'), asyn
     // Obtener integracion
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('id, store_id, shop_domain, access_token, status')
+      .select('id, store_id, shop_domain, access_token, status, import_products, import_customers')
       .eq('store_id', storeId)
       .eq('status', 'active')
       .single();
@@ -1723,7 +1723,6 @@ shopifyRouter.post('/reconciliation/run', async (req: AuthRequest, res: Response
     const results = await reconciliationService.runFullReconciliation();
 
     res.json({
-      success: results.success,
       ...results,
       message: `Reconciliation completed: ${results.integrations_processed} integrations, ${results.orders_synced} orders synced`
     });
@@ -2034,7 +2033,7 @@ const customersDataRequestHandler = async (req: Request, res: Response) => {
     // Get integration by domain
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('api_secret_key, webhook_signature, scope')
+      .select('api_secret_key, webhook_signature, scope, store_id')
       .eq('shop_domain', shopDomain)
       .eq('status', 'active')
       .single();
@@ -2106,7 +2105,7 @@ const customersRedactHandler = async (req: Request, res: Response) => {
     // Get integration by domain
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
-      .select('api_secret_key, webhook_signature, scope')
+      .select('api_secret_key, webhook_signature, scope, store_id')
       .eq('shop_domain', shopDomain)
       .eq('status', 'active')
       .single();

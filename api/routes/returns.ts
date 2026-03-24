@@ -46,7 +46,7 @@ router.get('/eligible-orders', async (req, res) => {
     logger.error('API', 'Error fetching eligible orders:', error);
     res.status(500).json({
       error: 'Error al obtener pedidos elegibles',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -68,7 +68,7 @@ router.get('/sessions', async (req, res) => {
     logger.error('API', 'Error fetching return sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones de devolución',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -99,7 +99,7 @@ router.get('/sessions/:id', validateUUIDParam('id'), async (req, res) => {
     logger.error('API', 'Error fetching return session:', error);
     res.status(500).json({
       error: 'Error al obtener sesión de devolución',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -144,7 +144,7 @@ router.post('/sessions', requirePermission(Module.RETURNS, Permission.CREATE), a
     logger.error('API', 'Error creating return session:', error);
     res.status(500).json({
       error: 'Error al crear sesión de devolución',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -186,7 +186,7 @@ router.patch('/items/:id', validateUUIDParam('id'), requirePermission(Module.RET
     logger.error('API', 'Error updating return item:', error);
     res.status(500).json({
       error: 'Error al actualizar ítem de devolución',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -244,7 +244,7 @@ router.post('/sessions/:id/complete', validateUUIDParam('id'), requirePermission
     logger.error('API', 'Error completing return session:', error);
     res.status(500).json({
       error: 'Error al completar sesión de devolución',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -275,7 +275,7 @@ router.post('/sessions/:id/cancel', validateUUIDParam('id'), requirePermission(M
     logger.error('API', 'Error cancelling return session:', error);
     res.status(500).json({
       error: 'Error al cancelar sesión de devolución',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -297,7 +297,7 @@ router.get('/stats', async (req, res) => {
     logger.error('API', 'Error fetching return stats:', error);
     res.status(500).json({
       error: 'Error al obtener estadísticas de devoluciones',
-      details: error.message,
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });

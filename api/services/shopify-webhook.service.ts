@@ -3,6 +3,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import crypto from 'crypto';
 import https from 'https';
 import { ShopifyOrder } from '../types/shopify';
 import { logger } from '../utils/logger';
@@ -743,7 +744,7 @@ export class ShopifyWebhookService {
       }
 
       // Crear line items normalizados con mapeo a productos locales
-      await this.createLineItemsForOrder(newOrder.id, storeId, shopifyOrder.line_items);
+      await this.createLineItemsForOrder(newOrder.id, storeId, shopifyOrder.line_items || []);
 
       // Marcar webhook como procesado
       await this.markWebhookProcessed(shopifyOrder.id.toString(), storeId);
@@ -1041,7 +1042,7 @@ export class ShopifyWebhookService {
 
       // Actualizar line items (reemplaza los existentes)
       if (updatedOrder) {
-        await this.createLineItemsForOrder(updatedOrder.id, storeId, shopifyOrder.line_items);
+        await this.createLineItemsForOrder(updatedOrder.id, storeId, shopifyOrder.line_items || []);
       }
 
       // Marcar webhook como procesado
@@ -1546,7 +1547,7 @@ export class ShopifyWebhookService {
     // CRITICAL: Calculate cod_amount based on payment status
     // - If order is PAID in Shopify (paid, authorized) => cod_amount = 0 (nothing to collect)
     // - If order is COD (cash_on_delivery, manual, pending) => cod_amount = total_price
-    const totalPrice = parseFloat(shopifyOrder.total_price);
+    const totalPrice = parseFloat(shopifyOrder.total_price || '0');
     const financialStatus = shopifyOrder.financial_status?.toLowerCase() || 'pending';
     const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
     const isCashOnDelivery = paymentGateway === 'cash_on_delivery' ||
@@ -1612,7 +1613,7 @@ export class ShopifyWebhookService {
 
       // Pricing
       total_price: totalPrice,
-      subtotal_price: parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price),
+      subtotal_price: parseFloat(shopifyOrder.subtotal_price || shopifyOrder.total_price || '0'),
       total_tax: parseFloat(shopifyOrder.total_tax || '0'),
       total_discounts: parseFloat(shopifyOrder.total_discounts || '0'),
       total_shipping: parseFloat(shopifyOrder.total_shipping || '0'),

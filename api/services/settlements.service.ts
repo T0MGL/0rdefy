@@ -2046,6 +2046,8 @@ export async function processManualReconciliation(
       payment_date: null,
       payment_method: null,
       notes: null,
+      payment_reference: null,
+      dispute_reason: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       created_by: userId,

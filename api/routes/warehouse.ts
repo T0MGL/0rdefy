@@ -46,7 +46,7 @@ router.get('/orders/confirmed', async (req, res) => {
     logger.error('API', 'Error fetching confirmed orders:', error);
     res.status(500).json({
       error: 'Error al obtener pedidos confirmados',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -70,7 +70,7 @@ router.get('/sessions/active', async (req, res) => {
     logger.error('API', 'Error fetching active sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones activas',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -86,7 +86,7 @@ router.post('/sessions', requirePermission(Module.WAREHOUSE, Permission.CREATE),
     const userId = req.userId;
     const { orderIds } = req.body;
 
-    if (!storeId) {
+    if (!storeId || !userId) {
       return res.status(400).json({ error: 'Store ID is required' });
     }
 
@@ -110,11 +110,11 @@ router.post('/sessions', requirePermission(Module.WAREHOUSE, Permission.CREATE),
     );
 
     res.status(201).json(session);
-  } catch (error: any) {
+  } catch (error) {
     logger.error('API', 'Error creating picking session:', error);
 
     // Return user-friendly error messages for known validation errors
-    const errorMessage = error?.message || 'Error desconocido';
+    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
 
     // Check for validation errors that should return 400
     const isValidationError =
@@ -204,12 +204,12 @@ router.post('/sessions/:sessionId/picking-progress', validateUUIDParam('sessionI
   } catch (error) {
     logger.error('API', 'Error updating picking progress:', error);
     // Use 400 for validation errors (stock), 500 for technical errors
-    const isValidationError = error.message?.includes('Stock') ||
-                              error.message?.includes('stock') ||
-                              error.message?.includes('Cantidad');
+    const isValidationError = (error instanceof Error ? error.message : '').includes('Stock') ||
+                              (error instanceof Error ? error.message : '').includes('stock') ||
+                              (error instanceof Error ? error.message : '').includes('Cantidad');
     res.status(isValidationError ? 400 : 500).json({
       error: 'Error al actualizar progreso de picking',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -233,12 +233,12 @@ router.post('/sessions/:sessionId/finish-picking', validateUUIDParam('sessionId'
   } catch (error) {
     logger.error('API', 'Error finishing picking:', error);
     // Use 400 for validation errors (stock, incomplete picking), 500 for technical errors
-    const isValidationError = error.message?.includes('Stock') ||
-                              error.message?.includes('stock') ||
-                              error.message?.includes('productos deben ser recogidos');
+    const isValidationError = (error instanceof Error ? error.message : '').includes('Stock') ||
+                              (error instanceof Error ? error.message : '').includes('stock') ||
+                              (error instanceof Error ? error.message : '').includes('productos deben ser recogidos');
     res.status(isValidationError ? 400 : 500).json({
       error: 'Error al finalizar picking',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -266,7 +266,7 @@ router.get('/sessions/:sessionId/packing-list', validateUUIDParam('sessionId'), 
     logger.error('API', 'Error fetching packing list:', error);
     res.status(500).json({
       error: 'Error al obtener lista de empaque',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -307,17 +307,17 @@ router.post('/sessions/:sessionId/packing-progress', validateUUIDParam('sessionI
     logger.error('API', 'Error updating packing progress:', error);
 
     // Provide user-friendly error messages for common validation errors
-    const isValidationError = error.message?.includes('not found') ||
-                              error.message?.includes('completed') ||
-                              error.message?.includes('cancelled') ||
-                              error.message?.includes('rejected') ||
-                              error.message?.includes('fully packed') ||
-                              error.message?.includes('No more units') ||
-                              error.message?.includes('packing status');
+    const isValidationError = (error instanceof Error ? error.message : '').includes('not found') ||
+                              (error instanceof Error ? error.message : '').includes('completed') ||
+                              (error instanceof Error ? error.message : '').includes('cancelled') ||
+                              (error instanceof Error ? error.message : '').includes('rejected') ||
+                              (error instanceof Error ? error.message : '').includes('fully packed') ||
+                              (error instanceof Error ? error.message : '').includes('No more units') ||
+                              (error instanceof Error ? error.message : '').includes('packing status');
 
     res.status(isValidationError ? 400 : 500).json({
       error: 'Error al actualizar progreso de empaque',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -342,13 +342,13 @@ router.post('/sessions/:sessionId/auto-pack', validateUUIDParam('sessionId'), re
   } catch (error) {
     logger.error('API', 'Error auto-packing session:', error);
 
-    const isValidationError = error.message?.includes('not found') ||
-                              error.message?.includes('packing status') ||
-                              error.message?.includes('access denied');
+    const isValidationError = (error instanceof Error ? error.message : '').includes('not found') ||
+                              (error instanceof Error ? error.message : '').includes('packing status') ||
+                              (error instanceof Error ? error.message : '').includes('access denied');
 
     res.status(isValidationError ? 400 : 500).json({
       error: 'Error al empacar automáticamente',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -373,13 +373,13 @@ router.post('/sessions/:sessionId/pack-order/:orderId', validateUUIDParams(['ses
   } catch (error) {
     logger.error('API', 'Error packing order:', error);
 
-    const isValidationError = error.message?.includes('not found') ||
-                              error.message?.includes('packing status') ||
-                              error.message?.includes('Cannot pack order');
+    const isValidationError = (error instanceof Error ? error.message : '').includes('not found') ||
+                              (error instanceof Error ? error.message : '').includes('packing status') ||
+                              (error instanceof Error ? error.message : '').includes('Cannot pack order');
 
     res.status(isValidationError ? 400 : 500).json({
       error: 'Error al empacar pedido',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -403,12 +403,12 @@ router.post('/sessions/:sessionId/complete', validateUUIDParam('sessionId'), req
   } catch (error) {
     logger.error('API', 'Error completing session:', error);
     // Use 400 for validation errors (stock, incomplete packing), 500 for technical errors
-    const isValidationError = error.message?.includes('Stock') ||
-                              error.message?.includes('empacar') ||
-                              error.message?.includes('completar');
+    const isValidationError = (error instanceof Error ? error.message : '').includes('Stock') ||
+                              (error instanceof Error ? error.message : '').includes('empacar') ||
+                              (error instanceof Error ? error.message : '').includes('completar');
     res.status(isValidationError ? 400 : 500).json({
       error: 'Error al completar sesión',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -432,19 +432,19 @@ router.post('/sessions/:sessionId/abandon', validateUUIDParam('sessionId'), requ
     const result = await warehouseService.abandonSession(
       sessionId,
       storeId,
-      userId,
+      userId ?? null,
       reason
     );
 
     res.json(result);
   } catch (error) {
     logger.error('API', 'Error abandoning session:', error);
-    const isValidationError = error.message?.includes('not found') ||
-                              error.message?.includes('completed') ||
-                              error.message?.includes('already');
+    const isValidationError = (error instanceof Error ? error.message : '').includes('not found') ||
+                              (error instanceof Error ? error.message : '').includes('completed') ||
+                              (error instanceof Error ? error.message : '').includes('already');
     res.status(isValidationError ? 400 : 500).json({
       error: 'Error al abandonar sesión',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -473,7 +473,7 @@ router.delete('/sessions/:sessionId/orders/:orderId', validateUUIDParams(['sessi
     logger.error('API', 'Error removing order from session:', error);
     res.status(500).json({
       error: 'Error al eliminar pedido de la sesión',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -492,7 +492,7 @@ router.post('/cleanup-sessions', async (req, res) => {
   }
 
   try {
-    const hoursInactive = parseInt(req.query.hours as string, 10) || 48;
+    const hoursInactive = parseInt(String(req.query.hours || '48'), 10) || 48;
 
     const result = await warehouseService.cleanupExpiredSessions(hoursInactive);
 
@@ -501,7 +501,7 @@ router.post('/cleanup-sessions', async (req, res) => {
     logger.error('API', 'Error cleaning up sessions:', error);
     res.status(500).json({
       error: 'Error al limpiar sesiones',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -525,7 +525,7 @@ router.get('/sessions/stale', async (req, res) => {
     logger.error('API', 'Error fetching stale sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones obsoletas',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -558,7 +558,7 @@ router.get('/sessions/orphaned', async (req, res) => {
     logger.error('API', 'Error fetching orphaned sessions:', error);
     res.status(500).json({
       error: 'Error al obtener sesiones huérfanas',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -602,7 +602,7 @@ router.post('/cleanup-orphaned-sessions', requirePermission(Module.WAREHOUSE, Pe
     logger.error('API', 'Error cleaning up orphaned sessions:', error);
     res.status(500).json({
       error: 'Error al limpiar sesiones huérfanas',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });

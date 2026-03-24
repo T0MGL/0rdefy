@@ -270,8 +270,8 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
             };
         });
 
-        const parsedLimit = parseInt(limit as string, 10);
-        const parsedOffset = parseInt(offset as string, 10);
+        const parsedLimit = limit;
+        const parsedOffset = offset;
 
         res.json({
             data: transformed,

@@ -87,6 +87,44 @@ export const forgotPasswordRateLimiter = createRateLimiter({
     message: 'Too many password reset attempts.'
 });
 
+// ================================================================
+// Zod Schemas
+// ================================================================
+
+const RegisterSchema = z.object({
+    email: z.string().email('Valid email is required'),
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+    name: z.string().min(1, 'Name is required'),
+    referralCode: z.string().optional(),
+});
+
+const LoginSchema = z.object({
+    email: z.string().email('Valid email is required'),
+    password: z.string().min(1, 'Password is required'),
+});
+
+const OnboardingSchema = z.object({
+    userName: z.string().min(1, 'User name is required'),
+    userPhone: z.string().min(1, 'User phone is required'),
+    storeName: z.string().min(1, 'Store name is required'),
+    storeCountry: z.string().min(1, 'Store country is required'),
+    storeCurrency: z.string().min(1, 'Store currency is required'),
+    taxRate: z.number().min(0).optional(),
+    adminFee: z.number().min(0).optional(),
+});
+
+const ProfileUpdateSchema = z.object({
+    userName: z.string().min(1).optional(),
+    userPhone: z.string().min(1).optional(),
+    storeName: z.string().min(1).optional(),
+    storeId: z.string().uuid().optional(),
+});
+
+const ChangePasswordSchema = z.object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+
 // Create child logger for auth module
 const log = logger.child('AUTH');
 
@@ -103,34 +141,18 @@ const SALT_ROUNDS = 10;
 
 authRouter.post('/register', registerRateLimiter, async (req: Request, res: Response) => {
     try {
-        const { email, password, name, referralCode } = req.body;
+        const parsed = RegisterSchema.safeParse(req.body);
+        if (!parsed.success) {
+            log.warn('Validation failed for registration');
+            return res.status(400).json({
+                success: false,
+                error: parsed.error.flatten(),
+                code: 'VALIDATION_FAILED'
+            });
+        }
+        const { email, password, name, referralCode } = parsed.data;
 
-        // Log without exposing email - logger auto-sanitizes PII
         log.info('Register request received', { hasEmail: !!email, name, hasPassword: !!password, hasReferral: !!referralCode });
-
-        if (!email || !password || !name) {
-            log.warn('Missing required fields for registration');
-            return res.status(400).json({
-                success: false,
-                error: 'Email, password, and name are required',
-                code: 'MISSING_FIELDS',
-                details: {
-                    email: !!email,
-                    password: !!password,
-                    name: !!name
-                }
-            });
-        }
-
-        // Validate password length
-        if (password.length < 8) {
-            log.warn('Password too short');
-            return res.status(400).json({
-                success: false,
-                error: 'La contraseña debe tener al menos 8 caracteres',
-                code: 'PASSWORD_TOO_SHORT'
-            });
-        }
 
         log.debug('Checking for existing user');
         const { data: existingUser, error: checkError } = await supabaseAdmin
@@ -217,7 +239,7 @@ authRouter.post('/register', registerRateLimiter, async (req: Request, res: Resp
                     .insert({
                         referrer_user_id: referrerUserId,
                         referred_user_id: newUser.id,
-                        referral_code: referralCode.toUpperCase(),
+                        referral_code: referralCode!.toUpperCase(),
                         signed_up_at: new Date().toISOString()
                     });
 
@@ -308,19 +330,18 @@ authRouter.post('/logout', verifyToken, async (req: AuthRequest, res: Response) 
 
 authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) => {
     try {
-        const { email, password } = req.body;
-
-        // Don't log email directly - just log that we received a request
-        log.info('Login request received');
-
-        if (!email || !password) {
-            log.warn('Missing credentials');
+        const parsed = LoginSchema.safeParse(req.body);
+        if (!parsed.success) {
+            log.warn('Validation failed for login');
             return res.status(400).json({
                 success: false,
                 error: 'Email and password are required',
                 code: 'MISSING_CREDENTIALS'
             });
         }
+        const { email, password } = parsed.data;
+
+        log.info('Login request received');
 
         log.debug('Looking up user');
         const { data: user, error: userError } = await supabaseAdmin
@@ -491,7 +512,16 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
 
 authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Response) => {
     try {
-        const { userName, userPhone, storeName, storeCountry, storeCurrency, taxRate, adminFee } = req.body;
+        const parsed = OnboardingSchema.safeParse(req.body);
+        if (!parsed.success) {
+            log.warn('Validation failed for onboarding');
+            return res.status(400).json({
+                success: false,
+                error: parsed.error.flatten(),
+                code: 'VALIDATION_FAILED'
+            });
+        }
+        const { userName, userPhone, storeName, storeCountry, storeCurrency, taxRate, adminFee } = parsed.data;
 
         log.info('Onboarding request', {
             userId: req.userId,
@@ -501,28 +531,6 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
             storeCountry,
             storeCurrency
         });
-
-        if (!userName || !userPhone || !storeName || !storeCountry || !storeCurrency) {
-            log.warn('Missing required fields for onboarding', {
-                userName: !!userName,
-                userPhone: !!userPhone,
-                storeName: !!storeName,
-                storeCountry: !!storeCountry,
-                storeCurrency: !!storeCurrency
-            });
-            return res.status(400).json({
-                success: false,
-                error: 'Todos los campos son requeridos',
-                code: 'MISSING_FIELDS',
-                details: {
-                    userName: !!userName,
-                    userPhone: !!userPhone,
-                    storeName: !!storeName,
-                    storeCountry: !!storeCountry,
-                    storeCurrency: !!storeCurrency
-                }
-            });
-        }
 
         // Check if phone number is already registered to another user
         log.debug('Checking if phone is already registered');
@@ -678,7 +686,15 @@ authRouter.post('/onboarding', verifyToken, async (req: AuthRequest, res: Respon
 // Profile update handler (shared by POST and PUT)
 const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
     try {
-        const { userName, userPhone, storeName, storeId } = req.body;
+        const parsed = ProfileUpdateSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({
+                success: false,
+                error: parsed.error.flatten(),
+                code: 'VALIDATION_FAILED'
+            });
+        }
+        const { userName, userPhone, storeName, storeId } = parsed.data;
 
         log.info('Profile update request', {
             userId: req.userId,
@@ -813,27 +829,18 @@ authRouter.put('/profile', verifyToken, handleProfileUpdate);
 // ================================================================
 authRouter.post('/change-password', changePasswordRateLimiter, verifyToken, async (req: AuthRequest, res: Response) => {
     try {
-        const { currentPassword, newPassword } = req.body;
+        const parsed = ChangePasswordSchema.safeParse(req.body);
+        if (!parsed.success) {
+            log.warn('Validation failed for password change');
+            return res.status(400).json({
+                success: false,
+                error: parsed.error.flatten(),
+                code: 'VALIDATION_FAILED'
+            });
+        }
+        const { currentPassword, newPassword } = parsed.data;
 
         log.info('Password change request', { userId: req.userId });
-
-        if (!currentPassword || !newPassword) {
-            log.warn('Missing password fields');
-            return res.status(400).json({
-                success: false,
-                error: 'Current password and new password are required',
-                code: 'MISSING_FIELDS'
-            });
-        }
-
-        if (newPassword.length < 8) {
-            log.warn('New password too short');
-            return res.status(400).json({
-                success: false,
-                error: 'La contraseña debe tener al menos 8 caracteres',
-                code: 'PASSWORD_TOO_SHORT'
-            });
-        }
 
         // Get user with current password
         log.debug('Looking up user');

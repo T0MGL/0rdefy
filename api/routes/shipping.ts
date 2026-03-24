@@ -43,7 +43,7 @@ router.get('/ready-to-ship', async (req: PermissionRequest, res: Response) => {
     logger.error('API', 'Error fetching ready to ship orders:', error);
     res.status(500).json({
       error: 'Error al obtener pedidos listos para envío',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -59,7 +59,7 @@ router.post('/dispatch', async (req: PermissionRequest, res: Response) => {
     const userId = req.userId;
     const { orderId, notes } = req.body;
 
-    if (!storeId) {
+    if (!storeId || !userId) {
       return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
@@ -79,7 +79,7 @@ router.post('/dispatch', async (req: PermissionRequest, res: Response) => {
     logger.error('API', 'Error dispatching order:', error);
     res.status(500).json({
       error: 'Error al despachar pedido',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -95,7 +95,7 @@ router.post('/dispatch-batch', async (req: PermissionRequest, res: Response) => 
     const userId = req.userId;
     const { orderIds, notes } = req.body;
 
-    if (!storeId) {
+    if (!storeId || !userId) {
       return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
@@ -126,7 +126,7 @@ router.post('/dispatch-batch', async (req: PermissionRequest, res: Response) => 
     logger.error('API', 'Error dispatching batch:', error);
     res.status(500).json({
       error: 'Error al despachar lote',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -151,7 +151,7 @@ router.get('/order/:orderId', validateUUIDParam('orderId'), async (req: Permissi
     logger.error('API', 'Error fetching order shipments:', error);
     res.status(500).json({
       error: 'Error al obtener envíos del pedido',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -178,7 +178,7 @@ router.get('/history', async (req: PermissionRequest, res: Response) => {
     logger.error('API', 'Error fetching shipment history:', error);
     res.status(500).json({
       error: 'Error al obtener historial de envíos',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -231,7 +231,7 @@ router.post('/export-excel', async (req: PermissionRequest, res: Response) => {
     logger.error('API', 'Error exporting orders to Excel:', error);
     res.status(500).json({
       error: 'Error al exportar pedidos',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });

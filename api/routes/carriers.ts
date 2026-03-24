@@ -412,7 +412,7 @@ carriersRouter.get('/performance/all', async (req: AuthRequest, res: Response) =
     try {
         logger.info('API', `📊 [CARRIERS] Fetching all courier performance for store ${req.storeId}`);
 
-        const performance = await getCourierPerformanceByStore(req.storeId);
+        const performance = await getCourierPerformanceByStore(req.storeId!);
 
         res.json({
             data: performance,
@@ -436,7 +436,7 @@ carriersRouter.get('/performance/top', async (req: AuthRequest, res: Response) =
 
         logger.info('API', `🏆 [CARRIERS] Fetching top ${limit} couriers for store ${req.storeId}`);
 
-        const topCouriers = await getTopCouriers(req.storeId, parseInt(limit as string, 10));
+        const topCouriers = await getTopCouriers(req.storeId!, parseInt(String(limit), 10));
 
         res.json({
             data: topCouriers,
@@ -461,8 +461,8 @@ carriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
         logger.info('API', `⚠️ [CARRIERS] Fetching underperforming couriers (threshold: ${threshold}%)`);
 
         const underperformingCouriers = await getUnderperformingCouriers(
-            req.storeId,
-            parseInt(threshold as string, 10)
+            req.storeId!,
+            parseInt(String(threshold), 10)
         );
 
         res.json({

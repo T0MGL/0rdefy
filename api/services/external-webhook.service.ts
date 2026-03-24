@@ -1499,9 +1499,8 @@ export class ExternalWebhookService {
           .from('orders')
           .update({ shipping_city: resolvedCity })
           .eq('id', order.id)
-          .then(() => {})
-          .catch((err) => {
-            logger.warn('BACKEND', `⚠️ [ExternalWebhook] Failed to save shipping_city for order ${order.id}:`, err?.message);
+          .then(() => {}, (err: unknown) => {
+            logger.warn('BACKEND', `[ExternalWebhook] Failed to save shipping_city for order ${order.id}:`, err);
           });
       }
 
@@ -1818,9 +1817,8 @@ export class ExternalWebhookService {
             ? `Status updated via external API: ${sanitizedReason}`
             : 'Status updated via external API'
         })
-        .then(() => {})
-        .catch((err) => {
-          logger.error('BACKEND', '❌ [ExternalWebhook] Failed to log status history:', err);
+        .then(() => {}, (err: unknown) => {
+          logger.error('BACKEND', '[ExternalWebhook] Failed to log status history:', err);
         });
 
       const orderNumber = data.shopify_order_name || data.shopify_order_number || data.order_number || null;
