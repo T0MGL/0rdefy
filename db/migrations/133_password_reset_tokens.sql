@@ -12,13 +12,13 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 );
 
 -- Index for fast lookups by token hash (primary query path)
-CREATE INDEX idx_password_reset_tokens_token_hash ON password_reset_tokens (token_hash);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash ON password_reset_tokens (token_hash);
 
 -- Index for rate limiting queries (count by email in time window)
-CREATE INDEX idx_password_reset_tokens_email_created ON password_reset_tokens (email, created_at);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_email_created ON password_reset_tokens (email, created_at);
 
 -- Index for cleanup of expired tokens
-CREATE INDEX idx_password_reset_tokens_expires_at ON password_reset_tokens (expires_at);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens (expires_at);
 
 -- RLS: Only service role can access this table (backend only, no frontend access)
 ALTER TABLE password_reset_tokens ENABLE ROW LEVEL SECURITY;

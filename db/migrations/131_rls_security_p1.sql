@@ -2,6 +2,7 @@
 -- ORDEFY — Priority 1 RLS Fix
 -- Verified by: Ax (ORDEFY CEO Review)
 -- Date: 2026-03-14
+-- Updated: 2026-03-24 (idempotency fix, transaction wrapper)
 -- Veredicto: APROBADO CON MODIFICACIONES
 --
 -- CAMBIOS RESPECTO AL ORIGINAL:
@@ -26,8 +27,12 @@
 --
 -- NOTA: Todo el backend Express usa supabaseAdmin (SERVICE_ROLE_KEY) que bypasea
 -- RLS completamente. Ningun route del backend se rompe con estos cambios.
+--
+-- 2026-03-24: Added DROP POLICY IF EXISTS for idempotency and BEGIN/COMMIT
+-- for transaction safety. Re-running this migration is now safe.
 -- ============================================================================
 
+BEGIN;
 
 -- ============================================================================
 -- 1. SUBSCRIPTIONS
@@ -37,6 +42,7 @@
 -- El backend usa service_role, no le aplica
 -- ============================================================================
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "subscriptions_store_access" ON public.subscriptions;
 CREATE POLICY "subscriptions_store_access" ON public.subscriptions FOR ALL
 USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()))
 WITH CHECK (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid() AND role IN ('owner', 'admin')));
@@ -48,6 +54,7 @@ WITH CHECK (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id =
 -- El backend (service_role) inserta via Stripe webhooks — no se rompe
 -- ============================================================================
 ALTER TABLE public.subscription_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "subscription_history_store_access" ON public.subscription_history;
 CREATE POLICY "subscription_history_store_access" ON public.subscription_history FOR SELECT
 USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()));
 
@@ -58,6 +65,7 @@ USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth
 -- El backend (service_role) actualiza contadores — no se rompe
 -- ============================================================================
 ALTER TABLE public.usage_tracking ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "usage_tracking_store_access" ON public.usage_tracking;
 CREATE POLICY "usage_tracking_store_access" ON public.usage_tracking FOR SELECT
 USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()));
 
@@ -69,6 +77,7 @@ USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth
 -- Cualquier usuario autenticado de la tienda puede CRUD — coherente con el codigo
 -- ============================================================================
 ALTER TABLE public.additional_values ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "additional_values_store_access" ON public.additional_values;
 CREATE POLICY "additional_values_store_access" ON public.additional_values FOR ALL
 USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()))
 WITH CHECK (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()));
@@ -79,6 +88,7 @@ WITH CHECK (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id =
 -- Idem additional_values — mismo patron, mismo razonamiento
 -- ============================================================================
 ALTER TABLE public.recurring_additional_values ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "recurring_additional_values_store_access" ON public.recurring_additional_values;
 CREATE POLICY "recurring_additional_values_store_access" ON public.recurring_additional_values FOR ALL
 USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()))
 WITH CHECK (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()));
@@ -95,6 +105,7 @@ WITH CHECK (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id =
 -- El backend con service_role sigue teniendo acceso total sin restriccion
 -- ============================================================================
 ALTER TABLE public.phone_verification_codes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "phone_verification_own_user" ON public.phone_verification_codes;
 CREATE POLICY "phone_verification_own_user" ON public.phone_verification_codes FOR INSERT
 WITH CHECK (user_id = auth.uid());
 
@@ -106,6 +117,9 @@ WITH CHECK (user_id = auth.uid());
 -- tambien via extractUserRole + permisos, pero RLS agrega capa defensiva)
 -- ============================================================================
 ALTER TABLE public.external_webhook_configs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "external_webhook_configs_store_access" ON public.external_webhook_configs;
 CREATE POLICY "external_webhook_configs_store_access" ON public.external_webhook_configs FOR ALL
 USING (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid()))
 WITH CHECK (store_id IN (SELECT store_id FROM public.user_stores WHERE user_id = auth.uid() AND role IN ('owner', 'admin')));
+
+COMMIT;

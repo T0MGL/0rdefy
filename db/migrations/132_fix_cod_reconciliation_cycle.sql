@@ -42,6 +42,8 @@ BEGIN;
 --            update payment_status on linked orders
 -- ============================================================================
 
+DROP FUNCTION IF EXISTS create_carrier_settlement(UUID, UUID, DATE, DATE, UUID);
+
 CREATE OR REPLACE FUNCTION create_carrier_settlement(
     p_store_id UUID,
     p_carrier_id UUID,
@@ -118,6 +120,7 @@ UPDATED migration 132:
 --         Use COALESCE(amount_collected, total_price) for pending amounts
 -- ============================================================================
 
+DROP VIEW IF EXISTS pending_carrier_settlements_summary;
 CREATE OR REPLACE VIEW pending_carrier_settlements_summary AS
 SELECT
     c.id as carrier_id,
