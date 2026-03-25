@@ -19,6 +19,7 @@ import { invoicingService } from '@/services/invoicing.service';
 import { useCarriers } from '@/hooks/useCarriers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -434,12 +435,78 @@ export default function Orders() {
     return data;
   }, []); // Empty deps - uses refs for all values to stay stable
 
-  // Smart polling - only polls when page is visible
+  // Initial load + refetch on filter changes. Realtime handles live updates.
+  // 5-minute safety net poll in case Realtime disconnects (network change, laptop sleep).
   const { refetch } = useSmartPolling({
     queryFn,
-    interval: 60000, // Poll every 60 seconds when page is visible (75% reduction in API calls)
+    interval: 300000,
     enabled: true,
     fetchOnMount: true,
+  });
+
+  // Realtime subscription: live order updates via Supabase WebSocket
+  const handleRealtimeEvent = useCallback(async (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => {
+    const eventType = payload.eventType;
+    const record = payload.new;
+    const oldRecord = payload.old;
+
+    if (eventType === 'DELETE') {
+      const deletedId = oldRecord?.id;
+      if (deletedId) {
+        setOrders(prev => prev.filter(o => o.id !== deletedId));
+      }
+      return;
+    }
+
+    const changedId = record?.id;
+    if (!changedId) return;
+
+    try {
+      const freshOrder = await ordersService.getById(changedId);
+      if (!freshOrder) return;
+
+      // Check if order matches active filters before adding/updating in the list
+      const filters = serverFiltersRef.current;
+      const matchesStatusFilter = !filters.status || freshOrder.status === filters.status;
+      const matchesCarrierFilter = !filters.carrier_id || freshOrder.carrier_id === filters.carrier_id;
+
+      if (eventType === 'INSERT') {
+        if (!matchesStatusFilter || !matchesCarrierFilter) return;
+
+        setOrders(prev => {
+          if (prev.some(o => o.id === changedId)) {
+            return prev.map(o => o.id === changedId ? freshOrder : o);
+          }
+          return [freshOrder, ...prev];
+        });
+
+        if (!filters.status && !filters.carrier_id && !filters.search) {
+          toastRef.current({
+            title: 'Nuevo Pedido',
+            description: `${freshOrder.customer} - ${freshOrder.total?.toLocaleString()} Gs`,
+          });
+        }
+      } else if (eventType === 'UPDATE') {
+        setOrders(prev => {
+          const existsInList = prev.some(o => o.id === changedId);
+          if (!existsInList) return prev;
+
+          if (!matchesStatusFilter || !matchesCarrierFilter) {
+            return prev.filter(o => o.id !== changedId);
+          }
+          return prev.map(o => o.id === changedId ? freshOrder : o);
+        });
+      }
+    } catch (err) {
+      logger.error('[Realtime] Failed to fetch order after event:', err);
+    }
+  }, []);
+
+  useRealtimeSubscription({
+    table: 'orders',
+    event: '*',
+    callback: handleRealtimeEvent,
+    filterByStore: true,
   });
 
   // Load more orders (pagination)

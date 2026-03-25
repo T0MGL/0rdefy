@@ -8,6 +8,7 @@
 
 import { logger } from '../utils/logger';
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
@@ -18,6 +19,202 @@ import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
 import { isValidUUID, validateUUIDParam, sanitizeSearchInput } from '../utils/sanitize';
 import { getTodayInTimezone } from '../utils/dateUtils';
+import { validate } from '../utils/validate';
+
+// ================================================================
+// Zod Schemas
+// ================================================================
+
+const DeliveryConfirmSchema = z.object({
+    proof_photo_url: z.string().url().optional(),
+    payment_method: z.string().max(100).optional(),
+    notes: z.string().max(2000).optional(),
+    amount_collected: z.number().nonnegative().optional(),
+    has_amount_discrepancy: z.boolean().optional(),
+});
+
+const DeliveryFailSchema = z.object({
+    delivery_failure_reason: z.string().min(1, 'delivery_failure_reason is required').max(500),
+    failure_notes: z.string().max(2000).optional(),
+});
+
+const RateDeliverySchema = z.object({
+    rating: z.number().int().min(1).max(5),
+    comment: z.string().max(1000).optional(),
+    delivery_token: z.string().min(1),
+});
+
+const CancelOrderSchema = z.object({
+    token: z.string().min(1).optional(),
+    reason: z.string().max(500).optional(),
+});
+
+const OrderListQuerySchema = z.object({
+    status: z.string().optional(),
+    limit: z.string().optional(),
+    offset: z.string().optional(),
+    customer_phone: z.string().optional(),
+    shopify_order_id: z.string().optional(),
+    carrier_id: z.string().optional(),
+    search: z.string().max(200).optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    show_test: z.enum(['true', 'false']).optional(),
+    show_deleted: z.enum(['true', 'false']).optional(),
+    scheduled_filter: z.string().optional(),
+    timezone: z.string().optional(),
+});
+
+const LineItemSchema = z.object({
+    product_id: z.string().uuid().optional(),
+    variant_id: z.string().uuid().optional(),
+    name: z.string().min(1),
+    quantity: z.number().int().positive(),
+    price: z.number().nonnegative(),
+    sku: z.string().optional(),
+    image_url: z.string().url().optional(),
+    variant_title: z.string().optional(),
+    is_upsell: z.boolean().optional(),
+});
+
+const DeliveryPreferencesSchema = z.object({
+    not_before_date: z.string().optional(),
+    preferred_time_slot: z.string().optional(),
+    delivery_notes: z.string().max(500).optional(),
+}).optional();
+
+const CreateOrderSchema = z.object({
+    shopify_order_id: z.string().optional(),
+    shopify_order_number: z.union([z.string(), z.number()]).optional(),
+    customer_email: z.string().email().optional(),
+    customer_phone: z.string().max(50).optional(),
+    customer_first_name: z.string().max(200).optional(),
+    customer_last_name: z.string().max(200).optional(),
+    customer_address: z.string().max(500).optional(),
+    billing_address: z.record(z.unknown()).optional(),
+    shipping_address: z.record(z.unknown()).optional(),
+    line_items: z.array(LineItemSchema).optional(),
+    total_price: z.union([z.string(), z.number()]).optional(),
+    subtotal_price: z.union([z.string(), z.number()]).optional(),
+    total_tax: z.union([z.string(), z.number()]).optional(),
+    total_shipping: z.union([z.string(), z.number()]).optional(),
+    shipping_cost: z.union([z.string(), z.number()]).optional(),
+    currency: z.string().length(3).optional(),
+    financial_status: z.string().optional(),
+    payment_status: z.string().optional(),
+    courier_id: z.string().uuid().optional(),
+    payment_method: z.string().max(100).optional(),
+    shopify_raw_json: z.record(z.unknown()).optional(),
+    google_maps_link: z.string().url().optional().or(z.literal('')),
+    shipping_city: z.string().max(200).optional(),
+    shipping_city_normalized: z.string().max(200).optional(),
+    delivery_zone: z.string().max(200).optional(),
+    is_pickup: z.boolean().optional(),
+    internal_notes: z.string().max(5000).optional(),
+    upsell_added: z.boolean().optional(),
+    customer_ruc: z.string().max(20).optional(),
+    customer_ruc_dv: z.string().max(5).optional(),
+    delivery_preferences: DeliveryPreferencesSchema,
+}).refine((data) => data.customer_phone || data.customer_email, {
+    message: 'Either customer_phone or customer_email is required',
+    path: ['customer_phone'],
+});
+
+const UpdateOrderSchema = z.object({
+    customer_email: z.string().email().optional(),
+    customer_phone: z.string().max(50).optional(),
+    customer_first_name: z.string().max(200).optional(),
+    customer_last_name: z.string().max(200).optional(),
+    customer_address: z.string().max(500).optional(),
+    billing_address: z.record(z.unknown()).optional(),
+    shipping_address: z.record(z.unknown()).optional(),
+    line_items: z.array(LineItemSchema).optional(),
+    total_price: z.union([z.string(), z.number()]).optional(),
+    subtotal_price: z.union([z.string(), z.number()]).optional(),
+    total_tax: z.union([z.string(), z.number()]).optional(),
+    total_shipping: z.union([z.string(), z.number()]).optional(),
+    shipping_cost: z.union([z.string(), z.number()]).optional(),
+    currency: z.string().length(3).optional(),
+    upsell_added: z.boolean().optional(),
+    courier_id: z.string().uuid().optional(),
+    payment_method: z.string().max(100).optional(),
+    payment_status: z.string().optional(),
+    internal_notes: z.string().max(5000).nullable().optional(),
+    customer_ruc: z.string().max(20).optional(),
+    customer_ruc_dv: z.string().max(5).optional(),
+    shipping_city: z.string().max(200).optional(),
+    shipping_city_normalized: z.string().max(200).optional(),
+    is_pickup: z.boolean().optional(),
+    delivery_preferences: DeliveryPreferencesSchema,
+    google_maps_link: z.string().url().optional().or(z.literal('')),
+    delivery_zone: z.string().max(200).optional(),
+    version: z.number().int().nonnegative().optional(),
+});
+
+const PatchStatusSchema = z.object({
+    sleeves_status: z.enum([
+        'pending', 'contacted', 'awaiting_carrier', 'confirmed', 'in_preparation',
+        'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected',
+        'returned', 'shipped', 'incident',
+    ]),
+    confirmed_by: z.string().optional(),
+    confirmation_method: z.string().optional(),
+    rejection_reason: z.string().max(500).optional(),
+    force: z.boolean().optional(),
+});
+
+const PatchPaymentStatusSchema = z.object({
+    payment_status: z.enum(['pending', 'collected', 'failed']),
+});
+
+const ConfirmOrderSchema = z.object({
+    upsell_added: z.boolean().optional(),
+    upsell_product_id: z.string().uuid().optional(),
+    upsell_quantity: z.number().int().positive().optional(),
+    upsell_product_name: z.string().max(200).optional(),
+    courier_id: z.string().uuid().optional(),
+    is_pickup: z.boolean().optional(),
+    address: z.string().max(500).optional(),
+    latitude: z.number().optional(),
+    longitude: z.number().optional(),
+    google_maps_link: z.string().url().optional().or(z.literal('')),
+    delivery_zone: z.string().max(200).optional(),
+    shipping_cost: z.union([z.string(), z.number()]).optional(),
+    shipping_city: z.string().max(200).optional(),
+    discount_amount: z.union([z.string(), z.number()]).optional(),
+    mark_as_prepaid: z.boolean().optional(),
+    prepaid_method: z.string().max(100).optional(),
+    delivery_preferences: DeliveryPreferencesSchema,
+    force_without_carrier: z.boolean().optional(),
+    customer_ruc: z.string().max(20).nullable().optional(),
+    customer_ruc_dv: z.string().max(5).nullable().optional(),
+});
+
+const AssignCarrierSchema = z.object({
+    courier_id: z.string().uuid('courier_id must be a valid UUID'),
+    delivery_zone: z.string().max(200).optional(),
+    shipping_city: z.string().max(200).optional(),
+    shipping_cost: z.union([z.string(), z.number()]).optional(),
+});
+
+const InternalNotesSchema = z.object({
+    internal_notes: z.string().max(5000).nullable().optional(),
+});
+
+const UpsellSchema = z.object({
+    upsell_product_id: z.string().uuid().optional(),
+    upsell_quantity: z.number().int().positive().optional(),
+    remove: z.boolean().optional(),
+});
+
+const MarkPrepaidSchema = z.object({
+    prepaid_method: z.string().max(100).optional(),
+    amount: z.number().nonnegative().optional(),
+});
+
+const BulkOrderIdsSchema = z.object({
+    order_ids: z.array(z.string().uuid()).min(1, 'order_ids must be a non-empty array'),
+});
 
 /**
  * Safely parse a number, returning 0 for invalid values.
@@ -184,10 +381,10 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
 // - PREPAID (tarjeta, qr, transferencia): Payment already received -> amount_collected = 0
 //
 // amount_collected is ONLY relevant for COD orders where courier physically collects cash
-ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Response) => {
+ordersRouter.post('/token/:token/delivery-confirm', validate(DeliveryConfirmSchema), async (req: Request, res: Response) => {
     try {
         const { token } = req.params;
-        const { proof_photo_url, payment_method, notes, amount_collected, has_amount_discrepancy } = req.body;
+        const { proof_photo_url, payment_method, notes, amount_collected, has_amount_discrepancy } = req.body as z.infer<typeof DeliveryConfirmSchema>;
 
 
         // SECURITY: Look up order by token - only valid tokens can access
@@ -373,10 +570,10 @@ ordersRouter.post('/token/:token/delivery-confirm', async (req: Request, res: Re
 
 // POST /api/orders/token/:token/delivery-fail - Courier reports failed delivery (public)
 // SECURITY: Uses delivery_link_token from URL - courier scans QR code
-ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Response) => {
+ordersRouter.post('/token/:token/delivery-fail', validate(DeliveryFailSchema), async (req: Request, res: Response) => {
     try {
         const { token } = req.params;
-        const { delivery_failure_reason, failure_notes } = req.body;
+        const { delivery_failure_reason, failure_notes } = req.body as z.infer<typeof DeliveryFailSchema>;
 
         if (!delivery_failure_reason) {
             return res.status(400).json({
@@ -490,10 +687,10 @@ ordersRouter.post('/token/:token/delivery-fail', async (req: Request, res: Respo
 
 // POST /api/orders/:id/rate-delivery - Customer rates delivery (public)
 // This endpoint is accessible without auth but requires delivery_link_token for verification
-ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Request, res: Response) => {
+ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), validate(RateDeliverySchema), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { rating, comment, delivery_token } = req.body;
+        const { rating, comment, delivery_token } = req.body as z.infer<typeof RateDeliverySchema>;
 
         // Validate rating
         if (!rating || rating < 1 || rating > 5) {
@@ -583,7 +780,7 @@ ordersRouter.post('/:id/rate-delivery', validateUUIDParam('id'), async (req: Req
 
 // POST /api/orders/:id/cancel - Cancel order after failed delivery (public)
 // This endpoint is accessible without auth for courier/customer to cancel after retry decision
-ordersRouter.post('/:id/cancel', validateUUIDParam('id'), async (req: Request, res: Response) => {
+ordersRouter.post('/:id/cancel', validateUUIDParam('id'), validate(CancelOrderSchema), async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const token = req.body?.token || req.query?.token;
@@ -1255,7 +1452,29 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
             shopify_shipping_method: data.shopify_shipping_method,
             shopify_shipping_method_code: data.shopify_shipping_method_code,
             // Delivery notes (from customer/Shopify)
-            delivery_notes: data.delivery_notes
+            delivery_notes: data.delivery_notes,
+            // Fields aligned with listing endpoint for Realtime compatibility
+            google_maps_link: data.google_maps_link,
+            deleted_at: data.deleted_at,
+            deleted_by: data.deleted_by,
+            deletion_type: data.deletion_type,
+            is_test: data.is_test,
+            delivery_zone: data.delivery_zone,
+            is_pickup: data.is_pickup || false,
+            delivery_preferences: data.delivery_preferences,
+            shipping_cost: data.shipping_cost,
+            customer_ruc: data.customer_ruc,
+            customer_ruc_dv: data.customer_ruc_dv,
+            invoice_id: data.invoice_id,
+            amount_collected: data.amount_collected,
+            has_amount_discrepancy: data.has_amount_discrepancy,
+            prepaid_method: data.prepaid_method,
+            customer_email: data.customer_email,
+            customer_first_name: data.customer_first_name,
+            customer_last_name: data.customer_last_name,
+            customer_phone: data.customer_phone,
+            confirmed_at: data.confirmed_at,
+            sleeves_status: data.sleeves_status
         };
 
         res.json(transformedData);
