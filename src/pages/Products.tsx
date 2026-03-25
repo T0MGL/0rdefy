@@ -21,10 +21,11 @@ import { ProductVariantsManager } from '@/components/ProductVariantsManager';
 import { productsService } from '@/services/products.service';
 import { useToast } from '@/hooks/use-toast';
 import { useHighlight } from '@/hooks/useHighlight';
-import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download, Layers, MoreVertical, Search, ChevronLeft, ChevronRight } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Plus, Edit, Trash2, PackageOpen, PackagePlus, Upload, ShoppingBag, ChevronDown, Download, Layers, MoreVertical, Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useDebounce } from '@/hooks/useDebounce';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Product } from '@/types';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,23 @@ import { Label } from '@/components/ui/label';
 import { productsExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
+
+interface ProductFormData {
+  id?: string;
+  name: string;
+  description?: string;
+  sku: string;
+  category?: string;
+  image: string;
+  price: number;
+  cost?: number | null;
+  packaging_cost?: number;
+  additional_costs?: number;
+  is_service?: boolean;
+  stock: number;
+  profitability?: number | string;
+  sales?: number;
+}
 
 const PAGE_SIZE = 50;
 
@@ -51,44 +69,57 @@ export default function Products() {
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const [productToPublish, setProductToPublish] = useState<Product | null>(null);
   const [stockAdjustLoading, setStockAdjustLoading] = useState(false);
-  const [stockFilter, setStockFilter] = useState<'all' | 'low-stock' | 'out-of-stock'>('all');
   const [variantsDialogOpen, setVariantsDialogOpen] = useState(false);
   const [variantsProduct, setVariantsProduct] = useState<Product | null>(null);
-
-  // Search & pagination state
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [page, setPage] = useState(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const isMountedRef = useRef(true);
+
+  // URL params as single source of truth for search, filter, and pagination.
+  // Survives page reloads and enables shareable filter URLs.
+  const searchTerm = searchParams.get('q') || '';
+  const stockFilter = (searchParams.get('filter') || 'all') as 'all' | 'low-stock' | 'out-of-stock';
+  const page = parseInt(searchParams.get('page') || '0', 10);
+
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
+  const setSearchTerm = useCallback((term: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (term) next.set('q', term);
+      else next.delete('q');
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setStockFilter = useCallback((filter: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (filter && filter !== 'all') next.set('filter', filter);
+      else next.delete('filter');
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setPage = useCallback((p: number | ((prev: number) => number)) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      const currentPage = parseInt(next.get('page') || '0', 10);
+      const resolved = typeof p === 'function' ? p(currentPage) : p;
+      if (resolved > 0) next.set('page', String(resolved));
+      else next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const { toast } = useToast();
   const { isHighlighted } = useHighlight();
   const queryClient = useQueryClient();
 
-  // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    return () => { isMountedRef.current = false; };
   }, []);
-
-  // Debounce search input
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchTerm(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(value);
-      setPage(0); // Reset to first page on search
-    }, 300);
-  }, []);
-
-  // Reset page when stock filter changes
-  useEffect(() => {
-    setPage(0);
-  }, [stockFilter]);
 
   // TanStack Query for products
   const { data: productsResponse, isLoading, isFetching } = useQuery({
@@ -121,34 +152,9 @@ export default function Products() {
     }).catch(() => {});
   }, []);
 
-  // Process URL query parameters for filtering and navigation from notifications
+  // Validate highlighted product exists after data loads
   useEffect(() => {
-    const filter = searchParams.get('filter');
     const highlightId = searchParams.get('highlight');
-
-    // Apply filter from URL
-    if (filter) {
-      switch (filter) {
-        case 'low-stock':
-          setStockFilter('low-stock');
-          break;
-        case 'out-of-stock':
-          setStockFilter('out-of-stock');
-          break;
-        default:
-          setStockFilter('all');
-          break;
-      }
-
-      // Clean up URL after applying filter (keep highlight if present)
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('filter');
-      if (newParams.toString() !== searchParams.toString()) {
-        setSearchParams(newParams, { replace: true });
-      }
-    }
-
-    // Validate highlighted product exists after data loads
     if (highlightId && products.length > 0) {
       const productExists = products.some(p => p.id === highlightId);
       if (!productExists) {
@@ -157,9 +163,11 @@ export default function Products() {
           description: 'El producto al que intentas acceder ya no existe o fue eliminado.',
           variant: 'destructive',
         });
-        const newParams = new URLSearchParams(searchParams);
-        newParams.delete('highlight');
-        setSearchParams(newParams, { replace: true });
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.delete('highlight');
+          return next;
+        }, { replace: true });
       }
     }
   }, [searchParams, setSearchParams, products, toast]);
@@ -210,7 +218,7 @@ export default function Products() {
         title: 'Producto publicado',
         description: 'El producto ha sido publicado exitosamente en Shopify.',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error al publicar producto:', error);
       showErrorToast(toast, error, {
         module: 'products',
@@ -322,7 +330,7 @@ export default function Products() {
     }
   };
 
-  const handleSubmit = async (data: any) => {
+  const handleSubmit = async (data: ProductFormData) => {
     try {
       if (selectedProduct) {
         const totalCost = data.cost + (data.packaging_cost || 0) + (data.additional_costs || 0);
@@ -525,29 +533,51 @@ export default function Products() {
           <Input
             placeholder="Buscar por nombre o SKU..."
             value={searchTerm}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            className="pl-9"
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9 pr-9"
           />
+          <AnimatePresence>
+            {searchTerm && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.15 }}
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors rounded-full p-0.5 hover:bg-muted"
+                aria-label="Limpiar busqueda"
+              >
+                <X size={16} />
+              </motion.button>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
       {/* Stock Filter Chips */}
-      {stockFilter !== 'all' && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Filtrando por:</span>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-muted-foreground mr-1">Stock:</span>
+        {(['all', 'low-stock', 'out-of-stock'] as const).map((filter) => (
           <Badge
-            variant="secondary"
-            className="cursor-pointer hover:bg-destructive/20"
-            onClick={() => setStockFilter('all')}
+            key={filter}
+            variant={stockFilter === filter ? 'default' : 'outline'}
+            className={`cursor-pointer transition-colors ${
+              stockFilter === filter
+                ? ''
+                : 'hover:bg-muted'
+            }`}
+            onClick={() => setStockFilter(filter)}
           >
-            {stockFilter === 'low-stock' ? 'Stock bajo' : 'Sin stock'}
-            <span className="ml-1">×</span>
+            {filter === 'all' ? 'Todos' : filter === 'low-stock' ? 'Stock bajo' : 'Sin stock'}
           </Badge>
-          <span className="text-sm text-muted-foreground">
+        ))}
+        {stockFilter !== 'all' && (
+          <span className="text-sm text-muted-foreground ml-2">
             ({pagination.total} productos)
           </span>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* No search results */}
       {products.length === 0 && (debouncedSearch || stockFilter !== 'all') && (
@@ -563,7 +593,7 @@ export default function Products() {
             variant="ghost"
             className="mt-4"
             onClick={() => {
-              handleSearchChange('');
+              setSearchTerm('');
               setStockFilter('all');
             }}
           >
@@ -608,7 +638,7 @@ export default function Products() {
                       >
                         Stock: {product.stock}
                       </Badge>
-                      {(product as any).has_variants && (
+                      {product.has_variants && (
                         <Badge variant="outline" className="bg-purple-500/20 text-purple-700 dark:text-purple-400 border-purple-500/30 gap-1">
                           <Layers size={12} />
                           Variantes
@@ -668,7 +698,7 @@ export default function Products() {
                           >
                             <Layers size={16} />
                             Variantes / SKUs
-                            {(product as any).has_variants && (
+                            {product.has_variants && (
                               <Badge variant="secondary" className="ml-auto text-xs">
                                 Activo
                               </Badge>

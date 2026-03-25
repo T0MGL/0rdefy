@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
-import { Trophy, AlertTriangle, TrendingUp, Package } from 'lucide-react';
+import { Trophy, AlertTriangle, TrendingUp, Package, RefreshCw } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/utils/logger';
+import apiClient from '@/services/api.client';
 
 interface CourierStats {
   courier_id: string;
@@ -23,10 +26,11 @@ interface CourierStats {
 export default function CourierPerformance() {
   const [couriers, setCouriers] = useState<CourierStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [topCouriers, setTopCouriers] = useState<CourierStats[]>([]);
   const [underperforming, setUnderperforming] = useState<CourierStats[]>([]);
+  const { toast } = useToast();
 
-  // Memory leak prevention
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -47,63 +51,57 @@ export default function CourierPerformance() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    try {
-      const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
+    setLoading(true);
+    setError(null);
 
-      // Fetch all couriers performance
-      const allResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/all`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Store-ID': storeId || '',
-        },
-        signal: controller.signal,
-      });
+    const [allResult, topResult, underResult] = await Promise.allSettled([
+      apiClient.get('/couriers/performance/all', { signal: controller.signal }),
+      apiClient.get('/couriers/performance/top', { params: { limit: 3 }, signal: controller.signal }),
+      apiClient.get('/couriers/performance/underperforming', { params: { threshold: 85 }, signal: controller.signal }),
+    ]);
 
-      if (!isMountedRef.current) return;
+    if (!isMountedRef.current) return;
 
-      if (allResponse.ok) {
-        const allData = await allResponse.json();
-        setCouriers(allData.data || []);
-      }
+    let hasAnyData = false;
+    const failedCalls: string[] = [];
 
-      // Fetch top performers
-      const topResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/top?limit=3`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Store-ID': storeId || '',
-        },
-        signal: controller.signal,
-      });
-
-      if (!isMountedRef.current) return;
-
-      if (topResponse.ok) {
-        const topData = await topResponse.json();
-        setTopCouriers(topData.data || []);
-      }
-
-      // Fetch underperforming
-      const underResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/underperforming?threshold=85`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Store-ID': storeId || '',
-        },
-        signal: controller.signal,
-      });
-
-      if (!isMountedRef.current) return;
-
-      if (underResponse.ok) {
-        const underData = await underResponse.json();
-        setUnderperforming(underData.data || []);
-      }
-    } catch (error) {
-      if (!isMountedRef.current) return;
-      logger.error('Error fetching courier performance:', error);
-    } finally {
-      if (isMountedRef.current) setLoading(false);
+    if (allResult.status === 'fulfilled') {
+      setCouriers(allResult.value.data.data || []);
+      hasAnyData = true;
+    } else {
+      failedCalls.push('rendimiento general');
+      logger.error('Failed to fetch all couriers performance:', allResult.reason);
     }
+
+    if (topResult.status === 'fulfilled') {
+      setTopCouriers(topResult.value.data.data || []);
+      hasAnyData = true;
+    } else {
+      failedCalls.push('top performers');
+      logger.error('Failed to fetch top performers:', topResult.reason);
+    }
+
+    if (underResult.status === 'fulfilled') {
+      setUnderperforming(underResult.value.data.data || []);
+      hasAnyData = true;
+    } else {
+      failedCalls.push('bajo rendimiento');
+      logger.error('Failed to fetch underperforming:', underResult.reason);
+    }
+
+    if (failedCalls.length > 0 && hasAnyData) {
+      toast({
+        variant: 'destructive',
+        title: 'Carga parcial',
+        description: `No se pudieron cargar: ${failedCalls.join(', ')}`,
+      });
+    }
+
+    if (!hasAnyData) {
+      setError('No se pudieron cargar los datos de rendimiento. Verifica tu conexion e intenta de nuevo.');
+    }
+
+    if (isMountedRef.current) setLoading(false);
   };
 
   const getPerformanceBadge = (rate: number) => {
@@ -114,21 +112,73 @@ export default function CourierPerformance() {
   };
 
   if (loading) {
-    return <TableSkeleton />;
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">Rendimiento de Repartidores</h1>
+          <p className="text-muted-foreground mt-1">
+            Cargando metricas de desempeno...
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader className="pb-3">
+                <div className="h-4 w-32 bg-muted animate-pulse rounded" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {[1, 2, 3].map((j) => (
+                    <div key={j} className="flex items-center justify-between">
+                      <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-12 bg-muted animate-pulse rounded" />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <TableSkeleton />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">Rendimiento de Repartidores</h1>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+            <AlertTriangle className="h-12 w-12 text-destructive" />
+            <p className="text-muted-foreground text-center">{error}</p>
+            <Button onClick={fetchPerformanceData} variant="outline" className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Reintentar
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Rendimiento de Repartidores</h1>
-        <p className="text-muted-foreground mt-1">
-          Métricas de desempeño y estadísticas de entrega
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Rendimiento de Repartidores</h1>
+          <p className="text-muted-foreground mt-1">
+            Metricas de desempeno y estadisticas de entrega
+          </p>
+        </div>
+        <Button onClick={fetchPerformanceData} variant="outline" size="icon">
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-3">
-        {/* Top Performers */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -142,7 +192,7 @@ export default function CourierPerformance() {
                 {topCouriers.map((courier, index) => (
                   <div key={courier.courier_id} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-2xl">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</span>
+                      <span className="text-lg font-bold text-muted-foreground">#{index + 1}</span>
                       <div>
                         <p className="font-medium text-sm">{courier.courier_name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -162,7 +212,6 @@ export default function CourierPerformance() {
           </CardContent>
         </Card>
 
-        {/* Needs Improvement */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -193,7 +242,6 @@ export default function CourierPerformance() {
           </CardContent>
         </Card>
 
-        {/* Average Stats */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -205,10 +253,9 @@ export default function CourierPerformance() {
             {couriers.length > 0 ? (
               <div className="space-y-3">
                 <div>
-                  <p className="text-xs text-muted-foreground">Tasa de Éxito</p>
+                  <p className="text-xs text-muted-foreground">Tasa de Exito</p>
                   <p className="text-2xl font-bold">
                     {(() => {
-                      // Only include couriers with at least 1 delivery for average calculation
                       const couriersWithDeliveries = couriers.filter(c => c.total_deliveries > 0);
                       if (couriersWithDeliveries.length === 0) return '0.0';
                       return (
@@ -231,12 +278,11 @@ export default function CourierPerformance() {
         </Card>
       </div>
 
-      {/* Detailed Table */}
       <Card>
         <CardHeader>
           <CardTitle>Todos los Repartidores</CardTitle>
           <CardDescription>
-            Estadísticas detalladas de rendimiento por repartidor
+            Estadisticas detalladas de rendimiento por repartidor
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -249,9 +295,9 @@ export default function CourierPerformance() {
                   <th className="text-center py-3 px-4 font-medium">Exitosas</th>
                   <th className="text-center py-3 px-4 font-medium">Fallidas</th>
                   <th className="text-center py-3 px-4 font-medium">Pendientes</th>
-                  <th className="text-center py-3 px-4 font-medium">Tasa de Éxito</th>
+                  <th className="text-center py-3 px-4 font-medium">Tasa de Exito</th>
                   <th className="text-center py-3 px-4 font-medium">Tiempo Promedio</th>
-                  <th className="text-center py-3 px-4 font-medium">Desempeño</th>
+                  <th className="text-center py-3 px-4 font-medium">Desempeno</th>
                 </tr>
               </thead>
               <tbody>

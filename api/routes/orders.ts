@@ -1870,7 +1870,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             delivery_link_token: data.delivery_link_token,
             latitude: data.latitude,
             longitude: data.longitude,
-            version: data.version, // Include version for optimistic locking
+            version: data.version,
             // Print tracking fields
             printed: data.printed,
             printed_at: data.printed_at,
@@ -1879,7 +1879,35 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
             internal_notes: data.internal_notes,
             has_internal_notes: !!data.internal_notes,
             // Line items for edit dialog
-            order_line_items: lineItems
+            line_items: lineItems,
+            order_line_items: lineItems,
+            // Delivery and location fields
+            google_maps_link: data.google_maps_link,
+            shipping_city: data.shipping_city,
+            shipping_city_normalized: data.shipping_city_normalized,
+            shipping_cost: data.shipping_cost,
+            delivery_zone: data.delivery_zone,
+            is_pickup: data.is_pickup || false,
+            delivery_preferences: data.delivery_preferences,
+            delivery_notes: data.delivery_notes,
+            // Electronic invoicing
+            customer_ruc: data.customer_ruc,
+            customer_ruc_dv: data.customer_ruc_dv,
+            invoice_id: data.invoice_id,
+            // Financial fields
+            financial_status: data.financial_status,
+            total_discounts: data.total_discounts,
+            cod_amount: data.cod_amount,
+            amount_collected: data.amount_collected,
+            has_amount_discrepancy: data.has_amount_discrepancy,
+            // Address details
+            neighborhood: data.neighborhood,
+            address_reference: data.address_reference,
+            shopify_shipping_method: data.shopify_shipping_method,
+            // Soft delete
+            deleted_at: data.deleted_at,
+            deleted_by: data.deleted_by,
+            deletion_type: data.deletion_type,
         };
 
         res.json(transformedData);

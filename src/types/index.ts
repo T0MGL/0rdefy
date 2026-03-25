@@ -181,6 +181,7 @@ export interface Order {
   customer_ruc?: string;
   customer_ruc_dv?: number;
   invoice_id?: string;
+  delivery_preferences?: Record<string, unknown>;
 }
 
 export interface CreateOrderInput {
@@ -194,9 +195,28 @@ export interface CreateOrderInput {
   status: Order['status'];
   carrier: string;
   paymentMethod?: 'paid' | 'cod';
+  variant_id?: string;
+  variant_title?: string;
+  units_per_pack?: number;
+  product_sku?: string;
+  upsell_product_id?: string;
+  upsell_product_name?: string;
+  upsell_product_price?: number;
+  upsell_quantity?: number;
+  shipping_cost?: number;
+  is_pickup?: boolean;
+  google_maps_link?: string;
+  shipping_city?: string;
+  shipping_city_normalized?: string;
+  delivery_zone?: string;
+  internal_notes?: string;
+  delivery_preferences?: Record<string, unknown>;
 }
 
-export interface UpdateOrderInput extends Partial<CreateOrderInput> { }
+export interface UpdateOrderInput extends Partial<CreateOrderInput> {
+  customer_ruc?: string;
+  customer_ruc_dv?: number;
+}
 
 export interface Product {
   id: string;

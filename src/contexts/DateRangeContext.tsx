@@ -18,9 +18,67 @@ interface DateRangeContextValue {
 
 const DateRangeContext = createContext<DateRangeContextValue | undefined>(undefined);
 
+const STORAGE_KEY_RANGE = 'ordefy_date_range';
+const STORAGE_KEY_CUSTOM = 'ordefy_date_range_custom';
+const VALID_RANGES: DateRangeValue[] = ['today', '7d', '30d', 'all', 'custom'];
+
+function loadPersistedRange(): DateRangeValue {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_RANGE);
+    if (stored && VALID_RANGES.includes(stored as DateRangeValue)) {
+      return stored as DateRangeValue;
+    }
+  } catch {
+    // localStorage unavailable (SSR, private browsing quota exceeded)
+  }
+  return '7d';
+}
+
+function loadPersistedCustomRange(): DateRange | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CUSTOM);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const from = new Date(parsed.from);
+      const to = new Date(parsed.to);
+      if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+        return { from, to };
+      }
+    }
+  } catch {
+    // Corrupted or missing data
+  }
+  return null;
+}
+
 export function DateRangeProvider({ children }: { children: ReactNode }) {
-  const [selectedRange, setSelectedRange] = useState<DateRangeValue>('7d');
-  const [customRange, setCustomRange] = useState<DateRange | null>(null);
+  const [selectedRange, setSelectedRangeState] = useState<DateRangeValue>(loadPersistedRange);
+  const [customRange, setCustomRangeState] = useState<DateRange | null>(loadPersistedCustomRange);
+
+  const setSelectedRange = useCallback((range: DateRangeValue) => {
+    setSelectedRangeState(range);
+    try {
+      localStorage.setItem(STORAGE_KEY_RANGE, range);
+    } catch {
+      // Quota exceeded or private browsing
+    }
+  }, []);
+
+  const setCustomRange = useCallback((range: DateRange | null) => {
+    setCustomRangeState(range);
+    try {
+      if (range) {
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify({
+          from: range.from.toISOString(),
+          to: range.to.toISOString(),
+        }));
+      } else {
+        localStorage.removeItem(STORAGE_KEY_CUSTOM);
+      }
+    } catch {
+      // Quota exceeded or private browsing
+    }
+  }, []);
 
   // CRITICAL FIX (Bug #6): Memoize getDateRange to prevent infinite render loops
   // Without useCallback, this function is recreated on every render, causing
@@ -90,7 +148,7 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
     customRange,
     setCustomRange,
     getDateRange,
-  }), [selectedRange, customRange, getDateRange]);
+  }), [selectedRange, setSelectedRange, customRange, setCustomRange, getDateRange]);
 
   return (
     <DateRangeContext.Provider value={value}>

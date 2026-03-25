@@ -8,17 +8,21 @@ export interface SavedFilter {
   name: string;
   icon: string;
   filters: Record<string, any>;
-  isPermanent?: boolean; // Filtros permanentes no se pueden eliminar
+  isPermanent?: boolean;
 }
 
 interface FilterChipsProps {
   storageKey: string;
   onFilterApply: (filters: Record<string, any>) => void;
+  activeFilterId?: string | null;
 }
 
-export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
+export function FilterChips({ storageKey, onFilterApply, activeFilterId }: FilterChipsProps) {
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
-  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [internalActive, setInternalActive] = useState<string | null>(null);
+
+  // Derive the effective active filter: external prop takes precedence when provided
+  const activeFilter = activeFilterId !== undefined ? activeFilterId : internalActive;
 
   useEffect(() => {
     const stored = localStorage.getItem(storageKey);
@@ -27,8 +31,6 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
     if (stored) {
       try {
         let parsed = JSON.parse(stored) as SavedFilter[];
-        // Migration: fix legacy status values in saved filters
-        // 'shipped' was renamed to 'in_transit'; 'rejected' was unified into 'cancelled'
         let needsMigration = false;
         parsed = parsed.map(filter => {
           const currentStatus = filter.filters?.status;
@@ -53,7 +55,6 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
     }
 
     if (useDefaults) {
-      // Filtros por defecto para pedidos (permanentes - no se pueden eliminar)
       const defaults: SavedFilter[] = [
         {
           id: 'pending',
@@ -64,7 +65,7 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
         },
         {
           id: 'awaiting-carrier',
-          name: 'Esperando Asignación',
+          name: 'Esperando Asignacion',
           icon: '🚛',
           filters: { status: 'awaiting_carrier' },
           isPermanent: true,
@@ -78,7 +79,7 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
         },
         {
           id: 'in-preparation',
-          name: 'En Preparación',
+          name: 'En Preparacion',
           icon: '🔧',
           filters: { status: 'in_preparation' },
           isPermanent: true,
@@ -92,7 +93,7 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
         },
         {
           id: 'shipped',
-          name: 'En Tránsito',
+          name: 'En Transito',
           icon: '🚚',
           filters: { status: 'in_transit' },
           isPermanent: true,
@@ -133,10 +134,10 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
 
   const handleFilterClick = (filter: SavedFilter) => {
     if (activeFilter === filter.id) {
-      setActiveFilter(null);
+      setInternalActive(null);
       onFilterApply({});
     } else {
-      setActiveFilter(filter.id);
+      setInternalActive(filter.id);
       onFilterApply(filter.filters);
     }
   };
@@ -147,7 +148,7 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
     setSavedFilters(updated);
     localStorage.setItem(storageKey, JSON.stringify(updated));
     if (activeFilter === filterId) {
-      setActiveFilter(null);
+      setInternalActive(null);
       onFilterApply({});
     }
   };
@@ -167,7 +168,6 @@ export function FilterChips({ storageKey, onFilterApply }: FilterChipsProps) {
         >
           <span className="mr-1.5">{filter.icon}</span>
           {filter.name}
-          {/* Solo mostrar botón X si NO es permanente */}
           {!filter.isPermanent && (
             <button
               onClick={(e) => handleRemoveFilter(filter.id, e)}

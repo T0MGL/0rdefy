@@ -10,15 +10,20 @@ import { ExportButton } from '@/components/ExportButton';
 import { suppliersService } from '@/services/suppliers.service';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
-import { Plus, Star, Edit, Trash2, Users } from 'lucide-react';
+import { Plus, Star, Edit, Trash2, Users, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect, useRef } from 'react';
 import { Supplier } from '@/types';
 import { suppliersExportColumns } from '@/utils/exportConfigs';
-import { logger } from '@/utils/logger';
+interface SupplierFormData {
+  name: string;
+  contact_person: string;
+  email: string;
+  phone: string;
+  rating: number;
+}
 
-// Supplier Form Component
-function SupplierForm({ supplier, onSubmit, onCancel }: { supplier?: Supplier; onSubmit: (data: any) => void; onCancel: () => void }) {
+function SupplierForm({ supplier, onSubmit, onCancel }: { supplier?: Supplier; onSubmit: (data: SupplierFormData) => void; onCancel: () => void }) {
   const [formData, setFormData] = useState({
     name: supplier?.name || '',
     contact_person: supplier?.contact_person || '',
@@ -101,6 +106,7 @@ function SupplierForm({ supplier, onSubmit, onCancel }: { supplier?: Supplier; o
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
@@ -127,11 +133,19 @@ export default function Suppliers() {
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
-
-    const data = await suppliersService.getAll();
-    if (!isMountedRef.current) return;
-    setSuppliers(data);
-    setIsLoading(false);
+    setError(null);
+    try {
+      const data = await suppliersService.getAll();
+      if (!isMountedRef.current) return;
+      setSuppliers(data);
+    } catch (err: unknown) {
+      if (!isMountedRef.current) return;
+      const message = err instanceof Error ? err.message : 'Error al cargar proveedores';
+      setError(message);
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      if (isMountedRef.current) setIsLoading(false);
+    }
   };
 
   const handleCreate = () => {
@@ -159,16 +173,17 @@ export default function Suppliers() {
         title: 'Proveedor eliminado',
         description: 'El proveedor ha sido eliminado exitosamente.',
       });
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'No se pudo eliminar el proveedor.';
       toast({
         title: 'Error al eliminar',
-        description: error.message || 'No se pudo eliminar el proveedor.',
+        description: message,
         variant: 'destructive',
       });
     }
   };
 
-  const handleSubmit = async (data: any) => {
+  const handleSubmit = async (data: SupplierFormData) => {
     try {
       if (selectedSupplier) {
         await suppliersService.update(selectedSupplier.id, data);
@@ -187,10 +202,11 @@ export default function Suppliers() {
       }
       await loadSuppliers();
       setDialogOpen(false);
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Ocurrio un error al guardar el proveedor.';
       toast({
         title: 'Error',
-        description: error.message || 'Ocurrió un error al guardar el proveedor.',
+        description: message,
         variant: 'destructive',
       });
     }
@@ -210,7 +226,28 @@ export default function Suppliers() {
     );
   }
 
-  if (suppliers.length === 0) {
+  if (error && !isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Proveedores</h1>
+        </div>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white">Error al cargar proveedores</h3>
+          <p className="text-sm text-gray-500 mt-1">{error}</p>
+          <button
+            onClick={loadSuppliers}
+            className="mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (suppliers.length === 0 && !error) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -259,7 +296,6 @@ export default function Suppliers() {
           />
           <Button
             onClick={() => {
-              logger.log('🖱️ [SUPPLIERS] Button clicked - opening dialog');
             handleCreate();
           }}
           className="gap-2 bg-primary hover:bg-primary/90 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 z-50 relative"

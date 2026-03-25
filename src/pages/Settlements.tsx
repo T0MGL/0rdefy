@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -156,9 +157,7 @@ function parseLatinAmount(raw: string): number {
 
   if (lastDot === -1 && lastComma === -1) {
     // No separators: "25000"
-    const result = parseFloat(clean) || 0;
-    logger.log('[Settlements] Parsed amount (no separators):', raw, '->', result);
-    return result;
+    return parseFloat(clean) || 0;
   }
 
   if (lastDot !== -1 && lastComma !== -1) {
@@ -381,6 +380,11 @@ const LEGACY_DEFAULT_CARRIER_FEE = 25000;
 // Main tab type
 type MainTab = 'conciliaciones' | 'cuentas' | 'pagos';
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return 'Error desconocido';
+}
+
 export default function Settlements() {
   const { toast } = useToast();
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
@@ -396,8 +400,12 @@ export default function Settlements() {
     };
   }, []);
 
-  // Main tab state
-  const [activeTab, setActiveTab] = useState<MainTab>('conciliaciones');
+  // Main tab state persisted to URL
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') as MainTab) || 'conciliaciones';
+  const setActiveTab = (tab: MainTab) => {
+    setSearchParams(prev => { prev.set('tab', tab); return prev; }, { replace: true });
+  };
 
   // Toggle between legacy (dispatch-based) and new (delivery-based) reconciliation
   // Default to new system for better UX
@@ -484,11 +492,11 @@ export default function Settlements() {
 
       const result = await response.json();
       setGroups(result.data || []);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudieron cargar los pedidos',
+        description: getErrorMessage(error) || 'No se pudieron cargar los pedidos',
       });
     } finally {
       setLoading(false);
@@ -505,11 +513,11 @@ export default function Settlements() {
       ]);
       setCarrierBalances(balances);
       setAccountSummary(summary);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudieron cargar las cuentas',
+        description: getErrorMessage(error) || 'No se pudieron cargar las cuentas',
       });
     } finally {
       setAccountsLoading(false);
@@ -522,11 +530,11 @@ export default function Settlements() {
     try {
       const result = await getCarrierMovements(carrierId, { limit: 50 });
       setCarrierMovements(result.data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudieron cargar los movimientos',
+        description: getErrorMessage(error) || 'No se pudieron cargar los movimientos',
       });
     } finally {
       setMovementsLoading(false);
@@ -539,11 +547,11 @@ export default function Settlements() {
     try {
       const result = await getCarrierPayments(undefined, { limit: 50 });
       setPayments(result.data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudieron cargar los pagos',
+        description: getErrorMessage(error) || 'No se pudieron cargar los pagos',
       });
     } finally {
       setPaymentsLoading(false);
@@ -741,11 +749,11 @@ export default function Settlements() {
       refreshTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) loadGroups();
       }, 1000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudo procesar la conciliacion',
+        description: getErrorMessage(error) || 'No se pudo procesar la conciliacion',
       });
     } finally {
       setProcessing(false);
@@ -829,11 +837,11 @@ export default function Settlements() {
       setPaymentState(prev => ({ ...prev, open: false }));
       loadCarrierAccounts();
       loadPayments();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudo registrar el pago',
+        description: getErrorMessage(error) || 'No se pudo registrar el pago',
       });
     } finally {
       setPaymentProcessing(false);
@@ -870,11 +878,11 @@ export default function Settlements() {
 
       setAdjustmentDialogOpen(false);
       loadCarrierAccounts();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudo registrar el ajuste',
+        description: getErrorMessage(error) || 'No se pudo registrar el ajuste',
       });
     } finally {
       setAdjustmentProcessing(false);
@@ -940,7 +948,7 @@ export default function Settlements() {
           description: result.errors[0],
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error al leer archivo',
@@ -980,10 +988,10 @@ export default function Settlements() {
 
       // Find matching group(s) - match orders from CSV to shipped orders
       let matchedGroup: CourierDateGroup | null = null;
-      let matchedOrders: Array<{ order: any; csvData: CSVImportRow }> = [];
+      let matchedOrders: Array<{ order: ReconciliationOrder; csvData: CSVImportRow }> = [];
 
       for (const group of groups) {
-        const matches: Array<{ order: any; csvData: CSVImportRow }> = [];
+        const matches: Array<{ order: ReconciliationOrder; csvData: CSVImportRow }> = [];
 
         for (const order of group.orders) {
           // Normalize both for comparison
@@ -1059,13 +1067,13 @@ export default function Settlements() {
         return; // Pause - user must review before continuing
       }
 
-      // No unmatched orders — proceed directly
+      // No unmatched orders, proceed directly
       await submitCsvReconciliation(matchedGroup, ordersData, totalCollected);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudo procesar el archivo CSV',
+        description: getErrorMessage(error) || 'No se pudo procesar el archivo CSV',
       });
     } finally {
       setCsvProcessing(false);
@@ -1133,11 +1141,11 @@ export default function Settlements() {
       }
 
       await submitCsvReconciliation(matchedGroup, ordersData, adjustedTotal);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'No se pudo procesar la conciliacion',
+        description: getErrorMessage(error) || 'No se pudo procesar la conciliacion',
       });
     } finally {
       setCsvProcessing(false);
@@ -1727,9 +1735,7 @@ export default function Settlements() {
                 </DialogHeader>
 
                 {movementsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
+                  <TableSkeleton columns={4} rows={5} />
                 ) : carrierMovements.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     No hay movimientos registrados

@@ -1,5 +1,3 @@
-import { logger } from '@/utils/logger';
-
 export interface Carrier {
   id: string;
   store_id?: string;
@@ -84,40 +82,33 @@ const getHeaders = () => {
 
 export const carriersService = {
   async getAll(options?: { limit?: number; offset?: number }): Promise<Carrier[]> {
-    try {
-      const params = new URLSearchParams();
-      if (options?.limit) {
-        params.append('limit', options.limit.toString());
-      }
-      if (options?.offset) {
-        params.append('offset', options.offset.toString());
-      }
-      const url = `${API_URL}/api/couriers${params.toString() ? `?${params.toString()}` : ''}`;
-
-      const response = await fetch(url, {
-        headers: getHeaders(),
-      });
-      if (!response.ok) throw new Error('Error al obtener transportistas');
-      const data = await response.json();
-      return data.data || [];
-    } catch (error) {
-      logger.error('Error fetching couriers:', error);
-      return [];
+    const params = new URLSearchParams();
+    if (options?.limit) {
+      params.append('limit', options.limit.toString());
     }
+    if (options?.offset) {
+      params.append('offset', options.offset.toString());
+    }
+    const url = `${API_URL}/api/couriers${params.toString() ? `?${params.toString()}` : ''}`;
+
+    const response = await fetch(url, {
+      headers: getHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al obtener transportistas');
+    const data = await response.json();
+    return data.data || [];
   },
 
   async getById(id: string): Promise<Carrier | undefined> {
-    try {
-      const response = await fetch(`${API_URL}/api/couriers/${id}`, {
-        headers: getHeaders(),
-      });
-      if (!response.ok) return undefined;
-      const data = await response.json();
-      return data.data;
-    } catch (error) {
-      logger.error('Error fetching courier:', error);
-      return undefined;
+    const response = await fetch(`${API_URL}/api/couriers/${id}`, {
+      headers: getHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 404) return undefined;
+      throw new Error('Error al obtener transportista');
     }
+    const data = await response.json();
+    return data.data;
   },
 
   async create(data: Partial<Carrier>): Promise<Carrier> {
@@ -182,30 +173,20 @@ export const carriersService = {
   },
 
   async getReviews(id: string, options?: { limit?: number; offset?: number }): Promise<CarrierReviewsResponse> {
-    try {
-      const params = new URLSearchParams();
-      if (options?.limit) {
-        params.append('limit', options.limit.toString());
-      }
-      if (options?.offset) {
-        params.append('offset', options.offset.toString());
-      }
-      const url = `${API_URL}/api/couriers/${id}/reviews${params.toString() ? `?${params.toString()}` : ''}`;
-
-      const response = await fetch(url, {
-        headers: getHeaders(),
-      });
-      if (!response.ok) throw new Error('Error al obtener reviews');
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      logger.error('Error fetching courier reviews:', error);
-      return {
-        courier: { id, name: '', average_rating: 0, total_ratings: 0 },
-        reviews: [],
-        rating_distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-        pagination: { total: 0, limit: 50, offset: 0, hasMore: false }
-      };
+    const params = new URLSearchParams();
+    if (options?.limit) {
+      params.append('limit', options.limit.toString());
     }
+    if (options?.offset) {
+      params.append('offset', options.offset.toString());
+    }
+    const url = `${API_URL}/api/couriers/${id}/reviews${params.toString() ? `?${params.toString()}` : ''}`;
+
+    const response = await fetch(url, {
+      headers: getHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al obtener reviews');
+    const data = await response.json();
+    return data;
   },
 };

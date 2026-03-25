@@ -70,7 +70,7 @@ export const ordersService = {
       };
     } catch (error) {
       logger.error('Error loading orders:', error);
-      return { data: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } };
+      throw error instanceof Error ? error : new Error('Failed to load orders');
     }
   },
 
@@ -99,16 +99,14 @@ export const ordersService = {
       const [firstName, ...lastNameParts] = (order.customer || '').split(' ');
       const lastName = lastNameParts.join(' ');
 
-      // Migration 097: Extract variant info from order
-      const variantId = (order as any).variant_id || null;
-      const variantTitle = (order as any).variant_title || null;
-      const unitsPerPack = (order as any).units_per_pack || 1;
+      const variantId = order.variant_id || null;
+      const variantTitle = order.variant_title || null;
+      const unitsPerPack = order.units_per_pack || 1;
 
-      // Upsell support (ensure all values are numbers)
-      const upsellProductId = (order as any).upsell_product_id || null;
-      const upsellProductName = (order as any).upsell_product_name || null;
-      const upsellProductPrice = Number((order as any).upsell_product_price) || 0;
-      const upsellQuantity = Number((order as any).upsell_quantity) || 1;
+      const upsellProductId = order.upsell_product_id || null;
+      const upsellProductName = order.upsell_product_name || null;
+      const upsellProductPrice = Number(order.upsell_product_price) || 0;
+      const upsellQuantity = Number(order.upsell_quantity) || 1;
 
       // Calculate main product price (total minus upsell if present)
       const upsellTotal = upsellProductId ? upsellProductPrice * upsellQuantity : 0;
@@ -117,16 +115,27 @@ export const ordersService = {
       const orderQuantity = Number(order.quantity) || 1;
       const mainProductPrice = orderQuantity > 0 ? mainProductTotal / orderQuantity : mainProductTotal;
 
-      // Build line items array
-      const lineItems: any[] = [{
+      interface LineItemPayload {
+        product_id?: string;
+        variant_id: string | null;
+        product_name: string;
+        variant_title: string | null;
+        sku?: string | null;
+        quantity: number;
+        price: number;
+        units_per_pack?: number;
+        is_upsell?: boolean;
+      }
+
+      const lineItems: LineItemPayload[] = [{
         product_id: order.product_id,
-        variant_id: variantId, // Migration 097
+        variant_id: variantId,
         product_name: order.product,
-        variant_title: variantTitle, // Migration 097
-        sku: (order as any).product_sku || null, // Migration 098: SKU for fallback mapping
+        variant_title: variantTitle,
+        sku: order.product_sku || null,
         quantity: orderQuantity,
         price: mainProductPrice,
-        units_per_pack: unitsPerPack, // Migration 097
+        units_per_pack: unitsPerPack,
       }];
 
       // Add upsell as second line item if present
@@ -142,7 +151,7 @@ export const ordersService = {
         logger.log('📦 [ORDERS SERVICE] Added upsell line item:', upsellProductName, 'x', upsellQuantity);
       }
 
-      const backendOrder: any = {
+      const backendOrder: Record<string, unknown> = {
         customer_first_name: firstName || 'Cliente',
         customer_last_name: lastName || '',
         customer_phone: order.phone,
@@ -152,25 +161,21 @@ export const ordersService = {
         total_price: orderTotal,
         subtotal_price: orderTotal,
         total_tax: 0,
-        total_shipping: (order as any).shipping_cost || 0,
-        shipping_cost: (order as any).shipping_cost || 0,
+        total_shipping: order.shipping_cost || 0,
+        shipping_cost: order.shipping_cost || 0,
         currency: 'PYG',
         financial_status: 'pending',
         payment_status: order.paymentMethod === 'paid' ? 'collected' : 'pending',
         payment_method: order.paymentMethod === 'cod' ? 'cash' : 'online',
-        courier_id: (order as any).is_pickup ? null : order.carrier,
-        // New shipping fields
-        google_maps_link: (order as any).google_maps_link || null,
-        shipping_city: (order as any).shipping_city || null,
-        shipping_city_normalized: (order as any).shipping_city_normalized || null,
-        delivery_zone: (order as any).delivery_zone || null,
-        is_pickup: (order as any).is_pickup || false,
-        // Internal admin notes
-        internal_notes: (order as any).internal_notes || null,
-        // Upsell flag
+        courier_id: order.is_pickup ? null : order.carrier,
+        google_maps_link: order.google_maps_link || null,
+        shipping_city: order.shipping_city || null,
+        shipping_city_normalized: order.shipping_city_normalized || null,
+        delivery_zone: order.delivery_zone || null,
+        is_pickup: order.is_pickup || false,
+        internal_notes: order.internal_notes || null,
         upsell_added: !!upsellProductId,
-        // Delivery preferences (scheduling)
-        delivery_preferences: (order as any).delivery_preferences || null,
+        delivery_preferences: order.delivery_preferences || null,
       };
 
       logger.log('📤 [ORDERS SERVICE] Sending to backend:', backendOrder);
@@ -190,7 +195,22 @@ export const ordersService = {
       const result = await response.json();
       logger.log('✅ [ORDERS SERVICE] Order created:', result.data);
 
-      // Transform backend response to frontend format
+      // Transform backend response to frontend format, including line_items
+      // so ProductThumbnails renders images immediately (no text fallback)
+      const mappedLineItems = lineItems.map((item, index) => ({
+        id: `${result.data.id}-li-${index}`,
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        product_name: item.product_name,
+        variant_title: item.variant_title,
+        sku: item.sku,
+        quantity: item.quantity,
+        unit_price: item.price,
+        total_price: item.price * item.quantity,
+        units_per_pack: item.units_per_pack,
+        is_upsell: item.is_upsell || false,
+      }));
+
       return {
         id: result.data.id,
         customer: order.customer,
@@ -202,6 +222,18 @@ export const ordersService = {
         date: result.data.created_at,
         phone: order.phone,
         confirmedByWhatsApp: false,
+        carrier_id: order.is_pickup ? undefined : order.carrier,
+        google_maps_link: order.google_maps_link,
+        shipping_city: order.shipping_city,
+        shipping_cost: order.shipping_cost,
+        is_pickup: order.is_pickup,
+        delivery_preferences: order.delivery_preferences,
+        internal_notes: order.internal_notes,
+        has_internal_notes: !!order.internal_notes,
+        customer_ruc: order.customer_ruc,
+        customer_ruc_dv: order.customer_ruc_dv,
+        payment_method: order.paymentMethod === 'cod' ? 'cash' : 'online',
+        order_line_items: mappedLineItems,
       };
     } catch (error) {
       logger.error('❌ [ORDERS SERVICE] Error creating order:', error);
@@ -215,7 +247,7 @@ export const ordersService = {
       const [firstName, ...lastNameParts] = (data.customer || '').split(' ');
       const lastName = lastNameParts.join(' ');
 
-      const backendData: any = {};
+      const backendData: Record<string, unknown> = {};
 
       if (data.customer) {
         backendData.customer_first_name = firstName || 'Cliente';
@@ -229,6 +261,7 @@ export const ordersService = {
         const lineItems = [{
           product_id: data.product_id,
           product_name: data.product,
+          variant_id: data.variant_id || null,
           quantity: data.quantity || 1,
           price: data.total && data.quantity ? data.total / data.quantity : 0,
         }];
@@ -239,38 +272,31 @@ export const ordersService = {
         }
       }
 
-      // Send courier_id as UUID (not shipping_address.company)
       if (data.carrier) {
         backendData.courier_id = data.carrier;
       }
 
-      // Send payment_method: 'cod' → 'cash', 'paid' → 'online'
-      if ((data as any).paymentMethod) {
-        backendData.payment_method = (data as any).paymentMethod === 'cod' ? 'cash' : 'online';
-        // Update payment_status to match: COD = pending, paid = collected
-        backendData.payment_status = (data as any).paymentMethod === 'cod' ? 'pending' : 'collected';
+      if (data.paymentMethod) {
+        backendData.payment_method = data.paymentMethod === 'cod' ? 'cash' : 'online';
+        backendData.payment_status = data.paymentMethod === 'cod' ? 'pending' : 'collected';
       }
 
-      // Shipping info
-      if ((data as any).shipping_city !== undefined) backendData.shipping_city = (data as any).shipping_city;
-      if ((data as any).shipping_city_normalized !== undefined) backendData.shipping_city_normalized = (data as any).shipping_city_normalized;
-      if ((data as any).is_pickup !== undefined) backendData.is_pickup = (data as any).is_pickup;
-      if ((data as any).google_maps_link !== undefined) backendData.google_maps_link = (data as any).google_maps_link;
+      if (data.shipping_city !== undefined) backendData.shipping_city = data.shipping_city;
+      if (data.shipping_city_normalized !== undefined) backendData.shipping_city_normalized = data.shipping_city_normalized;
+      if (data.is_pickup !== undefined) backendData.is_pickup = data.is_pickup;
+      if (data.google_maps_link !== undefined) backendData.google_maps_link = data.google_maps_link;
 
-      // Delivery preferences
-      if ((data as any).delivery_preferences !== undefined) {
-        backendData.delivery_preferences = (data as any).delivery_preferences;
+      if (data.delivery_preferences !== undefined) {
+        backendData.delivery_preferences = data.delivery_preferences;
       }
 
-      // Internal notes
-      if ((data as any).internal_notes !== undefined) {
-        backendData.internal_notes = (data as any).internal_notes;
+      if (data.internal_notes !== undefined) {
+        backendData.internal_notes = data.internal_notes;
       }
 
-      // Customer RUC for electronic invoicing
-      if ((data as any).customer_ruc !== undefined) {
-        backendData.customer_ruc = (data as any).customer_ruc;
-        backendData.customer_ruc_dv = (data as any).customer_ruc_dv;
+      if (data.customer_ruc !== undefined) {
+        backendData.customer_ruc = data.customer_ruc;
+        backendData.customer_ruc_dv = data.customer_ruc_dv;
       }
 
       // Update main order data
@@ -288,9 +314,8 @@ export const ordersService = {
 
       const updatedOrder = await response.json();
 
-      // Handle upsell separately using dedicated endpoint
-      const upsellProductId = (data as any).upsell_product_id;
-      const upsellQuantity = (data as any).upsell_quantity;
+      const upsellProductId = data.upsell_product_id;
+      const upsellQuantity = data.upsell_quantity;
 
       if (upsellProductId !== undefined) {
         if (upsellProductId) {
@@ -548,15 +573,16 @@ export const ordersService = {
         message: 'Error desconocido al actualizar el estado'
       }));
 
-      // Create an error object that includes the response data
-      const error: any = new Error(errorData.message || `Error HTTP: ${response.status}`);
-      error.response = {
+      const statusError = new Error(errorData.message || `Error HTTP: ${response.status}`) as Error & {
+        response: { status: number; data: Record<string, unknown> };
+      };
+      statusError.response = {
         status: response.status,
         data: errorData
       };
 
-      logger.error('Error updating order status:', error, errorData);
-      throw error;
+      logger.error('Error updating order status:', statusError, errorData);
+      throw statusError;
     }
 
     const result = await response.json();
@@ -565,8 +591,26 @@ export const ordersService = {
     const data = result.data;
     const lineItems = data.line_items || data.order_line_items || [];
     const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
+    interface RawLineItem {
+      id?: string;
+      product_id?: string;
+      variant_id?: string;
+      product_name?: string;
+      title?: string;
+      variant_title?: string;
+      sku?: string;
+      quantity?: number;
+      unit_price?: number;
+      price?: number;
+      total_price?: number;
+      units_per_pack?: number;
+      shopify_product_id?: string;
+      shopify_variant_id?: string;
+      products?: { id: string; name: string; image_url?: string };
+    }
+
     const mappedLineItems = Array.isArray(lineItems)
-      ? lineItems.map((item: any, index: number) => {
+      ? lineItems.map((item: RawLineItem, index: number) => {
           const unitPrice = Number(item.unit_price ?? item.price ?? 0);
           const quantity = Number(item.quantity ?? 1);
           return {
@@ -688,13 +732,14 @@ export const ordersService = {
         };
       }
 
-      // For other errors (400, 500), throw with error data
-      const error: any = new Error(errorData.message || `Error HTTP: ${response.status}`);
-      error.response = {
+      const bulkError = new Error(errorData.message || `Error HTTP: ${response.status}`) as Error & {
+        response: { status: number; data: Record<string, unknown> };
+      };
+      bulkError.response = {
         status: response.status,
         data: errorData
       };
-      throw error;
+      throw bulkError;
     }
 
     const result = await response.json();

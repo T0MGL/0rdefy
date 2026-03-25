@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { inventoryService, InventoryMovement } from '@/services/inventory';
+import { useDebounce } from '@/hooks/useDebounce';
 import { Input } from '@/components/ui/input';
 import { DateInput } from '@/components/ui/date-input';
 import { Button } from '@/components/ui/button';
@@ -19,9 +21,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Search, Filter, TrendingDown, TrendingUp, Package } from 'lucide-react';
+import { Search, Filter, TrendingDown, TrendingUp, Package, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatInTimeZone } from 'date-fns-tz';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { es } from 'date-fns/locale';
@@ -38,37 +40,89 @@ const MOVEMENT_TYPES = {
   inbound_received: { label: 'Recepción de Proveedor', color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-400', icon: TrendingUp },
 };
 
+const PAGE_SIZE = 50;
+
 export function InventoryMovements() {
   const { currentStore } = useAuth();
   const timezone = currentStore?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const [search, setSearch] = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
-  const [movementType, setMovementType] = useState<string>('all');
-  const [dateFrom, setDateFrom] = useState<string>('');
-  const [dateTo, setDateTo] = useState<string>('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchDebounced(search);
-    }, 500);
+  // URL params as source of truth for filters and pagination
+  const search = searchParams.get('q') || '';
+  const movementType = searchParams.get('type') || 'all';
+  const dateFrom = searchParams.get('from') || '';
+  const dateTo = searchParams.get('to') || '';
+  const page = parseInt(searchParams.get('page') || '0', 10);
 
-    return () => clearTimeout(timer);
-  }, [search]);
+  const [showFiltersPanel, setShowFiltersPanel] = useState(
+    movementType !== 'all' || !!dateFrom || !!dateTo
+  );
 
-  // Fetch movements
-  const { data: movementsData, isLoading, error } = useQuery({
-    queryKey: ['inventory-movements', searchDebounced, movementType, dateFrom, dateTo],
+  const searchDebounced = useDebounce(search, 300);
+
+  const setSearch = useCallback((value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('q', value);
+      else next.delete('q');
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setMovementType = useCallback((value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value && value !== 'all') next.set('type', value);
+      else next.delete('type');
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setDateFrom = useCallback((value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('from', value);
+      else next.delete('from');
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setDateTo = useCallback((value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('to', value);
+      else next.delete('to');
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setPage = useCallback((p: number) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (p > 0) next.set('page', String(p));
+      else next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Fetch movements with pagination
+  const { data: movementsData, isLoading, error, refetch } = useQuery({
+    queryKey: ['inventory-movements', searchDebounced, movementType, dateFrom, dateTo, page],
     queryFn: () =>
       inventoryService.getMovements({
         search: searchDebounced || undefined,
         movement_type: movementType !== 'all' ? movementType : undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
-        limit: 100,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       }),
+    placeholderData: (prev) => prev,
   });
 
   // Fetch summary
@@ -84,12 +138,13 @@ export function InventoryMovements() {
   const movements = movementsData?.data || [];
   const totalMovements = movementsData?.count || 0;
 
-  const handleClearFilters = () => {
-    setMovementType('all');
-    setDateFrom('');
-    setDateTo('');
-    setSearch('');
-  };
+  const totalPages = Math.ceil(totalMovements / PAGE_SIZE);
+
+  const hasActiveFilters = search || movementType !== 'all' || dateFrom || dateTo;
+
+  const handleClearFilters = useCallback(() => {
+    setSearchParams({}, { replace: true });
+  }, [setSearchParams]);
 
   const renderMovementBadge = (movement: InventoryMovement) => {
     const typeInfo = MOVEMENT_TYPES[movement.movement_type];
@@ -224,8 +279,8 @@ export function InventoryMovements() {
 
             {/* Filter Button */}
             <Button
-              variant={showFilters ? 'default' : 'outline'}
-              onClick={() => setShowFilters(!showFilters)}
+              variant={showFiltersPanel ? 'default' : 'outline'}
+              onClick={() => setShowFiltersPanel(!showFiltersPanel)}
             >
               <Filter className="w-4 h-4 mr-2" />
               Filtros
@@ -233,7 +288,7 @@ export function InventoryMovements() {
           </div>
 
           {/* Filters Panel */}
-          {showFilters && (
+          {showFiltersPanel && (
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800 grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Movement Type Filter */}
               <div>
@@ -290,29 +345,79 @@ export function InventoryMovements() {
         </CardHeader>
 
         <CardContent>
-          {/* Loading State */}
+          {/* Skeleton Loading State */}
           {isLoading && (
-            <div className="flex justify-center items-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Codigo</TableHead>
+                    <TableHead>Cantidad</TableHead>
+                    <TableHead>Stock</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Descripcion</TableHead>
+                    <TableHead>Fecha</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-md bg-muted animate-pulse" />
+                          <div className="h-4 w-28 bg-muted animate-pulse rounded" />
+                        </div>
+                      </TableCell>
+                      <TableCell><div className="h-4 w-16 bg-muted animate-pulse rounded" /></TableCell>
+                      <TableCell><div className="h-4 w-10 bg-muted animate-pulse rounded" /></TableCell>
+                      <TableCell><div className="h-4 w-20 bg-muted animate-pulse rounded" /></TableCell>
+                      <TableCell><div className="h-5 w-24 bg-muted animate-pulse rounded-full" /></TableCell>
+                      <TableCell><div className="h-4 w-32 bg-muted animate-pulse rounded" /></TableCell>
+                      <TableCell><div className="h-4 w-20 bg-muted animate-pulse rounded" /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
 
           {/* Error State */}
-          {error && (
+          {error && !isLoading && (
             <div className="text-center py-12">
-              <p className="text-red-600 dark:text-red-400">
+              <p className="text-red-600 dark:text-red-400 mb-4">
                 Error al cargar los movimientos de inventario
               </p>
+              <button
+                onClick={() => refetch()}
+                className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Reintentar
+              </button>
             </div>
           )}
 
-          {/* Empty State */}
+          {/* Empty State: differentiate between no results with filters vs genuinely empty */}
           {!isLoading && !error && movements.length === 0 && (
             <div className="text-center py-12">
               <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600 dark:text-gray-400">
-                No se encontraron movimientos de inventario
-              </p>
+              {hasActiveFilters ? (
+                <>
+                  <p className="text-gray-600 dark:text-gray-400 font-medium">
+                    No se encontraron movimientos con estos filtros
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Intenta cambiar los filtros o limpiar la busqueda
+                  </p>
+                  <Button variant="ghost" className="mt-4" onClick={handleClearFilters}>
+                    Limpiar filtros
+                  </Button>
+                </>
+              ) : (
+                <p className="text-gray-600 dark:text-gray-400">
+                  No hay movimientos de inventario registrados
+                </p>
+              )}
             </div>
           )}
 
@@ -323,18 +428,17 @@ export function InventoryMovements() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Producto</TableHead>
-                    <TableHead>Código</TableHead>
+                    <TableHead>Codigo</TableHead>
                     <TableHead>Cantidad</TableHead>
                     <TableHead>Stock</TableHead>
                     <TableHead>Tipo</TableHead>
-                    <TableHead>Descripción</TableHead>
+                    <TableHead>Descripcion</TableHead>
                     <TableHead>Fecha</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {movements.map((movement) => (
                     <TableRow key={movement.id}>
-                      {/* Product */}
                       <TableCell>
                         <div className="flex items-center gap-3">
                           {movement.products?.image_url ? (
@@ -354,32 +458,26 @@ export function InventoryMovements() {
                         </div>
                       </TableCell>
 
-                      {/* SKU */}
                       <TableCell>
                         <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
                           {movement.products?.sku || '-'}
                         </code>
                       </TableCell>
 
-                      {/* Quantity Change */}
                       <TableCell>{renderQuantityChange(movement.quantity_change)}</TableCell>
 
-                      {/* Stock Before → After */}
                       <TableCell>
                         <span className="text-sm text-gray-600 dark:text-gray-400">
-                          {movement.stock_before} → {movement.stock_after}
+                          {movement.stock_before} &rarr; {movement.stock_after}
                         </span>
                       </TableCell>
 
-                      {/* Movement Type */}
                       <TableCell>{renderMovementBadge(movement)}</TableCell>
 
-                      {/* Description */}
                       <TableCell className="max-w-xs truncate">
                         {renderDescription(movement)}
                       </TableCell>
 
-                      {/* Date */}
                       <TableCell>
                         <div className="text-sm">
                           <div className="text-gray-900 dark:text-white">
@@ -395,9 +493,38 @@ export function InventoryMovements() {
                 </TableBody>
               </Table>
 
-              {/* Results Summary */}
-              <div className="mt-4 text-sm text-gray-600 dark:text-gray-400 text-center">
-                Mostrando {movements.length} de {totalMovements} movimientos
+              {/* Pagination */}
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {totalMovements > 0
+                    ? `${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, totalMovements)} de ${totalMovements} movimientos`
+                    : `${movements.length} movimientos`}
+                </p>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(Math.max(0, page - 1))}
+                      disabled={page === 0}
+                    >
+                      <ChevronLeft size={16} />
+                      Anterior
+                    </Button>
+                    <span className="text-sm text-muted-foreground px-2">
+                      {page + 1} / {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+                      disabled={page >= totalPages - 1}
+                    >
+                      Siguiente
+                      <ChevronRight size={16} />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}

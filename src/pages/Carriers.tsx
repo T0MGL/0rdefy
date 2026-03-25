@@ -19,9 +19,27 @@ import { carriersService, Carrier } from '@/services/carriers.service';
 import { Plus, Package, TrendingUp, Clock, Star, Search } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
+import apiClient from '@/services/api.client';
 
-// Form Component
-function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSubmit: (data: any) => void; onCancel: () => void }) {
+interface CourierPerformanceStat {
+  courier_id: string;
+  courier_name: string;
+  total_deliveries: number;
+  successful_deliveries: number;
+  failed_deliveries: number;
+  delivery_rate: number;
+}
+
+interface CarrierFormData {
+  name: string;
+  phone: string;
+  email: string;
+  notes: string;
+  carrier_type: string;
+  is_active: boolean;
+}
+
+function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSubmit: (data: CarrierFormData) => void; onCancel: () => void }) {
   const [formData, setFormData] = useState({
     name: carrier?.name || '',
     phone: carrier?.phone || '',
@@ -138,11 +156,11 @@ export default function Carriers() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [performanceFilter, setPerformanceFilter] = useState<'all' | 'poor-performance'>('all');
-  const [carriers, setCarriers] = useState<any[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [dbCarriers, setDbCarriers] = useState<Carrier[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedCarrier, setSelectedCarrier] = useState<Carrier | null>(null);
-  const [performanceStats, setPerformanceStats] = useState<any>(null);
+  const [performanceStats, setPerformanceStats] = useState<CourierPerformanceStat[] | null>(null);
   const [zonesDialogOpen, setZonesDialogOpen] = useState(false);
   const [zonesCarrier, setZonesCarrier] = useState<{ id: string; name: string } | null>(null);
 
@@ -171,22 +189,15 @@ export default function Carriers() {
     abortControllerRef.current = controller;
 
     try {
-      const token = localStorage.getItem('auth_token');
-      const storeId = localStorage.getItem('current_store_id');
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/couriers/performance/all`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Store-ID': storeId || '',
-        },
+      const response = await apiClient.get('/couriers/performance/all', {
         signal: controller.signal,
       });
       if (!isMountedRef.current || controller.signal.aborted) return;
-      if (response.ok) {
-        const data = await response.json();
-        setPerformanceStats(data.data || []);
-      }
-    } catch (error: any) {
-      if (error?.name === 'AbortError') return;
+      setPerformanceStats(response.data.data || []);
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      const axiosErr = error as { code?: string };
+      if (axiosErr.code === 'ERR_CANCELED') return;
       logger.error('Error loading performance stats:', error);
     }
   }, []);
@@ -247,12 +258,12 @@ export default function Carriers() {
     setDialogOpen(true);
   };
 
-  const handleManageZones = (carrier: any) => {
-    setZonesCarrier({ id: carrier.id, name: carrier.name || carrier.carrier_name });
+  const handleManageZones = (carrier: Carrier) => {
+    setZonesCarrier({ id: carrier.id, name: carrier.name || carrier.carrier_name || '' });
     setZonesDialogOpen(true);
   };
 
-  const handleSubmit = async (data: any) => {
+  const handleSubmit = async (data: CarrierFormData) => {
     try {
       if (selectedCarrier) {
         await carriersService.update(selectedCarrier.id, data);
@@ -269,13 +280,12 @@ export default function Carriers() {
         // Mark first action completed (hides the onboarding tip)
         onboardingService.markFirstActionCompleted('carriers');
       }
-      await loadCarriers();
-      await loadPerformanceStats();
+      await Promise.all([loadCarriers(), loadPerformanceStats()]);
       setDialogOpen(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: 'Error',
-        description: error.message || 'Ocurrió un error al guardar el repartidor.',
+        description: error instanceof Error ? error.message : 'Ocurrio un error al guardar el repartidor.',
         variant: 'destructive',
       });
     }
@@ -283,7 +293,7 @@ export default function Carriers() {
 
   // Merge carriers with their performance stats
   const carriersWithStats = useMemo(() => carriers.map(carrier => {
-    const stats = performanceStats?.find((s: any) => s.courier_id === carrier.id);
+    const stats = performanceStats?.find((s) => s.courier_id === carrier.id);
     return {
       ...carrier,
       total_deliveries: stats?.total_deliveries || 0,
@@ -326,8 +336,7 @@ export default function Carriers() {
   }, [carriersWithStats]);
 
   const handleRefresh = useCallback(async () => {
-    await loadCarriers();
-    await loadPerformanceStats();
+    await Promise.all([loadCarriers(), loadPerformanceStats()]);
   }, [loadCarriers, loadPerformanceStats]);
 
   return (

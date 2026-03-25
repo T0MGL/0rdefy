@@ -8,18 +8,34 @@ import { EmptyState } from '@/components/EmptyState';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ExportButton } from '@/components/ExportButton';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { customersService } from '@/services/customers.service';
 import { useToast } from '@/hooks/use-toast';
 import { usePhoneAutoPasteSimple } from '@/hooks/usePhoneAutoPaste';
-import { Plus, Edit, Trash2, Users, Mail, Phone, ShoppingBag, Search } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { useState, useEffect, useMemo } from 'react';
+import { useDebounce } from '@/hooks/useDebounce';
+import { Plus, Edit, Trash2, Users, Mail, Phone, ShoppingBag, Search, X, ArrowUpDown } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Customer } from '@/types';
 import { customersExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
 
-// Customer Form Component
+interface CustomerFormData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  accepts_marketing: boolean;
+}
+
 function CustomerForm({
   customer,
   onSubmit,
@@ -27,7 +43,7 @@ function CustomerForm({
   isSubmitting
 }: {
   customer?: Customer;
-  onSubmit: (data: any) => void;
+  onSubmit: (data: CustomerFormData) => void;
   onCancel: () => void;
   isSubmitting?: boolean;
 }) {
@@ -120,9 +136,12 @@ function CustomerForm({
   );
 }
 
+type SortField = 'name' | 'total_spent' | 'total_orders' | 'created_at';
+type SortDirection = 'asc' | 'desc';
+
 export default function Customers() {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -130,30 +149,101 @@ export default function Customers() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // ✅ React Query with aggressive cache (customers change rarely)
+  // URL-param-driven state for search and sort
+  const searchQuery = searchParams.get('q') || '';
+  const sortField = (searchParams.get('sort') || 'created_at') as SortField;
+  const sortDirection = (searchParams.get('dir') || 'desc') as SortDirection;
+
+  const setSearchQuery = useCallback((value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) {
+        next.set('q', value);
+      } else {
+        next.delete('q');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setSortField = useCallback((value: SortField) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value !== 'created_at') {
+        next.set('sort', value);
+      } else {
+        next.delete('sort');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setSortDirection = useCallback((value: SortDirection) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value !== 'desc') {
+        next.set('dir', value);
+      } else {
+        next.delete('dir');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Extended stale window: customer data changes infrequently
   const { data: customers = [], isLoading } = useQuery({
     queryKey: ['customers'],
     queryFn: customersService.getAll,
-    staleTime: 5 * 60 * 1000,      // ✅ 5 min - customers are static data
-    cacheTime: 10 * 60 * 1000,     // ✅ 10 min cache in background
-    refetchOnMount: false,         // ✅ Don't refetch if data is fresh (< 5min)
-    refetchOnWindowFocus: false,   // ✅ Don't refetch on tab focus (not time-sensitive)
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
-  // ✅ Client-side filtering (no API calls for search)
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
   const filteredCustomers = useMemo(() => {
-    if (searchQuery.trim() === '') {
-      return customers;
+    let result = customers;
+
+    if (debouncedSearch.trim() !== '') {
+      const query = debouncedSearch.toLowerCase();
+      result = result.filter(
+        (customer) =>
+          (customer.first_name || '').toLowerCase().includes(query) ||
+          (customer.last_name || '').toLowerCase().includes(query) ||
+          (customer.email || '').toLowerCase().includes(query) ||
+          (customer.phone || '').includes(query)
+      );
     }
-    const query = searchQuery.toLowerCase();
-    return customers.filter(
-      (customer) =>
-        customer.first_name.toLowerCase().includes(query) ||
-        customer.last_name.toLowerCase().includes(query) ||
-        customer.email.toLowerCase().includes(query) ||
-        customer.phone.includes(query)
-    );
-  }, [searchQuery, customers]);
+
+    // Sort
+    const sorted = [...result].sort((a, b) => {
+      let comparison = 0;
+      switch (sortField) {
+        case 'name': {
+          const nameA = `${a.first_name} ${a.last_name}`.toLowerCase();
+          const nameB = `${b.first_name} ${b.last_name}`.toLowerCase();
+          comparison = nameA.localeCompare(nameB);
+          break;
+        }
+        case 'total_spent':
+          comparison = (a.total_spent || 0) - (b.total_spent || 0);
+          break;
+        case 'total_orders':
+          comparison = (a.total_orders || 0) - (b.total_orders || 0);
+          break;
+        case 'created_at': {
+          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          comparison = dateA - dateB;
+          break;
+        }
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return sorted;
+  }, [debouncedSearch, customers, sortField, sortDirection]);
 
   const handleCreate = () => {
     setSelectedCustomer(null);
@@ -188,19 +278,18 @@ export default function Customers() {
         title: 'Cliente eliminado',
         description: 'El cliente ha sido eliminado exitosamente.',
       });
-    } catch (error: any) {
-      // Revert optimistic update on error
-      queryClient.invalidateQueries(['customers']);
+    } catch (error: unknown) {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
 
       toast({
         title: 'Error al eliminar',
-        description: error.message || 'No se pudo eliminar el cliente.',
+        description: error instanceof Error ? error.message : 'No se pudo eliminar el cliente.',
         variant: 'destructive',
       });
     }
   };
 
-  const handleSubmit = async (data: any) => {
+  const handleSubmit = async (data: CustomerFormData) => {
     setIsSubmitting(true);
     try {
       if (selectedCustomer) {
@@ -231,13 +320,12 @@ export default function Customers() {
         });
       }
       setDialogOpen(false);
-    } catch (error: any) {
-      // Revert optimistic update on error
-      queryClient.invalidateQueries(['customers']);
+    } catch (error: unknown) {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
 
       toast({
         title: 'Error',
-        description: error.message || 'Ocurrió un error al guardar el cliente.',
+        description: error instanceof Error ? error.message : 'Ocurrió un error al guardar el cliente.',
         variant: 'destructive',
       });
     } finally {
@@ -335,15 +423,65 @@ export default function Customers() {
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={18} />
-        <Input
-          placeholder="Buscar por nombre, email o teléfono..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10"
-        />
+      {/* Search Bar + Sort Controls */}
+      <div className="flex flex-col md:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+          <Input
+            placeholder="Buscar por nombre, email o telefono..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 pr-9"
+          />
+          <AnimatePresence>
+            {searchQuery && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.15 }}
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors rounded-full p-0.5 hover:bg-muted"
+                aria-label="Limpiar busqueda"
+              >
+                <X size={16} />
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Sort Controls */}
+        <div className="flex items-center gap-2">
+          <Select value={sortField} onValueChange={(v) => setSortField(v as SortField)}>
+            <SelectTrigger className="w-full md:w-44 h-10">
+              <div className="flex items-center gap-2">
+                <ArrowUpDown size={14} className="text-muted-foreground shrink-0" />
+                <SelectValue />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="created_at">Fecha de Registro</SelectItem>
+              <SelectItem value="name">Nombre</SelectItem>
+              <SelectItem value="total_spent">Total Gastado</SelectItem>
+              <SelectItem value="total_orders">Total Pedidos</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 shrink-0"
+            onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+            title={sortDirection === 'asc' ? 'Ascendente (click para descendente)' : 'Descendente (click para ascendente)'}
+          >
+            <motion.div
+              animate={{ rotate: sortDirection === 'asc' ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ArrowUpDown size={16} />
+            </motion.div>
+          </Button>
+        </div>
       </div>
 
       {/* Customers Grid */}

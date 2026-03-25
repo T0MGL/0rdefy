@@ -23,94 +23,69 @@ const getHeaders = () => {
 
 export const suppliersService = {
   getAll: async (): Promise<Supplier[]> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/suppliers`, {
-        headers: getHeaders(),
-      });
-      if (!response.ok) {
-        throw new Error(`Error HTTP: ${response.status}`);
-      }
-      const result = await response.json();
-      return result.data || [];
-    } catch (error) {
-      console.error('Error loading suppliers:', error);
-      return [];
+    const response = await fetch(`${API_BASE_URL}/suppliers`, {
+      headers: getHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${response.status}`);
     }
+    const result = await response.json();
+    return result.data || [];
   },
 
   getById: async (id: string): Promise<Supplier | undefined> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/suppliers/${id}`, {
-        headers: getHeaders(),
-      });
-      if (!response.ok) {
-        if (response.status === 404) return undefined;
-        throw new Error(`Error HTTP: ${response.status}`);
-      }
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Error loading supplier:', error);
-      return undefined;
+    const response = await fetch(`${API_BASE_URL}/suppliers/${id}`, {
+      headers: getHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 404) return undefined;
+      throw new Error(`Error HTTP: ${response.status}`);
     }
+    const data = await response.json();
+    return data;
   },
 
   create: async (supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at' | 'products_count' | 'products_supplied'>): Promise<Supplier> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/suppliers`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(supplier),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Error HTTP: ${response.status}`);
-      }
-      const result = await response.json();
-      return result.data;
-    } catch (error) {
-      console.error('Error creating supplier:', error);
-      throw error;
+    const response = await fetch(`${API_BASE_URL}/suppliers`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(supplier),
+    });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `Error HTTP: ${response.status}`);
     }
+    const result = await response.json();
+    return result.data;
   },
 
   update: async (id: string, data: Partial<Supplier>): Promise<Supplier | undefined> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/suppliers/${id}`, {
-        method: 'PUT',
-        headers: getHeaders(),
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) {
-        if (response.status === 404) return undefined;
-        throw new Error(`Error HTTP: ${response.status}`);
-      }
-      const result = await response.json();
-      return result.data;
-    } catch (error) {
-      console.error('Error updating supplier:', error);
-      return undefined;
+    const response = await fetch(`${API_BASE_URL}/suppliers/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      if (response.status === 404) return undefined;
+      throw new Error(`Error HTTP: ${response.status}`);
     }
+    const result = await response.json();
+    return result.data;
   },
 
   delete: async (id: string): Promise<boolean> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/suppliers/${id}`, {
-        method: 'DELETE',
-        headers: getHeaders(),
-      });
-      if (!response.ok) {
-        if (response.status === 404) return false;
-        if (response.status === 409) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'El proveedor tiene productos asignados');
-        }
-        throw new Error(`Error HTTP: ${response.status}`);
+    const response = await fetch(`${API_BASE_URL}/suppliers/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 404) return false;
+      if (response.status === 409) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'El proveedor tiene productos asignados');
       }
-      return true;
-    } catch (error) {
-      console.error('Error deleting supplier:', error);
-      throw error;
+      throw new Error(`Error HTTP: ${response.status}`);
     }
+    return true;
   },
 };

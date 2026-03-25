@@ -16,44 +16,31 @@ const getAuthHeaders = (): HeadersInit => {
 
 export const additionalValuesService = {
   async getAll(): Promise<AdditionalValue[]> {
-    try {
-      const response = await fetch(`${API_URL}/api/additional-values`, {
-        headers: getAuthHeaders(),
-      });
-      if (!response.ok) throw new Error('Error al obtener valores adicionales');
-      const data = await response.json();
-      return data.data || [];
-    } catch (error) {
-      console.error('Error fetching additional values:', error);
-      // Return empty array on error
-      return [];
-    }
+    const response = await fetch(`${API_URL}/api/additional-values`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al obtener valores adicionales');
+    const data = await response.json();
+    return data.data || [];
   },
 
   async getById(id: string): Promise<AdditionalValue | undefined> {
-    try {
-      const response = await fetch(`${API_URL}/api/additional-values/${id}`, {
-        headers: getAuthHeaders(),
-      });
-      if (!response.ok) return undefined;
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching additional value:', error);
-      return undefined;
+    const response = await fetch(`${API_URL}/api/additional-values/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      if (response.status === 404) return undefined;
+      throw new Error('Error al obtener valor adicional');
     }
+    return await response.json();
   },
 
   async getSummary(): Promise<{ marketing: number; sales: number; employees: number; operational: number }> {
-    try {
-      const response = await fetch(`${API_URL}/api/additional-values/summary`, {
-        headers: getAuthHeaders(),
-      });
-      if (!response.ok) throw new Error('Error al obtener resumen');
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching summary:', error);
-      return { marketing: 0, sales: 0, employees: 0, operational: 0 };
-    }
+    const response = await fetch(`${API_URL}/api/additional-values/summary`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al obtener resumen');
+    return await response.json();
   },
 
   async create(data: Partial<AdditionalValue>): Promise<AdditionalValue> {

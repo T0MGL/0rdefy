@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -105,6 +106,16 @@ const retryStatusLabels = {
   cancelled: 'Cancelado',
 };
 
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    const axiosError = error as { response?: { data?: { error?: string; message?: string } } };
+    if (axiosError.response?.data?.error) return axiosError.response.data.error;
+    if (axiosError.response?.data?.message) return axiosError.response.data.message;
+    return error.message;
+  }
+  return fallback;
+}
+
 export default function Incidents() {
   const { currentStore } = useAuth();
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
@@ -119,7 +130,11 @@ export default function Incidents() {
   const [resolutionType, setResolutionType] = useState('cancelled');
   const [resolutionNotes, setResolutionNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('efectivo');
-  const [statusFilter, setStatusFilter] = useState('active');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = searchParams.get('status') || 'active';
+  const setStatusFilter = (status: string) => {
+    setSearchParams(prev => { prev.set('status', status); return prev; }, { replace: true });
+  };
   const { toast } = useToast();
 
   // Memory leak prevention
@@ -151,13 +166,13 @@ export default function Incidents() {
       });
       if (!isMountedRef.current) return;
       setIncidents(response.data.data || []);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (!isMountedRef.current) return;
       logger.error('Error loading incidents:', error);
       toast({
         variant: 'destructive',
         title: 'Error al cargar incidencias',
-        description: error.response?.data?.error || 'No se pudieron cargar las incidencias'
+        description: getApiErrorMessage(error, 'No se pudieron cargar las incidencias')
       });
     } finally {
       if (isMountedRef.current) setIsLoading(false);
@@ -189,12 +204,12 @@ export default function Incidents() {
       setScheduledDate('');
       setScheduleNotes('');
       loadIncidents();
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error scheduling retry:', error);
       toast({
         variant: 'destructive',
         title: 'Error al programar reintento',
-        description: error.response?.data?.message || error.response?.data?.error || 'No se pudo programar el reintento'
+        description: getApiErrorMessage(error, 'No se pudo programar el reintento')
       });
     }
   };
@@ -219,7 +234,7 @@ export default function Incidents() {
     }
 
     try {
-      const payload: any = {
+      const payload: { resolution_type: string; notes: string; payment_method?: string } = {
         resolution_type: resolutionType,
         notes: resolutionNotes
       };
@@ -241,12 +256,12 @@ export default function Incidents() {
       setResolutionNotes('');
       setPaymentMethod('efectivo');
       loadIncidents();
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error resolving incident:', error);
       toast({
         variant: 'destructive',
         title: 'Error al resolver incidencia',
-        description: error.response?.data?.message || error.response?.data?.error || 'No se pudo resolver la incidencia'
+        description: getApiErrorMessage(error, 'No se pudo resolver la incidencia')
       });
     }
   };

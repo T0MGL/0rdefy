@@ -25,7 +25,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useHighlight } from '@/hooks/useHighlight';
 import * as warehouseService from '@/services/warehouse.service';
-import { Order } from '@/types';
+import { Order, CreateOrderInput, UpdateOrderInput } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +43,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star, StickyNote, X, FileText } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { format, isAfter, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -60,6 +61,34 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+interface OrderFormData {
+  customer: string;
+  phone: string;
+  address: string;
+  product: string;
+  quantity: number;
+  carrier: string;
+  paymentMethod: 'paid' | 'cod';
+  googleMapsLink?: string;
+  shippingCity?: string;
+  shippingCityNormalized?: string;
+  deliveryZone?: string;
+  shippingCost?: number;
+  isPickup?: boolean;
+  deliveryPreferences?: Record<string, unknown> | null;
+  variantId?: string;
+  variantTitle?: string;
+  variantPrice?: number;
+  unitsPerPack?: number;
+  internalNotes?: string;
+  customerRuc?: string;
+  customerRucDv?: number | null;
+  upsellProductId?: string;
+  upsellQuantity?: number;
+}
+
+type LineItem = NonNullable<Order['order_line_items']>[number];
 
 const statusColors = {
   pending: 'bg-yellow-50 dark:bg-yellow-950/20 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800',
@@ -94,7 +123,7 @@ const statusLabels: Record<string, string> = {
 
 // Helper to check if order has active delivery restriction (scheduled for future)
 const getScheduledDeliveryInfo = (order: Order): { isScheduled: boolean; date: Date | null; summary: string | null } => {
-  const prefs = (order as any).delivery_preferences;
+  const prefs = order.delivery_preferences;
   if (!prefs || !prefs.not_before_date) {
     return { isScheduled: false, date: null, summary: null };
   }
@@ -129,7 +158,7 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
 
   if (lineItems.length === 0) {
     // Fallback to old product field
-    return <span className="text-sm truncate max-w-[200px]">{order.product}</span>;
+    return <span className="text-sm truncate block max-w-[200px]">{order.product}</span>;
   }
 
   // Show first 3 products as thumbnails
@@ -226,10 +255,67 @@ export default function Orders() {
 
   // Use centralized carriers hook with caching
   const { carriers, getCarrierName } = useCarriers();
-  const [search, setSearch] = useState('');
-  const [chipFilters, setChipFilters] = useState<Record<string, any>>({});
-  const [carrierFilter, setCarrierFilter] = useState('all');
-  const [scheduledFilter, setScheduledFilter] = useState<'all' | 'scheduled' | 'ready'>('all'); // Filter for scheduled orders
+
+  // P0: URL params as the single source of truth for all filters.
+  // This makes filters survive page reloads and enables shareable filter URLs.
+  const search = searchParams.get('q') || '';
+  const chipFilters: Record<string, string> = useMemo(() => {
+    const status = searchParams.get('status');
+    return status ? { status } : {};
+  }, [searchParams]);
+  const carrierFilter = searchParams.get('carrier') || 'all';
+  const scheduledFilter = (searchParams.get('scheduled') || 'all') as 'all' | 'scheduled' | 'ready';
+
+  // Stable setter helpers that update URL params without replacing other params.
+  // Each setter merges into the existing params and removes keys when resetting to default.
+  const setSearch = useCallback((value: string | ((prev: string) => string)) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      const resolved = typeof value === 'function' ? value(next.get('q') || '') : value;
+      if (resolved) {
+        next.set('q', resolved);
+      } else {
+        next.delete('q');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setChipFilters = useCallback((value: Record<string, string>) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value.status) {
+        next.set('status', value.status);
+      } else {
+        next.delete('status');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setCarrierFilter = useCallback((value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value && value !== 'all') {
+        next.set('carrier', value);
+      } else {
+        next.delete('carrier');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setScheduledFilter = useCallback((value: 'all' | 'scheduled' | 'ready') => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value !== 'all') {
+        next.set('scheduled', value);
+      } else {
+        next.delete('scheduled');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
@@ -418,7 +504,7 @@ export default function Orders() {
     loadMoreAbortRef.current = null;
     setIsLoadingMore(false);
 
-    // Clear selected order IDs — the new filter may show completely different orders,
+    // Clear selected order IDs. The new filter may show completely different orders,
     // and stale selections would let users accidentally bulk-print/delete invisible orders
     setSelectedOrderIds(new Set());
 
@@ -455,67 +541,55 @@ export default function Orders() {
     };
   }, [dateParams, serverFilters]);
 
-  // Process URL query parameters for filtering and navigation from notifications
+  // Translate legacy notification deep-links (?filter=pending) into the new URL param format (?status=pending).
+  // Runs once on mount: reads the legacy param, writes the canonical format, and removes the old key.
   useEffect(() => {
     const filter = searchParams.get('filter');
-    const sort = searchParams.get('sort');
+    if (!filter) return;
+
+    const statusMap: Record<string, string> = {
+      pending: 'pending',
+      awaiting_carrier: 'awaiting_carrier',
+      confirmed: 'confirmed',
+      shipped: 'in_transit',
+      in_transit: 'in_transit',
+      delivered: 'delivered',
+      cancelled: 'cancelled',
+    };
+
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('filter');
+      next.delete('sort');
+
+      if (filter === 'tomorrow-delivery') {
+        setViewMode('calendar');
+      } else if (statusMap[filter]) {
+        next.set('status', statusMap[filter]);
+      }
+
+      return next;
+    }, { replace: true });
+  // Only run on first render to translate the legacy param
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Scroll to highlighted order after data loads
+  useEffect(() => {
     const highlightId = searchParams.get('highlight');
-
-    // Apply filter from URL
-    if (filter) {
-      switch (filter) {
-        case 'pending':
-          setChipFilters({ status: 'pending' });
-          break;
-        case 'awaiting_carrier':
-          setChipFilters({ status: 'awaiting_carrier' });
-          break;
-        case 'confirmed':
-          setChipFilters({ status: 'confirmed' });
-          break;
-        case 'shipped':
-        case 'in_transit':
-          // 'shipped' is a legacy URL alias — the current status name is 'in_transit'
-          setChipFilters({ status: 'in_transit' });
-          break;
-        case 'delivered':
-          setChipFilters({ status: 'delivered' });
-          break;
-        case 'cancelled':
-          setChipFilters({ status: 'cancelled' });
-          break;
-        case 'tomorrow-delivery':
-          // This is handled by the calendar view or a special filter
-          setViewMode('calendar');
-          break;
-        default:
-          // Unknown filter - clear it
-          break;
-      }
-
-      // Clean up URL after applying filter (keep highlight if present)
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('filter');
-      newParams.delete('sort');
-      if (newParams.toString() !== searchParams.toString()) {
-        setSearchParams(newParams, { replace: true });
-      }
-    }
-
-    // Scroll to highlighted order after data loads
     if (highlightId && orders.length > 0) {
-      // Check if the order exists
       const orderExists = orders.some(o => o.id === highlightId);
       if (!orderExists) {
-        // Order not found - show toast and clean URL
         toast({
           title: 'Pedido no encontrado',
           description: 'El pedido al que intentas acceder ya no existe o fue eliminado.',
           variant: 'destructive',
         });
-        const newParams = new URLSearchParams(searchParams);
-        newParams.delete('highlight');
-        setSearchParams(newParams, { replace: true });
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.delete('highlight');
+          return next;
+        }, { replace: true });
       }
     }
   }, [searchParams, setSearchParams, orders, toast]);
@@ -649,7 +723,7 @@ export default function Orders() {
       // Revert optimistic update on error
       setOrders(prev => prev.map(o => (o.id === orderId ? originalOrder! : o)));
       // Don't show error - WhatsApp was opened successfully, just status update failed
-      console.error('Error updating order status to contacted:', error);
+      logger.error('Error updating order status to contacted:', error);
     }
   }, [toast]);
 
@@ -662,11 +736,14 @@ export default function Orders() {
     let productList = '';
     if (lineItems.length > 0) {
       productList = lineItems.map(item => {
-        const productName = item.product_name || item.title;
-        return `${productName}${item.quantity > 1 ? ` – ${item.quantity} unidades` : ''}`;
+        const baseName = item.product_name || item.title;
+        const displayName = item.variant_title && item.variant_title !== 'Upsell'
+          ? `${baseName} (${item.variant_title})`
+          : baseName;
+        return `${displayName}${item.quantity > 1 ? ` x ${item.quantity} unidades` : ''}`;
       }).join('\n');
     } else if (order.product) {
-      productList = `${order.product}${order.quantity > 1 ? ` – ${order.quantity} unidades` : ''}`;
+      productList = `${order.product}${order.quantity > 1 ? ` x ${order.quantity} unidades` : ''}`;
     }
 
     // Build address section - prioritize google_maps_link, then check if address is a Maps link
@@ -715,8 +792,11 @@ Para CONFIRMAR tu pedido y enviarlo lo antes posible, respondé:
     let productSummary = '';
     if (lineItems.length > 0) {
       productSummary = lineItems.map(item => {
-        const productName = item.product_name || item.title;
-        return `${productName}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`;
+        const baseName = item.product_name || item.title;
+        const displayName = item.variant_title && item.variant_title !== 'Upsell'
+          ? `${baseName} (${item.variant_title})`
+          : baseName;
+        return `${displayName}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`;
       }).join(', ');
     } else if (order.product) {
       productSummary = `${order.product}${order.quantity > 1 ? ` (x${order.quantity})` : ''}`;
@@ -784,12 +864,13 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         setOrders(prev => prev.map(o => (o.id === orderId ? capturedOriginal : o)));
         throw new Error('Error al actualizar estado');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Revert optimistic update on error
       setOrders(prev => prev.map(o => (o.id === orderId ? capturedOriginal : o)));
 
       // Extract detailed error info from backend response
-      const errorResponse = error?.response?.data;
+      const axiosLike = error as { response?: { data?: { message?: string; details?: { from?: string; fromLabel?: string; to?: string; toLabel?: string; suggestion?: string } } } };
+      const errorResponse = axiosLike?.response?.data;
       const errorDetails = errorResponse?.details;
 
       // Pass the backend error details to the error handler
@@ -828,7 +909,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     });
   }, [toast]);
 
-  const handleCreateOrder = useCallback(async (data: any) => {
+  const handleCreateOrder = useCallback(async (data: OrderFormData) => {
     logger.log('🚀 [ORDERS] Creating order with data:', data);
 
     try {
@@ -842,9 +923,6 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
       // Migration 097: Determine price based on variant or product
       const unitPrice = data.variantPrice || product.price;
-      const productName = data.variantTitle
-        ? `${product.name} - ${data.variantTitle}`
-        : product.name;
 
       logger.log('📦 [ORDERS] Variant info:', {
         variantId: data.variantId,
@@ -884,43 +962,37 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         orderTotal
       });
 
-      const newOrder = await ordersService.create({
+      const createPayload: CreateOrderInput & { customer_ruc?: string | null; customer_ruc_dv?: number | null } = {
         customer: data.customer,
         phone: data.phone,
         address: data.address,
-        product: productName,
+        product: product.name,
         product_id: product.id,
-        product_sku: product.sku || null, // Migration 098: SKU for fallback mapping
+        product_sku: product.sku || undefined,
         quantity: data.quantity,
         total: orderTotal,
         status: 'confirmed',
-        carrier: data.isPickup ? undefined : data.carrier,
+        carrier: data.isPickup ? '' : data.carrier,
         paymentMethod: data.paymentMethod,
-        confirmedByWhatsApp: false,
-        // New shipping fields from OrderForm
-        google_maps_link: data.googleMapsLink || null,
-        shipping_city: data.shippingCity || null,
-        shipping_city_normalized: data.shippingCityNormalized || null,
-        delivery_zone: data.deliveryZone || null,
+        google_maps_link: data.googleMapsLink || undefined,
+        shipping_city: data.shippingCity || undefined,
+        shipping_city_normalized: data.shippingCityNormalized || undefined,
+        delivery_zone: data.deliveryZone || undefined,
         shipping_cost: data.shippingCost || 0,
         is_pickup: data.isPickup || false,
-        // Delivery preferences (scheduling)
-        delivery_preferences: data.deliveryPreferences || null,
-        // Migration 097: Variant support
-        variant_id: data.variantId || null,
-        variant_title: data.variantTitle || null,
+        delivery_preferences: data.deliveryPreferences || undefined,
+        variant_id: data.variantId || undefined,
+        variant_title: data.variantTitle || undefined,
         units_per_pack: data.unitsPerPack || 1,
-        // Internal notes (admin only)
-        internal_notes: data.internalNotes || null,
-        // Customer RUC for electronic invoicing (Paraguay)
-        customer_ruc: data.customerRuc || null,
-        customer_ruc_dv: data.customerRucDv ?? null,
-        // Upsell support
-        upsell_product_id: data.upsellProductId || null,
-        upsell_product_name: upsellProduct?.name || null,
-        upsell_product_price: upsellProduct?.price || null,
+        internal_notes: data.internalNotes || undefined,
+        customer_ruc: data.customerRuc || undefined,
+        customer_ruc_dv: data.customerRucDv ?? undefined,
+        upsell_product_id: data.upsellProductId || undefined,
+        upsell_product_name: upsellProduct?.name || undefined,
+        upsell_product_price: upsellProduct?.price || undefined,
         upsell_quantity: data.upsellQuantity || 1,
-      } as any);
+      };
+      const newOrder = await ordersService.create(createPayload);
 
       logger.log('✅ [ORDERS] Order created:', newOrder);
 
@@ -947,7 +1019,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     setEditDialogOpen(true);
   }, []);
 
-  const handleUpdateOrder = useCallback(async (data: any) => {
+  const handleUpdateOrder = useCallback(async (data: OrderFormData) => {
     if (!orderToEdit) return;
 
     try {
@@ -975,24 +1047,28 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         }
       }
 
-      // Detect if the main product changed vs. the original order
-      const originalMainItem = orderToEdit.order_line_items?.find((item: any) => !item.is_upsell)
+      // Detect if the main product or variant changed vs. the original order
+      const originalMainItem = orderToEdit.order_line_items?.find((item: LineItem) => !item.is_upsell)
         || orderToEdit.order_line_items?.[0];
       const originalProductId = originalMainItem?.product_id;
+      const originalVariantId = originalMainItem?.variant_id;
       const productChanged = data.product !== originalProductId;
+      const variantChanged = (data.variantId || null) !== (originalVariantId || null);
 
-      // Preserve original unit price when product didn't change
+      // Preserve original unit price only when neither product nor variant changed
       // This prevents Shopify/webhook prices from being overwritten by current catalog prices
       let mainUnitPrice: number;
-      if (!productChanged && originalMainItem?.unit_price != null) {
+      if (!productChanged && !variantChanged && originalMainItem?.unit_price != null) {
         mainUnitPrice = Number(originalMainItem.unit_price);
+      } else if (data.variantPrice != null) {
+        mainUnitPrice = Number(data.variantPrice);
       } else {
         mainUnitPrice = Number(product.price);
       }
       const mainProductTotal = mainUnitPrice * Number(data.quantity);
 
       // Same logic for upsell: preserve original price if upsell product didn't change
-      const originalUpsellItem = orderToEdit.order_line_items?.find((item: any) => item.is_upsell === true);
+      const originalUpsellItem = orderToEdit.order_line_items?.find((item: LineItem) => item.is_upsell === true);
       const upsellChanged = data.upsellProductId !== originalUpsellItem?.product_id;
       let upsellUnitPrice = 0;
       if (upsellProduct) {
@@ -1008,6 +1084,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
       logger.log('💰 [ORDERS] Update total calculation:', {
         productChanged,
+        variantChanged,
+        variantPrice: data.variantPrice,
         mainUnitPrice,
         mainProductTotal,
         upsellChanged,
@@ -1017,36 +1095,33 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         orderTotal
       });
 
-      // Pass mainProductTotal (not orderTotal) — upsell is handled by the separate /upsell endpoint
+      // Pass mainProductTotal (not orderTotal): upsell is handled by the separate /upsell endpoint
       // This ensures line_items get the correct unit price (not inflated by upsell)
-      const updatedOrder = await ordersService.update(orderToEdit.id, {
+      const updatePayload: UpdateOrderInput = {
         customer: data.customer,
         phone: data.phone,
         address: data.address,
         google_maps_link: data.googleMapsLink,
         product: product.name,
         product_id: product.id,
+        variant_id: data.variantId,
         quantity: data.quantity,
         total: mainProductTotal,
         carrier: data.carrier,
         paymentMethod: data.paymentMethod,
-        // Shipping info
         shipping_city: data.shippingCity,
         shipping_city_normalized: data.shippingCityNormalized,
         is_pickup: data.isPickup,
-        // Delivery preferences (scheduling)
-        delivery_preferences: data.deliveryPreferences || null,
-        // Upsell data
+        delivery_preferences: data.deliveryPreferences || undefined,
         upsell_product_id: data.upsellProductId,
         upsell_product_name: upsellProduct?.name,
         upsell_product_price: upsellChanged ? upsellProduct?.price : upsellUnitPrice || upsellProduct?.price,
         upsell_quantity: data.upsellQuantity,
-        // Internal notes (admin only)
-        internal_notes: data.internalNotes || null,
-        // Customer RUC for electronic invoicing (Paraguay)
-        customer_ruc: data.customerRuc || null,
-        customer_ruc_dv: data.customerRucDv ?? null,
-      } as any);
+        internal_notes: data.internalNotes || undefined,
+        customer_ruc: data.customerRuc || undefined,
+        customer_ruc_dv: data.customerRucDv ?? undefined,
+      };
+      const updatedOrder = await ordersService.update(orderToEdit.id, updatePayload);
 
       if (updatedOrder) {
         setOrders(prev => prev.map(o => (o.id === orderToEdit.id ? updatedOrder : o)));
@@ -1120,7 +1195,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             : 'El pedido ha sido marcado como eliminado. Puede restaurarlo desde los filtros.',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error deleting order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
@@ -1171,7 +1246,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
           description: 'El pedido ha sido eliminado de forma permanente.',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error permanently deleting order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
@@ -1191,7 +1266,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
           description: 'El pedido ha sido restaurado exitosamente.',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error restoring order:', error);
       showErrorToast(toast, error, {
         module: 'orders',
@@ -1213,7 +1288,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             : 'El pedido ahora se muestra normalmente',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error toggling test status:', error);
       showErrorToast(toast, error, {
         module: 'orders',
@@ -1243,7 +1318,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         // Redirect to warehouse with session ID (will auto-open picking)
         navigate(`/warehouse?session=${session.id}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error creating picking session:', error);
       showErrorToast(toast, error, {
         module: 'warehouse',
@@ -1279,11 +1354,24 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   // since server-side filtering would hide carriers not in current result set)
   const carriersForFilter = carriers;
 
-  // ALL filters now server-side (Migration 125) - no client-side filtering needed
-  // filteredOrders is now just orders (all filtering done in API)
-  const filteredOrders = useMemo(() => {
-    return orders;
-  }, [orders]);
+  const filteredOrders = orders;
+
+  // Map chipFilters.status back to the FilterChips id so the visual highlight stays in sync.
+  // When the parent clears chipFilters (e.g. via "Limpiar Filtros"), this becomes null
+  // and FilterChips deselects its badge without requiring internal state management.
+  const statusToChipId: Record<string, string> = {
+    pending: 'pending',
+    awaiting_carrier: 'awaiting-carrier',
+    confirmed: 'confirmed',
+    in_preparation: 'in-preparation',
+    ready_to_ship: 'ready-to-ship',
+    in_transit: 'shipped',
+    delivered: 'delivered',
+    returned: 'returned',
+    cancelled: 'cancelled',
+    incident: 'incident',
+  };
+  const activeChipId = chipFilters.status ? (statusToChipId[chipFilters.status] || null) : null;
 
   // Export filename: StoreName DD.MM.YYYY
   const exportFilename = useMemo(() => {
@@ -1295,7 +1383,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     return `${safeName} ${dd}.${mm}.${yyyy}`;
   }, [currentStore?.name]);
 
-  // Planilla transportadora columns — EMPRESA column uses the store name
+  // Planilla transportadora columns, EMPRESA column uses the store name
   const planillaColumns = useMemo(
     () => createPlanillaTransportadoraColumns(currentStore?.name || 'Empresa'),
     [currentStore?.name]
@@ -1390,10 +1478,10 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         prepaidMethod: order.prepaid_method, // Manual prepaid: transfer, qr, etc.
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
-          ? order.order_line_items.map((item: any) => ({
-            name: item.product_name || item.title,
+          ? order.order_line_items.map((item: LineItem) => ({
+            name: item.product_name,
             quantity: item.quantity,
-            price: item.price || item.unit_price,
+            price: item.unit_price,
           }))
           : [{
               name: order.product,
@@ -1444,8 +1532,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         toast({ title: 'Factura generada', description: 'La factura electrónica fue generada exitosamente.' });
         refetch();
       }
-    } catch (err: any) {
-      toast({ title: 'Error DTE', description: err.message || 'Error al procesar factura', variant: 'destructive' });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error al procesar factura';
+      toast({ title: 'Error DTE', description: message, variant: 'destructive' });
     } finally {
       setDteLoadingOrderId(null);
     }
@@ -1484,10 +1573,10 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         prepaidMethod: order.prepaid_method, // Manual prepaid: transfer, qr, etc.
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
-          ? order.order_line_items.map((item: any) => ({
-            name: item.product_name || item.title,
+          ? order.order_line_items.map((item: LineItem) => ({
+            name: item.product_name,
             quantity: item.quantity,
-            price: item.price || item.unit_price,
+            price: item.unit_price,
           }))
           : [{
               name: order.product,
@@ -1573,7 +1662,11 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     );
   }
 
-  if (orders.length === 0) {
+  // Track whether any filter is active. Used to distinguish "no orders ever" from
+  // "no orders matching current filters" and to show/hide the clear button.
+  const hasActiveFilters = !!(chipFilters.status || carrierFilter !== 'all' || search || scheduledFilter !== 'all');
+
+  if (orders.length === 0 && !hasActiveFilters) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -1584,12 +1677,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         </div>
         <EmptyState
           icon={ShoppingCart}
-          title="No hay pedidos aún"
+          title="No hay pedidos aun"
           description="Comienza creando tu primer pedido para empezar a gestionar tus ventas."
           action={{
             label: 'Crear Primer Pedido',
             onClick: () => {
-              logger.log('🖱️ [ORDERS] Empty state button clicked');
+              logger.log('[ORDERS] Empty state button clicked');
               setDialogOpen(true);
             },
           }}
@@ -1642,18 +1735,23 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             {/* Clear Filters Button - ALWAYS visible, enables clearing even with 0 results */}
             {/* Shows when: status filter OR carrier filter OR search OR scheduled filter is active */}
             {/* This ensures users can ALWAYS clear filters regardless of result count */}
-            {(chipFilters.status || carrierFilter !== 'all' || search || scheduledFilter !== 'all') && (
+            {hasActiveFilters && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setChipFilters({});
-                  setCarrierFilter('all');
-                  setSearch('');  // Clear search input
-                  setScheduledFilter('all');
+                  // Atomic clear: remove all filter params in one URL update
+                  setSearchParams(prev => {
+                    const next = new URLSearchParams(prev);
+                    next.delete('status');
+                    next.delete('carrier');
+                    next.delete('q');
+                    next.delete('scheduled');
+                    return next;
+                  }, { replace: true });
                 }}
                 className="gap-2 text-xs h-7 px-3 border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/20"
-                title="Limpiar todos los filtros y búsqueda"
+                title="Limpiar todos los filtros y busqueda"
               >
                 <X size={14} />
                 Limpiar Filtros
@@ -1713,6 +1811,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         <FilterChips
           storageKey="orders_filters"
           onFilterApply={(filters) => setChipFilters(filters)}
+          activeFilterId={activeChipId}
         />
 
         {/* Filtro de pedidos programados */}
@@ -1760,7 +1859,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
           )}
         </div>
 
-        {/* Barra de búsqueda y filtros adicionales */}
+        {/* Barra de busqueda y filtros adicionales */}
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
@@ -1768,8 +1867,24 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
               placeholder="Buscar por cliente, email, producto, ID o # de orden..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
+              className="pl-10 pr-9"
             />
+            <AnimatePresence>
+              {search && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ duration: 0.15 }}
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors rounded-full p-0.5 hover:bg-muted"
+                  aria-label="Limpiar busqueda"
+                >
+                  <X size={16} />
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
           <Select value={carrierFilter} onValueChange={setCarrierFilter}>
             <SelectTrigger className="w-full md:w-48">
@@ -1807,6 +1922,102 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             {pagination.total > orders.length && ` de ${pagination.total}`}
           </Badge>
         </div>
+
+        {/* P4: Active Filter Summary Bar */}
+        {hasActiveFilters && (
+          <div className="flex items-center gap-2 flex-wrap pt-2 border-t">
+            <span className="text-xs text-muted-foreground font-medium mr-1">Filtros activos:</span>
+            <AnimatePresence mode="popLayout">
+              {chipFilters.status && (
+                <motion.div
+                  key="status"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <Badge
+                    variant="secondary"
+                    className="gap-1.5 pl-2.5 pr-1.5 py-1 text-xs cursor-pointer hover:bg-secondary/80 transition-colors"
+                    onClick={() => setChipFilters({})}
+                  >
+                    Estado: {statusLabels[chipFilters.status] || chipFilters.status}
+                    <X size={12} className="text-muted-foreground hover:text-foreground transition-colors" />
+                  </Badge>
+                </motion.div>
+              )}
+              {search && (
+                <motion.div
+                  key="search"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <Badge
+                    variant="secondary"
+                    className="gap-1.5 pl-2.5 pr-1.5 py-1 text-xs cursor-pointer hover:bg-secondary/80 transition-colors"
+                    onClick={() => setSearch('')}
+                  >
+                    Busqueda: {search.length > 20 ? search.slice(0, 20) + '...' : search}
+                    <X size={12} className="text-muted-foreground hover:text-foreground transition-colors" />
+                  </Badge>
+                </motion.div>
+              )}
+              {carrierFilter !== 'all' && (
+                <motion.div
+                  key="carrier"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <Badge
+                    variant="secondary"
+                    className="gap-1.5 pl-2.5 pr-1.5 py-1 text-xs cursor-pointer hover:bg-secondary/80 transition-colors"
+                    onClick={() => setCarrierFilter('all')}
+                  >
+                    Transportadora: {carrierFilter === 'pickup' ? 'Retiro en local' : carrierFilter === 'none' ? 'Sin transportadora' : (carriers.find(c => c.id === carrierFilter)?.name || carrierFilter)}
+                    <X size={12} className="text-muted-foreground hover:text-foreground transition-colors" />
+                  </Badge>
+                </motion.div>
+              )}
+              {scheduledFilter !== 'all' && (
+                <motion.div
+                  key="scheduled"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <Badge
+                    variant="secondary"
+                    className="gap-1.5 pl-2.5 pr-1.5 py-1 text-xs cursor-pointer hover:bg-secondary/80 transition-colors"
+                    onClick={() => setScheduledFilter('all')}
+                  >
+                    {scheduledFilter === 'scheduled' ? 'Programados' : 'Listos para entregar'}
+                    <X size={12} className="text-muted-foreground hover:text-foreground transition-colors" />
+                  </Badge>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <button
+              onClick={() => {
+                setSearchParams(prev => {
+                  const next = new URLSearchParams(prev);
+                  next.delete('status');
+                  next.delete('carrier');
+                  next.delete('q');
+                  next.delete('scheduled');
+                  return next;
+                }, { replace: true });
+              }}
+              className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-medium ml-1"
+            >
+              Limpiar todo
+            </button>
+          </div>
+        )}
       </Card>
 
       {/* View Toggle */}
@@ -2600,9 +2811,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
           </DialogHeader>
           {orderToEdit && (() => {
             // Find upsell product from order_line_items (is_upsell = true)
-            const upsellItem = orderToEdit.order_line_items?.find((item: any) => item.is_upsell === true);
+            const upsellItem = orderToEdit.order_line_items?.find((item: LineItem) => item.is_upsell === true);
             // Get main product (first non-upsell item or first item)
-            const mainItem = orderToEdit.order_line_items?.find((item: any) => !item.is_upsell) || orderToEdit.order_line_items?.[0];
+            const mainItem = orderToEdit.order_line_items?.find((item: LineItem) => !item.is_upsell) || orderToEdit.order_line_items?.[0];
 
             return (
               <OrderForm
@@ -2610,7 +2821,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                 initialData={{
                   customer: orderToEdit.customer,
                   phone: orderToEdit.phone,
-                  address: (orderToEdit as any).address || orderToEdit.customer_address || '',
+                  address: orderToEdit.address || orderToEdit.customer_address || '',
                   googleMapsLink: orderToEdit.google_maps_link || '',
                   // Get main product (non-upsell)
                   product: mainItem?.product_id || '',
@@ -2628,7 +2839,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   // Variant from main line item
                   variantId: mainItem?.variant_id || undefined,
                   // Delivery preferences (scheduling)
-                  deliveryPreferences: (orderToEdit as any).delivery_preferences || null,
+                  deliveryPreferences: orderToEdit.delivery_preferences || null,
                   // Upsell data (if exists)
                   upsellProductId: upsellItem?.product_id || undefined,
                   upsellQuantity: upsellItem?.quantity || undefined,
