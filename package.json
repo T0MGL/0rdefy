@@ -6,7 +6,7 @@
   "author": "Bright Idea",
   "description": "Ordefy - E-commerce management dashboard - Developed by Bright Idea - Deploy: 2026-02-10",
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "scripts": {
     "postinstall": "patch-package",
