@@ -46,7 +46,7 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
         // Build query once with all filters
         let query = supabaseAdmin
             .from('products')
-            .select('*', { count: 'exact' })
+            .select('id, name, sku, description, category, image_url, stock, price, cost, packaging_cost, additional_costs, shopify_product_id, shopify_variant_id, is_active, created_at', { count: 'exact' })
             .eq('store_id', req.storeId)
             .eq('is_active', activeFilter)
             .order('created_at', { ascending: false })
@@ -88,26 +88,20 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
             throw error;
         }
 
-        // ✅ OPTIMIZED: Calculate sales using order_line_items table with SQL aggregation
-        // This replaces the N+1 query that fetched ALL orders with JSONB line_items
-        // Performance: 200MB+ transfer → ~5KB (40,000x improvement)
-        const { data: salesData } = await supabaseAdmin
-            .from('order_line_items')
-            .select('product_id, quantity, orders!inner(sleeves_status, store_id)')
-            .eq('orders.store_id', req.storeId)
-            .in('orders.sleeves_status', ['confirmed', 'shipped', 'delivered'])
-            .not('product_id', 'is', null)
-            .limit(10000);
-
-        // Aggregate sales per product in memory (much lighter than iterating JSONB)
+        // Sales aggregation via SQL (returns ~50 rows instead of 10,000)
+        const productIds = (data || []).map(p => p.id);
         const salesByProduct: Record<string, number> = {};
-        salesData?.forEach(item => {
-            const productId = item.product_id;
-            const quantity = item.quantity || 0;
-            if (productId) {
-                salesByProduct[productId] = (salesByProduct[productId] || 0) + quantity;
-            }
-        });
+
+        if (productIds.length > 0) {
+            const { data: salesData } = await supabaseAdmin.rpc('get_product_sales', {
+                p_store_id: req.storeId,
+                p_product_ids: productIds,
+            });
+
+            salesData?.forEach((row: { product_id: string; total_sold: number }) => {
+                salesByProduct[row.product_id] = row.total_sold;
+            });
+        }
 
         // Transform data to match frontend Product interface
         const transformedData = (data || []).map(product => ({
