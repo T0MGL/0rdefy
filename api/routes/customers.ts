@@ -42,7 +42,7 @@ customersRouter.get('/', async (req: AuthRequest, res: Response) => {
         // Build base query with count
         let query = supabaseAdmin
             .from('customers')
-            .select('*', { count: 'exact' })
+            .select('id, first_name, last_name, email, phone, total_orders, total_spent, accepts_marketing, last_order_at, created_at, updated_at', { count: 'exact' })
             .eq('store_id', req.storeId);
 
         // Apply search filter (sanitized to prevent SQL injection)
@@ -294,59 +294,47 @@ customersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.CU
 // ================================================================
 customersRouter.get('/stats/overview', async (req: AuthRequest, res: Response) => {
     try {
-        // Get all customers to calculate aggregate stats
-        const { data: allCustomers, error: customersError } = await supabaseAdmin
-            .from('customers')
-            .select('total_orders, total_spent')
-            .eq('store_id', req.storeId)
-            .limit(50000);
+        // Aggregate stats via SQL function (single row, no client-side computation)
+        const [statsResult, topResult, recentResult] = await Promise.all([
+            supabaseAdmin.rpc('get_customer_stats', { p_store_id: req.storeId }),
+            supabaseAdmin
+                .from('customers')
+                .select('id, first_name, last_name, email, phone, total_orders, total_spent')
+                .eq('store_id', req.storeId)
+                .order('total_spent', { ascending: false })
+                .limit(10),
+            supabaseAdmin
+                .from('customers')
+                .select('id, first_name, last_name, email, phone, created_at')
+                .eq('store_id', req.storeId)
+                .order('created_at', { ascending: false })
+                .limit(10),
+        ]);
 
-        if (customersError) {
-            throw customersError;
+        if (statsResult.error) {
+            throw statsResult.error;
+        }
+        if (topResult.error) {
+            throw topResult.error;
+        }
+        if (recentResult.error) {
+            throw recentResult.error;
         }
 
-        // Calculate aggregate statistics
-        const totalCustomers = allCustomers?.length || 0;
-        const repeatCustomers = allCustomers?.filter(c => c.total_orders > 1).length || 0;
-        const avgOrdersPerCustomer = totalCustomers > 0
-            ? allCustomers.reduce((sum, c) => sum + c.total_orders, 0) / totalCustomers
-            : 0;
-        const avgLifetimeValue = totalCustomers > 0
-            ? allCustomers.reduce((sum, c) => sum + c.total_spent, 0) / totalCustomers
-            : 0;
-        const totalCustomerValue = allCustomers?.reduce((sum, c) => sum + c.total_spent, 0) || 0;
+        const stats = statsResult.data?.[0] ?? {
+            total_customers: 0,
+            repeat_customers: 0,
+            avg_orders_per_customer: 0,
+            avg_lifetime_value: 0,
+            total_customer_value: 0,
+        };
 
-        // Get top customers by spend
-        const { data: topCustomers, error: topError } = await supabaseAdmin
-            .from('customers')
-            .select('id, first_name, last_name, email, phone, total_orders, total_spent')
-            .eq('store_id', req.storeId)
-            .order('total_spent', { ascending: false })
-            .limit(10);
-
-        if (topError) {
-            throw topError;
-        }
-
-        // Get recent customers
-        const { data: recentCustomers, error: recentError } = await supabaseAdmin
-            .from('customers')
-            .select('id, first_name, last_name, email, phone, created_at')
-            .eq('store_id', req.storeId)
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-        if (recentError) {
-            throw recentError;
-        }
-
-        // Transform customer data to include name field
-        const topCustomersWithName = topCustomers?.map(c => ({
+        const topCustomersWithName = topResult.data?.map(c => ({
             ...c,
             name: `${c.first_name} ${c.last_name}`
         })) || [];
 
-        const recentCustomersWithName = recentCustomers?.map(c => ({
+        const recentCustomersWithName = recentResult.data?.map(c => ({
             ...c,
             name: `${c.first_name} ${c.last_name}`
         })) || [];
@@ -354,11 +342,11 @@ customersRouter.get('/stats/overview', async (req: AuthRequest, res: Response) =
         res.json({
             data: {
                 overview: {
-                    total_customers: totalCustomers,
-                    repeat_customers: repeatCustomers,
-                    avg_orders_per_customer: avgOrdersPerCustomer,
-                    avg_lifetime_value: avgLifetimeValue,
-                    total_customer_value: totalCustomerValue
+                    total_customers: Number(stats.total_customers),
+                    repeat_customers: Number(stats.repeat_customers),
+                    avg_orders_per_customer: Number(stats.avg_orders_per_customer),
+                    avg_lifetime_value: Number(stats.avg_lifetime_value),
+                    total_customer_value: Number(stats.total_customer_value),
                 },
                 top_customers: topCustomersWithName,
                 recent_customers: recentCustomersWithName
