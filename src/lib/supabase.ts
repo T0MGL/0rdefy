@@ -34,22 +34,4 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-/**
- * Initialize Supabase auth from localStorage token
- * Call this on app startup
- */
-export function initSupabaseAuth() {
-  const token = localStorage.getItem('auth_token');
-  if (token) {
-    // Set the session from JWT token
-    supabase.auth.setSession({
-      access_token: token,
-      refresh_token: '',
-    });
-  }
-}
-
-// Initialize auth on module load
-initSupabaseAuth();
-
 export default supabase;

@@ -1906,7 +1906,7 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         // ================================================================
         const { data: existingOrder, error: fetchError } = await supabaseAdmin
             .from('orders')
-            .select('customer_phone, customer_address, customer_first_name, customer_last_name, courier_id, payment_method, printed')
+            .select('customer_phone, customer_address, customer_first_name, customer_last_name, courier_id, payment_method, printed, total_price')
             .eq('id', id)
             .eq('store_id', req.storeId)
             .single();
@@ -1967,6 +1967,29 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         if (payment_method !== undefined) {
             updateData.payment_method = payment_method;
             if (payment_method !== existingOrder.payment_method) labelDataChanged = true;
+
+            // CRITICAL: Sync financial_status, cod_amount, and prepaid_method
+            // so the shipping label correctly shows PAGADO vs COBRAR.
+            // The label checks financial_status and prepaid_method, not payment_method.
+            const isPaidMethod = payment_method === 'online' || payment_method === 'transfer'
+                || payment_method === 'transferencia' || payment_method === 'qr'
+                || payment_method === 'tarjeta';
+            const isCODMethod = payment_method === 'cash' || payment_method === 'efectivo'
+                || payment_method === 'cod' || payment_method === 'cash_on_delivery';
+
+            if (isPaidMethod) {
+                updateData.financial_status = 'paid';
+                updateData.cod_amount = 0;
+                updateData.prepaid_method = payment_method;
+                updateData.prepaid_at = new Date().toISOString();
+            } else if (isCODMethod) {
+                updateData.financial_status = 'pending';
+                updateData.prepaid_method = null;
+                updateData.prepaid_at = null;
+                // Recalculate cod_amount from total_price if switching to COD
+                const newTotal = total_price !== undefined ? safeNumber(total_price, 0) : existingOrder.total_price;
+                updateData.cod_amount = newTotal || 0;
+            }
         }
         if (payment_status !== undefined) {
             updateData.payment_status = payment_status;

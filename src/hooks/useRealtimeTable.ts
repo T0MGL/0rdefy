@@ -178,7 +178,6 @@ export function useRealtimeTable<T extends { id: string }>({
     callback: handleRealtimeChange,
     filterByStore,
     enabled,
-    showToastOnError: true,
   });
 
   // Manual refetch function (you can implement actual fetching logic here)

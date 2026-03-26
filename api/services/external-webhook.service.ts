@@ -1532,6 +1532,7 @@ export class ExternalWebhookService {
           updated_at: now
         };
         if (markAsPaid) {
+          updatePayload.financial_status = 'paid';
           updatePayload.prepaid_method = 'transferencia';
           updatePayload.prepaid_at = now;
           updatePayload.cod_amount = 0;
