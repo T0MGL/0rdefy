@@ -29,10 +29,12 @@ import {
   Star,
   MessageSquare,
   User,
-  Calendar
+  Calendar,
+  Globe,
 } from 'lucide-react';
 import { Order } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+import { CarrierCoverageManager } from '@/components/CarrierCoverageManager';
 
 // Safe date formatting helpers
 const safeFormatDate = (dateString: string | null | undefined, formatStr: string): string => {
@@ -79,6 +81,9 @@ export default function CarrierDetail() {
   const [reviews, setReviews] = useState<CarrierReview[]>([]);
   const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution>({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
   const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  // Coverage Manager
+  const [showCoverageManager, setShowCoverageManager] = useState(false);
 
   // Memory leak prevention
   const isMountedRef = useRef(true);
@@ -341,7 +346,17 @@ export default function CarrierDetail() {
             </div>
           </div>
         </div>
-        <Button>Editar Transportadora</Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowCoverageManager(true)}
+            className="gap-2"
+          >
+            <Globe size={16} />
+            Configurar Cobertura
+          </Button>
+          <Button>Editar Transportadora</Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -749,6 +764,16 @@ export default function CarrierDetail() {
         </TabsContent>
 
       </Tabs>
+
+      {/* Coverage Manager Dialog */}
+      {carrier && (
+        <CarrierCoverageManager
+          open={showCoverageManager}
+          onOpenChange={setShowCoverageManager}
+          carrierId={carrier.id}
+          carrierName={carrier.name || carrier.carrier_name || 'Transportadora'}
+        />
+      )}
     </div>
   );
 }

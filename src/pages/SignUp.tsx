@@ -16,6 +16,7 @@ const signupSchema = z.object({
   email: z.string().email('Ingresa un email válido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   confirmPassword: z.string(),
+  acceptedTerms: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar los Terminos de Servicio y la Politica de Privacidad' }) }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Las contraseñas no coinciden",
   path: ["confirmPassword"],
@@ -35,6 +36,7 @@ export default function SignUp() {
     email: '',
     password: '',
     confirmPassword: '',
+    acceptedTerms: false,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -299,11 +301,38 @@ export default function SignUp() {
               </div>
             )}
 
+            {/* Terms Acceptance */}
+            <div className="space-y-2 mt-2">
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={formData.acceptedTerms}
+                  onChange={(e) => setFormData({ ...formData, acceptedTerms: e.target.checked })}
+                  className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
+                  disabled={isLoading}
+                />
+                <span className="text-sm text-slate-400 leading-relaxed">
+                  Al crear una cuenta, acepto los{' '}
+                  <a href="https://ordefy.io/terms" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    Terminos de Servicio
+                  </a>{' '}
+                  y la{' '}
+                  <a href="https://ordefy.io/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    Politica de Privacidad
+                  </a>{' '}
+                  de Ordefy.
+                </span>
+              </label>
+              {errors.acceptedTerms && (
+                <p className="text-sm text-destructive">{errors.acceptedTerms}</p>
+              )}
+            </div>
+
             {/* Submit Button */}
             <Button
               type="submit"
               className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all duration-300 mt-6"
-              disabled={isLoading}
+              disabled={isLoading || !formData.acceptedTerms}
             >
               {isLoading ? (
                 <div className="flex items-center gap-2">
@@ -330,9 +359,22 @@ export default function SignUp() {
             </p>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-slate-800 text-center">
+          <div className="mt-8 pt-6 border-t border-slate-800 text-center space-y-2">
+            <div className="flex items-center justify-center gap-3 text-xs text-slate-500">
+              <a href="https://ordefy.io/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                Privacidad
+              </a>
+              <span className="text-slate-700">·</span>
+              <a href="https://ordefy.io/terms" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                Terminos
+              </a>
+              <span className="text-slate-700">·</span>
+              <a href="https://ordefy.io/cookies" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                Cookies
+              </a>
+            </div>
             <p className="text-xs text-slate-600">
-              © 2025 Bright Idea - Ordefy. Todos los derechos reservados.
+              &copy; {new Date().getFullYear()} Ordefy E.A.S. Todos los derechos reservados.
             </p>
           </div>
         </motion.div>

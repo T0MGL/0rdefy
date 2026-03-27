@@ -268,9 +268,22 @@ export default function Login() {
             </p>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-slate-800 text-center">
+          <div className="mt-8 pt-6 border-t border-slate-800 text-center space-y-2">
+            <div className="flex items-center justify-center gap-3 text-xs text-slate-500">
+              <a href="https://ordefy.io/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                Privacidad
+              </a>
+              <span className="text-slate-700">·</span>
+              <a href="https://ordefy.io/terms" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                Terminos
+              </a>
+              <span className="text-slate-700">·</span>
+              <a href="https://ordefy.io/cookies" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                Cookies
+              </a>
+            </div>
             <p className="text-xs text-slate-600">
-              © 2025 Bright Idea - Ordefy. Todos los derechos reservados.
+              &copy; {new Date().getFullYear()} Ordefy E.A.S. Todos los derechos reservados.
             </p>
           </div>
         </motion.div>

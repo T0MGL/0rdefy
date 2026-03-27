@@ -483,6 +483,68 @@ carriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
 // ================================================================
 
 // ================================================================
+// GET /api/carriers/locations/grouped - All 266 cities grouped for coverage UI
+// ================================================================
+carriersRouter.get('/locations/grouped', async (req: AuthRequest, res: Response) => {
+    try {
+        const { data: locations, error } = await supabaseAdmin
+            .from('paraguay_locations')
+            .select('city, department, zone_code')
+            .eq('is_active', true)
+            .order('department', { ascending: true })
+            .order('city', { ascending: true });
+
+        if (error) throw error;
+
+        const granAsuncionCities: Array<{ city: string; department: string; zone_code: string }> = [];
+        const interiorByDept: Record<string, Array<{ city: string; department: string; zone_code: string }>> = {};
+
+        for (const loc of (locations || [])) {
+            if (loc.zone_code === 'ASUNCION' || loc.zone_code === 'CENTRAL') {
+                granAsuncionCities.push({
+                    city: loc.city,
+                    department: loc.department,
+                    zone_code: loc.zone_code,
+                });
+            } else {
+                if (!interiorByDept[loc.department]) {
+                    interiorByDept[loc.department] = [];
+                }
+                interiorByDept[loc.department].push({
+                    city: loc.city,
+                    department: loc.department,
+                    zone_code: loc.zone_code,
+                });
+            }
+        }
+
+        // Sort department keys alphabetically
+        const sortedDepartments: Record<string, Array<{ city: string; department: string; zone_code: string }>> = {};
+        for (const dept of Object.keys(interiorByDept).sort()) {
+            sortedDepartments[dept] = interiorByDept[dept];
+        }
+
+        res.json({
+            gran_asuncion: {
+                cities: granAsuncionCities,
+                count: granAsuncionCities.length,
+            },
+            interior: {
+                departments: sortedDepartments,
+                count: (locations || []).length - granAsuncionCities.length,
+            },
+            total: (locations || []).length,
+        });
+    } catch (error: any) {
+        logger.error('API', '[GET /api/carriers/locations/grouped] Error:', error);
+        res.status(500).json({
+            error: 'Error al obtener ciudades agrupadas',
+            message: error.message,
+        });
+    }
+});
+
+// ================================================================
 // GET /api/carriers/locations/search - Search Paraguay cities (autocomplete)
 // ================================================================
 carriersRouter.get('/locations/search', async (req: AuthRequest, res: Response) => {
@@ -648,6 +710,61 @@ carriersRouter.get('/coverage/city', async (req: AuthRequest, res: Response) => 
         res.status(500).json({
             error: 'Error al obtener cobertura de carriers',
             message: error.message
+        });
+    }
+});
+
+// ================================================================
+// GET /api/carriers/:id/coverage/all - Get ALL coverage rows for a carrier (no zone enrichment)
+// ================================================================
+// Lightweight endpoint for the coverage configuration UI: returns every
+// carrier_coverage row for this carrier without joining paraguay_locations
+// one-by-one (avoids N+1). The UI already has the full location list from
+// /locations/grouped and only needs to know which cities have rates.
+carriersRouter.get('/:id/coverage/all', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Verify carrier belongs to this store
+        const { data: carrier, error: carrierError } = await supabaseAdmin
+            .from('carriers')
+            .select('id')
+            .eq('id', id)
+            .eq('store_id', req.storeId)
+            .single();
+
+        if (carrierError || !carrier) {
+            return res.status(404).json({ error: 'Carrier not found' });
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('carrier_coverage')
+            .select('id, city, department, rate, is_active')
+            .eq('carrier_id', id)
+            .order('city', { ascending: true });
+
+        if (error) throw error;
+
+        // Build a map keyed by normalized city for fast lookups on the client
+        const coverageMap: Record<string, { rate: number | null; is_active: boolean }> = {};
+        for (const row of (data || [])) {
+            const key = row.city.toLowerCase().trim();
+            coverageMap[key] = {
+                rate: row.rate,
+                is_active: row.is_active,
+            };
+        }
+
+        res.json({
+            data: data || [],
+            coverage_map: coverageMap,
+            count: (data || []).length,
+        });
+    } catch (error: any) {
+        logger.error('API', `[GET /api/carriers/${req.params.id}/coverage/all] Error:`, error);
+        res.status(500).json({
+            error: 'Error al obtener cobertura completa del carrier',
+            message: error.message,
         });
     }
 });
