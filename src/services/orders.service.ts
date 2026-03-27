@@ -164,9 +164,10 @@ export const ordersService = {
         total_shipping: order.shipping_cost || 0,
         shipping_cost: order.shipping_cost || 0,
         currency: 'PYG',
-        financial_status: 'pending',
+        financial_status: order.paymentMethod === 'paid' ? 'paid' : 'pending',
         payment_status: order.paymentMethod === 'paid' ? 'collected' : 'pending',
-        payment_method: order.paymentMethod === 'cod' ? 'cash' : 'online',
+        payment_method: order.paymentMethod === 'cod' ? 'cash_on_delivery' : 'online',
+        cod_amount: order.paymentMethod === 'cod' ? orderTotal : 0,
         courier_id: order.is_pickup ? null : order.carrier,
         google_maps_link: order.google_maps_link || null,
         shipping_city: order.shipping_city || null,
@@ -232,7 +233,9 @@ export const ordersService = {
         has_internal_notes: !!order.internal_notes,
         customer_ruc: order.customer_ruc,
         customer_ruc_dv: order.customer_ruc_dv,
-        payment_method: order.paymentMethod === 'cod' ? 'cash' : 'online',
+        payment_method: order.paymentMethod === 'cod' ? 'cash_on_delivery' : 'online',
+        financial_status: order.paymentMethod === 'paid' ? 'paid' : 'pending',
+        cod_amount: order.paymentMethod === 'cod' ? orderTotal : 0,
         order_line_items: mappedLineItems,
       };
     } catch (error) {
@@ -277,7 +280,7 @@ export const ordersService = {
       }
 
       if (data.paymentMethod) {
-        backendData.payment_method = data.paymentMethod === 'cod' ? 'cash' : 'online';
+        backendData.payment_method = data.paymentMethod === 'cod' ? 'cash_on_delivery' : 'online';
         backendData.payment_status = data.paymentMethod === 'cod' ? 'pending' : 'collected';
       }
 

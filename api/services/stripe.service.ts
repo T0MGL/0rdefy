@@ -986,21 +986,25 @@ export async function getStoreUsage(storeId: string): Promise<{
 
     const usage = data[0];
 
+    const ordersLimit = usage.max_orders_per_month === -1 ? Infinity : usage.max_orders_per_month;
+    const productsLimit = usage.max_products === -1 ? Infinity : usage.max_products;
+    const usersLimit = usage.max_users === -1 ? Infinity : usage.max_users;
+
     return {
       orders: {
-        used: usage.orders_this_month,
-        limit: usage.max_orders === -1 ? Infinity : usage.max_orders,
-        percentage: usage.orders_percentage,
+        used: usage.total_orders_this_month,
+        limit: ordersLimit,
+        percentage: ordersLimit === Infinity ? 0 : Math.round((usage.total_orders_this_month / ordersLimit) * 100),
       },
       products: {
-        used: usage.products_count,
-        limit: usage.max_products === -1 ? Infinity : usage.max_products,
-        percentage: usage.products_percentage,
+        used: usage.total_products,
+        limit: productsLimit,
+        percentage: productsLimit === Infinity ? 0 : Math.round((usage.total_products / productsLimit) * 100),
       },
       users: {
-        used: usage.users_count,
-        limit: usage.max_users === -1 ? Infinity : usage.max_users,
-        percentage: usage.users_percentage,
+        used: usage.total_users,
+        limit: usersLimit,
+        percentage: usersLimit === Infinity ? 0 : Math.round((usage.total_users / usersLimit) * 100),
       },
     };
   } catch (error: any) {

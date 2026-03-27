@@ -18,6 +18,7 @@ import { generateDeliveryQRCode } from '../utils/qr-generator';
 import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.service';
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
 import { isValidUUID, validateUUIDParam, sanitizeSearchInput } from '../utils/sanitize';
+import { isCodPayment as isCodPaymentUtil } from '../utils/payment';
 import { getTodayInTimezone } from '../utils/dateUtils';
 import { validate } from '../utils/validate';
 
@@ -412,9 +413,7 @@ ordersRouter.post('/token/:token/delivery-confirm', validate(DeliveryConfirmSche
         }
 
         // Determine if this is a COD payment based on what courier selected
-        const paymentMethodLower = (payment_method || '').toLowerCase().trim();
-        const codPaymentMethods = ['efectivo', 'cash', 'contra entrega', 'cod'];
-        const isCodPayment = codPaymentMethods.includes(paymentMethodLower);
+        const isCodPayment = isCodPaymentUtil(payment_method);
 
         const updateData: any = {
             sleeves_status: 'delivered',

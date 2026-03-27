@@ -2895,8 +2895,8 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   quantity: mainItem?.quantity || orderToEdit.quantity,
                   // Use carrier_id (UUID) instead of carrier name
                   carrier: orderToEdit.carrier_id || '',
-                  // Map payment_method: 'cash'/'efectivo' → 'cod', else → 'paid'
-                  paymentMethod: (['cash', 'efectivo', 'cod'].includes(orderToEdit.payment_method?.toLowerCase() || '')) ? 'cod' : 'paid',
+                  // Map payment_method: 'cash'/'efectivo'/'cash_on_delivery' → 'cod', else → 'paid'
+                  paymentMethod: (['cash', 'efectivo', 'cod', 'cash_on_delivery'].includes(orderToEdit.payment_method?.toLowerCase() || '')) ? 'cod' : 'paid',
                   // Shipping info
                   shippingCity: orderToEdit.shipping_city,
                   shippingCityNormalized: orderToEdit.shipping_city_normalized,

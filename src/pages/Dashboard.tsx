@@ -143,7 +143,7 @@ export default function Dashboard() {
       };
 
       const useGlobalView = globalViewEnabled && hasMultipleStores;
-      logger.log('📊 [Dashboard] Loading data:', { globalViewEnabled, hasMultipleStores, useGlobalView, storesCount: stores?.length });
+      logger.log('[Dashboard] Loading data:', { globalViewEnabled, hasMultipleStores, useGlobalView });
 
       let overview: DashboardOverview | null;
       let chart: ChartData[];
@@ -206,7 +206,7 @@ export default function Dashboard() {
         setIsRefreshing(false);
       }
     }
-  }, [dateRange, globalViewEnabled, hasMultipleStores, stores, hasAnalyticsAccess]);
+  }, [dateRange, globalViewEnabled, hasMultipleStores, hasAnalyticsAccess]);
 
   useEffect(() => {
     const abortController = new AbortController();

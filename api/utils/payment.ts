@@ -11,6 +11,7 @@
 const COD_PAYMENT_METHODS = [
   'efectivo',
   'cash',
+  'cash_on_delivery',
   'contra entrega',
   'contra_entrega',
   'cod',
