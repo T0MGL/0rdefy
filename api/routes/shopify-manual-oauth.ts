@@ -288,11 +288,14 @@ shopifyManualOAuthRouter.get('/callback', async (req: Request, res: Response) =>
     }
 
     // Get OAuth state from database
+    // Note: Do NOT filter by shop_domain here. Shopify may redirect with the
+    // store's real dev domain (e.g. r9whau-zr.myshopify.com) which differs from
+    // the user-entered domain (e.g. venisse-3.myshopify.com). The cryptographic
+    // state token (64 random hex chars) is sufficient for session identification.
     const { data: stateData, error: stateError } = await supabaseAdmin
       .from('shopify_oauth_states')
       .select('*')
       .eq('state', state)
-      .eq('shop_domain', shop)
       .eq('used', false)
       .eq('is_custom_app', true)
       .single();

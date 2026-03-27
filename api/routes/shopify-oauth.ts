@@ -506,11 +506,13 @@ shopifyOAuthRouter.get('/callback', async (req: Request, res: Response) => {
     logger.info('API', '✅ [SHOPIFY-OAUTH] HMAC validated successfully');
 
     // Validate state parameter (CSRF protection)
+    // Note: Do NOT filter by shop_domain. Shopify may redirect with a different
+    // domain than the user entered (e.g. dev domain vs custom domain).
+    // The cryptographic state token is sufficient for session identification.
     const { data: stateData, error: stateError } = await supabaseAdmin
       .from('shopify_oauth_states')
       .select('id, state, shop_domain, store_id, user_id, expires_at, used, is_popup')
       .eq('state', state)
-      .eq('shop_domain', shop)
       .eq('used', false)
       .single();
 
