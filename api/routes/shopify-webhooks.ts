@@ -10,6 +10,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
 import { ShopifyWebhookService } from '../services/shopify-webhook.service';
+import { unknownDomainCache } from '../utils/unknown-domain-cache';
 import { logger } from '../utils/logger';
 
 const router = express.Router();
@@ -89,6 +90,12 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     return res.status(401).send('Missing shop domain');
   }
 
+  // Reject known-unknown domains immediately (no DB hit).
+  // Cache is populated below on first miss and expires after 1 hour.
+  if (unknownDomainCache.has(shopDomain)) {
+    return res.status(200).send('OK');
+  }
+
   // Get integration from database to retrieve correct API secret
   // CRITICAL: Must include ALL fields needed for proper secret selection
   const { data: integration, error: intError } = await supabaseAdmin
@@ -98,8 +105,10 @@ async function validateShopifyHMAC(req: any, res: Response, next: any) {
     .single();
 
   if (intError || !integration) {
-    logger.error('SERVER', `❌ [WEBHOOK] Integration not found for ${shopDomain}`);
-    return res.status(404).send('Integration not found');
+    unknownDomainCache.add(shopDomain);
+    logger.warn('SERVER', `[WEBHOOK] Integration not found for ${shopDomain}, cached for 1h`);
+    // Return 200 so Shopify stops retrying (the integration does not exist)
+    return res.status(200).send('OK');
   }
 
   // Use same logic as getWebhookSecret() in shopify.ts for consistency

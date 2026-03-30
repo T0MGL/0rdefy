@@ -1307,4 +1307,106 @@ externalWebhooksRouter.patch('/orders/:storeId/items', async (req: Request, res:
   }
 });
 
+// ============================================================================
+// GET /api/webhook/orders/:storeId/:orderId
+// Fetch a single order by its Ordefy UUID (for n8n and external systems)
+// ============================================================================
+
+externalWebhooksRouter.get('/orders/:storeId/:orderId', async (req: Request, res: Response) => {
+  const { storeId, orderId } = req.params;
+
+  try {
+    if (!storeId || !isValidUUID(storeId)) {
+      return res.status(400).json({ success: false, error: 'invalid_store_id' });
+    }
+
+    if (!orderId || !isValidUUID(orderId)) {
+      return res.status(400).json({ success: false, error: 'invalid_order_id' });
+    }
+
+    const apiKey = req.get('X-API-Key') || req.get('x-api-key');
+    if (!apiKey) {
+      return res.status(401).json({ success: false, error: 'unauthorized', message: 'Missing X-API-Key header' });
+    }
+
+    const config = await externalWebhookService.validateApiKey(storeId, apiKey);
+    if (!config) {
+      return res.status(401).json({ success: false, error: 'unauthorized', message: 'Invalid API key' });
+    }
+
+    if (!config.is_active) {
+      return res.status(403).json({ success: false, error: 'webhook_disabled' });
+    }
+
+    const { data: order, error } = await supabaseAdmin
+      .from('orders')
+      .select(`
+        id, order_number, shopify_order_name, shopify_order_number,
+        customer_first_name, customer_last_name, customer_phone, customer_email,
+        customer_address, shipping_address, delivery_zone, shipping_city,
+        total_price, subtotal_price, total_shipping, total_discounts,
+        cod_amount, payment_method, financial_status,
+        sleeves_status, courier_id, is_pickup,
+        delivery_preferences, delivery_notes,
+        created_at, confirmed_at, delivered_at,
+        line_items
+      `)
+      .eq('id', orderId)
+      .eq('store_id', storeId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (error) {
+      logger.error('API', '[ExternalWebhook] Error fetching order by ID:', error);
+      return res.status(500).json({ success: false, error: 'server_error' });
+    }
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'order_not_found' });
+    }
+
+    const items = Array.isArray(order.line_items)
+      ? order.line_items.map((item: Record<string, unknown>) => ({
+          name: item.name || item.title,
+          sku: item.sku || null,
+          quantity: item.quantity,
+          price: item.price,
+          variant_title: item.variant_title || null,
+        }))
+      : [];
+
+    return res.json({
+      success: true,
+      order: {
+        id: order.id,
+        order_number: order.shopify_order_name || order.shopify_order_number || order.order_number || null,
+        status: order.sleeves_status,
+        customer_name: [order.customer_first_name, order.customer_last_name].filter(Boolean).join(' '),
+        customer_phone: order.customer_phone,
+        customer_email: order.customer_email,
+        address: order.customer_address,
+        city: order.shipping_city || order.delivery_zone,
+        total_price: order.total_price,
+        subtotal: order.subtotal_price,
+        shipping_cost: order.total_shipping,
+        discount: order.total_discounts,
+        cod_amount: order.cod_amount,
+        payment_method: order.payment_method,
+        financial_status: order.financial_status,
+        is_pickup: order.is_pickup || false,
+        courier_id: order.courier_id,
+        delivery_preferences: order.delivery_preferences,
+        delivery_notes: order.delivery_notes,
+        created_at: order.created_at,
+        confirmed_at: order.confirmed_at,
+        delivered_at: order.delivered_at,
+        items,
+      },
+    });
+  } catch (error: unknown) {
+    logger.error('API', '[ExternalWebhook] Error in order by ID lookup:', error);
+    return res.status(500).json({ success: false, error: 'server_error' });
+  }
+});
+
 export default externalWebhooksRouter;

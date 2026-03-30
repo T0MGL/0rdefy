@@ -36,17 +36,30 @@ interface WebhookQueueItem {
   error?: string;
 }
 
+const SUPABASE_TIMEOUT_MS = 30_000;
+const MAX_BATCH_DURATION_MS = 5 * 60 * 1000;
+
+// Wraps a thenable (e.g. Supabase query builder) or Promise with a hard timeout.
+// Supabase's PostgREST builder implements .then() but is not a native Promise,
+// so we resolve it into one before racing.
+function withTimeout<T>(thenable: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([Promise.resolve(thenable), timeout]).finally(() => clearTimeout(timer));
+}
+
 export class WebhookQueueService {
   private supabase: SupabaseClient;
   private processing: boolean = false;
-  private startingLock: boolean = false; // Guard against concurrent startProcessing() calls
-  private queueRunInProgress: boolean = false; // Prevent overlapping processQueue runs
-  private concurrentLimit: number = 10; // Procesar 10 webhooks simultáneamente
-  private pollingInterval: number = 1000; // Revisar cada 1 segundo
+  private startingLock: boolean = false;
+  private queueRunInProgress: boolean = false;
+  private batchStartedAt: number = 0;
+  private concurrentLimit: number = 10;
+  private pollingInterval: number = 1000;
   private intervalId?: NodeJS.Timeout;
 
-  // Reutilizar instancias para evitar presión de memoria y GC pauses
-  // Estos servicios son stateless, seguros para reutilizar
   private webhookService: ShopifyWebhookService;
   private webhookManager: ShopifyWebhookManager;
 
@@ -161,7 +174,7 @@ export class WebhookQueueService {
 
   /**
    * Recover webhooks stuck in 'processing' state for more than 5 minutes.
-   * This can happen if the process crashed or was killed during processing.
+   * This can happen if the process crashed, was killed, or a Supabase call hung.
    */
   private async recoverStaleWebhooks(): Promise<void> {
     try {
@@ -174,104 +187,115 @@ export class WebhookQueueService {
         .select('id');
 
       if (error) {
-        logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error recovering stale webhooks:', error);
+        logger.error('BACKEND', '[WEBHOOK-QUEUE] Error recovering stale webhooks:', error);
         return;
       }
 
       if (data && data.length > 0) {
-        logger.info('BACKEND', `🔄 [WEBHOOK-QUEUE] Recovered ${data.length} stale webhooks stuck in processing`);
+        logger.warn('BACKEND', `[WEBHOOK-QUEUE] Recovered ${data.length} stale webhooks stuck in processing`);
       }
-    } catch (err) {
-      logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error in recoverStaleWebhooks:', err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('BACKEND', `[WEBHOOK-QUEUE] recoverStaleWebhooks failed: ${msg}`);
     }
   }
 
-  /**
-   * Procesar webhooks pendientes de la cola
-   */
   private async processQueue(): Promise<void> {
     if (!this.processing) {
       return;
     }
 
+    // If a previous batch has been running longer than MAX_BATCH_DURATION, force-release
+    // the lock so the processor does not stay stuck forever (e.g. after a Supabase 502).
     if (this.queueRunInProgress) {
-      logger.debug('BACKEND', '⏭️ [WEBHOOK-QUEUE] Skipping tick: previous batch still running');
-      return;
+      const elapsed = Date.now() - this.batchStartedAt;
+      if (elapsed > MAX_BATCH_DURATION_MS) {
+        logger.error('BACKEND', `[WEBHOOK-QUEUE] Batch exceeded ${MAX_BATCH_DURATION_MS / 1000}s, force-releasing lock`);
+        this.queueRunInProgress = false;
+      } else {
+        logger.debug('BACKEND', '[WEBHOOK-QUEUE] Skipping tick: previous batch still running');
+        return;
+      }
     }
 
     this.queueRunInProgress = true;
+    this.batchStartedAt = Date.now();
 
     try {
-      // Recover any webhooks stuck in 'processing' from a previous crash
-      await this.recoverStaleWebhooks();
+      await withTimeout(
+        this.recoverStaleWebhooks(),
+        SUPABASE_TIMEOUT_MS,
+        'recoverStaleWebhooks'
+      );
 
-      // Obtener webhooks pendientes que estén listos para procesar
-      const { data: pendingWebhooks, error } = await this.supabase
-        .from('webhook_queue')
-        .select('*')
-        .eq('status', 'pending')
-        .lte('next_retry_at', new Date().toISOString())
-        .order('created_at', { ascending: true })
-        .limit(this.concurrentLimit);
+      const { data: pendingWebhooks, error } = await withTimeout(
+        this.supabase
+          .from('webhook_queue')
+          .select('id, integration_id, store_id, topic, payload, headers, idempotency_key, created_at, retry_count, max_retries, next_retry_at, status, error')
+          .eq('status', 'pending')
+          .lte('next_retry_at', new Date().toISOString())
+          .order('created_at', { ascending: true })
+          .limit(this.concurrentLimit),
+        SUPABASE_TIMEOUT_MS,
+        'fetchPendingWebhooks'
+      );
 
       if (error) {
-        logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error fetching pending webhooks:', error);
+        logger.error('BACKEND', '[WEBHOOK-QUEUE] Error fetching pending webhooks:', error);
         return;
       }
 
       if (!pendingWebhooks || pendingWebhooks.length === 0) {
-        return; // No hay webhooks pendientes
+        return;
       }
 
-      logger.info('BACKEND', `🔄 [WEBHOOK-QUEUE] Processing ${pendingWebhooks.length} webhooks...`);
+      logger.info('BACKEND', `[WEBHOOK-QUEUE] Processing ${pendingWebhooks.length} webhooks...`);
 
-      // Procesar todos en paralelo (hasta el límite de concurrencia)
       const promises = pendingWebhooks.map(webhook =>
         this.processWebhook(webhook as WebhookQueueItem)
       );
 
       await Promise.allSettled(promises);
 
-    } catch (error) {
-      logger.error('BACKEND', '❌ [WEBHOOK-QUEUE] Error processing queue:', error);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error('BACKEND', `[WEBHOOK-QUEUE] Batch failed: ${msg}`);
     } finally {
       this.queueRunInProgress = false;
     }
   }
 
-  /**
-   * Procesar un webhook individual
-   */
   private async processWebhook(webhook: WebhookQueueItem): Promise<void> {
     const startTime = Date.now();
 
     try {
-      // Claim atómico: solo una ejecución puede pasar de pending -> processing
-      const { data: claimedWebhook, error: claimError } = await this.supabase
-        .from('webhook_queue')
-        .update({ status: 'processing' })
-        .eq('id', webhook.id)
-        .eq('status', 'pending')
-        .select('*')
-        .maybeSingle();
+      // Atomic claim: only one execution can transition pending -> processing
+      const { data: claimedWebhook, error: claimError } = await withTimeout(
+        this.supabase
+          .from('webhook_queue')
+          .update({ status: 'processing' })
+          .eq('id', webhook.id)
+          .eq('status', 'pending')
+          .select('id, integration_id, store_id, topic, payload, headers, idempotency_key, created_at, retry_count, max_retries, next_retry_at, status, error')
+          .maybeSingle(),
+        SUPABASE_TIMEOUT_MS,
+        `claimWebhook(${webhook.id})`
+      );
 
       if (claimError) {
-        logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Error claiming webhook ${webhook.id}:`, claimError);
+        logger.error('BACKEND', `[WEBHOOK-QUEUE] Error claiming webhook ${webhook.id}:`, claimError);
         return;
       }
 
       if (!claimedWebhook) {
-        logger.debug('BACKEND', `⏭️ [WEBHOOK-QUEUE] Webhook ${webhook.id} already claimed by another worker`);
         return;
       }
 
       const activeWebhook = claimedWebhook as WebhookQueueItem;
 
-      logger.info('BACKEND', `⏳ [WEBHOOK-QUEUE] Processing webhook ${activeWebhook.id} (topic: ${activeWebhook.topic})`);
+      logger.info('BACKEND', `[WEBHOOK-QUEUE] Processing ${activeWebhook.id} (topic: ${activeWebhook.topic})`);
 
-      // Procesar según el topic
-      // IMPORTANTE: Usar supabaseAdmin para evitar errores de RLS
-      let result: any;
+      let result: { success: boolean; error?: string };
 
       switch (activeWebhook.topic) {
         case 'orders/create':
@@ -307,24 +331,23 @@ export class WebhookQueueService {
           break;
 
         default:
-          logger.warn('BACKEND', `⚠️ [WEBHOOK-QUEUE] Unknown topic: ${activeWebhook.topic}`);
+          logger.warn('BACKEND', `[WEBHOOK-QUEUE] Unknown topic: ${activeWebhook.topic}`);
           result = { success: false, error: 'Unknown topic' };
       }
 
       const processingTime = Date.now() - startTime;
 
       if (result.success) {
-        // Éxito - marcar como completado
-        await this.supabase
-          .from('webhook_queue')
-          .update({
-            status: 'completed',
-            processed_at: new Date().toISOString(),
-          })
-          .eq('id', activeWebhook.id)
-          .eq('status', 'processing');
+        await withTimeout(
+          this.supabase
+            .from('webhook_queue')
+            .update({ status: 'completed', processed_at: new Date().toISOString() })
+            .eq('id', activeWebhook.id)
+            .eq('status', 'processing'),
+          SUPABASE_TIMEOUT_MS,
+          `completeWebhook(${activeWebhook.id})`
+        );
 
-        // Registrar métrica
         await this.webhookManager.recordMetric(
           activeWebhook.integration_id,
           activeWebhook.store_id,
@@ -332,29 +355,32 @@ export class WebhookQueueService {
           processingTime
         );
 
-        logger.info('BACKEND', `✅ [WEBHOOK-QUEUE] Webhook ${activeWebhook.id} completed in ${processingTime}ms`);
-
+        logger.info('BACKEND', `[WEBHOOK-QUEUE] Webhook ${activeWebhook.id} completed in ${processingTime}ms`);
       } else {
-        // Error - reintentar o marcar como fallido
-        const resultError = result?.error?.message || result?.error || 'Unknown error';
+        const resultError = result?.error || 'Unknown error';
         await this.handleWebhookError(activeWebhook, String(resultError));
       }
 
-    } catch (error: any) {
-      logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Error processing webhook ${webhook.id}:`, error);
-      const errorMessage = error?.message || String(error) || 'Unknown error';
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('BACKEND', `[WEBHOOK-QUEUE] Error processing webhook ${webhook.id}: ${errorMessage}`);
       try {
-        await this.handleWebhookError(webhook, errorMessage);
-      } catch (handleErr) {
-        // If handleWebhookError itself fails, reset to pending so it can be retried
-        logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] handleWebhookError failed for ${webhook.id}, resetting to pending:`, handleErr);
+        await withTimeout(
+          this.handleWebhookError(webhook, errorMessage),
+          SUPABASE_TIMEOUT_MS,
+          `handleError(${webhook.id})`
+        );
+      } catch (handleErr: unknown) {
+        // Last resort: reset to pending so the recovery loop picks it up later.
+        // If even this fails, the recoverStaleWebhooks() will catch it on the next tick.
+        logger.error('BACKEND', `[WEBHOOK-QUEUE] handleWebhookError failed for ${webhook.id}, resetting to pending`);
         try {
           await this.supabase
             .from('webhook_queue')
-            .update({ status: 'pending', next_retry_at: new Date(Date.now() + 60000).toISOString() })
+            .update({ status: 'pending', next_retry_at: new Date(Date.now() + 60_000).toISOString() })
             .eq('id', webhook.id);
-        } catch (resetErr) {
-          logger.error('BACKEND', `❌ [WEBHOOK-QUEUE] Fatal: could not reset webhook ${webhook.id}:`, resetErr);
+        } catch (_) {
+          // recoverStaleWebhooks will handle this on next cycle
         }
       }
     }

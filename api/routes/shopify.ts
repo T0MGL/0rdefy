@@ -19,6 +19,7 @@ import { ShopifyWebhookSetupService } from '../services/shopify-webhook-setup.se
 import { WebhookQueueService } from '../services/webhook-queue.service';
 import { ShopifyIntegration, ShopifyConfigRequest } from '../types/shopify';
 import { logger } from '../utils/logger';
+import { unknownDomainCache } from '../utils/unknown-domain-cache';
 import { WEBHOOK_ERRORS } from '../constants/webhook-errors';
 
 export const shopifyRouter = Router();
@@ -544,6 +545,11 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
+    // Reject known-unknown domains without hitting the DB
+    if (unknownDomainCache.has(shopDomain)) {
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
+    }
+
     // Obtener integracion por dominio - include ALL fields needed for HMAC verification
     // CRITICAL: Must include is_custom_app, webhook_signature, scope for getWebhookSecret()
     const { data: integration, error } = await supabaseAdmin
@@ -554,8 +560,9 @@ const ordersCreateHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      logger.error('SHOPIFY', 'Integration not found for domain', { shopDomain });
-      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
+      unknownDomainCache.add(shopDomain);
+      logger.warn('SHOPIFY', `[orders/create] Integration not found for ${shopDomain}, cached for 1h`);
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
     }
 
     integrationId = integration.id;
@@ -768,6 +775,11 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       return res.status(400).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
+    // Reject known-unknown domains without hitting the DB
+    if (unknownDomainCache.has(shopDomain)) {
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
+    }
+
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
       .select('*')
@@ -776,7 +788,9 @@ const ordersUpdatedHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
+      unknownDomainCache.add(shopDomain);
+      logger.warn('SHOPIFY', `[orders/updated] Integration not found for ${shopDomain}, cached for 1h`);
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
     }
 
     integrationId = integration.id;
@@ -936,6 +950,10 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       return res.status(400).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
+    if (unknownDomainCache.has(shopDomain)) {
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
+    }
+
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
       .select('*')
@@ -944,7 +962,9 @@ const productsUpdateHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
+      unknownDomainCache.add(shopDomain);
+      logger.warn('SHOPIFY', `[products/update] Integration not found for ${shopDomain}, cached for 1h`);
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
     }
 
     integrationId = integration.id;
@@ -1099,6 +1119,10 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       return res.status(400).json({ error: WEBHOOK_ERRORS.UNAUTHORIZED });
     }
 
+    if (unknownDomainCache.has(shopDomain)) {
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
+    }
+
     const { data: integration, error } = await supabaseAdmin
       .from('shopify_integrations')
       .select('*')
@@ -1107,7 +1131,9 @@ const productsDeleteHandler = async (req: Request, res: Response) => {
       .single();
 
     if (error || !integration) {
-      return res.status(404).json({ error: WEBHOOK_ERRORS.NOT_FOUND });
+      unknownDomainCache.add(shopDomain);
+      logger.warn('SHOPIFY', `[products/delete] Integration not found for ${shopDomain}, cached for 1h`);
+      return res.status(200).json({ success: true, message: 'Acknowledged' });
     }
 
     integrationId = integration.id;
