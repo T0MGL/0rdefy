@@ -133,6 +133,9 @@ shopifyBillingRouter.post(
   }
 );
 
+// No session auth: Shopify redirects merchants here after approving the charge.
+// Security: only clears shopify_confirmation_url (non-sensitive). Actual subscription
+// activation is exclusively via the app/subscriptions/update webhook.
 shopifyBillingRouter.get('/confirm', async (req: Request, res: Response) => {
   try {
     const { charge_id, store_id } = z.object({

@@ -333,8 +333,8 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
     const userEmail = req.user?.email;
 
     const body = z.object({
-      plan: z.enum(['starter', 'growth', 'professional']),
-      billingCycle: z.enum(['monthly', 'annual']),
+      plan: z.enum(['starter', 'growth', 'professional'] as const),
+      billingCycle: z.enum(['monthly', 'annual'] as const),
       referralCode: z.string().max(64).optional(),
       discountCode: z.string().max(64).optional(),
       fromOnboarding: z.boolean().optional(),
@@ -361,8 +361,8 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
     const session = await stripeService.createCheckoutSession({
       userId,
       email: userEmail,
-      plan: body.plan as PlanType,
-      billingCycle: body.billingCycle as BillingCycle,
+      plan: body.plan,
+      billingCycle: body.billingCycle,
       successUrl: `${appUrl}/settings?${successParams.toString()}`,
       cancelUrl: `${appUrl}/settings?tab=subscription&canceled=true`,
       referralCode: body.referralCode,
@@ -425,7 +425,7 @@ router.post('/portal', requireRole(Role.OWNER), async (req: PermissionRequest, r
 router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
     const userId = req.user?.id || req.userId;
-    const { reason } = req.body;
+    const { reason } = z.object({ reason: z.string().max(500).optional() }).parse(req.body);
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
@@ -516,8 +516,8 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
     }
 
     const { plan, billingCycle } = z.object({
-      plan: z.enum(['starter', 'growth', 'professional', 'free']),
-      billingCycle: z.enum(['monthly', 'annual']).optional(),
+      plan: z.enum(['starter', 'growth', 'professional', 'free'] as const),
+      billingCycle: z.enum(['monthly', 'annual'] as const).optional(),
     }).parse(req.body);
 
     const { data: subscription } = await supabaseAdmin
@@ -559,8 +559,8 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
 
     await stripeService.changeSubscriptionPlan(
       subscription.stripe_subscription_id,
-      plan as PlanType,
-      billingCycle as BillingCycle,
+      plan,
+      billingCycle,
       userId
     );
 
@@ -959,14 +959,7 @@ router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
 
     const { data: expiringTrials, error } = await supabaseAdmin
       .from('subscriptions')
-      .select(`
-        id,
-        user_id,
-        plan,
-        trial_ends_at,
-        stripe_subscription_id,
-        users:user_id (email, name)
-      `)
+      .select('id, user_id, plan, trial_ends_at, stripe_subscription_id')
       .eq('status', 'trialing')
       .lte('trial_ends_at', threeDaysFromNow.toISOString())
       .gt('trial_ends_at', new Date().toISOString())
