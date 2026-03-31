@@ -1020,12 +1020,40 @@ export class ShopifyWebhookService {
       // Actualizar o crear pedido (UPSERT) - orders/updated puede llegar antes que orders/create
       const orderData = this.mapShopifyOrderToLocal(enrichedOrder, storeId, customerId);
 
+      // Check if order already exists and has been confirmed locally.
+      // If confirmed, we must NOT overwrite locally-managed payment fields
+      // (cod_amount, financial_status, payment_method, payment_status, prepaid_method)
+      // because confirmation sets these based on the store's workflow, not Shopify's state.
+      const { data: existingOrder } = await this.supabaseAdmin
+        .from('orders')
+        .select('id, sleeves_status, financial_status, cod_amount, prepaid_method, payment_method')
+        .eq('shopify_order_id', shopifyOrder.id.toString())
+        .eq('store_id', storeId)
+        .single();
+
+      const isConfirmedLocally = existingOrder && !['pending', 'contacted'].includes(existingOrder.sleeves_status || '');
+
       // Agregar shopify_order_id para el UPSERT
       const fullOrderData = {
         ...orderData,
         shopify_order_id: shopifyOrder.id.toString(),
         store_id: storeId
       };
+
+      // If order is confirmed locally, strip payment fields to prevent
+      // Shopify webhook from overwriting local COD/prepaid state.
+      // BUG FIX: Without this, an orders/updated webhook with financial_status='paid'
+      // would set cod_amount=0, causing the delivery page to show "NO COBRAR"
+      // even though the courier must collect cash.
+      if (isConfirmedLocally) {
+        delete fullOrderData.cod_amount;
+        delete fullOrderData.financial_status;
+        delete fullOrderData.payment_method;
+        delete fullOrderData.payment_status;
+        delete fullOrderData.payment_gateway;
+        delete fullOrderData.prepaid_method;
+        logger.info('SHOPIFY_WEBHOOK', `Order ${shopifyOrder.id} already confirmed locally (${existingOrder.sleeves_status}), preserving local payment fields`);
+      }
 
       const { data: updatedOrder, error: updateError} = await this.supabaseAdmin
         .from('orders')

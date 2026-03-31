@@ -329,9 +329,20 @@ ordersRouter.get('/token/:token', async (req: Request, res: Response) => {
         const isPaidOnline = financialStatus === 'paid' || financialStatus === 'authorized';
         const isPrepaid = !!data.prepaid_method;
 
-        // CRITICAL: If order is paid (Shopify or manual prepaid), cod_amount MUST be 0
-        // This prevents showing wrong collection amount to courier
-        const effectiveCodAmount = (isPaidOnline || isPrepaid) ? 0 : (data.cod_amount || 0);
+        // Determine effective COD amount for courier display.
+        // If explicitly paid (Shopify or manual prepaid), collect nothing.
+        // Otherwise use cod_amount from DB, with fallback to total_price.
+        // The fallback matches the shipping label logic (printLabelPDF.ts line 114)
+        // and prevents showing "NO COBRAR" when cod_amount is 0/null but the order
+        // was never actually paid (e.g., webhook overwrite or missing cod_amount).
+        let effectiveCodAmount = 0;
+        if (isPaidOnline || isPrepaid) {
+            effectiveCodAmount = 0;
+        } else if (data.cod_amount && data.cod_amount > 0) {
+            effectiveCodAmount = data.cod_amount;
+        } else {
+            effectiveCodAmount = data.total_price || 0;
+        }
 
         // Return delivery information for pending deliveries (including incidents)
         const deliveryInfo = {
