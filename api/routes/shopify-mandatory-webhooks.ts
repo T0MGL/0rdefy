@@ -2,8 +2,15 @@ import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { validateShopifyWebhook, ShopifyWebhookRequest } from '../middleware/shopify-webhook';
+import { parsePlanFromSubscriptionName } from '../services/shopify-billing.service';
 
 export const shopifyMandatoryWebhooksRouter = Router();
+
+// Shopify subscription statuses that map to active Ordefy access
+const ACTIVE_SHOPIFY_STATUSES = new Set(['active', 'pending']);
+
+// Shopify subscription statuses that revoke Ordefy access
+const DEACTIVATE_SHOPIFY_STATUSES = new Set(['cancelled', 'declined', 'expired', 'frozen']);
 
 /**
  * POST /api/shopify/webhooks/app-uninstalled
@@ -70,72 +77,147 @@ shopifyMandatoryWebhooksRouter.post(
 
 /**
  * POST /api/shopify/webhooks/app-subscriptions-update
- * Shopify App Store mandatory webhook
- * Called when subscription status changes (cancelled, declined, etc.)
- * Must deactivate store when subscription is cancelled
+ *
+ * Shopify App Store mandatory webhook — fires whenever a subscription status changes.
+ * Source of truth for Shopify-billed subscription state.
+ *
+ * Payload shape (relevant fields):
+ *   { id: number, name: string, status: string, admin_graphql_api_id: string }
+ *
+ * Handles two independent concerns:
+ *   1. Ordefy subscriptions table (billing_source = shopify)
+ *   2. shopify_integrations status (active/inactive) — always updated
  */
 shopifyMandatoryWebhooksRouter.post(
   '/app-subscriptions-update',
   validateShopifyWebhook,
   async (req: ShopifyWebhookRequest, res: Response) => {
+    // Always return 200 to prevent Shopify retries regardless of internal errors
+    const ack = () => res.status(200).json({ received: true });
+
     try {
       const shopDomain = req.shopDomain;
       const integration = req.integration;
-      const payload = req.body;
+      const payload = req.body as {
+        id?: number;
+        name?: string;
+        status?: string;
+        admin_graphql_api_id?: string;
+      };
 
-      logger.info('API', `📋 App subscription update webhook received for: ${shopDomain}`);
-      logger.info('API', `   Status: ${payload.status}`);
+      logger.info('SHOPIFY_BILLING', 'app/subscriptions/update received', {
+        shopDomain,
+        status: payload.status,
+        chargeId: payload.admin_graphql_api_id,
+      });
 
       if (!integration) {
-        logger.error('API', '❌ Integration not found in request');
-        return res.status(200).json({ received: true, message: 'Integration not found' });
+        logger.warn('SHOPIFY_BILLING', 'Integration not found for shop', { shopDomain });
+        return ack();
       }
 
-      // Check if subscription is cancelled or declined
-      const deactivateStatuses = ['cancelled', 'declined', 'expired', 'frozen'];
-      const shouldDeactivate = deactivateStatuses.includes(payload.status?.toLowerCase());
+      // Idempotency: use Shopify-Webhook-Id header stored by validateShopifyWebhook
+      const webhookId = (req.headers['x-shopify-webhook-id'] as string | undefined) ?? `${shopDomain}-${payload.id ?? Date.now()}`;
+      const chargeGid = payload.admin_graphql_api_id ?? null;
 
+      const { data: insertedEvent, error: insertError } = await supabaseAdmin
+        .from('shopify_billing_events')
+        .insert({
+          shopify_event_id: webhookId,
+          event_type: 'app/subscriptions/update',
+          shop_domain: shopDomain,
+          charge_id: chargeGid,
+          payload,
+        })
+        .select('id')
+        .single();
+
+      if (insertError) {
+        if (insertError.code === '23505') {
+          logger.info('SHOPIFY_BILLING', 'Duplicate billing event, skipping', { webhookId });
+          return ack();
+        }
+        logger.error('SHOPIFY_BILLING', 'Failed to record billing event for idempotency', { insertError });
+        return ack();
+      }
+
+      const status = (payload.status ?? '').toLowerCase();
+      const shouldDeactivate = DEACTIVATE_SHOPIFY_STATUSES.has(status);
+      const shouldActivate = ACTIVE_SHOPIFY_STATUSES.has(status);
+
+      // --- Concern 1: Sync Ordefy subscription record ---
+      if (shouldActivate && chargeGid) {
+        const planName = parsePlanFromSubscriptionName(payload.name ?? '');
+
+        const { error: subError } = await supabaseAdmin
+          .from('subscriptions')
+          .update({
+            status: 'active',
+            plan: planName ?? undefined,
+            shopify_confirmation_url: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('shopify_charge_id', chargeGid)
+          .eq('billing_source', 'shopify');
+
+        if (subError) {
+          logger.error('SHOPIFY_BILLING', 'Failed to activate subscription', { chargeGid, subError });
+        } else {
+          logger.info('SHOPIFY_BILLING', 'Subscription activated', { chargeGid, plan: planName });
+        }
+      }
+
+      if (shouldDeactivate && chargeGid) {
+        const { error: subError } = await supabaseAdmin
+          .from('subscriptions')
+          .update({
+            status: 'canceled',
+            plan: 'free',
+            shopify_charge_id: null,
+            shopify_confirmation_url: null,
+            canceled_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('shopify_charge_id', chargeGid)
+          .eq('billing_source', 'shopify');
+
+        if (subError) {
+          logger.error('SHOPIFY_BILLING', 'Failed to cancel subscription', { chargeGid, subError });
+        } else {
+          logger.info('SHOPIFY_BILLING', 'Subscription downgraded to free', { chargeGid });
+        }
+      }
+
+      // --- Concern 2: Sync shopify_integrations status ---
       if (shouldDeactivate) {
-        logger.info('API', `⚠️  Deactivating integration due to status: ${payload.status}`);
-
-        // Mark integration as inactive
-        const { error: updateError } = await supabaseAdmin
+        const { error: integrationError } = await supabaseAdmin
           .from('shopify_integrations')
           .update({
             status: 'inactive',
-            sync_error: `Subscription ${payload.status} - ${new Date().toISOString()}`,
+            sync_error: `Shopify subscription ${payload.status} at ${new Date().toISOString()}`,
           })
           .eq('shop_domain', shopDomain);
 
-        if (updateError) {
-          logger.error('API', '❌ Error deactivating integration:', updateError);
-          return res.status(200).json({
-            received: true,
-            error: 'Error al desactivar integración',
-          });
+        if (integrationError) {
+          logger.error('SHOPIFY_BILLING', 'Failed to deactivate integration', { shopDomain, integrationError });
         }
-
-        logger.info('API', `✅ Successfully deactivated integration for: ${shopDomain}`);
-      } else {
-        logger.info('API', `ℹ️  No action needed for status: ${payload.status}`);
+      } else if (shouldActivate) {
+        await supabaseAdmin
+          .from('shopify_integrations')
+          .update({ status: 'active', sync_error: null })
+          .eq('shop_domain', shopDomain);
       }
 
-      // Shopify requires 200 response
-      res.status(200).json({
-        received: true,
-        message: 'Subscription update processed',
-        shop: shopDomain,
-        status: payload.status,
-        action: shouldDeactivate ? 'deactivated' : 'no_action',
-      });
+      // Mark event as processed
+      await supabaseAdmin
+        .from('shopify_billing_events')
+        .update({ processed: true, processed_at: new Date().toISOString() })
+        .eq('id', insertedEvent.id);
 
-    } catch (error: any) {
-      logger.error('API', '❌ Error processing app/subscriptions-update webhook:', error);
-      // Always return 200 to Shopify to prevent retries
-      res.status(200).json({
-        received: true,
-        error: 'Internal error',
-      });
+      return ack();
+    } catch (error: unknown) {
+      logger.error('SHOPIFY_BILLING', 'Error processing app/subscriptions/update', { error });
+      return ack();
     }
   }
 );

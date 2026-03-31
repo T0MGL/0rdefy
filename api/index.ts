@@ -51,6 +51,7 @@ import { externalWebhooksRouter } from './routes/external-webhooks';
 import { outboundWebhooksRouter } from './routes/outbound-webhooks';
 // import phoneVerificationRouter from './routes/phone-verification'; // TODO: Enable when WhatsApp number is ready
 import billingRouter from './routes/billing';
+import { shopifyBillingRouter } from './routes/shopify-billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
 import { invoicingRouter } from './routes/invoicing';
@@ -677,6 +678,10 @@ app.use('/api/outbound-webhooks', outboundWebhooksRouter);
 // Billing routes (Stripe subscriptions)
 // Note: /api/billing/webhook uses raw body parser internally for Stripe signature
 app.use('/api/billing', billingRouter);
+
+// Shopify Billing API routes (App Store merchants — Req 1.2.2 / 1.2.3)
+// Confirm callback must be reachable without auth (Shopify redirect)
+app.use('/api/shopify-billing', shopifyBillingRouter);
 
 // Upload routes (Image uploads to Supabase Storage)
 app.use('/api/upload', uploadRouter);

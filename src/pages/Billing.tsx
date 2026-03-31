@@ -41,7 +41,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import axios from 'axios';
-import { billingService, type Plan } from '@/services/billing.service';
+import { billingService, type Plan, type Subscription } from '@/services/billing.service';
 
 interface BillingProps {
   embedded?: boolean; // Hide header when embedded in Settings
@@ -58,14 +58,12 @@ export default function Billing({ embedded = false }: BillingProps) {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [downgradePlan, setDowngradePlan] = useState<string | null>(null);
 
-  // Check for success/cancel from Stripe
+  // Check for success/cancel from Stripe or Shopify billing callbacks
   useEffect(() => {
     if (searchParams.get('success') === 'true') {
       toast.success('Subscription activada exitosamente!');
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
 
-      // Check if this is a new user coming from onboarding (first payment)
-      // We detect this by checking if they came from onboarding flow
       const fromOnboarding = searchParams.get('from_onboarding') === 'true';
       const tourCompleted = localStorage.getItem('ordefy_demo_tour_completed') === 'true';
 
@@ -80,7 +78,21 @@ export default function Billing({ embedded = false }: BillingProps) {
     if (searchParams.get('canceled') === 'true') {
       toast.info('Checkout cancelado');
     }
-  }, [searchParams, queryClient, navigate]);
+
+    // Shopify billing callback
+    const billing = searchParams.get('billing');
+    if (billing === 'confirmed') {
+      toast.success('Plan confirmado. Tu suscripcion se activara en breve.');
+      queryClient.invalidateQueries({ queryKey: ['subscription'] });
+      setSearchParams((prev) => { prev.delete('billing'); return prev; });
+    } else if (billing === 'declined') {
+      toast.info('Aprobacion de cargo cancelada. No se realizaron cambios.');
+      setSearchParams((prev) => { prev.delete('billing'); return prev; });
+    } else if (billing === 'error') {
+      toast.error('Error en el proceso de facturacion de Shopify. Intenta de nuevo.');
+      setSearchParams((prev) => { prev.delete('billing'); return prev; });
+    }
+  }, [searchParams, queryClient, navigate, setSearchParams]);
 
   const { data: subscriptionData, isLoading } = useQuery({
     queryKey: ['subscription'],
@@ -164,14 +176,51 @@ export default function Billing({ embedded = false }: BillingProps) {
     },
   });
 
+  const shopifySubscribeMutation = useMutation({
+    mutationFn: ({ plan, shopDomain }: { plan: string; shopDomain: string }) =>
+      billingService.shopifySubscribe({
+        plan,
+        billingCycle: isAnnual ? 'annual' : 'monthly',
+        shopDomain,
+      }),
+    onSuccess: (data) => {
+      if (data.confirmationUrl) {
+        window.location.href = data.confirmationUrl;
+      }
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Error al iniciar suscripcion en Shopify');
+    },
+  });
+
+  const shopifyCancelMutation = useMutation({
+    mutationFn: billingService.cancelShopifySubscription,
+    onSuccess: () => {
+      setCancelDialogOpen(false);
+      toast.success('Suscripcion de Shopify cancelada.');
+      queryClient.invalidateQueries({ queryKey: ['subscription'] });
+    },
+    onError: (error: unknown) => {
+      setCancelDialogOpen(false);
+      toast.error(error instanceof Error ? error.message : 'Error al cancelar');
+    },
+  });
+
   const handleUpgrade = (planKey: string) => {
     setSelectedPlan(planKey);
-    checkoutMutation.mutate({
-      plan: planKey,
-      billingCycle: isAnnual ? 'annual' : 'monthly',
-      discountCode: discountCode || undefined,
-      referralCode: referralCode || undefined,
-    });
+    const sub = subscriptionData?.subscription as (Subscription & { billingSource?: 'stripe' | 'shopify'; shopifyShopDomain?: string | null }) | undefined;
+    const hasShopify = sub?.billingSource === 'shopify' && !!sub?.shopifyShopDomain;
+
+    if (hasShopify && sub?.shopifyShopDomain) {
+      shopifySubscribeMutation.mutate({ plan: planKey, shopDomain: sub.shopifyShopDomain });
+    } else {
+      checkoutMutation.mutate({
+        plan: planKey,
+        billingCycle: isAnnual ? 'annual' : 'monthly',
+        discountCode: discountCode || undefined,
+        referralCode: referralCode || undefined,
+      });
+    }
   };
 
   const handleDowngrade = (planKey: string) => {
@@ -207,10 +256,11 @@ ${link}`;
     );
   }
 
-  const subscription = subscriptionData?.subscription;
+  const subscription = subscriptionData?.subscription as (Subscription & { planDetails?: Plan }) | null | undefined;
   const usage = subscriptionData?.usage;
   const allPlans = subscriptionData?.allPlans || [];
   const currentPlan = subscription?.plan || 'free';
+  const isShopifyBilling = subscription?.billingSource === 'shopify';
   const maxSavings = Math.max(...allPlans.filter((p: Plan) => p.plan !== 'free').map((p: Plan) => p.annualSavings ?? 0));
 
   return (
@@ -243,6 +293,11 @@ ${link}`;
                     <CardTitle className="flex items-center gap-2">
                       <Crown className="h-5 w-5 text-yellow-500" />
                       Plan Actual: {subscription.planDetails?.name || subscription.plan}
+                      {(subscription as Subscription).billingSource === 'shopify' && (
+                        <Badge variant="outline" className="ml-2 text-xs font-normal border-[#96BF48] text-[#96BF48]">
+                          via Shopify
+                        </Badge>
+                      )}
                     </CardTitle>
                     <CardDescription>
                       {subscription.status === 'trialing' ? (
@@ -273,7 +328,30 @@ ${link}`;
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
-                    {subscription.cancelAtPeriodEnd ? (
+                    {(subscription as Subscription).billingSource === 'shopify' ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            const domain = (subscription as Subscription).shopifyShopDomain;
+                            if (domain) {
+                              window.open(`https://${domain}/admin/charges/shopify/subscriptions`, '_blank');
+                            }
+                          }}
+                        >
+                          <CreditCard className="h-4 w-4 mr-2" />
+                          Administrar en Shopify
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => setCancelDialogOpen(true)}
+                          disabled={shopifyCancelMutation.isPending}
+                        >
+                          Cancelar Plan
+                        </Button>
+                      </>
+                    ) : subscription.cancelAtPeriodEnd ? (
                       <Button
                         variant="default"
                         onClick={() => reactivateMutation.mutate()}
@@ -323,6 +401,18 @@ ${link}`;
             </Alert>
           )}
 
+          {/* Shopify pending confirmation alert */}
+          {(subscription as Subscription | null)?.shopifyPendingConfirmation && (
+            <Alert>
+              <Clock className="h-4 w-4" />
+              <AlertTitle>Confirmacion de cargo pendiente</AlertTitle>
+              <AlertDescription>
+                Tu suscripcion fue creada pero aun no fue aprobada en Shopify.
+                Revisa el email de Shopify o ve a tu admin para aprobar el cargo.
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Billing Toggle - Glassmorphic */}
           <div className="flex flex-col items-center gap-6 py-8">
             <div className="inline-flex items-center gap-1 p-1.5 rounded-full bg-white/5 dark:bg-white/5 backdrop-blur-xl border border-white/10">
@@ -353,21 +443,23 @@ ${link}`;
               )}
             </div>
 
-            {/* Discount Codes - Glassmorphic */}
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <Input
-                placeholder="Codigo de descuento"
-                value={discountCode}
-                onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
-                className="w-48 bg-white/5 dark:bg-white/5 backdrop-blur-sm border-white/10 focus:border-primary/50 transition-colors"
-              />
-              <Input
-                placeholder="Codigo de referido"
-                value={referralCode}
-                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                className="w-48 bg-white/5 dark:bg-white/5 backdrop-blur-sm border-white/10 focus:border-primary/50 transition-colors"
-              />
-            </div>
+            {/* Discount Codes - not applicable for Shopify billing */}
+            {!isShopifyBilling && (
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Input
+                  placeholder="Codigo de descuento"
+                  value={discountCode}
+                  onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+                  className="w-48 bg-white/5 dark:bg-white/5 backdrop-blur-sm border-white/10 focus:border-primary/50 transition-colors"
+                />
+                <Input
+                  placeholder="Codigo de referido"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                  className="w-48 bg-white/5 dark:bg-white/5 backdrop-blur-sm border-white/10 focus:border-primary/50 transition-colors"
+                />
+              </div>
+            )}
           </div>
 
           {/* Plans Grid - Premium Glassmorphic */}
@@ -525,14 +617,14 @@ ${link}`;
                       ) : canUpgrade ? (
                         <button
                           onClick={() => handleUpgrade(plan.plan)}
-                          disabled={checkoutMutation.isPending && selectedPlan === plan.plan}
+                          disabled={(checkoutMutation.isPending || shopifySubscribeMutation.isPending) && selectedPlan === plan.plan}
                           className={`w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 ${
                             isGrowth
                               ? 'bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:scale-[1.02]'
                               : 'bg-white/10 text-foreground border border-white/20 hover:bg-white/20 hover:border-white/30'
                           }`}
                         >
-                          {checkoutMutation.isPending && selectedPlan === plan.plan ? (
+                          {(checkoutMutation.isPending || shopifySubscribeMutation.isPending) && selectedPlan === plan.plan ? (
                             'Cargando...'
                           ) : (
                             <span className="flex items-center justify-center gap-2">
@@ -833,10 +925,16 @@ ${link}`;
             </Button>
             <Button
               variant="destructive"
-              onClick={() => cancelMutation.mutate()}
-              disabled={cancelMutation.isPending}
+              onClick={() => {
+                if ((subscription as Subscription | undefined)?.billingSource === 'shopify') {
+                  shopifyCancelMutation.mutate();
+                } else {
+                  cancelMutation.mutate();
+                }
+              }}
+              disabled={cancelMutation.isPending || shopifyCancelMutation.isPending}
             >
-              {cancelMutation.isPending ? 'Cancelando...' : 'Confirmar cancelacion'}
+              {(cancelMutation.isPending || shopifyCancelMutation.isPending) ? 'Cancelando...' : 'Confirmar cancelacion'}
             </Button>
           </DialogFooter>
         </DialogContent>

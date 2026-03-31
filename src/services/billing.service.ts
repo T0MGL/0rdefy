@@ -38,7 +38,20 @@ export interface Subscription {
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   trialEndsAt: string | null;
+  billingSource: 'stripe' | 'shopify';
+  shopifyShopDomain: string | null;
+  shopifyPendingConfirmation: boolean;
   planDetails?: Plan;
+}
+
+export interface ShopifyBillingStatus {
+  billingSource: 'stripe' | 'shopify' | 'none';
+  plan: string;
+  status: string;
+  shopifyChargeId: string | null;
+  pendingConfirmation: boolean;
+  confirmationUrl: string | null;
+  currentPeriodEnd: string | null;
 }
 
 export interface Usage {
@@ -155,6 +168,25 @@ export const billingService = {
     error?: string;
   }> {
     const response = await apiClient.get(`/billing/referral/${code}/validate`);
+    return response.data;
+  },
+
+  async getShopifyBillingStatus(): Promise<ShopifyBillingStatus> {
+    const response = await apiClient.get('/shopify-billing/status');
+    return response.data;
+  },
+
+  async shopifySubscribe(params: {
+    plan: string;
+    billingCycle: 'monthly' | 'annual';
+    shopDomain: string;
+  }): Promise<{ confirmationUrl: string }> {
+    const response = await apiClient.post('/shopify-billing/subscribe', params);
+    return response.data;
+  },
+
+  async cancelShopifySubscription(reason?: string): Promise<{ success: boolean }> {
+    const response = await apiClient.post('/shopify-billing/cancel', { reason });
     return response.data;
   },
 };

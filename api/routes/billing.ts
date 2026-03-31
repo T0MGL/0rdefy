@@ -266,19 +266,31 @@ router.get('/subscription', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // Get USER subscription (covers all stores)
-    const subscription = await stripeService.getUserSubscription(userId);
-    const usage = await stripeService.getUserUsage(userId);  // Aggregated across all stores
-    const planLimits = await stripeService.getAllPlanLimits();
+    const [subscription, usage, planLimits] = await Promise.all([
+      stripeService.getUserSubscription(userId),
+      stripeService.getUserUsage(userId),
+      stripeService.getAllPlanLimits(),
+    ]);
+
+    // Fetch Shopify billing fields that the Stripe service doesn't expose
+    const { data: subRow } = await supabaseAdmin
+      .from('subscriptions')
+      .select('billing_source, shopify_shop_domain, shopify_confirmation_url')
+      .eq('user_id', userId)
+      .eq('is_primary', true)
+      .maybeSingle();
 
     const currentPlanLimits = planLimits.find((p) => p.plan === (subscription?.plan || 'free'));
 
     res.json({
       subscription: {
         ...subscription,
+        billingSource: (subRow?.billing_source as 'stripe' | 'shopify') ?? 'stripe',
+        shopifyShopDomain: subRow?.shopify_shop_domain ?? null,
+        shopifyPendingConfirmation: !!subRow?.shopify_confirmation_url,
         planDetails: currentPlanLimits,
       },
-      usage,  // Now includes: stores count, aggregated totals, and per-store breakdown
+      usage,
       allPlans: planLimits.map((plan) => ({
         ...plan,
         priceMonthly: plan.price_monthly_cents / 100,
