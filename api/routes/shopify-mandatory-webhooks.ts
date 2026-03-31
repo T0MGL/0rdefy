@@ -28,12 +28,7 @@ shopifyMandatoryWebhooksRouter.post(
         return res.status(200).json({ received: true, message: 'Integration not found' });
       }
 
-      // Delete integration (CASCADE will handle related data)
-      // This will automatically delete:
-      // - shopify_import_jobs
-      // - shopify_webhook_events
-      // - shopify_sync_conflicts
-      // - Products, customers, orders with shopify_* fields will remain but lose sync
+      // Products/orders are intentionally preserved after uninstall; only the integration record and its direct dependents are removed
       const { error: deleteError } = await supabaseAdmin
         .from('shopify_integrations')
         .delete()
@@ -48,11 +43,12 @@ shopifyMandatoryWebhooksRouter.post(
         });
       }
 
-      logger.info('API', `Successfully deleted integration for: ${shopDomain}`);
-      logger.info('API', `   - Store ID: ${integration.store_id}`);
-      logger.info('API', `   - Integration ID: ${integration.id}`);
+      logger.info('API', 'Integration deleted on app uninstall', {
+        shopDomain,
+        storeId: integration.store_id,
+        integrationId: integration.id,
+      });
 
-      // Shopify requires 200 response
       res.status(200).json({
         received: true,
         message: 'App uninstalled successfully',

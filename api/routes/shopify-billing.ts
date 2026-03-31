@@ -97,7 +97,6 @@ shopifyBillingRouter.post(
         isTest,
       });
 
-      // Persist pending subscription in our DB
       // Status stays 'incomplete' until Shopify confirms via webhook
       await supabaseAdmin
         .from('subscriptions')
@@ -214,7 +213,7 @@ shopifyBillingRouter.post(
         appSubscriptionId: subscription.shopify_charge_id,
       });
 
-      // Update local record — webhook will also fire and confirm
+      // Optimistic local update; webhook will confirm via app/subscriptions/update
       await supabaseAdmin
         .from('subscriptions')
         .update({
