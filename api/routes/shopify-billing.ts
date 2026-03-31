@@ -97,7 +97,6 @@ shopifyBillingRouter.post(
         isTest,
       });
 
-      // Status stays 'incomplete' until Shopify confirms via webhook
       await supabaseAdmin
         .from('subscriptions')
         .upsert(

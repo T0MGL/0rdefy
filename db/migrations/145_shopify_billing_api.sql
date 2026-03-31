@@ -5,9 +5,7 @@
 -- Author: Bright Idea
 -- Date: 2026-03-31
 
--- ============================================================================
--- PHASE 1: Add Shopify billing columns to subscriptions
--- ============================================================================
+-- Phase 1: subscriptions table
 
 ALTER TABLE subscriptions
   ADD COLUMN IF NOT EXISTS billing_source TEXT NOT NULL DEFAULT 'stripe'
@@ -32,9 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_shopify_charge_id
   ON subscriptions(shopify_charge_id)
   WHERE shopify_charge_id IS NOT NULL;
 
--- ============================================================================
--- PHASE 2: Add shopify_billing_events table for idempotency
--- ============================================================================
+-- Phase 2: shopify_billing_events table (idempotency for webhooks)
 
 CREATE TABLE IF NOT EXISTS shopify_billing_events (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -74,8 +74,6 @@ export async function createAppSubscription(params: {
     throw new Error(`Unknown plan: ${plan}`);
   }
 
-  // Annual billing = one charge of full annual price
-  // Monthly billing = recurring monthly charge
   const isAnnual = billingCycle === 'annual';
   const amount = isAnnual ? planConfig.annual : planConfig.monthly;
   const interval = isAnnual ? 'ANNUAL' : 'EVERY_30_DAYS';

@@ -21,7 +21,7 @@ shopifyMandatoryWebhooksRouter.post(
       const shopDomain = req.shopDomain;
       const integration = req.integration;
 
-      logger.info('API', `App uninstalled webhook received for: ${shopDomain}`);
+      logger.info('API', 'App uninstalled webhook received', { shopDomain });
 
       if (!integration) {
         logger.error('API', 'Integration not found in request');
@@ -36,7 +36,6 @@ shopifyMandatoryWebhooksRouter.post(
 
       if (deleteError) {
         logger.error('API', 'Error deleting integration', { deleteError });
-        // Still return 200 to Shopify
         return res.status(200).json({
           received: true,
           error: 'Error al eliminar integración',
@@ -139,7 +138,6 @@ shopifyMandatoryWebhooksRouter.post(
       const shouldDeactivate = DEACTIVATE_SHOPIFY_STATUSES.has(status);
       const shouldActivate = ACTIVE_SHOPIFY_STATUSES.has(status);
 
-      // --- Concern 1: Sync Ordefy subscription record ---
       if (shouldActivate && chargeGid) {
         const planName = parsePlanFromSubscriptionName(payload.name ?? '');
 
@@ -182,7 +180,6 @@ shopifyMandatoryWebhooksRouter.post(
         }
       }
 
-      // --- Concern 2: Sync shopify_integrations status ---
       if (shouldDeactivate) {
         const { error: integrationError } = await supabaseAdmin
           .from('shopify_integrations')
@@ -202,7 +199,6 @@ shopifyMandatoryWebhooksRouter.post(
           .eq('shop_domain', shopDomain);
       }
 
-      // Mark event as processed
       await supabaseAdmin
         .from('shopify_billing_events')
         .update({ processed: true, processed_at: new Date().toISOString() })
