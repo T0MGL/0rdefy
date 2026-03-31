@@ -48,12 +48,12 @@ uri = "https://api.ordefy.io/api/shopify/webhooks/app-subscriptions-update"
 
 [[webhooks.subscriptions]]
 compliance_topics = ["customers/data_request"]
-uri = "https://api.ordefy.io/api/shopify/webhook/customers/data_request"
+uri = "https://api.ordefy.io/api/shopify/compliance/customers/data_request"
 
 [[webhooks.subscriptions]]
 compliance_topics = ["customers/redact"]
-uri = "https://api.ordefy.io/api/shopify/webhook/customers/redact"
+uri = "https://api.ordefy.io/api/shopify/compliance/customers/redact"
 
 [[webhooks.subscriptions]]
 compliance_topics = ["shop/redact"]
-uri = "https://api.ordefy.io/api/shopify/webhook/shop/redact"
+uri = "https://api.ordefy.io/api/shopify/compliance/shop/redact"

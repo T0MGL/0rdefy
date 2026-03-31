@@ -48,17 +48,13 @@ shopifyComplianceRouter.post(
       const integration = req.integration;
       const payload = req.body;
 
-      logger.info('API', '================================================================');
-      logger.info('API', '📋 GDPR: Customer Data Request Received');
-      logger.info('API', '================================================================');
-      logger.info('API', `Shop Domain: ${shopDomain}`);
-      logger.info('API', `Customer ID: ${payload.customer?.id}`);
-      logger.info('API', `Customer Email: ${payload.customer?.email}`);
-      logger.info('API', `Data Request ID: ${payload.data_request?.id}`);
-      logger.info('API', `Orders Requested: ${payload.orders_requested?.length || 0}`);
-      logger.info('API', '================================================================');
+      logger.info('GDPR', 'customers/data_request received', {
+        shopDomain,
+        customerId: payload.customer?.id,
+        requestId: payload.data_request?.id,
+        ordersRequested: payload.orders_requested?.length ?? 0,
+      });
 
-      // Log the request to database for audit trail
       if (integration) {
         const { error: logError } = await supabaseAdmin
           .from('shopify_webhook_events')
@@ -72,17 +68,15 @@ shopifyComplianceRouter.post(
           });
 
         if (logError) {
-          logger.error('API', '❌ Error logging webhook event:', logError);
+          logger.error('GDPR', 'Failed to log data_request event', { logError });
         }
       }
 
-      // Retrieve customer data from our database for the data request
       if (integration) {
         const customerId = payload.customer?.id?.toString();
         const customerEmail = payload.customer?.email;
 
         if (customerId || customerEmail) {
-          // Find customer records matching Shopify customer
           let customerQuery = supabaseAdmin
             .from('customers')
             .select('id, name, email, phone, address, city, created_at')
@@ -96,7 +90,6 @@ shopifyComplianceRouter.post(
 
           const { data: customers } = await customerQuery;
 
-          // Find related orders
           let orderQuery = supabaseAdmin
             .from('orders')
             .select('id, shopify_order_name, total_price, sleeves_status, created_at, customer_first_name, customer_last_name, customer_phone, customer_address')
@@ -108,19 +101,16 @@ shopifyComplianceRouter.post(
 
           const { data: orders } = await orderQuery;
 
-          logger.info('API', 'Customer data compiled for GDPR request', {
+          logger.info('GDPR', 'Customer data compiled for data_request', {
             shopDomain,
             customerId,
-            customerRecords: customers?.length || 0,
-            orderRecords: orders?.length || 0,
-            requestId: payload.data_request?.id
+            customerRecords: customers?.length ?? 0,
+            orderRecords: orders?.length ?? 0,
+            requestId: payload.data_request?.id,
           });
         }
       }
 
-      logger.info('API', 'Customer data request processed successfully');
-
-      // Return 200 OK to acknowledge receipt
       res.status(200).json({
         received: true,
         message: 'Customer data request received and logged',
@@ -128,16 +118,10 @@ shopifyComplianceRouter.post(
         request_id: payload.data_request?.id,
       });
 
-    } catch (error: any) {
-      logger.error('API', '❌ Error processing customers/data_request webhook:', error);
-      logger.error('API', error.stack);
-
-      // Always return 200 to Shopify to prevent retries
-      // Log the error for investigation
-      res.status(200).json({
-        received: true,
-        error: 'Internal error processing request',
-      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('GDPR', 'Error processing customers/data_request', { error: msg });
+      res.status(200).json({ received: true, error: 'Internal error processing request' });
     }
   }
 );
@@ -174,16 +158,12 @@ shopifyComplianceRouter.post(
       const integration = req.integration;
       const payload = req.body;
 
-      logger.info('API', '================================================================');
-      logger.info('API', '🗑️  GDPR: Customer Redaction Request Received');
-      logger.info('API', '================================================================');
-      logger.info('API', `Shop Domain: ${shopDomain}`);
-      logger.info('API', `Customer ID: ${payload.customer?.id}`);
-      logger.info('API', `Customer Email: ${payload.customer?.email}`);
-      logger.info('API', `Orders to Redact: ${payload.orders_to_redact?.length || 0}`);
-      logger.info('API', '================================================================');
+      logger.info('GDPR', 'customers/redact received', {
+        shopDomain,
+        customerId: payload.customer?.id,
+        ordersToRedact: payload.orders_to_redact?.length ?? 0,
+      });
 
-      // Log the request to database for audit trail
       if (integration) {
         const { error: logError } = await supabaseAdmin
           .from('shopify_webhook_events')
@@ -197,20 +177,18 @@ shopifyComplianceRouter.post(
           });
 
         if (logError) {
-          logger.error('API', '❌ Error logging webhook event:', logError);
+          logger.error('GDPR', 'Failed to log customers/redact event', { logError });
         }
       }
 
-      // GDPR Right to Erasure: Anonymize all customer PII
-      // We keep transaction records for legal/accounting but strip PII
+      // GDPR Right to Erasure: Anonymize all customer PII.
+      // Transaction records are kept for accounting but PII is stripped.
       if (integration) {
         const customerId = payload.customer?.id?.toString();
-        const customerEmail = payload.customer?.email;
         const storeId = integration.store_id;
-        let redactedCount = { customers: 0, orders: 0 };
+        const redactedCount = { customers: 0, orders: 0 };
 
         if (customerId) {
-          // Redact customer PII in customers table
           const { count: custCount } = await supabaseAdmin
             .from('customers')
             .update({
@@ -225,9 +203,8 @@ shopifyComplianceRouter.post(
             .eq('store_id', storeId)
             .select('id');
 
-          redactedCount.customers = custCount || 0;
+          redactedCount.customers = custCount ?? 0;
 
-          // Anonymize order customer PII (keep financial data for accounting)
           const { count: orderCount } = await supabaseAdmin
             .from('orders')
             .update({
@@ -242,19 +219,16 @@ shopifyComplianceRouter.post(
             .eq('store_id', storeId)
             .select('id');
 
-          redactedCount.orders = orderCount || 0;
+          redactedCount.orders = orderCount ?? 0;
         }
 
-        logger.info('API', 'GDPR customer redaction completed', {
+        logger.info('GDPR', 'Customer redaction completed', {
           shopDomain,
           customerId,
-          redactedCount
+          redactedCount,
         });
       }
 
-      logger.info('API', 'Customer redaction request processed successfully');
-
-      // Return 200 OK to acknowledge receipt
       res.status(200).json({
         received: true,
         message: 'Customer redaction request received and logged',
@@ -262,15 +236,10 @@ shopifyComplianceRouter.post(
         customer_id: payload.customer?.id,
       });
 
-    } catch (error: any) {
-      logger.error('API', '❌ Error processing customers/redact webhook:', error);
-      logger.error('API', error.stack);
-
-      // Always return 200 to Shopify to prevent retries
-      res.status(200).json({
-        received: true,
-        error: 'Internal error processing request',
-      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('GDPR', 'Error processing customers/redact', { error: msg });
+      res.status(200).json({ received: true, error: 'Internal error processing request' });
     }
   }
 );
@@ -301,14 +270,8 @@ shopifyComplianceRouter.post(
       const integration = req.integration;
       const payload = req.body;
 
-      logger.info('API', '================================================================');
-      logger.info('API', '🏪 GDPR: Shop Redaction Request Received');
-      logger.info('API', '================================================================');
-      logger.info('API', `Shop Domain: ${shopDomain}`);
-      logger.info('API', `Shop ID: ${payload.shop_id}`);
-      logger.info('API', '================================================================');
+      logger.info('GDPR', 'shop/redact received', { shopDomain, shopId: payload.shop_id });
 
-      // Log the request to database for audit trail
       if (integration) {
         const { error: logError } = await supabaseAdmin
           .from('shopify_webhook_events')
@@ -322,39 +285,23 @@ shopifyComplianceRouter.post(
           });
 
         if (logError) {
-          logger.error('API', '❌ Error logging webhook event:', logError);
+          logger.error('GDPR', 'Failed to log shop/redact event', { logError });
         }
       }
 
-      // Delete the Shopify integration and all associated data
-      // This webhook is sent 48 hours after app uninstallation
       if (integration) {
-        logger.info('API', `🗑️  Deleting shop data for: ${shopDomain}`);
-
-        // Delete integration (CASCADE will handle related data)
         const { error: deleteError } = await supabaseAdmin
           .from('shopify_integrations')
           .delete()
           .eq('shop_domain', shopDomain);
 
         if (deleteError) {
-          logger.error('API', '❌ Error deleting integration:', deleteError);
+          logger.error('GDPR', 'Failed to delete integration on shop/redact', { shopDomain, deleteError });
         } else {
-          logger.info('API', `✅ Successfully deleted integration for: ${shopDomain}`);
+          logger.info('GDPR', 'Integration deleted on shop/redact', { shopDomain });
         }
-
-        // Optionally: Delete or anonymize products/orders synced from this shop
-        // This depends on your data retention policy
-        // await supabaseAdmin
-        //   .from('products')
-        //   .delete()
-        //   .eq('store_id', integration.store_id)
-        //   .not('shopify_product_id', 'is', null);
       }
 
-      logger.info('API', '✅ Shop redaction request processed successfully');
-
-      // Return 200 OK to acknowledge receipt
       res.status(200).json({
         received: true,
         message: 'Shop redaction request processed',
@@ -362,23 +309,14 @@ shopifyComplianceRouter.post(
         shop_id: payload.shop_id,
       });
 
-    } catch (error: any) {
-      logger.error('API', '❌ Error processing shop/redact webhook:', error);
-      logger.error('API', error.stack);
-
-      // Always return 200 to Shopify to prevent retries
-      res.status(200).json({
-        received: true,
-        error: 'Internal error processing request',
-      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('GDPR', 'Error processing shop/redact', { error: msg });
+      res.status(200).json({ received: true, error: 'Internal error processing request' });
     }
   }
 );
 
-/**
- * GET /api/shopify/compliance/health
- * Health check endpoint for GDPR compliance webhooks
- */
 shopifyComplianceRouter.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
