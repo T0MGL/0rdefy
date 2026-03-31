@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth, Role } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { preserveShopifyParams } from '@/utils/shopifyNavigation';
+import { preserveShopifyParams, isShopifyEmbedded } from '@/utils/shopifyNavigation';
 import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users, Loader2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { logger } from '@/utils/logger';
@@ -160,6 +160,8 @@ export default function Settings() {
 
   // Check if user is owner (only owners can access billing/subscription)
   const isOwner = permissions.currentRole === Role.OWNER;
+  // Billing is managed on app.ordefy.io, not inside the Shopify Admin embed.
+  const isShopifyContext = isShopifyEmbedded();
 
   const location = useLocation();
 
@@ -597,15 +599,21 @@ export default function Settings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className={`grid w-full lg:w-[800px] ${hasTeamManagement ? 'grid-cols-5' : 'grid-cols-4'}`}>
+        <TabsList className={`grid w-full lg:w-[800px] ${
+          isShopifyContext
+            ? hasTeamManagement ? 'grid-cols-4' : 'grid-cols-3'
+            : hasTeamManagement ? 'grid-cols-5' : 'grid-cols-4'
+        }`}>
           <TabsTrigger value="profile" className="gap-2">
             <User size={16} />
             Perfil
           </TabsTrigger>
-          <TabsTrigger value="subscription" className="gap-2">
-            <CreditCard size={16} />
-            Suscripción
-          </TabsTrigger>
+          {!isShopifyContext && (
+            <TabsTrigger value="subscription" className="gap-2">
+              <CreditCard size={16} />
+              Suscripción
+            </TabsTrigger>
+          )}
           <TabsTrigger value="preferences" className="gap-2">
             <Bell size={16} />
             Preferencias
@@ -792,7 +800,8 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Subscription Tab */}
+        {/* Subscription Tab — hidden in Shopify embedded context, billing is on app.ordefy.io */}
+        {!isShopifyContext && (
         <TabsContent value="subscription" className="space-y-6">
           {isOwner ? (
             <BillingPage embedded />
@@ -816,6 +825,7 @@ export default function Settings() {
             </Card>
           )}
         </TabsContent>
+        )}
 
         {/* Preferences Tab */}
         <TabsContent value="preferences" className="space-y-6">

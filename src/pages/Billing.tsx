@@ -20,6 +20,7 @@ import {
   Clock,
   TrendingUp,
   ChevronDown,
+  ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,11 +44,20 @@ import { toast } from 'sonner';
 import axios from 'axios';
 import { billingService, type Plan, type Subscription } from '@/services/billing.service';
 
+// Detect Shopify embedded context. Checks both the URL `host` param (present in all
+// Shopify Admin embeds) and the session flag set by ShopifyAppBridgeProvider.
+function detectShopifyEmbedded(): boolean {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('host') || urlParams.get('embedded') === '1') return true;
+  return !!(window as Window & { __SHOPIFY_EMBEDDED__?: boolean }).__SHOPIFY_EMBEDDED__;
+}
+
 interface BillingProps {
   embedded?: boolean; // Hide header when embedded in Settings
 }
 
 export default function Billing({ embedded = false }: BillingProps) {
+  const isShopifyContext = detectShopifyEmbedded();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -252,6 +262,47 @@ ${link}`;
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  // When accessed from Shopify Admin, billing is managed exclusively on app.ordefy.io.
+  // This app is free on the Shopify App Store. No prices or plan CTAs are shown here.
+  if (isShopifyContext) {
+    const sub = subscriptionData?.subscription;
+    const planName = sub?.planDetails?.name || sub?.plan || 'Free';
+    return (
+      <div className={embedded ? 'space-y-4' : 'container mx-auto py-6 space-y-6'}>
+        {!embedded && (
+          <div>
+            <h1 className="text-3xl font-bold">Plan</h1>
+            <p className="text-muted-foreground mt-1">Estado de tu suscripcion de Ordefy</p>
+          </div>
+        )}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Crown className="h-5 w-5 text-yellow-500" />
+              Plan actual: {planName}
+            </CardTitle>
+            <CardDescription>
+              Tu suscripcion de Ordefy se gestiona desde el panel de Ordefy.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Esta integracion de Shopify es gratuita. Para ver o cambiar tu plan,
+              accede directamente a tu cuenta en app.ordefy.io.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => window.open('https://app.ordefy.io/settings?tab=subscription', '_blank')}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Gestionar suscripcion en Ordefy
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
