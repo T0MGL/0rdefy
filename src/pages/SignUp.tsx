@@ -317,7 +317,7 @@ export default function SignUp() {
                     Terminos de Servicio
                   </a>{' '}
                   y la{' '}
-                  <a href="https://ordefy.io/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                  <a href="https://www.ordefy.io/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                     Politica de Privacidad
                   </a>{' '}
                   de Ordefy.
@@ -361,7 +361,7 @@ export default function SignUp() {
 
           <div className="mt-8 pt-6 border-t border-slate-800 text-center space-y-2">
             <div className="flex items-center justify-center gap-3 text-xs text-slate-500">
-              <a href="https://ordefy.io/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+              <a href="https://www.ordefy.io/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
                 Privacidad
               </a>
               <span className="text-slate-700">·</span>
