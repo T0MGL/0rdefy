@@ -800,7 +800,7 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        {/* Subscription Tab — hidden in Shopify embedded context, billing is on app.ordefy.io */}
+        {/* Subscription Tab: hidden in Shopify embedded context, billing is on app.ordefy.io */}
         {!isShopifyContext && (
         <TabsContent value="subscription" className="space-y-6">
           {isOwner ? (

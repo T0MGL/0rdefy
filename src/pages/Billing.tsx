@@ -43,21 +43,14 @@ import {
 import { toast } from 'sonner';
 import axios from 'axios';
 import { billingService, type Plan, type Subscription } from '@/services/billing.service';
-
-// Detect Shopify embedded context. Checks both the URL `host` param (present in all
-// Shopify Admin embeds) and the session flag set by ShopifyAppBridgeProvider.
-function detectShopifyEmbedded(): boolean {
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('host') || urlParams.get('embedded') === '1') return true;
-  return !!(window as Window & { __SHOPIFY_EMBEDDED__?: boolean }).__SHOPIFY_EMBEDDED__;
-}
+import { isShopifyEmbedded } from '@/utils/shopifyNavigation';
 
 interface BillingProps {
   embedded?: boolean; // Hide header when embedded in Settings
 }
 
 export default function Billing({ embedded = false }: BillingProps) {
-  const isShopifyContext = detectShopifyEmbedded();
+  const isShopifyContext = isShopifyEmbedded();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

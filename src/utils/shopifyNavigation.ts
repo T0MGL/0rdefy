@@ -51,11 +51,13 @@ export function preserveShopifyParams(path: string): string {
  * @returns true if running in Shopify iframe, false otherwise
  */
 export function isShopifyEmbedded(): boolean {
+  if ((window as Window & { __SHOPIFY_EMBEDDED__?: boolean }).__SHOPIFY_EMBEDDED__) return true;
   const urlParams = new URLSearchParams(window.location.search);
-  const embedded = urlParams.get('embedded');
-  const host = urlParams.get('host');
-
-  return embedded === '1' || !!host;
+  // Require both `host` and `shop` to avoid false positives from unrelated `host` params
+  const hasHost = !!urlParams.get('host');
+  const hasShop = !!urlParams.get('shop');
+  const isEmbeddedFlag = urlParams.get('embedded') === '1';
+  return isEmbeddedFlag || (hasHost && hasShop);
 }
 
 /**
