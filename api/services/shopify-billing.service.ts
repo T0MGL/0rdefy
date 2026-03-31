@@ -1,15 +1,3 @@
-/**
- * Shopify Billing API Service
- *
- * Handles Shopify App Subscription lifecycle via GraphQL Admin API.
- * Required for Shopify App Store approval (Req 1.2.2 and 1.2.3):
- *   - Charges must appear in merchant admin charge history
- *   - Must correctly implement the Shopify Billing API
- *
- * All monetary amounts are in the shop's currency (USD for most merchants).
- * Shopify handles the actual payment collection; we receive webhooks on status changes.
- */
-
 import { logger } from '../utils/logger';
 import axios from 'axios';
 import { supabaseAdmin } from '../db/connection';
@@ -40,9 +28,6 @@ interface ActiveShopifySubscription {
   trialDays: number;
 }
 
-/**
- * Execute a GraphQL mutation against the Shopify Admin API for a given shop.
- */
 async function shopifyGraphQL<T = Record<string, unknown>>(
   shopDomain: string,
   accessToken: string,
@@ -74,10 +59,6 @@ async function shopifyGraphQL<T = Record<string, unknown>>(
   return response.data.data;
 }
 
-/**
- * Create a recurring application charge via Shopify Billing API.
- * Returns the confirmation URL the merchant must visit to approve the charge.
- */
 export async function createAppSubscription(params: {
   shopDomain: string;
   accessToken: string;
@@ -165,7 +146,6 @@ export async function createAppSubscription(params: {
     throw new Error('Shopify returned no subscription ID or confirmation URL');
   }
 
-  // Extract numeric ID from GID for logging
   const gid = result.appSubscription.id;
   logger.info('SHOPIFY_BILLING', 'App subscription created', {
     shopDomain,
@@ -181,10 +161,6 @@ export async function createAppSubscription(params: {
   };
 }
 
-/**
- * Cancel an active Shopify app subscription.
- * Shopify will send an app/subscriptions/update webhook with status CANCELLED.
- */
 export async function cancelAppSubscription(params: {
   shopDomain: string;
   accessToken: string;
@@ -232,10 +208,6 @@ export async function cancelAppSubscription(params: {
   });
 }
 
-/**
- * Retrieve the currently active app subscription for a shop.
- * Returns null if no active subscription exists.
- */
 export async function getActiveAppSubscription(params: {
   shopDomain: string;
   accessToken: string;
@@ -282,10 +254,6 @@ export async function getActiveAppSubscription(params: {
   };
 }
 
-/**
- * Resolve plan name from Shopify subscription name.
- * Parses names like "Ordefy Growth (Monthly)" back to "growth".
- */
 export function parsePlanFromSubscriptionName(name: string): ShopifyPlanType | null {
   const lower = name.toLowerCase();
   if (lower.includes('professional')) return 'professional';
@@ -294,10 +262,6 @@ export function parsePlanFromSubscriptionName(name: string): ShopifyPlanType | n
   return null;
 }
 
-/**
- * Look up the Shopify integration access token for a shop domain.
- * Used by webhook handlers and billing routes.
- */
 export async function getShopifyAccessToken(shopDomain: string): Promise<string | null> {
   const { data } = await supabaseAdmin
     .from('shopify_integrations')
@@ -309,9 +273,6 @@ export async function getShopifyAccessToken(shopDomain: string): Promise<string 
   return data?.access_token ?? null;
 }
 
-/**
- * Confirm URL for the billing callback — used as returnUrl in appSubscriptionCreate.
- */
 export function buildBillingReturnUrl(storeId: string): string {
   return `${API_URL}/api/shopify-billing/confirm?store_id=${storeId}`;
 }

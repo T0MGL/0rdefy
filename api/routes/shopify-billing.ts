@@ -27,22 +27,11 @@ import {
   cancelAppSubscription,
   getShopifyAccessToken,
   buildBillingReturnUrl,
-  parsePlanFromSubscriptionName,
-  ShopifyPlanType,
-  ShopifyBillingCycle,
 } from '../services/shopify-billing.service';
 
 export const shopifyBillingRouter = Router();
 
 const APP_URL = process.env.APP_URL || 'https://app.ordefy.io';
-
-// ============================================================================
-// POST /api/shopify-billing/subscribe
-// ============================================================================
-// Creates a Shopify AppSubscription for an Ordefy plan.
-// Returns the Shopify confirmation URL the merchant must visit to approve.
-// Called from the Ordefy plan selection UI when billing_source = shopify.
-// ============================================================================
 
 shopifyBillingRouter.post(
   '/subscribe',
@@ -52,8 +41,8 @@ shopifyBillingRouter.post(
   requireRole(Role.OWNER),
   async (req: PermissionRequest, res: Response) => {
     try {
-      const storeId = (req as AuthRequest).storeId;
-      const userId = (req as AuthRequest).userId;
+      const storeId = req.storeId;
+      const userId = req.userId;
 
       if (!storeId || !userId) {
         return res.status(400).json({ error: 'Store ID and user ID are required' });
@@ -73,8 +62,6 @@ shopifyBillingRouter.post(
         });
       }
 
-      // Cancel any existing pending Shopify subscription for this store
-      // (prevents duplicate pending charges if the merchant abandons confirmation)
       const { data: existingSub } = await supabaseAdmin
         .from('subscriptions')
         .select('shopify_charge_id, shopify_confirmation_url')
@@ -83,8 +70,8 @@ shopifyBillingRouter.post(
         .eq('billing_source', 'shopify')
         .single();
 
-      if (existingSub?.shopify_charge_id && !existingSub.shopify_confirmation_url) {
-        // Active (confirmed) subscription exists — must cancel first
+      // Cancel any existing Shopify subscription regardless of confirmation state
+      if (existingSub?.shopify_charge_id) {
         try {
           await cancelAppSubscription({
             shopDomain: body.shopDomain,
@@ -104,8 +91,8 @@ shopifyBillingRouter.post(
       const { appSubscriptionId, confirmationUrl } = await createAppSubscription({
         shopDomain: body.shopDomain,
         accessToken,
-        plan: body.plan as ShopifyPlanType,
-        billingCycle: body.billingCycle as ShopifyBillingCycle,
+        plan: body.plan,
+        billingCycle: body.billingCycle,
         returnUrl,
         isTest,
       });
@@ -148,17 +135,6 @@ shopifyBillingRouter.post(
   }
 );
 
-// ============================================================================
-// GET /api/shopify-billing/confirm
-// ============================================================================
-// Shopify redirects here after the merchant approves (or declines) the charge.
-// Query params: charge_id (Shopify numeric charge ID), store_id
-//
-// Shopify also sends an app/subscriptions/update webhook — that webhook is the
-// source of truth for subscription status. This endpoint only handles the
-// redirect and updates the confirmation URL field.
-// ============================================================================
-
 shopifyBillingRouter.get('/confirm', async (req: Request, res: Response) => {
   try {
     const { charge_id, store_id } = z.object({
@@ -197,13 +173,6 @@ shopifyBillingRouter.get('/confirm', async (req: Request, res: Response) => {
   }
 });
 
-// ============================================================================
-// POST /api/shopify-billing/cancel
-// ============================================================================
-// Cancel the active Shopify app subscription.
-// This mirrors the Stripe cancel flow in billing.ts.
-// ============================================================================
-
 shopifyBillingRouter.post(
   '/cancel',
   verifyToken,
@@ -212,7 +181,7 @@ shopifyBillingRouter.post(
   requireRole(Role.OWNER),
   async (req: PermissionRequest, res: Response) => {
     try {
-      const userId = (req as AuthRequest).userId;
+      const userId = req.userId;
 
       if (!userId) {
         return res.status(400).json({ error: 'User ID is required' });
@@ -271,12 +240,6 @@ shopifyBillingRouter.post(
   }
 );
 
-// ============================================================================
-// GET /api/shopify-billing/status
-// ============================================================================
-// Returns the current Shopify billing subscription status for a store.
-// ============================================================================
-
 shopifyBillingRouter.get(
   '/status',
   verifyToken,
@@ -300,15 +263,23 @@ shopifyBillingRouter.get(
         return res.json({ billingSource: 'none', plan: 'free', status: 'active' });
       }
 
-      res.json({
+      const BillingStatusResponse = z.object({
+        billingSource: z.enum(['stripe', 'shopify']).nullable(),
+        shopifyShopDomain: z.string().nullable(),
+        isActive: z.boolean(),
+        plan: z.string().nullable(),
+        status: z.string().nullable(),
+        pendingConfirmation: z.boolean(),
+      });
+
+      res.json(BillingStatusResponse.parse({
         billingSource: subscription.billing_source,
+        shopifyShopDomain: subscription.shopify_shop_domain,
+        isActive: subscription.status === 'active',
         plan: subscription.plan,
         status: subscription.status,
-        shopifyChargeId: subscription.shopify_charge_id,
         pendingConfirmation: !!subscription.shopify_confirmation_url,
-        confirmationUrl: subscription.shopify_confirmation_url ?? null,
-        currentPeriodEnd: subscription.current_period_end ?? null,
-      });
+      }));
     } catch (error: unknown) {
       logger.error('SHOPIFY_BILLING', 'Status check error', { error });
       res.status(500).json({ error: 'Failed to retrieve billing status' });

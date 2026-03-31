@@ -60,6 +60,9 @@ CREATE INDEX IF NOT EXISTS idx_shopify_billing_events_processed
 -- RLS: service_role only (webhook handler uses supabaseAdmin)
 ALTER TABLE shopify_billing_events ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY "service_role_only" ON shopify_billing_events
+  USING (auth.role() = 'service_role');
+
 COMMENT ON TABLE shopify_billing_events IS
   'Idempotency log for Shopify app/subscriptions/update webhooks.';
 COMMENT ON COLUMN subscriptions.billing_source IS

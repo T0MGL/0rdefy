@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger';
 import { Router, Response } from 'express';
+import { z } from 'zod';
 import { supabaseAdmin } from '../db/connection';
 import { validateShopifyWebhook, ShopifyWebhookRequest } from '../middleware/shopify-webhook';
 import { parsePlanFromSubscriptionName } from '../services/shopify-billing.service';
@@ -12,12 +13,6 @@ const ACTIVE_SHOPIFY_STATUSES = new Set(['active', 'pending']);
 // Shopify subscription statuses that revoke Ordefy access
 const DEACTIVATE_SHOPIFY_STATUSES = new Set(['cancelled', 'declined', 'expired', 'frozen']);
 
-/**
- * POST /api/shopify/webhooks/app-uninstalled
- * Shopify App Store mandatory webhook
- * Called when merchant uninstalls the app
- * Must delete all store data
- */
 shopifyMandatoryWebhooksRouter.post(
   '/app-uninstalled',
   validateShopifyWebhook,
@@ -26,10 +21,10 @@ shopifyMandatoryWebhooksRouter.post(
       const shopDomain = req.shopDomain;
       const integration = req.integration;
 
-      logger.info('API', `🗑️  App uninstalled webhook received for: ${shopDomain}`);
+      logger.info('API', `App uninstalled webhook received for: ${shopDomain}`);
 
       if (!integration) {
-        logger.error('API', '❌ Integration not found in request');
+        logger.error('API', 'Integration not found in request');
         return res.status(200).json({ received: true, message: 'Integration not found' });
       }
 
@@ -45,7 +40,7 @@ shopifyMandatoryWebhooksRouter.post(
         .eq('shop_domain', shopDomain);
 
       if (deleteError) {
-        logger.error('API', '❌ Error deleting integration:', deleteError);
+        logger.error('API', 'Error deleting integration', { deleteError });
         // Still return 200 to Shopify
         return res.status(200).json({
           received: true,
@@ -53,7 +48,7 @@ shopifyMandatoryWebhooksRouter.post(
         });
       }
 
-      logger.info('API', `✅ Successfully deleted integration for: ${shopDomain}`);
+      logger.info('API', `Successfully deleted integration for: ${shopDomain}`);
       logger.info('API', `   - Store ID: ${integration.store_id}`);
       logger.info('API', `   - Integration ID: ${integration.id}`);
 
@@ -64,8 +59,9 @@ shopifyMandatoryWebhooksRouter.post(
         shop: shopDomain,
       });
 
-    } catch (error: any) {
-      logger.error('API', '❌ Error processing app/uninstalled webhook:', error);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('API', 'Error processing app/uninstalled webhook', { error: msg });
       // Always return 200 to Shopify to prevent retries
       res.status(200).json({
         received: true,
@@ -98,12 +94,14 @@ shopifyMandatoryWebhooksRouter.post(
     try {
       const shopDomain = req.shopDomain;
       const integration = req.integration;
-      const payload = req.body as {
-        id?: number;
-        name?: string;
-        status?: string;
-        admin_graphql_api_id?: string;
-      };
+
+      const PayloadSchema = z.object({
+        id: z.number().optional(),
+        name: z.string().optional(),
+        status: z.string().optional(),
+        admin_graphql_api_id: z.string().optional(),
+      });
+      const payload = PayloadSchema.parse(req.body);
 
       logger.info('SHOPIFY_BILLING', 'app/subscriptions/update received', {
         shopDomain,
@@ -222,10 +220,6 @@ shopifyMandatoryWebhooksRouter.post(
   }
 );
 
-/**
- * GET /api/shopify/webhooks/mandatory/health
- * Health check endpoint for mandatory webhooks
- */
 shopifyMandatoryWebhooksRouter.get('/mandatory/health', (req, res) => {
   res.json({
     status: 'healthy',
