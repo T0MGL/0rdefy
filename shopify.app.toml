@@ -37,10 +37,6 @@ uri = "https://api.ordefy.io/api/shopify/webhooks/products-update"
 topics = ["products/delete"]
 uri = "https://api.ordefy.io/api/shopify/webhooks/products-delete"
 
-[[webhooks.subscriptions]]
-topics = ["app/subscriptions/update"]
-uri = "https://api.ordefy.io/api/shopify/webhooks/app-subscriptions-update"
-
 # ----------------------------------------------------------------------
 # WEBHOOKS DE CUMPLIMIENTO OBLIGATORIO (GDPR)
 # IMPORTANTE: Los webhooks de GDPR usan 'compliance_topics' no 'topics'
