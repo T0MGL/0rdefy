@@ -1,13 +1,7 @@
-/**
- * Billing Routes
- *
- * Handles subscription management, checkout, billing portal,
- * referrals, and Stripe webhooks
- */
-
 import express, { Request, Response } from 'express';
+import { z } from 'zod';
 import Stripe from 'stripe';
-import { verifyToken, extractStoreId } from '../middleware/auth';
+import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requireRole, PermissionRequest } from '../middleware/permissions';
 import { Module, Role } from '../permissions';
 import { supabaseAdmin } from '../db/connection';
@@ -17,17 +11,8 @@ import { WEBHOOK_ERRORS } from '../constants/webhook-errors';
 
 const router = express.Router();
 
-// Helper to get Stripe instance from service
 const getStripe = (): Stripe => stripeService.getStripe();
 
-// =============================================
-// PUBLIC ROUTES (No auth required)
-// =============================================
-
-/**
- * Stripe Webhook Handler
- * Processes events from Stripe
- */
 router.post(
   '/webhook',
   express.raw({ type: 'application/json' }),
@@ -44,10 +29,10 @@ router.post(
 
     try {
       event = getStripe().webhooks.constructEvent(req.body, sig, webhookSecret);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // SECURITY: Log error details internally but never expose to client
       logger.error('BILLING', 'Webhook signature verification failed', {
-        errorType: err.name,
+        errorType: err instanceof Error ? err.name : 'unknown',
         // Do NOT log err.message as it may contain sensitive details
       });
       return res.status(400).json({ error: WEBHOOK_ERRORS.VERIFICATION_FAILED });
@@ -144,13 +129,13 @@ router.post(
         .eq('stripe_event_id', event.id);
 
       res.json({ received: true });
-    } catch (error: any) {
-      logger.error('BILLING', 'Error processing event', error);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Internal error';
+      logger.error('BILLING', 'Error processing event', { err: error });
 
-      // Store error
       await supabaseAdmin
         .from('stripe_billing_events')
-        .update({ error: error.message })
+        .update({ error: msg })
         .eq('stripe_event_id', event.id);
 
       res.status(500).json({ error: 'Webhook processing failed' });
@@ -158,73 +143,68 @@ router.post(
   }
 );
 
-/**
- * Validate referral code (public)
- */
 router.get('/referral/:code/validate', async (req: Request, res: Response) => {
   try {
-    const { code } = req.params;
+    const { code } = z.object({ code: z.string().min(1).max(64) }).parse(req.params);
     const result = await stripeService.validateReferralCode(code);
     res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid referral code format' });
+    }
+    logger.error('BILLING', 'Validate referral code error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Validate discount code (public)
- */
 router.post('/discount/validate', async (req: Request, res: Response) => {
   try {
-    const { code, plan } = req.body;
+    const { code, plan } = z.object({
+      code: z.string().min(1).max(64),
+      plan: z.enum(['free', 'starter', 'growth', 'professional']),
+    }).parse(req.body);
     const result = await stripeService.validateDiscountCode(code, plan);
     res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid request: code and plan are required' });
+    }
+    logger.error('BILLING', 'Validate discount code error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Get all plans (public)
- */
 router.get('/plans', async (req: Request, res: Response) => {
   try {
     const plans = await stripeService.getAllPlanLimits();
 
-    // Format plans for frontend
     const formattedPlans = plans.map((plan) => ({
       ...plan,
       priceMonthly: plan.price_monthly_cents / 100,
       priceAnnual: plan.price_annual_cents / 100,
       priceAnnualMonthly: Math.round(plan.price_annual_cents / 12) / 100,
-      annualSavings: Math.round(
-        ((plan.price_monthly_cents * 12 - plan.price_annual_cents) / (plan.price_monthly_cents * 12)) * 100
-      ),
+      annualSavings: plan.price_monthly_cents > 0
+        ? Math.round(
+            ((plan.price_monthly_cents * 12 - plan.price_annual_cents) /
+              (plan.price_monthly_cents * 12)) * 100
+          )
+        : undefined,
     }));
 
     res.json(formattedPlans);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Get plans error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-// =============================================
-// SEMI-PROTECTED ROUTES (Auth required, no billing permission)
-// These endpoints are accessible to ALL authenticated users
-// =============================================
-
-/**
- * Get current store plan and usage (for feature gating)
- * Accessible to ALL authenticated users (not just billing module)
- * Used by SubscriptionContext to check feature access
- */
 router.get(
   '/store-plan',
   verifyToken,
   extractStoreId,
-  async (req: Request, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     try {
-      const storeId = (req as any).storeId;
+      const storeId = req.storeId;
 
       if (!storeId) {
         return res.status(400).json({ error: 'Store ID is required' });
@@ -251,10 +231,16 @@ router.get(
           ...plan,
           priceMonthly: plan.price_monthly_cents / 100,
           priceAnnual: plan.price_annual_cents / 100,
+          annualSavings: plan.price_monthly_cents > 0
+            ? Math.round(
+                ((plan.price_monthly_cents * 12 - plan.price_annual_cents) /
+                  (plan.price_monthly_cents * 12)) * 100
+              )
+            : undefined,
         })),
       });
-    } catch (error: any) {
-      logger.error('BILLING', 'Store plan error', { error: error.message });
+    } catch (error: unknown) {
+      logger.error('BILLING', 'Store plan error', { err: error });
       // SECURITY: Fail-closed - return error instead of defaulting to free plan
       // Defaulting to free could allow feature bypass if DB is down
       // Frontend should handle this error and show appropriate message
@@ -267,21 +253,14 @@ router.get(
   }
 );
 
-// =============================================
-// PROTECTED ROUTES (Auth + Billing permission required)
-// =============================================
-
 router.use(verifyToken);
 router.use(extractStoreId);
 router.use(extractUserRole);
 router.use(requireModule(Module.BILLING));
 
-/**
- * Get current subscription (user-level, covers all stores)
- */
-router.get('/subscription', async (req: Request, res: Response) => {
+router.get('/subscription', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
+    const userId = req.user?.id || req.userId;
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
@@ -304,45 +283,52 @@ router.get('/subscription', async (req: Request, res: Response) => {
         ...plan,
         priceMonthly: plan.price_monthly_cents / 100,
         priceAnnual: plan.price_annual_cents / 100,
+        annualSavings: plan.price_monthly_cents > 0
+          ? Math.round(
+              ((plan.price_monthly_cents * 12 - plan.price_annual_cents) /
+                (plan.price_monthly_cents * 12)) * 100
+            )
+          : undefined,
       })),
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Subscription error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Check feature access
- */
-router.get('/feature/:feature', async (req: Request, res: Response) => {
+router.get('/feature/:feature', async (req: AuthRequest, res: Response) => {
   try {
-    const storeId = (req as any).storeId;
+    const storeId = req.storeId;
     const { feature } = req.params;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store ID is required' });
+    }
 
     const hasAccess = await stripeService.hasFeatureAccess(storeId, feature);
 
     res.json({ hasAccess });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Feature access check error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Create checkout session
- * Only owners can initiate checkout
- * Note: Subscription is now user-level (covers all stores)
- */
 router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
-    const userEmail = (req as any).user?.email;
-    const { plan, billingCycle, referralCode, discountCode, fromOnboarding } = req.body;
+    const userId = req.user?.id || req.userId;
+    const userEmail = req.user?.email;
 
-    logger.info('BILLING', 'Checkout request', { userId, userEmail, plan, billingCycle, referralCode, discountCode, fromOnboarding });
+    const body = z.object({
+      plan: z.enum(['starter', 'growth', 'professional']),
+      billingCycle: z.enum(['monthly', 'annual']),
+      referralCode: z.string().max(64).optional(),
+      discountCode: z.string().max(64).optional(),
+      fromOnboarding: z.boolean().optional(),
+    }).parse(req.body);
 
-    if (!plan || !billingCycle) {
-      return res.status(400).json({ error: 'Plan and billing cycle are required' });
-    }
+    logger.info('BILLING', 'Checkout request', { userId, userEmail, plan: body.plan, billingCycle: body.billingCycle });
 
     if (!userId || !userEmail) {
       logger.error('BILLING', 'Missing user info', { userId, userEmail });
@@ -351,69 +337,82 @@ router.post('/checkout', requireRole(Role.OWNER), async (req: PermissionRequest,
 
     const appUrl = process.env.APP_URL || 'https://app.ordefy.io';
 
-    // Build success URL with optional from_onboarding param for new users
     const successParams = new URLSearchParams({
       tab: 'subscription',
       success: 'true',
     });
-    if (fromOnboarding) {
+    if (body.fromOnboarding) {
       successParams.set('from_onboarding', 'true');
     }
 
     logger.info('BILLING', 'Creating checkout session...');
     const session = await stripeService.createCheckoutSession({
-      userId,  // ⬅️ Only userId, no storeId
+      userId,
       email: userEmail,
-      plan: plan as PlanType,
-      billingCycle: billingCycle as BillingCycle,
+      plan: body.plan as PlanType,
+      billingCycle: body.billingCycle as BillingCycle,
       successUrl: `${appUrl}/settings?${successParams.toString()}`,
       cancelUrl: `${appUrl}/settings?tab=subscription&canceled=true`,
-      referralCode,
-      discountCode,
+      referralCode: body.referralCode,
+      discountCode: body.discountCode,
     });
 
     logger.info('BILLING', 'Checkout session created', { sessionId: session.id });
     res.json({ sessionId: session.id, url: session.url });
-  } catch (error: any) {
-    logger.error('BILLING', 'Checkout error', { error: error.message, stack: error.stack });
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid plan or billing cycle' });
+    }
+    logger.error('BILLING', 'Checkout error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Create billing portal session
- * Only owners can access billing portal
- * Note: Portal now shows user-level subscription (all stores)
- */
 router.post('/portal', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
+    const userId = req.user?.id || req.userId;
     const appUrl = process.env.APP_URL || 'https://app.ordefy.io';
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
+    const { data: subscription } = await supabaseAdmin
+      .from('subscriptions')
+      .select('stripe_customer_id, stripe_subscription_id, plan')
+      .eq('user_id', userId)
+      .eq('is_primary', true)
+      .single();
+
+    if (!subscription?.stripe_customer_id) {
+      return res.status(400).json({
+        error: 'No active subscription found. Subscribe to a plan first.',
+        noSubscription: true,
+      });
+    }
+
     const session = await stripeService.createBillingPortalSession(
-      userId,  // ⬅️ Changed from storeId to userId
-      `${appUrl}/settings/billing`
+      userId,
+      `${appUrl}/settings?tab=subscription`
     );
 
     res.json({ url: session.url });
-  } catch (error: any) {
-    logger.error('BILLING', 'Portal error', error);
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Portal error', { err: error });
+    const isNoCustomer = error instanceof Error && error.message?.includes('No Stripe customer');
+    if (isNoCustomer) {
+      return res.status(400).json({
+        error: 'No active subscription found. Subscribe to a plan first.',
+        noSubscription: true,
+      });
+    }
+    res.status(500).json({ error: 'Failed to open billing portal. Please try again.' });
   }
 });
 
-/**
- * Cancel subscription
- * Only owners can cancel subscription
- * Note: Cancels user subscription (affects ALL their stores)
- */
 router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
+    const userId = req.user?.id || req.userId;
     const { reason } = req.body;
 
     if (!userId) {
@@ -448,20 +447,15 @@ router.post('/cancel', requireRole(Role.OWNER), async (req: PermissionRequest, r
       success: true,
       message: 'Subscription will be canceled at period end. This affects all your stores.'
     });
-  } catch (error: any) {
-    logger.error('BILLING', 'Cancel error', error);
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Cancel error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Reactivate subscription
- * Only owners can reactivate subscription
- * Note: Reactivates user subscription (affects ALL their stores)
- */
 router.post('/reactivate', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
+    const userId = req.user?.id || req.userId;
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
@@ -495,29 +489,24 @@ router.post('/reactivate', requireRole(Role.OWNER), async (req: PermissionReques
       success: true,
       message: 'Subscription reactivated. This applies to all your stores.'
     });
-  } catch (error: any) {
-    logger.error('BILLING', 'Reactivate error', error);
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Reactivate error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Change plan
- * Only owners can change subscription plan
- * Note: Changes user subscription (affects ALL their stores)
- */
 router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
-    const { plan, billingCycle } = req.body;
+    const userId = req.user?.id || req.userId;
 
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    if (!plan || !billingCycle) {
-      return res.status(400).json({ error: 'Plan and billing cycle are required' });
-    }
+    const { plan, billingCycle } = z.object({
+      plan: z.enum(['starter', 'growth', 'professional', 'free']),
+      billingCycle: z.enum(['monthly', 'annual']).optional(),
+    }).parse(req.body);
 
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
@@ -527,10 +516,32 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
       .single();
 
     if (!subscription?.stripe_subscription_id) {
-      // No existing subscription, create checkout
+      if (plan === 'free') {
+        // Already on free or no subscription: nothing to do
+        return res.json({ success: true, message: 'Already on free plan.' });
+      }
       return res.status(400).json({
-        error: 'No existing subscription. Use checkout instead.',
+        error: 'No active subscription found. Use checkout to subscribe.',
         useCheckout: true,
+      });
+    }
+
+    if (plan === 'free') {
+      // Downgrade to free = cancel subscription at period end
+      await stripeService.cancelSubscription(subscription.stripe_subscription_id, 'downgrade_to_free');
+      await supabaseAdmin
+        .from('subscriptions')
+        .update({
+          cancel_at_period_end: true,
+          canceled_at: new Date().toISOString(),
+          cancellation_reason: 'downgrade_to_free',
+        })
+        .eq('user_id', userId)
+        .eq('is_primary', true);
+
+      return res.json({
+        success: true,
+        message: 'Your subscription will downgrade to Free at the end of the current billing period.',
       });
     }
 
@@ -538,62 +549,52 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
       subscription.stripe_subscription_id,
       plan as PlanType,
       billingCycle as BillingCycle,
-      userId  // Pass userId for downgrade validation
+      userId
     );
 
     res.json({
       success: true,
-      message: 'Plan changed successfully. This applies to all your stores.'
+      message: 'Plan changed successfully. This applies to all your stores.',
     });
-  } catch (error: any) {
-    logger.error('BILLING', 'Change plan error', error);
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid plan or billing cycle' });
+    }
+    logger.error('BILLING', 'Change plan error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-// =============================================
-// REFERRAL ROUTES
-// =============================================
 
-/**
- * Get user's referral info
- */
-router.get('/referrals', async (req: Request, res: Response) => {
+router.get('/referrals', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
+    const userId = req.user?.id || req.userId;
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
     const stats = await stripeService.getReferralStats(userId);
 
     res.json(stats);
-  } catch (error: any) {
-    logger.error('BILLING', 'Referrals error', { error: error.message });
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Referrals error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-/**
- * Generate referral code
- */
-router.post('/referrals/generate', async (req: Request, res: Response) => {
+router.post('/referrals/generate', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user?.id || (req as any).userId;
+    const userId = req.user?.id || req.userId;
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
     const code = await stripeService.generateReferralCode(userId);
 
     res.json({ code, link: `${process.env.APP_URL}/r/${code}` });
-  } catch (error: any) {
-    logger.error('BILLING', 'Generate referral code error', { error: error.message });
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Generate referral code error', { err: error });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
-
-// =============================================
-// WEBHOOK HANDLERS
-// =============================================
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   logger.info('BILLING', 'Checkout completed', { sessionId: session.id });
@@ -905,10 +906,6 @@ async function updateSubscriptionInDB(
     });
 }
 
-// =============================================
-// CRON JOB ENDPOINTS (for scheduled tasks)
-// =============================================
-
 /**
  * Validate cron request - supports multiple auth methods:
  * 1. Railway Cron (internal): No auth needed from private network
@@ -917,7 +914,7 @@ async function updateSubscriptionInDB(
  * SECURITY: Returns generic 'unauthorized' to avoid information disclosure
  */
 function validateCronAuth(req: Request): { valid: boolean; source: string } {
-  // SECURITY: Only trust CRON_SECRET header — never trust spoofable headers like x-railway-cron
+  // SECURITY: Only trust CRON_SECRET header, never trust spoofable headers like x-railway-cron
   const cronSecret = req.headers['x-cron-secret'];
   const expectedSecret = process.env.CRON_SECRET;
 
@@ -1005,8 +1002,8 @@ router.post('/cron/expiring-trials', async (req: Request, res: Response) => {
       failed: 0,
       details: { processed: trialIds, failed: [] },
     });
-  } catch (error: any) {
-    logger.error('BILLING', 'Unexpected error in expiring-trials', error);
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Unexpected error in expiring-trials', { err: error });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -1096,8 +1093,8 @@ router.post('/cron/past-due-enforcement', async (req: Request, res: Response) =>
       gracePeriodDays,
       details: { downgraded: overdueIds, failed: [] },
     });
-  } catch (error: any) {
-    logger.error('BILLING', 'Unexpected error in past-due-enforcement', error);
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Unexpected error in past-due-enforcement', { err: error });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -1207,8 +1204,9 @@ router.post('/cron/process-referral-credits', async (req: Request, res: Response
 
         processed.push(referral.id);
         logger.info('BILLING', `Applied credit for referral ${referral.id}`);
-      } catch (err: any) {
-        logger.error('BILLING', `Error al procesar referido ${referral.id}`, { error: err.message });
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : 'unknown error';
+        logger.error('BILLING', `Error al procesar referido ${referral.id}`, { error: errMsg });
         failed.push(referral.id);
       }
     }
@@ -1221,8 +1219,8 @@ router.post('/cron/process-referral-credits', async (req: Request, res: Response
       waitingPeriodDays,
       details: { processed, skipped, failed },
     });
-  } catch (error: any) {
-    logger.error('BILLING', 'Unexpected error in process-referral-credits', error);
+  } catch (error: unknown) {
+    logger.error('BILLING', 'Unexpected error in process-referral-credits', { err: error });
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

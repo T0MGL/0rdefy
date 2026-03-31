@@ -1,9 +1,3 @@
-/**
- * Billing Service
- *
- * Frontend service for billing, subscriptions, and referrals
- */
-
 import apiClient from './api.client';
 
 export interface Plan {
@@ -34,6 +28,7 @@ export interface Plan {
   trial_days: number;
   priceMonthly: number;
   priceAnnual: number;
+  annualSavings?: number;
 }
 
 export interface Subscription {
@@ -75,10 +70,6 @@ export interface CheckoutParams {
 }
 
 export const billingService = {
-  /**
-   * Get current subscription and usage
-   * Uses /billing/subscription for owners (full data)
-   */
   async getSubscription(): Promise<{
     subscription: Subscription;
     usage: Usage;
@@ -89,9 +80,7 @@ export const billingService = {
   },
 
   /**
-   * Get store plan and usage (for feature gating)
-   * Accessible to ALL authenticated users (not just billing module)
-   * Used by SubscriptionContext
+   * Accessible to ALL authenticated users. Used by SubscriptionContext for feature gating.
    */
   async getStorePlan(): Promise<{
     subscription: Subscription;
@@ -102,81 +91,51 @@ export const billingService = {
     return response.data;
   },
 
-  /**
-   * Get all available plans
-   */
   async getPlans(): Promise<Plan[]> {
     const response = await apiClient.get('/billing/plans');
     return response.data;
   },
 
-  /**
-   * Create a checkout session
-   */
   async createCheckout(params: CheckoutParams): Promise<{ sessionId: string; url: string }> {
     const response = await apiClient.post('/billing/checkout', params);
     return response.data;
   },
 
-  /**
-   * Create a billing portal session
-   */
   async createPortal(): Promise<{ url: string }> {
     const response = await apiClient.post('/billing/portal');
     return response.data;
   },
 
-  /**
-   * Cancel subscription
-   */
   async cancelSubscription(reason?: string): Promise<{ success: boolean }> {
     const response = await apiClient.post('/billing/cancel', { reason });
     return response.data;
   },
 
-  /**
-   * Reactivate a canceled subscription
-   */
   async reactivateSubscription(): Promise<{ success: boolean }> {
     const response = await apiClient.post('/billing/reactivate');
     return response.data;
   },
 
-  /**
-   * Change subscription plan
-   */
   async changePlan(plan: string, billingCycle: 'monthly' | 'annual'): Promise<{ success: boolean }> {
     const response = await apiClient.post('/billing/change-plan', { plan, billingCycle });
     return response.data;
   },
 
-  /**
-   * Check feature access
-   */
   async hasFeatureAccess(feature: string): Promise<boolean> {
     const response = await apiClient.get(`/billing/feature/${feature}`);
     return response.data.hasAccess;
   },
 
-  /**
-   * Get referral stats
-   */
   async getReferralStats(): Promise<ReferralStats> {
     const response = await apiClient.get('/billing/referrals');
     return response.data;
   },
 
-  /**
-   * Generate referral code
-   */
   async generateReferralCode(): Promise<{ code: string; link: string }> {
     const response = await apiClient.post('/billing/referrals/generate');
     return response.data;
   },
 
-  /**
-   * Validate discount code
-   */
   async validateDiscountCode(
     code: string,
     plan: string
@@ -189,9 +148,6 @@ export const billingService = {
     return response.data;
   },
 
-  /**
-   * Validate referral code
-   */
   async validateReferralCode(code: string): Promise<{
     valid: boolean;
     referrerName?: string;
@@ -203,4 +159,3 @@ export const billingService = {
   },
 };
 
-export default billingService;

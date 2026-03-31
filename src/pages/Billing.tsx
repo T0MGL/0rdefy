@@ -1,14 +1,7 @@
-/**
- * Billing Page
- *
- * Manages subscription, plans, usage, and referrals
- */
-
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { setTourPending } from '@/components/demo-tour';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { logger } from '@/utils/logger';
 import {
   CreditCard,
   Check,
@@ -26,6 +19,7 @@ import {
   CheckCircle2,
   Clock,
   TrendingUp,
+  ChevronDown,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,7 +31,16 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import axios from 'axios';
 import { billingService, type Plan } from '@/services/billing.service';
 
 interface BillingProps {
@@ -52,6 +55,8 @@ export default function Billing({ embedded = false }: BillingProps) {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [discountCode, setDiscountCode] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [downgradePlan, setDowngradePlan] = useState<string | null>(null);
 
   // Check for success/cancel from Stripe
   useEffect(() => {
@@ -65,10 +70,7 @@ export default function Billing({ embedded = false }: BillingProps) {
       const tourCompleted = localStorage.getItem('ordefy_demo_tour_completed') === 'true';
 
       if (fromOnboarding && !tourCompleted) {
-        // New user just completed their first payment - trigger tour and go to dashboard
-        logger.log('[Billing] New user from onboarding, triggering tour');
         setTourPending();
-        // Clear the search params and redirect to dashboard
         setTimeout(() => {
           navigate('/', { replace: true });
         }, 500);
@@ -80,19 +82,16 @@ export default function Billing({ embedded = false }: BillingProps) {
     }
   }, [searchParams, queryClient, navigate]);
 
-  // Fetch subscription data
   const { data: subscriptionData, isLoading } = useQuery({
     queryKey: ['subscription'],
     queryFn: billingService.getSubscription,
   });
 
-  // Fetch referral stats
   const { data: referralStats } = useQuery({
     queryKey: ['referralStats'],
     queryFn: billingService.getReferralStats,
   });
 
-  // Checkout mutation
   const checkoutMutation = useMutation({
     mutationFn: billingService.createCheckout,
     onSuccess: (data) => {
@@ -100,12 +99,11 @@ export default function Billing({ embedded = false }: BillingProps) {
         window.location.href = data.url;
       }
     },
-    onError: (error: any) => {
-      toast.error(error.message || 'Error al iniciar checkout');
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Error al iniciar checkout');
     },
   });
 
-  // Portal mutation
   const portalMutation = useMutation({
     mutationFn: billingService.createPortal,
     onSuccess: (data) => {
@@ -113,32 +111,56 @@ export default function Billing({ embedded = false }: BillingProps) {
         window.location.href = data.url;
       }
     },
-    onError: (error: any) => {
-      toast.error(error.message || 'Error al abrir portal');
+    onError: (error: unknown) => {
+      const responseData = axios.isAxiosError(error) ? error.response?.data : undefined;
+      if (responseData?.noSubscription) {
+        toast.info('No tienes una suscripcion activa. Elige un plan para comenzar.');
+      } else {
+        toast.error('Error al abrir el portal de pagos. Intenta de nuevo.');
+      }
     },
   });
 
-  // Cancel mutation
   const cancelMutation = useMutation({
     mutationFn: billingService.cancelSubscription,
     onSuccess: () => {
-      toast.success('Subscription cancelada. Tendras acceso hasta el fin del periodo.');
+      setCancelDialogOpen(false);
+      toast.success('Suscripcion cancelada. Tendras acceso hasta el fin del periodo.');
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
     },
-    onError: (error: any) => {
-      toast.error(error.message || 'Error al cancelar');
+    onError: (error: unknown) => {
+      setCancelDialogOpen(false);
+      toast.error(error instanceof Error ? error.message : 'Error al cancelar');
     },
   });
 
-  // Reactivate mutation
   const reactivateMutation = useMutation({
     mutationFn: billingService.reactivateSubscription,
     onSuccess: () => {
       toast.success('Subscription reactivada!');
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
     },
-    onError: (error: any) => {
-      toast.error(error.message || 'Error al reactivar');
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Error al reactivar');
+    },
+  });
+
+  const changePlanMutation = useMutation({
+    mutationFn: ({ plan, billingCycle }: { plan: string; billingCycle: 'monthly' | 'annual' }) =>
+      billingService.changePlan(plan, billingCycle),
+    onSuccess: () => {
+      toast.success('Plan actualizado correctamente.');
+      setDowngradePlan(null);
+      queryClient.invalidateQueries({ queryKey: ['subscription'] });
+    },
+    onError: (error: unknown, variables) => {
+      const responseData = axios.isAxiosError(error) ? error.response?.data : undefined;
+      if (responseData?.useCheckout) {
+        setDowngradePlan(null);
+        handleUpgrade(variables.plan);
+      } else {
+        toast.error(responseData?.error || (error instanceof Error ? error.message : 'Error al cambiar el plan'));
+      }
     },
   });
 
@@ -149,6 +171,18 @@ export default function Billing({ embedded = false }: BillingProps) {
       billingCycle: isAnnual ? 'annual' : 'monthly',
       discountCode: discountCode || undefined,
       referralCode: referralCode || undefined,
+    });
+  };
+
+  const handleDowngrade = (planKey: string) => {
+    setDowngradePlan(planKey);
+  };
+
+  const confirmDowngrade = () => {
+    if (!downgradePlan) return;
+    changePlanMutation.mutate({
+      plan: downgradePlan,
+      billingCycle: isAnnual ? 'annual' : 'monthly',
     });
   };
 
@@ -177,6 +211,7 @@ ${link}`;
   const usage = subscriptionData?.usage;
   const allPlans = subscriptionData?.allPlans || [];
   const currentPlan = subscription?.plan || 'free';
+  const maxSavings = Math.max(...allPlans.filter((p: Plan) => p.plan !== 'free').map((p: Plan) => p.annualSavings ?? 0));
 
   return (
     <div className={embedded ? "space-y-6" : "container mx-auto py-6 space-y-8"}>
@@ -259,7 +294,7 @@ ${link}`;
                         <Button
                           variant="ghost"
                           className="text-destructive"
-                          onClick={() => cancelMutation.mutate()}
+                          onClick={() => setCancelDialogOpen(true)}
                           disabled={cancelMutation.isPending}
                         >
                           Cancelar Plan
@@ -311,9 +346,9 @@ ${link}`;
               >
                 Anual
               </button>
-              {isAnnual && (
+              {isAnnual && maxSavings > 0 && (
                 <span className="ml-2 mr-3 px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-green-500 to-emerald-500 text-white">
-                  -15%
+                  {`Ahorra hasta ${maxSavings}%`}
                 </span>
               )}
             </div>
@@ -413,17 +448,22 @@ ${link}`;
                         </div>
                         {isAnnual && plan.plan !== 'free' && (
                           <p className="text-xs text-muted-foreground mt-2">
-                            ${Math.round(annualMonthlyPrice * 12)} facturado anualmente
+                            ${plan.priceAnnual.toFixed(0)} facturado por ano
+                            {plan.annualSavings ? (
+                              <span className="ml-1 text-green-500 font-medium">
+                                ({plan.annualSavings}% de ahorro)
+                              </span>
+                            ) : null}
                           </p>
                         )}
                       </div>
 
                       {/* Trial Badge */}
-                      {plan.has_trial && plan.plan !== 'free' && (
+                      {plan.has_trial && plan.trial_days > 0 && plan.plan !== 'free' && (
                         <div className="mb-6">
                           <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-green-500/10 to-emerald-500/10 text-green-500 border border-green-500/20">
                             <Gift className="h-4 w-4" />
-                            14 dias gratis
+                            {plan.trial_days} dias de prueba gratis
                           </span>
                         </div>
                       )}
@@ -503,10 +543,14 @@ ${link}`;
                         </button>
                       ) : canDowngrade ? (
                         <button
-                          disabled
-                          className="w-full py-3 px-4 rounded-xl text-sm font-medium bg-white/5 text-muted-foreground border border-white/10 cursor-not-allowed"
+                          onClick={() => handleDowngrade(plan.plan)}
+                          disabled={changePlanMutation.isPending && downgradePlan === plan.plan}
+                          className="w-full py-3 px-4 rounded-xl text-sm font-medium bg-white/5 text-foreground border border-white/20 hover:bg-white/10 hover:border-white/30 transition-all duration-200 flex items-center justify-center gap-2"
                         >
-                          Contactar para Downgrade
+                          <ChevronDown className="h-4 w-4" />
+                          {changePlanMutation.isPending && downgradePlan === plan.plan
+                            ? 'Cambiando...'
+                            : 'Cambiar a este plan'}
                         </button>
                       ) : (
                         <button
@@ -700,7 +744,7 @@ ${link}`;
                   <div className="space-y-2">
                     <Label>Historial de Referidos</Label>
                     <div className="space-y-2">
-                      {referralStats.referrals.map((ref: any) => (
+                      {referralStats.referrals.map((ref) => (
                         <div
                           key={ref.id}
                           className="flex items-center justify-between p-3 bg-muted rounded-lg"
@@ -772,6 +816,56 @@ ${link}`;
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Cancel confirmation dialog */}
+      <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar suscripcion</DialogTitle>
+            <DialogDescription>
+              Tu plan permanecera activo hasta el fin del periodo de facturacion actual. Podras
+              reactivarlo en cualquier momento antes de esa fecha.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelDialogOpen(false)}>
+              Mantener plan
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+            >
+              {cancelMutation.isPending ? 'Cancelando...' : 'Confirmar cancelacion'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Downgrade confirmation dialog */}
+      <Dialog open={!!downgradePlan} onOpenChange={(open) => { if (!open) setDowngradePlan(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar a plan {downgradePlan ? getPlanDisplayName(downgradePlan) : ''}</DialogTitle>
+            <DialogDescription>
+              El cambio es inmediato. Si tienes recursos que excedan los limites del nuevo plan,
+              tendras que reducirlos antes de continuar. Se generara un prorrateo en tu proxima
+              factura.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDowngradePlan(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={confirmDowngrade}
+              disabled={changePlanMutation.isPending}
+            >
+              {changePlanMutation.isPending ? 'Cambiando...' : 'Confirmar cambio'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
