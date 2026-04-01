@@ -315,7 +315,7 @@ export const ordersService = {
         throw new Error(errorData.message || `Error HTTP: ${response.status}`);
       }
 
-      const updatedOrder = await response.json();
+      let updatedOrder = await response.json();
 
       const upsellProductId = data.upsell_product_id;
       const upsellQuantity = data.upsell_quantity;
@@ -334,11 +334,30 @@ export const ordersService = {
 
           if (upsellResponse.ok) {
             const upsellResult = await upsellResponse.json();
-            // Update total price from upsell result
             if (upsellResult.data) {
               updatedOrder.total_price = upsellResult.data.total_price;
+              updatedOrder.total = upsellResult.data.total_price;
               updatedOrder.upsell_added = upsellResult.data.upsell_added;
             }
+            // Add upsell to local line items so UI reflects the change
+            if (upsellResult.upsell_total && data.upsell_product_name) {
+              const upsellLineItem = {
+                product_id: upsellProductId,
+                product_name: data.upsell_product_name,
+                quantity: upsellQuantity || 1,
+                unit_price: data.upsell_product_price || 0,
+                total_price: upsellResult.upsell_total,
+                is_upsell: true,
+              };
+              const existing = updatedOrder.order_line_items || updatedOrder.line_items || [];
+              const withoutUpsell = Array.isArray(existing) ? existing.filter((i: any) => !i.is_upsell) : [];
+              updatedOrder.order_line_items = [...withoutUpsell, upsellLineItem];
+              updatedOrder.line_items = [...withoutUpsell, upsellLineItem];
+            }
+          } else {
+            const errBody = await upsellResponse.json().catch(() => ({}));
+            logger.error('Upsell PATCH failed:', upsellResponse.status, errBody.message || errBody.error);
+            throw new Error(errBody.message || 'Error al agregar upsell al pedido');
           }
         } else {
           // Remove upsell (upsellProductId is explicitly null/empty)
@@ -350,11 +369,20 @@ export const ordersService = {
 
           if (upsellResponse.ok) {
             const upsellResult = await upsellResponse.json();
-            // Update total price from upsell result
             if (upsellResult.data) {
               updatedOrder.total_price = upsellResult.data.total_price;
+              updatedOrder.total = upsellResult.data.total_price;
               updatedOrder.upsell_added = upsellResult.data.upsell_added;
             }
+            // Remove upsell from local line items
+            const existing = updatedOrder.order_line_items || updatedOrder.line_items || [];
+            const withoutUpsell = Array.isArray(existing) ? existing.filter((i: any) => !i.is_upsell) : [];
+            updatedOrder.order_line_items = withoutUpsell;
+            updatedOrder.line_items = withoutUpsell;
+          } else {
+            const errBody = await upsellResponse.json().catch(() => ({}));
+            logger.error('Upsell remove PATCH failed:', upsellResponse.status, errBody.message || errBody.error);
+            throw new Error(errBody.message || 'Error al remover upsell del pedido');
           }
         }
       }
@@ -362,7 +390,7 @@ export const ordersService = {
       return updatedOrder;
     } catch (error) {
       logger.error('Error updating order:', error);
-      return undefined;
+      throw error;
     }
   },
 

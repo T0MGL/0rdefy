@@ -1,4 +1,4 @@
--- Migration 145: Shopify Billing API Integration
+`-- Migration 145: Shopify Billing API Integration
 -- Description: Add columns to subscriptions to track Shopify App Subscriptions
 --              alongside existing Stripe subscriptions. Required for Shopify
 --              App Store approval (Req 1.2.2 and 1.2.3).
@@ -67,3 +67,4 @@ COMMENT ON COLUMN subscriptions.shopify_charge_id IS
   'Shopify AppSubscription GID. Non-null when billing_source = shopify.';
 COMMENT ON COLUMN subscriptions.shopify_confirmation_url IS
   'Pending confirmation URL returned by appSubscriptionCreate. Cleared after merchant confirms.';
+`

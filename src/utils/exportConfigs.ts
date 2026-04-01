@@ -34,16 +34,17 @@ export const ordersExportColumns: ExportColumn[] = [
     format: (value) => formatCurrency(Number(value || 0))
   },
   {
-    header: 'Zona',
-    key: 'delivery_zone',
-    width: 15,
+    header: 'Ciudad',
+    key: 'shipping_city',
+    width: 20,
     format: (value, row: any) => {
-      if (!value) return 'Sin asignar';
-      const zone = String(value).toUpperCase();
-      if (zone === 'ASUNCION') return 'Asunción';
-      if (zone === 'CENTRAL') return 'Central';
-      // For interior or other zones, show the city name
-      return row?.shipping_city || String(value).replace(/_/g, ' ');
+      if (value) return value;
+      const zone = row?.delivery_zone;
+      if (!zone) return 'Sin asignar';
+      const z = String(zone).toUpperCase();
+      if (z === 'ASUNCION') return 'Asuncion';
+      if (z === 'CENTRAL') return 'Central';
+      return String(zone).replace(/_/g, ' ');
     }
   },
   { header: 'Transportadora', key: 'carrier', width: 20 },

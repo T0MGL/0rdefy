@@ -1347,6 +1347,7 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
                 order_line_items (
                     id,
                     product_id,
+                    variant_id,
                     product_name,
                     variant_title,
                     sku,
@@ -1359,6 +1360,7 @@ ordersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res: 
                     shopify_variant_id,
                     properties,
                     image_url,
+                    is_upsell,
                     products:product_id (
                         id,
                         name,
