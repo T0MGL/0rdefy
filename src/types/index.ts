@@ -211,6 +211,7 @@ export interface CreateOrderInput {
   delivery_zone?: string;
   internal_notes?: string;
   delivery_preferences?: Record<string, unknown>;
+  bundle_selections?: BundleSelection[] | null;
 }
 
 export interface UpdateOrderInput extends Partial<CreateOrderInput> {
@@ -313,6 +314,13 @@ export interface VariationVariant extends ProductVariantBase {
   option2_value?: string;
   option3_name?: string;
   option3_value?: string;
+}
+
+// Bundle composition: which variations compose a bundle order
+export interface BundleSelection {
+  variant_id: string;
+  variant_name: string;
+  quantity: number;
 }
 
 // Union type - a variant is either a Bundle OR a Variation

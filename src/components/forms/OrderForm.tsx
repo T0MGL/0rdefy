@@ -37,7 +37,7 @@ import {
 import { Loader2, Check, ChevronsUpDown, MapPin, Truck, Store, Package, Layers, StickyNote } from 'lucide-react';
 import { productsService } from '@/services/products.service';
 import { useState, useEffect, useRef } from 'react';
-import { Product, ProductVariant } from '@/types';
+import { Product, ProductVariant, BundleSelection, isBundle, isVariation } from '@/types';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -99,6 +99,8 @@ export interface OrderFormData extends OrderFormValues {
   // Customer RUC for electronic invoicing (Paraguay)
   customerRuc?: string;
   customerRucDv?: number;
+  // Bundle composition: which variations compose the pack (Migration 146)
+  bundleSelections?: BundleSelection[] | null;
 }
 
 interface OrderFormProps {
@@ -116,6 +118,10 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [parentStock, setParentStock] = useState<number>(0);
+
+  // Bundle composition state (Migration 146)
+  // Map of variation variant_id -> quantity selected for this bundle
+  const [bundleSelections, setBundleSelections] = useState<Record<string, number>>({});
 
   // City coverage system state
   const [citySearch, setCitySearch] = useState('');
@@ -289,6 +295,24 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     loadVariants();
     return () => { isMounted = false; };
   }, [selectedProductId]);
+
+  // Bundle composition: derived state (Migration 146)
+  const selectedVariant = selectedVariantId
+    ? selectedProductVariants.find(v => v.id === selectedVariantId)
+    : null;
+  const selectedIsBundle = selectedVariant && (selectedVariant.uses_shared_stock || (selectedVariant as any).variant_type === 'bundle');
+  const availableVariations = selectedProductVariants.filter(v =>
+    v.is_active && ((v as any).variant_type === 'variation' || (!v.uses_shared_stock && !(v as any).variant_type))
+  );
+  const hasVariationsForComposition = selectedIsBundle && availableVariations.length > 0;
+  const watchedQuantity = form.watch('quantity') || 1;
+  const requiredUnits = selectedIsBundle ? watchedQuantity * (selectedVariant?.units_per_pack || 1) : 0;
+  const currentSelectionTotal = Object.values(bundleSelections).reduce((sum, qty) => sum + qty, 0);
+
+  // Reset bundle selections when variant or product changes
+  useEffect(() => {
+    setBundleSelections({});
+  }, [selectedVariantId, selectedProductId]);
 
   // Search cities for autocomplete (debounced)
   useEffect(() => {
@@ -519,6 +543,14 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
     // Note: Products with variants can be ordered as base product (no variant selected)
     // The validation was removed to allow ordering the base product without selecting a variant
 
+    // Validate bundle composition (Migration 146)
+    if (hasVariationsForComposition && currentSelectionTotal !== requiredUnits) {
+      form.setError('product', {
+        message: `Selecciona ${requiredUnits} unidades para completar el pack (tienes ${currentSelectionTotal})`
+      });
+      return;
+    }
+
     try {
       const fullPhone = `${data.countryCode}${data.phone}`;
 
@@ -553,6 +585,15 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
         customerRucDv: customerRuc.trim() && customerRuc.trim().includes('-') && /^\d$/.test(customerRuc.trim().split('-')[1])
           ? parseInt(customerRuc.trim().split('-')[1], 10)
           : undefined,
+        // Bundle composition (Migration 146)
+        bundleSelections: selectedVariant && isBundle(selectedVariant as any) && hasVariationsForComposition
+          ? Object.entries(bundleSelections)
+              .filter(([, qty]) => qty > 0)
+              .map(([varId, qty]) => {
+                const variation = availableVariations.find(v => v.id === varId);
+                return { variant_id: varId, variant_name: variation?.variant_title || '', quantity: qty };
+              })
+          : null,
       };
 
       await onSubmit(extendedData);
@@ -1035,10 +1076,91 @@ export function OrderForm({ onSubmit, onCancel, initialData }: OrderFormProps) {
                   );
                 })}
                 {/* Show info about shared stock */}
-                {selectedProductVariants.some(v => v.uses_shared_stock) && (
+                {selectedProductVariants.some(v => v.uses_shared_stock) && !hasVariationsForComposition && (
                   <p className="text-xs text-muted-foreground mt-1">
                     Stock compartido: {parentStock} unidades físicas disponibles
                   </p>
+                )}
+
+                {/* Bundle composition picker (Migration 146) */}
+                {hasVariationsForComposition && (
+                  <div className="mt-3 p-3 border rounded-md bg-muted/30 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium flex items-center gap-1.5">
+                        <Layers className="h-3.5 w-3.5 text-purple-500" />
+                        Composicion del pack
+                      </p>
+                      <Badge
+                        variant={currentSelectionTotal === requiredUnits ? 'default' : 'destructive'}
+                        className="text-xs"
+                      >
+                        {currentSelectionTotal}/{requiredUnits} uds
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Selecciona {requiredUnits} unidades para este pack
+                    </p>
+                    <div className="space-y-1.5">
+                      {availableVariations.map((variation) => {
+                        const varStock = variation.stock || 0;
+                        const currentQty = bundleSelections[variation.id] || 0;
+                        const canAdd = currentSelectionTotal < requiredUnits && currentQty < varStock;
+
+                        return (
+                          <div
+                            key={variation.id}
+                            className="flex items-center justify-between p-2 rounded border bg-background"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                                VAR
+                              </Badge>
+                              <span className="text-sm font-medium">{variation.variant_title}</span>
+                              <span className="text-xs text-muted-foreground">({varStock} disp.)</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-6 w-6"
+                                disabled={currentQty <= 0}
+                                onClick={() => {
+                                  setBundleSelections(prev => ({
+                                    ...prev,
+                                    [variation.id]: Math.max(0, (prev[variation.id] || 0) - 1)
+                                  }));
+                                }}
+                              >
+                                -
+                              </Button>
+                              <span className="w-6 text-center text-sm font-semibold">{currentQty}</span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-6 w-6"
+                                disabled={!canAdd}
+                                onClick={() => {
+                                  setBundleSelections(prev => ({
+                                    ...prev,
+                                    [variation.id]: (prev[variation.id] || 0) + 1
+                                  }));
+                                }}
+                              >
+                                +
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {currentSelectionTotal > 0 && currentSelectionTotal !== requiredUnits && (
+                      <p className="text-xs text-destructive">
+                        Faltan {requiredUnits - currentSelectionTotal} unidades para completar el pack
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}

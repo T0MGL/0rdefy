@@ -66,6 +66,12 @@ const OrderListQuerySchema = z.object({
     timezone: z.string().optional(),
 });
 
+const BundleSelectionSchema = z.object({
+    variant_id: z.string().uuid(),
+    variant_name: z.string(),
+    quantity: z.number().int().positive(),
+});
+
 const LineItemSchema = z.object({
     product_id: z.string().uuid().optional(),
     variant_id: z.string().uuid().optional(),
@@ -76,6 +82,7 @@ const LineItemSchema = z.object({
     image_url: z.string().url().optional(),
     variant_title: z.string().optional(),
     is_upsell: z.boolean().optional(),
+    bundle_selections: z.array(BundleSelectionSchema).optional(),
 });
 
 const DeliveryPreferencesSchema = z.object({
@@ -1840,7 +1847,8 @@ ordersRouter.post('/', requirePermission(Module.ORDERS, Permission.CREATE), chec
                         total_price: safeNumber(item.quantity, 1) * unitPrice,
                         units_per_pack: unitsPerPack, // Migration 097: Snapshot for audit
                         image_url: imageUrl,
-                        is_upsell: item.is_upsell || false // Upsell tracking
+                        is_upsell: item.is_upsell || false, // Upsell tracking
+                        bundle_selections: item.bundle_selections || null // Migration 146: mixed variant composition
                     });
                 }
 

@@ -1058,6 +1058,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         upsell_product_name: upsellProduct?.name || undefined,
         upsell_product_price: upsellProduct?.price || undefined,
         upsell_quantity: data.upsellQuantity || 1,
+        bundle_selections: data.bundleSelections || null,
       };
       const newOrder = await ordersService.create(createPayload);
 

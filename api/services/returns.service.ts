@@ -245,7 +245,7 @@ export async function createReturnSession(
   while (hasMore) {
     const { data: pageData, error: lineItemsError } = await supabaseAdmin
       .from('order_line_items')
-      .select('order_id, product_id, variant_id, variant_type, units_per_pack, quantity, unit_price')
+      .select('order_id, product_id, variant_id, variant_type, units_per_pack, quantity, unit_price, bundle_selections')
       .in('order_id', orderIds)
       .not('product_id', 'is', null) // Only include items with valid product mapping
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -320,7 +320,7 @@ export async function createReturnSession(
     throw new Error(`Error al vincular pedidos: ${ordersLinkError.message}`);
   }
 
-  // Create return session items from order_line_items (with variant support - Migration 110)
+  // Create return session items from order_line_items (with variant support - Migration 110, 146)
   const items = lineItems.map(lineItem => ({
     session_id: session.id,
     order_id: lineItem.order_id,
@@ -330,6 +330,7 @@ export async function createReturnSession(
     units_per_pack: lineItem.units_per_pack || 1,
     quantity_expected: lineItem.quantity,
     unit_cost: lineItem.unit_price || 0,
+    bundle_selections: lineItem.bundle_selections || null, // Migration 146: for variant-aware stock restore
   }));
 
   const { error: itemsError } = await supabaseAdmin

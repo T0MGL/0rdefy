@@ -1298,8 +1298,41 @@ export class ShopifyWebhookService {
         }
       }
 
+      // Migration 146: Detect Shopify bundle pattern before processing
+      // Shopify Bundles app sends: parent with _bundle=true, components with _bundled_line_item_id
+      const bundleComponentMap = new Map<string, any[]>(); // parentShopifyLineItemId -> [componentItems]
+      const bundleParentIds = new Set<string>();
+      const componentIds = new Set<string>();
+
+      for (const item of lineItems) {
+        const props = item.properties || [];
+        const isBundleParent = props.some((p: any) =>
+          (p.name === '_bundle' || p.key === '_bundle') && p.value === 'true'
+        );
+        const bundledToId = props.find((p: any) =>
+          p.name === '_bundled_line_item_id' || p.key === '_bundled_line_item_id'
+        )?.value;
+
+        if (isBundleParent && item.id) {
+          bundleParentIds.add(item.id.toString());
+        }
+        if (bundledToId) {
+          componentIds.add(item.id?.toString());
+          const existing = bundleComponentMap.get(bundledToId.toString()) || [];
+          existing.push(item);
+          bundleComponentMap.set(bundledToId.toString(), existing);
+        }
+      }
+
+      if (bundleParentIds.size > 0) {
+        logger.info('SHOPIFY_WEBHOOK', `Detected ${bundleParentIds.size} Shopify bundle parent(s) with ${componentIds.size} component(s)`);
+      }
+
       // Build all line items for batch insert
-      const lineItemsToInsert = lineItems.map(item => {
+      const lineItemsToInsert = lineItems.filter(item => {
+        // Skip component line items (price=0, tracked via bundle_selections on parent)
+        return !componentIds.has(item.id?.toString());
+      }).map(item => {
         const shopifyProductId = item.product_id?.toString() || null;
         const shopifyVariantId = item.variant_id?.toString() || null;
         const shopifyLineItemId = item.id?.toString() || null;
@@ -1382,6 +1415,36 @@ export class ShopifyWebhookService {
           ? (Number.isFinite(parseFloat(item.tax_lines[0].price)) ? parseFloat(item.tax_lines[0].price) : 0)
           : 0;
 
+        // Migration 146: Build bundle_selections for Shopify bundle parents
+        let bundleSelectionsJson: any = null;
+        const itemIdStr = item.id?.toString();
+        if (itemIdStr && bundleParentIds.has(itemIdStr)) {
+          const components = bundleComponentMap.get(itemIdStr) || [];
+          if (components.length > 0) {
+            bundleSelectionsJson = components.map((comp: any) => {
+              const compShopifyVariantId = comp.variant_id?.toString();
+              const compSku = comp.sku || '';
+              // Resolve component variant_id using same lookup maps
+              const compVariantMatch = compShopifyVariantId ? variantByShopifyId.get(compShopifyVariantId) : null;
+              const compVariantBySku = compSku ? variantBySku.get(compSku.toUpperCase()) : null;
+              const resolvedVariantId = compVariantMatch?.variant_id || compVariantBySku?.variant_id || null;
+
+              return {
+                variant_id: resolvedVariantId,
+                variant_name: comp.variant_title || comp.title || comp.name || '',
+                quantity: parseInt(comp.quantity, 10) || 1
+              };
+            }).filter((sel: any) => sel.variant_id); // Only include if we resolved the variant
+
+            if (bundleSelectionsJson.length === 0) {
+              bundleSelectionsJson = null; // Fallback: could not resolve any components
+              logger.warn('SHOPIFY_WEBHOOK', `Bundle ${itemIdStr}: could not resolve component variant IDs, falling back to legacy stock deduction`);
+            } else {
+              logger.info('SHOPIFY_WEBHOOK', `Bundle ${itemIdStr}: resolved ${bundleSelectionsJson.length} component selections`);
+            }
+          }
+        }
+
         return {
           order_id: orderId,
           product_id: productId,
@@ -1401,7 +1464,8 @@ export class ShopifyWebhookService {
           tax_amount: taxAmount,
           properties: item.properties || null,
           shopify_data: item,
-          image_url: imageUrl
+          image_url: imageUrl,
+          bundle_selections: bundleSelectionsJson // Migration 146
         };
       });
 

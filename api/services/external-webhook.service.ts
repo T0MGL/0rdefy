@@ -41,6 +41,7 @@ export interface ExternalOrderPayload {
     price: number;
     variant_title?: string;
     variant_type?: 'bundle' | 'variation'; // Migration 101: Explicit type for bundles vs variations
+    bundle_selections?: Array<{ variant_id?: string; sku?: string; variant_name?: string; quantity: number }>; // Migration 146
   }>;
 
   totals: {
@@ -762,7 +763,8 @@ export class ExternalWebhookService {
           unit_price: item.price,
           total_price: item.price * item.quantity,
           image_url: imageUrl,
-          stock_deducted: false
+          stock_deducted: false,
+          bundle_selections: item.bundle_selections || null // Migration 146
         });
       }
 

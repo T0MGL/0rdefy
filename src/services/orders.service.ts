@@ -125,6 +125,7 @@ export const ordersService = {
         price: number;
         units_per_pack?: number;
         is_upsell?: boolean;
+        bundle_selections?: Array<{ variant_id: string; variant_name: string; quantity: number }> | null;
       }
 
       const lineItems: LineItemPayload[] = [{
@@ -136,6 +137,7 @@ export const ordersService = {
         quantity: orderQuantity,
         price: mainProductPrice,
         units_per_pack: unitsPerPack,
+        bundle_selections: order.bundle_selections || null,
       }];
 
       // Add upsell as second line item if present
