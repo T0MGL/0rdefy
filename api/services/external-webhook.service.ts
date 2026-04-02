@@ -21,6 +21,8 @@ export interface ExternalOrderPayload {
     name: string;
     email?: string;
     phone?: string;
+    ruc?: string;
+    ruc_dv?: string;
   };
 
   shipping_address: {
@@ -642,6 +644,10 @@ export class ExternalWebhookService {
 
         // Status
         sleeves_status: orderStatus,
+
+        // Invoicing (RUC for SIFEN)
+        customer_ruc: payload.customer.ruc || null,
+        customer_ruc_dv: payload.customer.ruc_dv ? Number(payload.customer.ruc_dv) : null,
 
         // Metadata
         notes: payload.metadata ? JSON.stringify(payload.metadata) : null
