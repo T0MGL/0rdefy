@@ -584,7 +584,7 @@ ${link}`;
                         </div>
                         {isAnnual && plan.plan !== 'free' && (
                           <p className="text-xs text-muted-foreground mt-2">
-                            ${plan.priceAnnual.toFixed(0)} facturado por ano
+                            ${plan.priceAnnual.toFixed(0)} facturado por año
                             {plan.annualSavings ? (
                               <span className="ml-1 text-green-500 font-medium">
                                 ({plan.annualSavings}% de ahorro)
