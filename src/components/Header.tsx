@@ -6,7 +6,7 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { formatTimeAgo } from '@/utils/timeUtils';
-import { preserveShopifyParams } from '@/utils/shopifyNavigation';
+import { preserveShopifyParams, isShopifyEmbedded } from '@/utils/shopifyNavigation';
 import { Bell, ChevronDown, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
@@ -55,6 +55,8 @@ export function Header() {
   const { hasFeature } = useSubscription();
   const { selectedRange, setSelectedRange, customRange, setCustomRange, getDateRange } = useDateRange();
   const { globalViewEnabled, setGlobalViewEnabled } = useGlobalView();
+
+  const isShopifyContext = isShopifyEmbedded();
 
   // Show Global View toggle only on Dashboard and when user has 2+ stores
   const isDashboard = location.pathname === '/' || location.pathname === '/dashboard';
@@ -518,12 +520,14 @@ export function Header() {
               >
                 Perfil
               </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer"
-                onClick={() => navigate(preserveShopifyParams('/settings?tab=subscription'))}
-              >
-                Suscripción
-              </DropdownMenuItem>
+              {!isShopifyContext && (
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => navigate(preserveShopifyParams('/settings?tab=subscription'))}
+                >
+                  Suscripción
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 className="cursor-pointer"
                 onClick={() => navigate(preserveShopifyParams('/settings?tab=preferences'))}

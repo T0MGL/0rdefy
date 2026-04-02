@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { isShopifyEmbedded } from '@/utils/shopifyNavigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -106,6 +107,8 @@ export function TeamManagement() {
   const queryClient = useQueryClient();
   const { user, currentStore } = useAuth();
   const [inviteOpen, setInviteOpen] = useState(false);
+
+  const isShopifyContext = isShopifyEmbedded();
 
   // Check if current user is the owner
   const isOwner = currentStore?.role === 'owner';
@@ -272,8 +275,12 @@ El link expira en 7 dias.`;
               {stats && (
                 <>
                   {stats.current_users} de {stats.max_users === -1 ? '∞' : stats.max_users} usuarios
-                  {' '}·{' '}
-                  Plan <Badge variant="outline" className="ml-1">{stats.plan}</Badge>
+                  {!isShopifyContext && (
+                    <>
+                      {' '}·{' '}
+                      Plan <Badge variant="outline" className="ml-1">{stats.plan}</Badge>
+                    </>
+                  )}
                 </>
               )}
             </CardDescription>
