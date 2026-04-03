@@ -342,6 +342,9 @@ export default function Orders() {
   // Printing feedback
   const [isPrinting, setIsPrinting] = useState(false);
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
+  // Bulk status change
+  const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
+  const [isBulkStatusLoading, setIsBulkStatusLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { executeAction } = useUndoRedo({ toastDuration: 5000 });
   const debouncedSearch = useDebounce(search, 500);
@@ -1457,17 +1460,16 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     [currentStore?.name]
   );
 
-  // Selection handlers
+  // Selection handlers (select all non-deleted orders for bulk actions)
+  const selectableOrders = useMemo(() => filteredOrders.filter(o => !o.deleted_at), [filteredOrders]);
+
   const handleToggleSelectAll = useCallback(() => {
-    if (selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length) {
+    if (selectedOrderIds.size === selectableOrders.length && selectableOrders.length > 0) {
       setSelectedOrderIds(new Set());
     } else {
-      const printableIds = filteredOrders
-        .filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id))
-        .map(o => o.id);
-      setSelectedOrderIds(new Set(printableIds));
+      setSelectedOrderIds(new Set(selectableOrders.map(o => o.id)));
     }
-  }, [selectedOrderIds, filteredOrders]);
+  }, [selectedOrderIds, selectableOrders]);
 
   const handleToggleSelect = useCallback((orderId: string) => {
     setSelectedOrderIds(prev => {
@@ -1609,11 +1611,24 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   }, [toast, refetch]);
 
   const handleBulkPrint = useCallback(async () => {
-    const printableOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token && (o.is_pickup || o.carrier_id));
-    if (printableOrders.length === 0) {
+    const selectedOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token && (o.is_pickup || o.carrier_id));
+    // Only confirmed orders have labels available for printing
+    const confirmedOrders = selectedOrders.filter(o => o.status === 'confirmed');
+    const skippedCount = selectedOrders.length - confirmedOrders.length;
+
+    if (selectedOrders.length === 0) {
       toast({
-        title: 'Sin selección',
+        title: 'Sin seleccion',
         description: 'Selecciona al menos un pedido con token de entrega para imprimir',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (confirmedOrders.length === 0) {
+      toast({
+        title: 'Sin pedidos confirmados',
+        description: `Los ${skippedCount} pedidos seleccionados no estan en estado "Confirmado". Solo se pueden imprimir pedidos confirmados.`,
         variant: 'destructive',
       });
       return;
@@ -1621,7 +1636,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
     try {
       setIsPrinting(true);
-      const labelsData = printableOrders.map(order => ({
+      const labelsData = confirmedOrders.map(order => ({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
         orderDate: order.date ? format(new Date(order.date), "dd/MM/yyyy", { locale: es }) : undefined,
@@ -1633,12 +1648,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         addressReference: order.address_reference,
         carrierName: getCarrierName(order.carrier),
         codAmount: order.cod_amount,
-        totalPrice: order.total || order.total_price, // Fallback for COD amount
-        discountAmount: order.total_discounts, // Discount applied to order
+        totalPrice: order.total || order.total_price,
+        discountAmount: order.total_discounts,
         paymentMethod: order.payment_method,
-        paymentGateway: order.payment_gateway, // Most reliable COD indicator from Shopify
+        paymentGateway: order.payment_gateway,
         financialStatus: order.financial_status,
-        prepaidMethod: order.prepaid_method, // Manual prepaid: transfer, qr, etc.
+        prepaidMethod: order.prepaid_method,
         deliveryToken: order.delivery_link_token || '',
         items: order.order_line_items && order.order_line_items.length > 0
           ? order.order_line_items.map((item: LineItem) => ({
@@ -1655,60 +1670,66 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             }],
       }));
 
-      logger.log('🏷️ [ORDERS] Label data for batch print:', labelsData);
-
       const success = await printBatchLabelsPDF(labelsData);
 
       if (!success) {
-        // CRITICAL: PDF generation failed - do NOT mark anything
         toast({
-          title: '❌ Error generando PDF',
-          description: 'No se pudo generar el archivo PDF de etiquetas. No se marcó ningún pedido como impreso.',
+          title: 'Error generando PDF',
+          description: 'No se pudo generar el archivo PDF de etiquetas. No se marco ningun pedido como impreso.',
           variant: 'destructive',
         });
         return;
       }
 
-      // PDF generated successfully - use atomic bulk endpoint
-      logger.log('✅ [ORDERS] PDF generated successfully, marking orders as printed...');
-
-      const result = await ordersService.bulkPrintAndDispatch(
-        printableOrders.map(o => o.id)
+      // Mark as printed via atomic bulk endpoint
+      const printResult = await ordersService.bulkPrintAndDispatch(
+        confirmedOrders.map(o => o.id)
       );
 
-      // Refresh local orders state
-      const updatedOrdersResponse = await ordersService.getAll();
+      // Transition confirmed orders to in_preparation
+      const confirmedIds = confirmedOrders.map(o => o.id);
+      const statusResult = await ordersService.bulkStatusChange(confirmedIds, 'in_preparation');
+
+      // Refresh local orders state preserving current filters, date range, and pagination
+      const isSearching = !!serverFiltersRef.current.search;
+      const updatedOrdersResponse = await ordersService.getAll({
+        ...(isSearching ? {} : dateParamsRef.current),
+        ...serverFiltersRef.current,
+        limit: paginationLimitRef.current,
+      });
       setOrders(updatedOrdersResponse.data || []);
 
-      // Show detailed feedback based on results
-      if (!result.success || result.data.failed > 0) {
-        const { succeeded, failed, failures } = result.data;
-        const failedOrderNumbers = failures.map(f => f.order_number).join(', ');
+      // Determine combined outcome
+      const printFailed = !printResult.success || printResult.data.failed > 0;
+      const statusFailed = !statusResult.success || statusResult.data.failed > 0;
+
+      if (printFailed || statusFailed) {
+        const printFailures = printResult.data.failures || [];
+        const statusFailures = statusResult.data.failures || [];
+        const allFailures = [...printFailures, ...statusFailures];
+        const failedNumbers = allFailures.map(f => f.order_number).join(', ');
 
         toast({
-          title: `⚠️ Impresión parcial (${succeeded}/${succeeded + failed})`,
-          description: `Pedidos que FALLARON: ${failedOrderNumbers}. Revisar consola para detalles.`,
+          title: `Impresion parcial (${printResult.data.succeeded}/${confirmedOrders.length})`,
+          description: `Pedidos con errores: ${failedNumbers}.${skippedCount > 0 ? ` ${skippedCount} omitidos (no estaban confirmados).` : ''}`,
           variant: 'destructive',
-          duration: 10000, // Longer duration to review
+          duration: 10000,
         });
-
-        // Log detailed errors for debugging
-        logger.error('🚨 [BULK PRINT] Failures:', failures);
       } else {
+        const skippedMsg = skippedCount > 0
+          ? ` ${skippedCount} omitidos (no estaban confirmados).`
+          : '';
         toast({
-          title: '✅ Impresión completada',
-          description: hasWarehouseFeature
-            ? `${result.data.succeeded} etiquetas impresas. Usa el sistema de Despacho para enviar los pedidos.`
-            : `${result.data.succeeded} pedidos marcados como listos para despacho`,
+          title: 'Impresion completada',
+          description: `${statusResult.data.succeeded} pedidos impresos y movidos a "En Preparacion".${skippedMsg}`,
         });
       }
 
-      // Only clear selection if ALL succeeded
-      if (result.success && result.data.failed === 0) {
+      // Clear selection on full success
+      if (printResult.success && printResult.data.failed === 0 && statusResult.success && statusResult.data.failed === 0) {
         setSelectedOrderIds(new Set());
       }
     } catch (error) {
-      logger.error('Bulk print error:', error);
       showErrorToast(toast, error, {
         module: 'orders',
         action: 'bulk_print',
@@ -1717,7 +1738,62 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     } finally {
       setIsPrinting(false);
     }
-  }, [orders, selectedOrderIds, currentStore, getCarrierName, toast, hasWarehouseFeature]);
+  }, [orders, selectedOrderIds, currentStore, getCarrierName, toast]);
+
+  const handleBulkStatusChange = useCallback(async (targetStatus: string) => {
+    const selectedIds = Array.from(selectedOrderIds);
+    if (selectedIds.length === 0) return;
+
+    try {
+      setIsBulkStatusLoading(true);
+      setIsBulkStatusOpen(false);
+
+      const result = await ordersService.bulkStatusChange(selectedIds, targetStatus);
+
+      // Refresh local orders state preserving current filters, date range, and pagination
+      const isSearching = !!serverFiltersRef.current.search;
+      const updatedOrdersResponse = await ordersService.getAll({
+        ...(isSearching ? {} : dateParamsRef.current),
+        ...serverFiltersRef.current,
+        limit: paginationLimitRef.current,
+      });
+      setOrders(updatedOrdersResponse.data || []);
+
+      const targetLabel = statusLabels[targetStatus] || targetStatus;
+
+      if (!result.success || result.data.failed > 0) {
+        const { succeeded, failed, skipped, failures } = result.data;
+        const failedOrderNumbers = failures.map(f => `${f.order_number}: ${f.error}`).join(', ');
+
+        toast({
+          title: `Cambio parcial (${succeeded} de ${succeeded + failed + skipped})`,
+          description: failed > 0
+            ? `${failed} fallaron: ${failedOrderNumbers}${skipped > 0 ? `. ${skipped} ya estaban en ese estado.` : ''}`
+            : `${skipped} ya estaban en estado ${targetLabel}.`,
+          variant: failed > 0 ? 'destructive' : 'default',
+          duration: 8000,
+        });
+      } else {
+        toast({
+          title: 'Estado actualizado',
+          description: `${result.data.succeeded} pedidos cambiados a "${targetLabel}"${result.data.skipped > 0 ? ` (${result.data.skipped} ya estaban en ese estado)` : ''}`,
+        });
+      }
+
+      // Clear selection on full success
+      if (result.success && result.data.failed === 0) {
+        setSelectedOrderIds(new Set());
+      }
+    } catch (error) {
+      showErrorToast(toast, error, {
+        module: 'orders',
+        action: 'bulk_status_change',
+        entity: 'pedidos',
+      });
+    } finally {
+      setIsBulkStatusLoading(false);
+    }
+  }, [selectedOrderIds, toast]);
 
   if (isLoading) {
     return (
@@ -1831,24 +1907,83 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         {/* Actions - Right (aligned with title) */}
         <div className="flex items-center gap-2">
           {selectedOrderIds.size > 0 && (
-            <Button
-              variant="default"
-              onClick={handleBulkPrint}
-              disabled={isPrinting}
-              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-            >
-              {isPrinting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Imprimiendo etiquetas...
-                </>
-              ) : (
-                <>
-                  <Printer size={18} />
-                  Imprimir Seleccionados ({selectedOrderIds.size})
-                </>
-              )}
-            </Button>
+            <>
+              <Button
+                variant="default"
+                onClick={handleBulkPrint}
+                disabled={isPrinting}
+                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+              >
+                {isPrinting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Imprimiendo etiquetas...
+                  </>
+                ) : (
+                  <>
+                    <Printer size={18} />
+                    Imprimir Seleccionados ({selectedOrderIds.size})
+                  </>
+                )}
+              </Button>
+
+              <DropdownMenu open={isBulkStatusOpen} onOpenChange={setIsBulkStatusOpen}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    disabled={isBulkStatusLoading}
+                    className="gap-2"
+                  >
+                    {isBulkStatusLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Cambiando estado...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={16} />
+                        Cambiar Estado ({selectedOrderIds.size})
+                      </>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {[
+                    { value: 'pending', label: 'Pendiente', icon: '🟡' },
+                    { value: 'contacted', label: 'Contactado', icon: '🟠' },
+                    { value: 'confirmed', label: 'Confirmado', icon: '🔵' },
+                    { value: 'in_preparation', label: 'En Preparación', icon: '🟣' },
+                    { value: 'ready_to_ship', label: 'Preparado', icon: '🔷' },
+                    { value: 'in_transit', label: 'En Tránsito', icon: '🚚' },
+                    { value: 'delivered', label: 'Entregado', icon: '🟢' },
+                  ].map(status => (
+                    <DropdownMenuItem
+                      key={status.value}
+                      onClick={() => handleBulkStatusChange(status.value)}
+                      className="cursor-pointer"
+                    >
+                      <span className="mr-2">{status.icon}</span>
+                      {status.label}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  {[
+                    { value: 'cancelled', label: 'Cancelado', icon: '🔴' },
+                    { value: 'returned', label: 'Devuelto', icon: '↩️' },
+                    { value: 'incident', label: 'Incidencia', icon: '⚠️' },
+                  ].map(status => (
+                    <DropdownMenuItem
+                      key={status.value}
+                      onClick={() => handleBulkStatusChange(status.value)}
+                      className="cursor-pointer text-destructive"
+                    >
+                      <span className="mr-2">{status.icon}</span>
+                      {status.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
 
           <ExportButton
@@ -2134,13 +2269,13 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                         size="icon"
                         className="h-8 w-8"
                         onClick={handleToggleSelectAll}
-                        disabled={filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length === 0}
+                        disabled={selectableOrders.length === 0}
                       >
-                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length && selectedOrderIds.size > 0
+                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${selectedOrderIds.size === selectableOrders.length && selectedOrderIds.size > 0
                           ? 'bg-primary border-primary'
                           : 'border-muted-foreground/40 hover:border-primary'
                           }`}>
-                          {selectedOrderIds.size === filteredOrders.filter(o => o.delivery_link_token && (o.is_pickup || o.carrier_id)).length && selectedOrderIds.size > 0 && (
+                          {selectedOrderIds.size === selectableOrders.length && selectedOrderIds.size > 0 && (
                             <Check size={12} className="text-primary-foreground" />
                           )}
                         </div>
@@ -2188,7 +2323,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                         }`}
                     >
                       <td className="py-4 px-3 text-center">
-                        {order.delivery_link_token && !isDeleted && (order.is_pickup || order.carrier_id) ? (
+                        {!isDeleted ? (
                           <Button
                             variant="ghost"
                             size="icon"

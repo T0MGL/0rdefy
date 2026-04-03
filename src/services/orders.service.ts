@@ -782,6 +782,57 @@ export const ordersService = {
     };
   },
 
+  bulkStatusChange: async (orderIds: string[], status: string): Promise<{
+    success: boolean;
+    data: {
+      total: number;
+      succeeded: number;
+      failed: number;
+      skipped: number;
+      target_status: string;
+      target_status_label: string;
+      successes: Array<{ order_id: string; order_number: string; from_status: string; to_status: string }>;
+      failures: Array<{ order_id: string; order_number: string; error: string }>;
+      skipped_list: Array<{ order_id: string; order_number: string; reason: string }>;
+    };
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/orders/bulk-status`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ order_ids: orderIds, status }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        error: 'Unknown error',
+        message: 'Error desconocido al cambiar estado'
+      }));
+
+      // For 207 Multi-Status, return partial results
+      if (response.status === 207 && errorData.data) {
+        return {
+          success: false,
+          data: errorData.data
+        };
+      }
+
+      const bulkError = new Error(errorData.message || `Error HTTP: ${response.status}`) as Error & {
+        response: { status: number; data: Record<string, unknown> };
+      };
+      bulkError.response = {
+        status: response.status,
+        data: errorData
+      };
+      throw bulkError;
+    }
+
+    const result = await response.json();
+    return {
+      success: result.success,
+      data: result.data
+    };
+  },
+
   getCountsByStatus: async (params?: {
     startDate?: string;
     endDate?: string;

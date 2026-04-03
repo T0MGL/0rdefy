@@ -224,6 +224,15 @@ const BulkOrderIdsSchema = z.object({
     order_ids: z.array(z.string().uuid()).min(1, 'order_ids must be a non-empty array'),
 });
 
+const BulkStatusChangeSchema = z.object({
+    order_ids: z.array(z.string().uuid()).min(1, 'order_ids must be a non-empty array').max(200, 'Maximum 200 orders per batch'),
+    status: z.enum([
+        'pending', 'contacted', 'awaiting_carrier', 'confirmed', 'in_preparation',
+        'ready_to_ship', 'in_transit', 'delivered', 'cancelled', 'rejected',
+        'returned', 'shipped', 'incident',
+    ]),
+});
+
 /**
  * Safely parse a number, returning 0 for invalid values.
  * Unlike parseFloat(x) || 0, this correctly handles:
@@ -4779,6 +4788,291 @@ ordersRouter.post('/bulk-print-and-dispatch', requirePermission(Module.ORDERS, P
         res.status(500).json({
             error: 'Error interno del servidor',
             message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/orders/bulk-status - Bulk status change for multiple orders
+// Validates transitions per order, updates atomically per order,
+// returns detailed success/failure results.
+// DB trigger handles order_status_history automatically.
+// ================================================================
+ordersRouter.post('/bulk-status', requirePermission(Module.ORDERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
+    try {
+        const parsed = BulkStatusChangeSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                message: parsed.error.errors.map(e => e.message).join(', ')
+            });
+        }
+
+        const { order_ids, status: targetStatus } = parsed.data;
+        const storeId = req.storeId;
+        const userId = req.user?.email || req.user?.name || 'unknown';
+        const canForce = req.userRole === 'owner' || req.userRole === 'admin';
+
+        // Fetch all orders with their current status
+        const { data: existingOrders, error: fetchError } = await supabaseAdmin
+            .from('orders')
+            .select(`
+                id, sleeves_status, order_number, deleted_at, carrier_id, is_pickup,
+                line_items,
+                order_line_items (id, product_id, quantity, product_name)
+            `)
+            .in('id', order_ids)
+            .eq('store_id', storeId)
+            .is('deleted_at', null);
+
+        if (fetchError) {
+            throw fetchError;
+        }
+
+        if (!existingOrders || existingOrders.length === 0) {
+            return res.status(404).json({
+                error: 'Not found',
+                message: 'No se encontraron pedidos con los IDs proporcionados'
+            });
+        }
+
+        // Stock check: if target is ready_to_ship, validate stock for all applicable orders
+        if (targetStatus === 'ready_to_ship') {
+            const ordersWithStockIssues: Array<{ order_id: string; order_number: string; issues: Array<{ product_name: string; required: number; available: number }> }> = [];
+
+            // Collect all unique product IDs across every order first, then batch-fetch
+            const allProductIds = new Set<string>();
+            const orderLineItemsMap = new Map<string, Array<{ product_id: string; quantity: number; fallback_name: string }>>();
+
+            for (const order of existingOrders) {
+                if (order.sleeves_status === 'ready_to_ship') continue;
+
+                const normalizedItems = (order as Record<string, unknown>).order_line_items as Array<{ product_id?: string; quantity?: number; product_name?: string }> || [];
+                const jsonbItems = order.line_items as Array<{ product_id?: string; quantity?: number; name?: string }> || [];
+                const lineItems = normalizedItems.length > 0 ? normalizedItems : jsonbItems;
+                if (!Array.isArray(lineItems) || lineItems.length === 0) continue;
+
+                const parsed: Array<{ product_id: string; quantity: number; fallback_name: string }> = [];
+                for (const item of lineItems) {
+                    const productId = item.product_id;
+                    const requiredQty = safeNumber(item.quantity, 0);
+                    if (!productId || requiredQty <= 0) continue;
+
+                    allProductIds.add(productId);
+                    parsed.push({
+                        product_id: productId,
+                        quantity: requiredQty,
+                        fallback_name: (item as Record<string, unknown>).product_name as string || (item as Record<string, unknown>).name as string || 'Producto',
+                    });
+                }
+                if (parsed.length > 0) {
+                    orderLineItemsMap.set(order.id, parsed);
+                }
+            }
+
+            // Single batched query for all products
+            const productStockMap = new Map<string, { name: string; stock: number }>();
+            if (allProductIds.size > 0) {
+                const { data: products } = await supabaseAdmin
+                    .from('products')
+                    .select('id, name, stock')
+                    .in('id', Array.from(allProductIds))
+                    .eq('store_id', storeId);
+
+                if (products) {
+                    for (const p of products) {
+                        productStockMap.set(p.id, { name: p.name || 'Producto', stock: p.stock || 0 });
+                    }
+                }
+            }
+
+            // Check stock from the pre-fetched map
+            for (const order of existingOrders) {
+                const items = orderLineItemsMap.get(order.id);
+                if (!items) continue;
+
+                const stockIssues: Array<{ product_name: string; required: number; available: number }> = [];
+                for (const item of items) {
+                    const product = productStockMap.get(item.product_id);
+                    if (product && product.stock < item.quantity) {
+                        stockIssues.push({
+                            product_name: product.name || item.fallback_name,
+                            required: item.quantity,
+                            available: product.stock,
+                        });
+                    }
+                }
+
+                if (stockIssues.length > 0) {
+                    ordersWithStockIssues.push({
+                        order_id: order.id,
+                        order_number: order.order_number || order.id.slice(0, 8),
+                        issues: stockIssues,
+                    });
+                }
+            }
+
+            if (ordersWithStockIssues.length > 0) {
+                const ordersList = ordersWithStockIssues
+                    .map(o => `Pedido ${o.order_number}: ${o.issues.map(i => `${i.product_name} (necesita ${i.required}, disponible ${i.available})`).join(', ')}`)
+                    .join('\n');
+
+                return res.status(400).json({
+                    error: 'Insufficient stock',
+                    code: 'INSUFFICIENT_STOCK',
+                    message: `No hay suficiente stock para completar estos pedidos:\n\n${ordersList}`,
+                    details: ordersWithStockIssues
+                });
+            }
+        }
+
+        // Process each order: pre-filter skipped/invalid, then parallelize DB updates
+        const results = {
+            successes: [] as Array<{ order_id: string; order_number: string; from_status: string; to_status: string }>,
+            failures: [] as Array<{ order_id: string; order_number: string; error: string }>,
+            skipped: [] as Array<{ order_id: string; order_number: string; reason: string }>
+        };
+
+        // Separate orders that need a DB update from those that can be resolved synchronously
+        const ordersToUpdate: Array<{ order: typeof existingOrders[number]; orderNumber: string; fromStatus: string; updateData: Record<string, unknown> }> = [];
+
+        const now = new Date().toISOString();
+
+        for (const order of existingOrders) {
+            const orderNumber = order.order_number || order.id.slice(0, 8);
+            const fromStatus = order.sleeves_status;
+
+            if (fromStatus === targetStatus) {
+                results.skipped.push({
+                    order_id: order.id,
+                    order_number: orderNumber,
+                    reason: `Ya esta en estado ${STATUS_LABELS[targetStatus] || targetStatus}`,
+                });
+                continue;
+            }
+
+            if (!canForce) {
+                const validation = validateStatusTransition(fromStatus, targetStatus);
+                if (!validation.allowed) {
+                    const fromLabel = STATUS_LABELS[fromStatus] || fromStatus;
+                    const toLabel = STATUS_LABELS[targetStatus] || targetStatus;
+                    results.failures.push({
+                        order_id: order.id,
+                        order_number: orderNumber,
+                        error: validation.message || `No se puede cambiar de "${fromLabel}" a "${toLabel}"`,
+                    });
+                    continue;
+                }
+            }
+
+            const updateData: Record<string, unknown> = {
+                sleeves_status: targetStatus,
+                updated_at: now,
+            };
+
+            if (targetStatus === 'contacted') {
+                updateData.contacted_at = now;
+                updateData.contacted_by = userId;
+                updateData.contacted_method = 'bulk_action';
+            }
+            if (targetStatus === 'confirmed') {
+                updateData.confirmed_at = now;
+                updateData.confirmed_by = userId;
+                updateData.confirmation_method = 'bulk_action';
+            }
+            if (targetStatus === 'in_transit' || targetStatus === 'shipped') {
+                updateData.in_transit_at = now;
+            }
+            if (targetStatus === 'delivered') {
+                updateData.delivered_at = now;
+            }
+            if (targetStatus === 'cancelled' || targetStatus === 'rejected') {
+                updateData.cancelled_at = now;
+            }
+
+            if (fromStatus === 'cancelled' &&
+                ['confirmed', 'in_preparation', 'ready_to_ship', 'in_transit'].includes(targetStatus)) {
+                updateData.delivery_status = 'pending';
+                updateData.delivery_failure_reason = null;
+                updateData.cancelled_at = null;
+            }
+
+            ordersToUpdate.push({ order, orderNumber, fromStatus, updateData });
+        }
+
+        // Parallelize DB updates in chunks of 25 to stay conservative with connection pool
+        const CHUNK_SIZE = 25;
+        for (let i = 0; i < ordersToUpdate.length; i += CHUNK_SIZE) {
+            const chunk = ordersToUpdate.slice(i, i + CHUNK_SIZE);
+
+            const settled = await Promise.allSettled(
+                chunk.map(async ({ order, orderNumber, fromStatus, updateData }) => {
+                    const { data: updated, error: updateError } = await supabaseAdmin
+                        .from('orders')
+                        .update(updateData)
+                        .eq('id', order.id)
+                        .eq('store_id', storeId)
+                        .select('id, order_number, sleeves_status')
+                        .single();
+
+                    if (updateError) {
+                        return { ok: false as const, order_id: order.id, order_number: orderNumber, error: updateError.message || 'Error desconocido' };
+                    }
+                    if (updated) {
+                        return { ok: true as const, order_id: updated.id, order_number: updated.order_number || updated.id.slice(0, 8), from_status: fromStatus, to_status: targetStatus };
+                    }
+                    return { ok: false as const, order_id: order.id, order_number: orderNumber, error: 'No data returned' };
+                })
+            );
+
+            for (const outcome of settled) {
+                if (outcome.status === 'rejected') {
+                    const errorMessage = outcome.reason instanceof Error ? outcome.reason.message : 'Error desconocido';
+                    results.failures.push({ order_id: 'unknown', order_number: 'unknown', error: errorMessage });
+                } else if (outcome.value.ok) {
+                    results.successes.push({
+                        order_id: outcome.value.order_id,
+                        order_number: outcome.value.order_number,
+                        from_status: outcome.value.from_status,
+                        to_status: outcome.value.to_status,
+                    });
+                } else {
+                    results.failures.push({
+                        order_id: outcome.value.order_id,
+                        order_number: outcome.value.order_number,
+                        error: outcome.value.error,
+                    });
+                }
+            }
+        }
+
+        const totalProcessed = results.successes.length + results.failures.length + results.skipped.length;
+        const allSucceeded = results.failures.length === 0;
+        const statusCode = allSucceeded ? 200 : (results.successes.length > 0 ? 207 : 400);
+
+        res.status(statusCode).json({
+            success: allSucceeded,
+            message: allSucceeded
+                ? `${results.successes.length} pedidos actualizados a ${STATUS_LABELS[targetStatus] || targetStatus}`
+                : `${results.successes.length}/${totalProcessed} pedidos procesados correctamente`,
+            data: {
+                total: existingOrders.length,
+                succeeded: results.successes.length,
+                failed: results.failures.length,
+                skipped: results.skipped.length,
+                target_status: targetStatus,
+                target_status_label: STATUS_LABELS[targetStatus] || targetStatus,
+                successes: results.successes,
+                failures: results.failures,
+                skipped_list: results.skipped
+            }
+        });
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        logger.error('API', 'Bulk status change error:', error);
+        res.status(500).json({
+            error: 'Error interno del servidor',
+            message: errorMessage
         });
     }
 });
