@@ -50,6 +50,7 @@ const InventoryMovements = lazy(() => import("./pages/InventoryMovements").then(
 const Products = lazy(() => import("./pages/Products"));
 const Merchandise = lazy(() => import("./pages/Merchandise"));
 const Customers = lazy(() => import("./pages/Customers"));
+const CustomerDetail = lazy(() => import("./pages/CustomerDetail"));
 const Ads = lazy(() => import("./pages/Ads"));
 const AdditionalValues = lazy(() => import("./pages/AdditionalValues"));
 const Integrations = lazy(() => import("./pages/Integrations"));
@@ -219,6 +220,7 @@ const App = () => {
 
                             {/* Customers module */}
                             <Route path="/customers" element={<PermissionLayout module={Module.CUSTOMERS} ><Customers /></PermissionLayout>} />
+                            <Route path="/customers/:id" element={<PermissionLayout module={Module.CUSTOMERS} ><CustomerDetail /></PermissionLayout>} />
 
                             {/* Campaigns module */}
                             <Route path="/ads" element={<PermissionLayout module={Module.CAMPAIGNS} ><Ads /></PermissionLayout>} />

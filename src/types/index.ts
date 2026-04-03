@@ -414,6 +414,27 @@ export interface Customer {
   last_order_at?: string;
   created_at: string;
   updated_at?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
+  notes?: string;
+  tags?: string;
+  name?: string;
+  shopify_customer_id?: string;
+}
+
+export interface CustomerStatsOverview {
+  overview: {
+    total_customers: number;
+    repeat_customers: number;
+    avg_orders_per_customer: number;
+    avg_lifetime_value: number;
+    total_customer_value: number;
+  };
+  top_customers: Customer[];
+  recent_customers: Customer[];
 }
 
 export interface Supplier {

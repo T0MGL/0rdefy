@@ -4,10 +4,20 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
+import { MetricCard } from '@/components/MetricCard';
+import { MetricCardSkeleton } from '@/components/LoadingSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ExportButton } from '@/components/ExportButton';
 import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
   Select,
   SelectContent,
@@ -15,129 +25,63 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CustomerFilters, CustomerFilterValues } from '@/components/customers/CustomerFilters';
+import { CustomerQuickView } from '@/components/CustomerQuickView';
 import { customersService } from '@/services/customers.service';
 import { useToast } from '@/hooks/use-toast';
-import { usePhoneAutoPasteSimple } from '@/hooks/usePhoneAutoPaste';
 import { useDebounce } from '@/hooks/useDebounce';
-import { Plus, Edit, Trash2, Users, Mail, Phone, ShoppingBag, Search, X, ArrowUpDown } from 'lucide-react';
+import { CustomerForm, CustomerFormData } from '@/components/forms/CustomerForm';
+import { Plus, Edit, Trash2, Users, Mail, Phone, ShoppingBag, Search, X, ArrowUpDown, DollarSign, Loader2, LayoutGrid, List, Eye, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Customer } from '@/types';
 import { customersExportColumns } from '@/utils/exportConfigs';
 import { formatCurrency } from '@/utils/currency';
-
-interface CustomerFormData {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  accepts_marketing: boolean;
-}
-
-function CustomerForm({
-  customer,
-  onSubmit,
-  onCancel,
-  isSubmitting
-}: {
-  customer?: Customer;
-  onSubmit: (data: CustomerFormData) => void;
-  onCancel: () => void;
-  isSubmitting?: boolean;
-}) {
-  const [formData, setFormData] = useState({
-    first_name: customer?.first_name || '',
-    last_name: customer?.last_name || '',
-    email: customer?.email || '',
-    phone: customer?.phone || '',
-    accepts_marketing: customer?.accepts_marketing ?? true,
-  });
-
-  // Auto-format phone on paste
-  const handlePhonePaste = usePhoneAutoPasteSimple((fullPhone) => {
-    setFormData({ ...formData, phone: fullPhone });
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Nombre</label>
-          <Input
-            placeholder="Juan"
-            value={formData.first_name}
-            onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-            required
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Apellido</label>
-          <Input
-            placeholder="Pérez"
-            value={formData.last_name}
-            onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-            required
-          />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Email</label>
-        <Input
-          type="email"
-          placeholder="cliente@ejemplo.com"
-          value={formData.email}
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-          required
-        />
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Teléfono</label>
-        <Input
-          type="tel"
-          placeholder="+595981234567"
-          value={formData.phone}
-          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-          onPaste={handlePhonePaste}
-          required
-        />
-      </div>
-
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          id="accepts_marketing"
-          checked={formData.accepts_marketing}
-          onChange={(e) => setFormData({ ...formData, accepts_marketing: e.target.checked })}
-          className="rounded border-gray-300"
-        />
-        <label htmlFor="accepts_marketing" className="text-sm">
-          Acepta recibir comunicaciones de marketing
-        </label>
-      </div>
-
-      <div className="flex gap-2 pt-4">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting} className="flex-1">
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isSubmitting} className="flex-1 bg-primary hover:bg-primary/90">
-          {isSubmitting ? 'Guardando...' : customer ? 'Actualizar' : 'Crear'}
-        </Button>
-      </div>
-    </form>
-  );
-}
+import { formatDistanceToNow } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 type SortField = 'name' | 'total_spent' | 'total_orders' | 'created_at';
 type SortDirection = 'asc' | 'desc';
+
+type ViewMode = 'cards' | 'table';
+
+const PAGE_SIZE = 30;
+const VIEW_MODE_KEY = 'ordefy_customers_view_mode';
+
+const SORT_FIELD_MAP: Record<SortField, string> = {
+  name: 'first_name',
+  total_spent: 'total_spent',
+  total_orders: 'total_orders',
+  created_at: 'created_at',
+};
+
+function getStoredViewMode(): ViewMode {
+  try {
+    const stored = localStorage.getItem(VIEW_MODE_KEY);
+    if (stored === 'table' || stored === 'cards') return stored;
+  } catch {
+    // localStorage unavailable
+  }
+  return 'cards';
+}
+
+function formatRelativeDate(dateString: string | undefined | null): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    return formatDistanceToNow(date, { addSuffix: true, locale: es });
+  } catch {
+    return '';
+  }
+}
+
+function sanitizePhone(phone: string | undefined | null): string {
+  if (!phone) return '';
+  return phone.replace(/[^0-9+]/g, '');
+}
 
 export default function Customers() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -146,13 +90,82 @@ export default function Customers() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerToDelete, setCustomerToDelete] = useState<string | null>(null);
+  const [quickViewCustomer, setQuickViewCustomer] = useState<Customer | null>(null);
+  const [accumulatedCustomers, setAccumulatedCustomers] = useState<Customer[]>([]);
+  const [currentOffset, setCurrentOffset] = useState(0);
+  const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
+  const prevParamsRef = useRef<string>('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const handleViewModeChange = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mode);
+    } catch {
+      // localStorage unavailable
+    }
+  }, []);
 
   // URL-param-driven state for search and sort
   const searchQuery = searchParams.get('q') || '';
   const sortField = (searchParams.get('sort') || 'created_at') as SortField;
   const sortDirection = (searchParams.get('dir') || 'desc') as SortDirection;
+
+  // URL-param-driven filter state
+  const currentFilters = useMemo<CustomerFilterValues>(() => {
+    const filters: CustomerFilterValues = {};
+    const minOrders = searchParams.get('min_orders');
+    const minSpent = searchParams.get('min_spent');
+    const city = searchParams.get('city');
+    const acceptsMarketing = searchParams.get('accepts_marketing');
+    const lastOrderBefore = searchParams.get('last_order_before');
+    if (minOrders) filters.min_orders = parseInt(minOrders, 10);
+    if (minSpent) filters.min_spent = parseInt(minSpent, 10);
+    if (city) filters.city = city;
+    if (acceptsMarketing === 'true') filters.accepts_marketing = true;
+    if (lastOrderBefore) filters.last_order_before = lastOrderBefore;
+    return filters;
+  }, [searchParams]);
+
+  const hasActiveFilters = useMemo(() => {
+    return Object.keys(currentFilters).some((k) => {
+      const val = currentFilters[k as keyof CustomerFilterValues];
+      return val !== undefined && val !== '' && val !== 0;
+    });
+  }, [currentFilters]);
+
+  const handleFiltersChange = useCallback((filters: CustomerFilterValues) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      // Clear all filter params first
+      next.delete('min_orders');
+      next.delete('min_spent');
+      next.delete('city');
+      next.delete('accepts_marketing');
+      next.delete('last_order_before');
+      // Set new values
+      if (filters.min_orders !== undefined && filters.min_orders > 0) next.set('min_orders', filters.min_orders.toString());
+      if (filters.min_spent !== undefined && filters.min_spent > 0) next.set('min_spent', filters.min_spent.toString());
+      if (filters.city) next.set('city', filters.city);
+      if (filters.accepts_marketing === true) next.set('accepts_marketing', 'true');
+      if (filters.last_order_before) next.set('last_order_before', filters.last_order_before);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const handleClearFilters = useCallback(() => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('min_orders');
+      next.delete('min_spent');
+      next.delete('city');
+      next.delete('accepts_marketing');
+      next.delete('last_order_before');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const setSearchQuery = useCallback((value: string) => {
     setSearchParams(prev => {
@@ -190,60 +203,65 @@ export default function Customers() {
     }, { replace: true });
   }, [setSearchParams]);
 
-  // Extended stale window: customer data changes infrequently
-  const { data: customers = [], isLoading } = useQuery({
-    queryKey: ['customers'],
-    queryFn: customersService.getAll,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-  });
-
   const debouncedSearch = useDebounce(searchQuery, 300);
 
-  const filteredCustomers = useMemo(() => {
-    let result = customers;
+  // Stats KPIs query (separate, long cache)
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['customers', 'stats'],
+    queryFn: customersService.getStats,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  });
 
-    if (debouncedSearch.trim() !== '') {
-      const query = debouncedSearch.toLowerCase();
-      result = result.filter(
-        (customer) =>
-          (customer.first_name || '').toLowerCase().includes(query) ||
-          (customer.last_name || '').toLowerCase().includes(query) ||
-          (customer.email || '').toLowerCase().includes(query) ||
-          (customer.phone || '').includes(query)
-      );
+  // Build a stable param key to detect search/sort/filter changes and reset accumulation
+  const filterKey = JSON.stringify(currentFilters);
+  const paramKey = `${debouncedSearch}|${sortField}|${sortDirection}|${filterKey}`;
+
+  // Reset accumulated data when search, sort, or filters change
+  useEffect(() => {
+    if (prevParamsRef.current !== paramKey) {
+      prevParamsRef.current = paramKey;
+      setAccumulatedCustomers([]);
+      setCurrentOffset(0);
     }
+  }, [paramKey]);
 
-    // Sort
-    const sorted = [...result].sort((a, b) => {
-      let comparison = 0;
-      switch (sortField) {
-        case 'name': {
-          const nameA = `${a.first_name} ${a.last_name}`.toLowerCase();
-          const nameB = `${b.first_name} ${b.last_name}`.toLowerCase();
-          comparison = nameA.localeCompare(nameB);
-          break;
-        }
-        case 'total_spent':
-          comparison = (a.total_spent || 0) - (b.total_spent || 0);
-          break;
-        case 'total_orders':
-          comparison = (a.total_orders || 0) - (b.total_orders || 0);
-          break;
-        case 'created_at': {
-          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-          comparison = dateA - dateB;
-          break;
-        }
-      }
-      return sortDirection === 'asc' ? comparison : -comparison;
+  // Server-side paginated query (includes filter params)
+  const { data: paginatedResponse, isLoading, isFetching } = useQuery({
+    queryKey: ['customers', { search: debouncedSearch, sortField, sortDirection, offset: currentOffset, filters: currentFilters }],
+    queryFn: () => customersService.getAllPaginated({
+      search: debouncedSearch || undefined,
+      sort_by: SORT_FIELD_MAP[sortField],
+      sort_order: sortDirection,
+      limit: PAGE_SIZE,
+      offset: currentOffset,
+      ...currentFilters,
+    }),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
+
+  const pageData = paginatedResponse?.data ?? [];
+  const pagination = paginatedResponse?.pagination ?? { total: 0, limit: PAGE_SIZE, offset: 0, hasMore: false };
+
+  // Accumulate fetched pages into a single list
+  useEffect(() => {
+    if (pageData.length === 0) return;
+    setAccumulatedCustomers(prev => {
+      if (currentOffset === 0) return pageData;
+      const existingIds = new Set(prev.map(c => c.id));
+      const newItems = pageData.filter(c => !existingIds.has(c.id));
+      return [...prev, ...newItems];
     });
+  }, [pageData, currentOffset]);
 
-    return sorted;
-  }, [debouncedSearch, customers, sortField, sortDirection]);
+  // The visible customer list: accumulated data or current page data on first load
+  const customers = accumulatedCustomers.length > 0 ? accumulatedCustomers : pageData;
+
+  const handleLoadMore = useCallback(() => {
+    setCurrentOffset(prev => prev + PAGE_SIZE);
+  }, []);
 
   const handleCreate = () => {
     setSelectedCustomer(null);
@@ -260,14 +278,18 @@ export default function Customers() {
     setDeleteDialogOpen(true);
   };
 
+  const invalidateCustomers = useCallback(() => {
+    setAccumulatedCustomers([]);
+    setCurrentOffset(0);
+    queryClient.invalidateQueries({ queryKey: ['customers'] });
+  }, [queryClient]);
+
   const confirmDelete = async () => {
     if (!customerToDelete) return;
 
     try {
-      // Optimistic update: remove from cache immediately
-      queryClient.setQueryData<Customer[]>(['customers'], (old = []) =>
-        old.filter(c => c.id !== customerToDelete)
-      );
+      // Optimistic update: remove from accumulated list
+      setAccumulatedCustomers(prev => prev.filter(c => c.id !== customerToDelete));
 
       await customersService.delete(customerToDelete);
 
@@ -278,8 +300,11 @@ export default function Customers() {
         title: 'Cliente eliminado',
         description: 'El cliente ha sido eliminado exitosamente.',
       });
+
+      // Refresh stats after deletion
+      queryClient.invalidateQueries({ queryKey: ['customers', 'stats'] });
     } catch (error: unknown) {
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      invalidateCustomers();
 
       toast({
         title: 'Error al eliminar',
@@ -296,9 +321,9 @@ export default function Customers() {
         const updatedCustomer = await customersService.update(selectedCustomer.id, data);
 
         if (updatedCustomer) {
-          // Optimistic update: update in React Query cache
-          queryClient.setQueryData<Customer[]>(['customers'], (old = []) =>
-            old.map(c => (c.id === selectedCustomer.id ? updatedCustomer : c))
+          // Optimistic update in accumulated list
+          setAccumulatedCustomers(prev =>
+            prev.map(c => (c.id === selectedCustomer.id ? updatedCustomer : c))
           );
         }
 
@@ -307,12 +332,10 @@ export default function Customers() {
           description: 'Los cambios han sido guardados exitosamente.',
         });
       } else {
-        const newCustomer = await customersService.create(data);
+        await customersService.create(data);
 
-        // Optimistic update: add to React Query cache
-        queryClient.setQueryData<Customer[]>(['customers'], (old = []) =>
-          [newCustomer, ...old]
-        );
+        // Full refetch to get correct server-side ordering
+        invalidateCustomers();
 
         toast({
           title: 'Cliente creado',
@@ -320,8 +343,10 @@ export default function Customers() {
         });
       }
       setDialogOpen(false);
+      // Refresh stats after create/update
+      queryClient.invalidateQueries({ queryKey: ['customers', 'stats'] });
     } catch (error: unknown) {
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      invalidateCustomers();
 
       toast({
         title: 'Error',
@@ -333,7 +358,17 @@ export default function Customers() {
     }
   };
 
-  if (isLoading) {
+  // Initial loading state (no data at all yet)
+  const isInitialLoad = isLoading && customers.length === 0;
+
+  // Compute repeat customer percentage for subtitle
+  const repeatPct = stats?.overview
+    ? stats.overview.total_customers > 0
+      ? Math.round((stats.overview.repeat_customers / stats.overview.total_customers) * 100)
+      : 0
+    : 0;
+
+  if (isInitialLoad) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -342,8 +377,15 @@ export default function Customers() {
             <p className="text-muted-foreground">Gestiona tu base de clientes</p>
           </div>
         </div>
+        {/* Stats skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCardSkeleton />
+          <MetricCardSkeleton />
+          <MetricCardSkeleton />
+          <MetricCardSkeleton />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <CardSkeleton key={i} />
           ))}
         </div>
@@ -351,7 +393,7 @@ export default function Customers() {
     );
   }
 
-  if (customers.length === 0) {
+  if (!isLoading && customers.length === 0 && !debouncedSearch && !hasActiveFilters) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -372,7 +414,7 @@ export default function Customers() {
 
         {/* Customer Form Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>
                 {selectedCustomer ? 'Editar Cliente' : 'Nuevo Cliente'}
@@ -395,25 +437,65 @@ export default function Customers() {
       {/* First-time Welcome Banner */}
       <FirstTimeWelcomeBanner
         moduleId="customers"
-        title="¡Bienvenido a Clientes!"
-        description="Aquí gestionas tu base de clientes con datos de contacto e historial de compras."
+        title="Bienvenido a Clientes"
+        description="Aqui gestionas tu base de clientes con datos de contacto e historial de compras."
         tips={['Guarda direcciones completas', 'Ve historial de pedidos', 'Confirma por WhatsApp']}
       />
+
+      {/* Stats KPIs Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {statsLoading ? (
+          <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              title="Total Clientes"
+              value={stats?.overview.total_customers ?? 0}
+              icon={<Users className="text-primary" size={24} />}
+            />
+            <MetricCard
+              title="Clientes Recurrentes"
+              value={stats?.overview.repeat_customers ?? 0}
+              icon={<Users className="text-green-600" size={24} />}
+              subtitle={`${repeatPct}% del total`}
+            />
+            <MetricCard
+              title="Pedidos Promedio"
+              value={(stats?.overview.avg_orders_per_customer ?? 0).toFixed(1)}
+              icon={<ShoppingBag className="text-blue-600" size={24} />}
+              subtitle="por cliente"
+            />
+            <MetricCard
+              title="Valor Promedio"
+              value={formatCurrency(stats?.overview.avg_lifetime_value ?? 0)}
+              icon={<DollarSign className="text-emerald-600" size={24} />}
+              subtitle="valor de vida"
+            />
+          </>
+        )}
+      </div>
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Clientes</h2>
           <p className="text-muted-foreground">
-            {customers.length} cliente{customers.length !== 1 ? 's' : ''} registrado{customers.length !== 1 ? 's' : ''}
+            {pagination.total > 0
+              ? `${pagination.total} cliente${pagination.total !== 1 ? 's' : ''} registrado${pagination.total !== 1 ? 's' : ''}`
+              : 'Gestiona tu base de clientes'}
           </p>
         </div>
         <div className="flex gap-2">
           <ExportButton
-            data={filteredCustomers}
+            data={customers}
             filename="clientes"
             columns={customersExportColumns}
-            title="Base de Clientes - Ordefy"
+            title="Base de Clientes, Ordefy"
             variant="outline"
           />
           <Button onClick={handleCreate} className="gap-2 bg-primary hover:bg-primary/90">
@@ -451,7 +533,7 @@ export default function Customers() {
           </AnimatePresence>
         </div>
 
-        {/* Sort Controls */}
+        {/* Sort Controls + View Toggle */}
         <div className="flex items-center gap-2">
           <Select value={sortField} onValueChange={(v) => setSortField(v as SortField)}>
             <SelectTrigger className="w-full md:w-44 h-10">
@@ -481,93 +563,279 @@ export default function Customers() {
               <ArrowUpDown size={16} />
             </motion.div>
           </Button>
+
+          {/* View Mode Toggle */}
+          <div className="flex items-center rounded-md border bg-background">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-10 w-10 rounded-r-none ${viewMode === 'cards' ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
+              onClick={() => handleViewModeChange('cards')}
+              title="Vista de tarjetas"
+            >
+              <LayoutGrid size={16} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-10 w-10 rounded-l-none ${viewMode === 'table' ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
+              onClick={() => handleViewModeChange('table')}
+              title="Vista de tabla"
+            >
+              <List size={16} />
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Customers Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredCustomers.map((customer, index) => (
-          <motion.div
-            key={customer.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-          >
-            <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50">
-              <div className="p-6 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-lg mb-1">
-                      {customer.first_name} {customer.last_name}
-                    </h3>
-                    <div className="flex flex-wrap gap-2">
-                      {customer.accepts_marketing && (
-                        <Badge variant="outline" className="bg-primary/20 text-primary border-primary/30">
-                          Marketing
-                        </Badge>
+      {/* Filters */}
+      <CustomerFilters
+        onFiltersChange={handleFiltersChange}
+        currentFilters={currentFilters}
+        onClearFilters={handleClearFilters}
+        hasActiveFilters={hasActiveFilters}
+      />
+
+      {/* Customers: Cards or Table */}
+      {viewMode === 'table' ? (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nombre</TableHead>
+                <TableHead className="hidden md:table-cell">Email</TableHead>
+                <TableHead>Telefono</TableHead>
+                <TableHead className="hidden md:table-cell">Ciudad</TableHead>
+                <TableHead className="text-center">Pedidos</TableHead>
+                <TableHead className="text-right">Total Gastado</TableHead>
+                <TableHead className="hidden lg:table-cell">Ultimo Pedido</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <AnimatePresence mode="popLayout">
+                {customers.map((customer, index) => (
+                  <motion.tr
+                    key={customer.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ delay: Math.min(index, 20) * 0.02, duration: 0.2 }}
+                    className="border-b transition-colors hover:bg-muted/50 group"
+                  >
+                    <TableCell className="font-medium">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/customers/${customer.id}`)}
+                        className="text-left cursor-pointer hover:underline decoration-primary/50 underline-offset-2"
+                      >
+                        {customer.first_name} {customer.last_name}
+                      </button>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-muted-foreground">
+                      {customer.email || '-'}
+                    </TableCell>
+                    <TableCell>
+                      {customer.phone ? (
+                        <a
+                          href={`https://wa.me/${sanitizePhone(customer.phone)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5"
+                        >
+                          <Phone size={13} className="shrink-0" />
+                          {customer.phone}
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
                       )}
-                      {customer.total_orders > 0 && (
-                        <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30">
-                          {customer.total_orders} pedido{customer.total_orders !== 1 ? 's' : ''}
-                        </Badge>
-                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-muted-foreground">
+                      {customer.city || '-'}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="outline" className="tabular-nums">
+                        {customer.total_orders}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {formatCurrency(customer.total_spent)}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-muted-foreground text-sm">
+                      {customer.last_order_at ? formatRelativeDate(customer.last_order_at) : '-'}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setQuickViewCustomer(customer)}
+                          title="Vista rapida"
+                        >
+                          <Eye size={15} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleEdit(customer)}
+                          title="Editar"
+                        >
+                          <Edit size={15} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(customer.id)}
+                          title="Eliminar"
+                        >
+                          <Trash2 size={15} />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </motion.tr>
+                ))}
+              </AnimatePresence>
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {customers.map((customer, index) => (
+            <motion.div
+              key={customer.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(index, 12) * 0.05 }}
+            >
+              <Card
+                className="overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-primary/50 cursor-pointer"
+                onClick={() => navigate(`/customers/${customer.id}`)}
+              >
+                <div className="p-6 space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-lg mb-1">
+                        {customer.first_name} {customer.last_name}
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {customer.accepts_marketing && (
+                          <Badge variant="outline" className="bg-primary/20 text-primary border-primary/30">
+                            Marketing
+                          </Badge>
+                        )}
+                        {customer.total_orders > 0 && (
+                          <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30">
+                            {customer.total_orders} pedido{customer.total_orders !== 1 ? 's' : ''}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail size={16} className="text-muted-foreground" />
-                    <span className="text-muted-foreground truncate">{customer.email}</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Mail size={16} className="text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground truncate">{customer.email}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone size={16} className="text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground">{customer.phone}</span>
+                    </div>
+                    {customer.city && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <MapPin size={16} className="text-muted-foreground shrink-0" />
+                        <span className="text-muted-foreground">{customer.city}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-sm">
+                      <ShoppingBag size={16} className="text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground">
+                        Gastado: <span className="font-semibold">{formatCurrency(customer.total_spent)}</span>
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone size={16} className="text-muted-foreground" />
-                    <span className="text-muted-foreground">{customer.phone}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <ShoppingBag size={16} className="text-muted-foreground" />
-                    <span className="text-muted-foreground">
-                      Gastado: <span className="font-semibold">{formatCurrency(customer.total_spent)}</span>
-                    </span>
+
+                  <div className="flex gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => navigate(`/customers/${customer.id}`)}
+                    >
+                      <Eye size={16} />
+                      Ver
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 gap-2"
+                      onClick={() => handleEdit(customer)}
+                    >
+                      <Edit size={16} />
+                      Editar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(customer.id)}
+                    >
+                      <Trash2 size={16} />
+                    </Button>
                   </div>
                 </div>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+      )}
 
-                <div className="flex gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 gap-2"
-                    onClick={() => handleEdit(customer)}
-                  >
-                    <Edit size={16} />
-                    Editar
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-2 text-destructive hover:text-destructive"
-                    onClick={() => handleDelete(customer.id)}
-                  >
-                    <Trash2 size={16} />
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
+      {/* Load More */}
+      {pagination.hasMore && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex flex-col items-center gap-2 pt-2"
+        >
+          <p className="text-sm text-muted-foreground">
+            Mostrando {customers.length} de {pagination.total}
+          </p>
+          <Button
+            variant="outline"
+            onClick={handleLoadMore}
+            disabled={isFetching}
+            className="gap-2"
+          >
+            {isFetching ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Cargando...
+              </>
+            ) : (
+              'Cargar mas'
+            )}
+          </Button>
+        </motion.div>
+      )}
 
-      {filteredCustomers.length === 0 && searchQuery && (
+      {customers.length === 0 && (debouncedSearch || hasActiveFilters) && !isLoading && (
         <EmptyState
           icon={Search}
           title="No se encontraron clientes"
-          description={`No hay resultados para "${searchQuery}"`}
+          description={
+            debouncedSearch
+              ? `No hay resultados para "${debouncedSearch}"`
+              : 'No hay clientes que coincidan con los filtros aplicados'
+          }
         />
       )}
 
       {/* Customer Form Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {selectedCustomer ? 'Editar Cliente' : 'Nuevo Cliente'}
@@ -582,12 +850,19 @@ export default function Customers() {
         </DialogContent>
       </Dialog>
 
+      {/* Customer Quick View */}
+      <CustomerQuickView
+        customer={quickViewCustomer}
+        open={!!quickViewCustomer}
+        onClose={() => setQuickViewCustomer(null)}
+      />
+
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        title="¿Eliminar cliente?"
-        description="Esta acción no se puede deshacer. El cliente será eliminado permanentemente si no tiene pedidos asociados."
+        title="Eliminar cliente?"
+        description="Esta accion no se puede deshacer. El cliente sera eliminado permanentemente si no tiene pedidos asociados."
         onConfirm={confirmDelete}
         variant="destructive"
         confirmText="Eliminar"

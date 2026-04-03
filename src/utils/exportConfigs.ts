@@ -277,8 +277,32 @@ export const customersExportColumns: ExportColumn[] = [
     width: 20,
     format: (value) => formatCurrency(Number(value || 0))
   },
+  { header: 'Ciudad', key: 'city', width: 20 },
+  { header: 'Pais', key: 'country', width: 15 },
+  { header: 'Notas', key: 'notes', width: 30 },
   {
-    header: 'Fecha Creación',
+    header: 'Tags',
+    key: 'tags',
+    width: 25,
+    format: (value) => value || '',
+  },
+  {
+    header: 'Ultimo Pedido',
+    key: 'last_order_at',
+    width: 20,
+    format: (value) => {
+      if (!value) return '';
+      const date = new Date(value);
+      if (isNaN(date.getTime())) return '';
+      return date.toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    },
+  },
+  {
+    header: 'Fecha Creacion',
     key: 'created_at',
     width: 20,
     format: (value) => {
@@ -287,9 +311,9 @@ export const customersExportColumns: ExportColumn[] = [
       return date.toLocaleDateString('es-ES', {
         year: 'numeric',
         month: 'long',
-        day: 'numeric'
+        day: 'numeric',
       });
-    }
+    },
   },
 ];
 
