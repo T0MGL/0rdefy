@@ -4204,7 +4204,7 @@ ordersRouter.patch('/:id/upsell', validateUUIDParam('id'), requirePermission(Mod
         // Fetch product
         const { data: product, error: productError } = await supabaseAdmin
             .from('products')
-            .select('id, name, price, cost, packaging_cost, additional_costs, sku, image')
+            .select('id, name, price, cost, packaging_cost, additional_costs, sku, image_url')
             .eq('id', upsell_product_id)
             .eq('store_id', storeId)
             .single();
@@ -4233,7 +4233,7 @@ ordersRouter.patch('/:id/upsell', validateUUIDParam('id'), requirePermission(Mod
                     unit_cost: upsellUnitCost,
                     total_price: product.price * upsell_quantity,
                     sku: product.sku,
-                    image_url: product.image,
+                    image_url: product.image_url,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', existingUpsell.id);
@@ -4254,7 +4254,7 @@ ordersRouter.patch('/:id/upsell', validateUUIDParam('id'), requirePermission(Mod
                     unit_cost: upsellUnitCost,
                     total_price: product.price * upsell_quantity,
                     sku: product.sku,
-                    image_url: product.image,
+                    image_url: product.image_url,
                     is_upsell: true
                 });
 
