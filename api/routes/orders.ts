@@ -4817,7 +4817,7 @@ ordersRouter.post('/bulk-status', requirePermission(Module.ORDERS, Permission.ED
         const { data: existingOrders, error: fetchError } = await supabaseAdmin
             .from('orders')
             .select(`
-                id, sleeves_status, order_number, deleted_at, carrier_id, is_pickup,
+                id, sleeves_status, order_number, deleted_at, courier_id, is_pickup,
                 line_items,
                 order_line_items (id, product_id, quantity, product_name)
             `)

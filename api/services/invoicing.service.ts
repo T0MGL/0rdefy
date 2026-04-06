@@ -417,7 +417,7 @@ export async function generateInvoice(storeId: string, orderId: string) {
   try {
     const xmlgenLib = await getXmlgen();
     // xmlgen.generateXMLDE returns an object with xml and CDC
-    const result = xmlgenLib.generateXMLDE(params, data);
+    const result = await xmlgenLib.generateXMLDE(params, data);
     xmlGenerated = typeof result === 'string' ? result : result.xml || result;
 
     // Extract CDC from generated XML
