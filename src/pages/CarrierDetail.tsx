@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
-import { carriersService, CarrierReview, RatingDistribution } from '@/services/carriers.service';
+import { carriersService, CarrierReview, CarrierReviewStats, RatingDistribution } from '@/services/carriers.service';
 import { ordersService } from '@/services/orders.service';
 import { formatCurrency } from '@/utils/currency';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -30,6 +30,7 @@ import {
   MessageSquare,
   User,
   Calendar,
+  Clock,
   Globe,
 } from 'lucide-react';
 import { Order } from '@/types';
@@ -80,6 +81,13 @@ export default function CarrierDetail() {
   // Reviews State
   const [reviews, setReviews] = useState<CarrierReview[]>([]);
   const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution>({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
+  const [reviewStats, setReviewStats] = useState<CarrierReviewStats>({
+    total_ratings: 0,
+    last_30d_count: 0,
+    comments_count: 0,
+    comment_rate_percent: 0,
+    avg_hours_to_rate: null,
+  });
   const [reviewsLoading, setReviewsLoading] = useState(false);
 
   // Coverage Manager
@@ -133,12 +141,15 @@ export default function CarrierDetail() {
             if (!isMountedRef.current) return;
             setReviews(reviewsData.reviews);
             setRatingDistribution(reviewsData.rating_distribution);
-            // Update carrier with latest rating from reviews endpoint
+            if (reviewsData.stats) {
+              setReviewStats(reviewsData.stats);
+            }
+            // Prefer the authoritative average computed from raw ratings.
             if (reviewsData.courier) {
               setCarrier((prev: any) => ({
                 ...prev,
                 average_rating: reviewsData.courier.average_rating,
-                total_ratings: reviewsData.courier.total_ratings
+                total_ratings: reviewsData.courier.total_ratings,
               }));
             }
           } catch (reviewError) {
@@ -643,6 +654,63 @@ export default function CarrierDetail() {
             </Card>
           </div>
 
+          {/* Rating Insights Row */}
+          {(carrier?.total_ratings || 0) > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card className="p-5 bg-card">
+                <div className="flex items-center gap-2 mb-1">
+                  <Calendar className="text-blue-500" size={16} />
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Últimos 30 días</span>
+                </div>
+                <p className="text-2xl font-bold text-card-foreground">{reviewStats.last_30d_count}</p>
+                <p className="text-xs text-muted-foreground mt-1">calificaciones recientes</p>
+              </Card>
+              <Card className="p-5 bg-card">
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare className="text-purple-500" size={16} />
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Con comentario</span>
+                </div>
+                <p className="text-2xl font-bold text-card-foreground">
+                  {reviewStats.comments_count}
+                  <span className="text-base font-normal text-muted-foreground ml-2">
+                    ({reviewStats.comment_rate_percent}%)
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">del total de reseñas</p>
+              </Card>
+              <Card className="p-5 bg-card">
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock className="text-emerald-500" size={16} />
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Tiempo medio</span>
+                </div>
+                <p className="text-2xl font-bold text-card-foreground">
+                  {reviewStats.avg_hours_to_rate !== null
+                    ? reviewStats.avg_hours_to_rate < 1
+                      ? `${Math.round(reviewStats.avg_hours_to_rate * 60)} min`
+                      : `${reviewStats.avg_hours_to_rate.toFixed(1)} h`
+                    : 'N/D'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">entre entrega y rating</p>
+              </Card>
+              <Card className="p-5 bg-card">
+                <div className="flex items-center gap-2 mb-1">
+                  <Star className="text-yellow-500" size={16} />
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">% 5 estrellas</span>
+                </div>
+                <p className="text-2xl font-bold text-card-foreground">
+                  {(() => {
+                    const total = carrier?.total_ratings || 0;
+                    if (total === 0) return '0%';
+                    return `${Math.round((ratingDistribution[5] / total) * 100)}%`;
+                  })()}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {ratingDistribution[5] || 0} reseñas perfectas
+                </p>
+              </Card>
+            </div>
+          )}
+
           {/* Customer Reviews Section */}
           <Card className="bg-card">
             <div className="p-4 border-b flex items-center justify-between">
@@ -650,7 +718,9 @@ export default function CarrierDetail() {
                 <MessageSquare className="text-primary" size={20} />
                 <h3 className="font-semibold">Reseñas de Clientes</h3>
                 <Badge variant="secondary" className="ml-2">
-                  {reviews.length}
+                  {reviewStats.total_ratings > reviews.length
+                    ? `${reviews.length} de ${reviewStats.total_ratings}`
+                    : reviews.length}
                 </Badge>
               </div>
             </div>
@@ -684,7 +754,7 @@ export default function CarrierDetail() {
                             </span>
                             <span className="text-muted-foreground mx-2">·</span>
                             <Link
-                              to={`/orders/${review.id}`}
+                              to={`/orders/${review.order_id}`}
                               className="text-sm text-primary hover:underline"
                             >
                               Pedido {review.order_number}

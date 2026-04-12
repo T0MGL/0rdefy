@@ -15,7 +15,12 @@ import { useHighlight } from '@/hooks/useHighlight';
 import { usePhoneAutoPasteSimple } from '@/hooks/usePhoneAutoPaste';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
-import { carriersService, Carrier } from '@/services/carriers.service';
+import {
+  carriersService,
+  Carrier,
+  CarrierReplicationTarget,
+  CarrierReplicationResult,
+} from '@/services/carriers.service';
 import { Plus, Package, TrendingUp, Clock, Star, Search } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
@@ -37,16 +42,28 @@ interface CarrierFormData {
   notes: string;
   carrier_type: string;
   is_active: boolean;
+  replicate_to_all_stores: boolean;
 }
 
-function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSubmit: (data: CarrierFormData) => void; onCancel: () => void }) {
-  const [formData, setFormData] = useState({
+interface CarrierFormProps {
+  carrier?: Carrier;
+  onSubmit: (data: CarrierFormData) => void;
+  onCancel: () => void;
+  replicationTargets: CarrierReplicationTarget[];
+}
+
+function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: CarrierFormProps) {
+  const isEditing = Boolean(carrier);
+  const canReplicate = !isEditing && replicationTargets.length > 0;
+
+  const [formData, setFormData] = useState<CarrierFormData>({
     name: carrier?.name || '',
     phone: carrier?.phone || '',
     email: carrier?.email || '',
     notes: carrier?.notes || '',
     carrier_type: carrier?.carrier_type || 'internal',
     is_active: carrier?.is_active ?? true,
+    replicate_to_all_stores: false,
   });
 
   // Auto-format phone on paste
@@ -136,6 +153,33 @@ function CarrierForm({ carrier, onSubmit, onCancel }: { carrier?: Carrier; onSub
         </label>
       </div>
 
+      {canReplicate && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              id="replicate_to_all_stores"
+              checked={formData.replicate_to_all_stores}
+              onChange={(e) =>
+                setFormData({ ...formData, replicate_to_all_stores: e.target.checked })
+              }
+              className="mt-0.5 rounded border-gray-300"
+            />
+            <div className="space-y-1">
+              <label htmlFor="replicate_to_all_stores" className="text-sm font-medium leading-tight">
+                Usar esta transportadora en todas mis tiendas
+              </label>
+              <p className="text-xs text-muted-foreground leading-snug">
+                Se creara una copia en {replicationTargets.length}{' '}
+                {replicationTargets.length === 1 ? 'tienda adicional' : 'tiendas adicionales'} con
+                sus mismas zonas y coberturas. Si ya existe una transportadora con este nombre en
+                alguna tienda, se omite sin crear duplicados.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2 pt-4">
         <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
           Cancelar
@@ -163,10 +207,12 @@ export default function Carriers() {
   const [performanceStats, setPerformanceStats] = useState<CourierPerformanceStat[] | null>(null);
   const [zonesDialogOpen, setZonesDialogOpen] = useState(false);
   const [zonesCarrier, setZonesCarrier] = useState<{ id: string; name: string } | null>(null);
+  const [replicationTargets, setReplicationTargets] = useState<CarrierReplicationTarget[]>([]);
 
   // Refs for memory leak prevention
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const replicationTargetsAbortRef = useRef<AbortController | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -174,7 +220,27 @@ export default function Carriers() {
     return () => {
       isMountedRef.current = false;
       abortControllerRef.current?.abort();
+      replicationTargetsAbortRef.current?.abort();
     };
+  }, []);
+
+  const loadReplicationTargets = useCallback(async () => {
+    replicationTargetsAbortRef.current?.abort();
+    const controller = new AbortController();
+    replicationTargetsAbortRef.current = controller;
+
+    try {
+      const targets = await carriersService.getReplicationTargets(controller.signal);
+      if (!isMountedRef.current || controller.signal.aborted) return;
+      setReplicationTargets(targets);
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      // Non-fatal: the feature is hidden if we cannot enumerate targets.
+      logger.error('Error loading replication targets:', error);
+      if (isMountedRef.current) {
+        setReplicationTargets([]);
+      }
+    }
   }, []);
 
   const loadCarriers = useCallback(async () => {
@@ -205,7 +271,8 @@ export default function Carriers() {
   useEffect(() => {
     loadCarriers();
     loadPerformanceStats();
-  }, [loadCarriers, loadPerformanceStats]);
+    loadReplicationTargets();
+  }, [loadCarriers, loadPerformanceStats, loadReplicationTargets]);
 
   // Process URL query parameters for filtering and navigation from notifications
   useEffect(() => {
@@ -263,23 +330,98 @@ export default function Carriers() {
     setZonesDialogOpen(true);
   };
 
+  const describeReplicationResult = useCallback(
+    (result: CarrierReplicationResult): { title: string; description: string; variant?: 'destructive' } => {
+      const replicated = result.replicated.length;
+      const alreadyExists = result.skipped.filter((s) => s.reason === 'already_exists').length;
+      const permissionDenied = result.skipped.filter(
+        (s) => s.reason === 'permission_denied' || s.reason === 'not_a_member',
+      ).length;
+      const failed = result.failed.length;
+
+      const parts: string[] = [];
+      if (replicated > 0) {
+        parts.push(`${replicated} ${replicated === 1 ? 'tienda adicional' : 'tiendas adicionales'}`);
+      }
+      if (alreadyExists > 0) {
+        parts.push(`${alreadyExists} omitida${alreadyExists === 1 ? '' : 's'} (ya existia)`);
+      }
+      if (permissionDenied > 0) {
+        parts.push(`${permissionDenied} sin permisos`);
+      }
+      if (failed > 0) {
+        parts.push(`${failed} fallo${failed === 1 ? '' : 's'}`);
+      }
+
+      if (replicated === 0 && failed === 0 && alreadyExists === 0 && permissionDenied === 0) {
+        return {
+          title: 'Repartidor creado',
+          description: 'No habia tiendas adicionales elegibles para replicar.',
+        };
+      }
+
+      if (replicated === 0 && failed > 0) {
+        return {
+          title: 'Replicacion fallida',
+          description: `No se pudo replicar el repartidor a otras tiendas. ${parts.join(', ')}.`,
+          variant: 'destructive',
+        };
+      }
+
+      return {
+        title: 'Repartidor creado y replicado',
+        description: `Creado en la tienda actual y replicado a ${parts.join(', ')}.`,
+      };
+    },
+    [],
+  );
+
   const handleSubmit = async (data: CarrierFormData) => {
+    const { replicate_to_all_stores: replicateToAllStores, ...payload } = data;
+
     try {
       if (selectedCarrier) {
-        await carriersService.update(selectedCarrier.id, data);
+        await carriersService.update(selectedCarrier.id, payload);
         toast({
           title: 'Repartidor actualizado',
           description: 'Los cambios han sido guardados exitosamente.',
         });
       } else {
-        await carriersService.create(data);
-        toast({
-          title: 'Repartidor creado',
-          description: 'El repartidor ha sido registrado exitosamente.',
-        });
+        const createdCarrier = await carriersService.create(payload);
+
         // Mark first action completed (hides the onboarding tip)
         onboardingService.markFirstActionCompleted('carriers');
+
+        if (replicateToAllStores && replicationTargets.length > 0 && createdCarrier?.id) {
+          try {
+            const replicationResult = await carriersService.replicateToStores(createdCarrier.id);
+            const summary = describeReplicationResult(replicationResult);
+            toast({
+              title: summary.title,
+              description: summary.description,
+              variant: summary.variant,
+            });
+          } catch (replicationError: unknown) {
+            // Source carrier was created successfully; report the replication
+            // problem separately so the user can retry from the list.
+            logger.error('Carrier replication failed:', replicationError);
+            toast({
+              title: 'Repartidor creado, pero la replicacion fallo',
+              description:
+                replicationError instanceof Error
+                  ? replicationError.message
+                  : 'No se pudo replicar a las otras tiendas. El repartidor fue creado en esta tienda.',
+              variant: 'destructive',
+            });
+          }
+        } else {
+          toast({
+            title: 'Repartidor creado',
+            description: 'El repartidor ha sido registrado exitosamente.',
+          });
+        }
       }
+
       await Promise.all([loadCarriers(), loadPerformanceStats()]);
       setDialogOpen(false);
     } catch (error: unknown) {
@@ -467,6 +609,7 @@ export default function Carriers() {
             carrier={selectedCarrier || undefined}
             onSubmit={handleSubmit}
             onCancel={() => setDialogOpen(false)}
+            replicationTargets={replicationTargets}
           />
         </DialogContent>
       </Dialog>

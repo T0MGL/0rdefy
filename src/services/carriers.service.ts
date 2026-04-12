@@ -27,12 +27,14 @@ export interface Carrier {
 
 export interface CarrierReview {
   id: string;
+  /** Order UUID, kept explicit so the UI can link to /orders/:order_id */
+  order_id: string;
   rating: number;
   comment: string | null;
-  rated_at: string;
+  rated_at: string | null;
   order_number: string;
   customer_name: string;
-  delivery_date: string;
+  delivery_date: string | null;
 }
 
 export interface RatingDistribution {
@@ -41,6 +43,14 @@ export interface RatingDistribution {
   3: number;
   4: number;
   5: number;
+}
+
+export interface CarrierReviewStats {
+  total_ratings: number;
+  last_30d_count: number;
+  comments_count: number;
+  comment_rate_percent: number;
+  avg_hours_to_rate: number | null;
 }
 
 export interface CarrierReviewsResponse {
@@ -52,12 +62,45 @@ export interface CarrierReviewsResponse {
   };
   reviews: CarrierReview[];
   rating_distribution: RatingDistribution;
+  stats: CarrierReviewStats;
   pagination: {
     total: number;
     limit: number;
     offset: number;
     hasMore: boolean;
   };
+}
+
+export interface CarrierReplicationTarget {
+  store_id: string;
+  store_name: string;
+  role: 'owner' | 'admin' | null;
+}
+
+export type CarrierReplicationSkipReason =
+  | 'already_exists'
+  | 'source_store'
+  | 'not_a_member'
+  | 'permission_denied';
+
+export interface CarrierReplicationResult {
+  replicated: Array<{
+    store_id: string;
+    carrier_id: string;
+    zones: number;
+    coverage: number;
+  }>;
+  skipped: Array<{
+    store_id: string;
+    reason: CarrierReplicationSkipReason;
+    existing_carrier_id?: string;
+    role?: string;
+  }>;
+  failed: Array<{
+    store_id: string;
+    reason: string;
+    sqlstate?: string;
+  }>;
 }
 
 let API_URL = import.meta.env.VITE_API_URL || 'https://api.ordefy.io';
@@ -188,5 +231,49 @@ export const carriersService = {
     if (!response.ok) throw new Error('Error al obtener reviews');
     const data = await response.json();
     return data;
+  },
+
+  async getReplicationTargets(signal?: AbortSignal): Promise<CarrierReplicationTarget[]> {
+    const response = await fetch(`${API_URL}/api/couriers/replication-targets`, {
+      headers: getHeaders(),
+      signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Error al obtener tiendas destino');
+    }
+
+    const data = await response.json();
+    return (data?.data as CarrierReplicationTarget[]) || [];
+  },
+
+  async replicateToStores(
+    id: string,
+    options?: { targetStoreIds?: string[]; signal?: AbortSignal },
+  ): Promise<CarrierReplicationResult> {
+    const body: { target_store_ids?: string[] } = {};
+    if (options?.targetStoreIds && options.targetStoreIds.length > 0) {
+      body.target_store_ids = options.targetStoreIds;
+    }
+
+    const response = await fetch(`${API_URL}/api/couriers/${id}/replicate`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Error al replicar repartidor');
+    }
+
+    const result = await response.json();
+    return (result?.data as CarrierReplicationResult) || {
+      replicated: [],
+      skipped: [],
+      failed: [],
+    };
   },
 };

@@ -312,6 +312,226 @@ couriersRouter.delete('/:id', validateUUIDParam('id'), requirePermission(Module.
 });
 
 // ================================================================
+// COURIER REPLICATION ACROSS STORES
+// ================================================================
+//
+// Allows an owner/admin that belongs to multiple stores to duplicate a
+// carrier (plus its zones and city coverage) into every store they have
+// access to, in one atomic call.
+//
+// Endpoints:
+//   GET  /api/couriers/replication-targets
+//     Lists the candidate target stores the current user can replicate
+//     into (owner/admin membership, excluding the current store).
+//
+//   POST /api/couriers/:id/replicate
+//     Body: { target_store_ids?: string[] }
+//     If target_store_ids is omitted or empty, the RPC replicates into
+//     every eligible store the user belongs to (owner/admin), excluding
+//     the source store.
+// ================================================================
+
+// Roles with carrier replication privileges
+const CARRIER_REPLICATION_ROLES = new Set<string>(['owner', 'admin']);
+
+// ================================================================
+// GET /api/couriers/replication-targets - List eligible target stores
+// ================================================================
+couriersRouter.get('/replication-targets', async (req: AuthRequest, res: Response) => {
+    try {
+        if (!req.userId || !req.storeId) {
+            return res.status(401).json({
+                error: 'Authentication required'
+            });
+        }
+
+        // Load every store the current user belongs to as owner/admin
+        const { data: memberships, error: membershipsError } = await supabaseAdmin
+            .from('user_stores')
+            .select('store_id, role')
+            .eq('user_id', req.userId)
+            .eq('is_active', true);
+
+        if (membershipsError) {
+            throw membershipsError;
+        }
+
+        const eligible = (memberships || []).filter((m) =>
+            CARRIER_REPLICATION_ROLES.has(m.role) && m.store_id !== req.storeId
+        );
+
+        if (eligible.length === 0) {
+            return res.json({
+                data: [],
+                count: 0
+            });
+        }
+
+        // Hydrate with store names for the UI
+        const storeIds = eligible.map((m) => m.store_id);
+        const { data: stores, error: storesError } = await supabaseAdmin
+            .from('stores')
+            .select('id, name')
+            .in('id', storeIds);
+
+        if (storesError) {
+            throw storesError;
+        }
+
+        const roleByStore = new Map(eligible.map((m) => [m.store_id, m.role] as const));
+        const targets = (stores || []).map((s) => ({
+            store_id: s.id,
+            store_name: s.name,
+            role: roleByStore.get(s.id) || null
+        })).sort((a, b) => (a.store_name || '').localeCompare(b.store_name || ''));
+
+        res.json({
+            data: targets,
+            count: targets.length
+        });
+    } catch (error: any) {
+        logger.error('API', '[GET /api/couriers/replication-targets] Error:', error);
+        res.status(500).json({
+            error: 'Error al obtener tiendas destino',
+            message: error.message
+        });
+    }
+});
+
+// ================================================================
+// POST /api/couriers/:id/replicate - Replicate carrier into other stores
+// ================================================================
+couriersRouter.post(
+    '/:id/replicate',
+    validateUUIDParam('id'),
+    requirePermission(Module.CARRIERS, Permission.CREATE),
+    async (req: PermissionRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+
+            if (!req.userId || !req.storeId) {
+                return res.status(401).json({
+                    error: 'Authentication required'
+                });
+            }
+
+            // Only owner/admin of the CURRENT store can initiate replication
+            if (!req.userRole || !CARRIER_REPLICATION_ROLES.has(req.userRole)) {
+                return res.status(403).json({
+                    error: 'Insufficient role',
+                    message: 'Replicar repartidores requiere rol owner o admin'
+                });
+            }
+
+            // Verify source carrier belongs to the current store
+            const { data: sourceCarrier, error: sourceError } = await supabaseAdmin
+                .from('carriers')
+                .select('id, store_id, name')
+                .eq('id', id)
+                .eq('store_id', req.storeId)
+                .single();
+
+            if (sourceError || !sourceCarrier) {
+                return res.status(404).json({
+                    error: 'Courier not found'
+                });
+            }
+
+            // Determine target store ids
+            const rawTargets = Array.isArray(req.body?.target_store_ids)
+                ? (req.body.target_store_ids as unknown[])
+                : [];
+
+            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const sanitizedTargets = rawTargets
+                .filter((v): v is string => typeof v === 'string' && UUID_RE.test(v))
+                .filter((v) => v !== req.storeId);
+
+            let targetStoreIds: string[] = sanitizedTargets;
+
+            // If caller did not pass explicit targets, auto-resolve to every
+            // owner/admin store the user belongs to except the source store.
+            if (targetStoreIds.length === 0) {
+                const { data: memberships, error: membershipsError } = await supabaseAdmin
+                    .from('user_stores')
+                    .select('store_id, role')
+                    .eq('user_id', req.userId)
+                    .eq('is_active', true);
+
+                if (membershipsError) {
+                    throw membershipsError;
+                }
+
+                targetStoreIds = (memberships || [])
+                    .filter((m) => CARRIER_REPLICATION_ROLES.has(m.role) && m.store_id !== req.storeId)
+                    .map((m) => m.store_id);
+            }
+
+            if (targetStoreIds.length === 0) {
+                return res.json({
+                    message: 'No eligible target stores',
+                    data: {
+                        replicated: [],
+                        skipped: [],
+                        failed: []
+                    }
+                });
+            }
+
+            // Enforce a safety ceiling to avoid runaway fan-out
+            const MAX_TARGETS = 50;
+            if (targetStoreIds.length > MAX_TARGETS) {
+                return res.status(400).json({
+                    error: 'Too many target stores',
+                    message: `Maximum ${MAX_TARGETS} target stores per replication request`
+                });
+            }
+
+            const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc(
+                'replicate_carrier_to_stores',
+                {
+                    p_source_carrier_id: id,
+                    p_target_store_ids: targetStoreIds,
+                    p_actor_user_id: req.userId
+                }
+            );
+
+            if (rpcError) {
+                logger.error('API', `[POST /api/couriers/${id}/replicate] RPC error:`, rpcError);
+                return res.status(500).json({
+                    error: 'Error al replicar repartidor',
+                    message: rpcError.message
+                });
+            }
+
+            const result = rpcResult as {
+                replicated: Array<Record<string, unknown>>;
+                skipped: Array<Record<string, unknown>>;
+                failed: Array<Record<string, unknown>>;
+            };
+
+            logger.info(
+                'API',
+                `[POST /api/couriers/${id}/replicate] user=${req.userId} source_store=${req.storeId} ` +
+                `targets=${targetStoreIds.length} replicated=${result.replicated.length} ` +
+                `skipped=${result.skipped.length} failed=${result.failed.length}`
+            );
+
+            res.json({
+                message: 'Replication processed',
+                data: result
+            });
+        } catch (error: any) {
+            logger.error('API', `[POST /api/couriers/${req.params.id}/replicate] Error:`, error);
+            res.status(500).json({
+                error: 'Error al replicar repartidor',
+                message: error.message
+            });
+        }
+    }
+);
+
+// ================================================================
 // COURIER DELIVERY PERFORMANCE ENDPOINTS
 // ================================================================
 
@@ -645,6 +865,7 @@ couriersRouter.delete('/zones/:zoneId', validateUUIDParam('zoneId'), requirePerm
 
 // ================================================================
 // GET /api/couriers/:id/reviews - Get customer reviews/ratings for courier
+// Returns reviews with computed stats (distribution, 30d count, comment count)
 // ================================================================
 couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
@@ -652,9 +873,9 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
         const { limit: rawLimit = '50', offset: rawOffset = '0' } = req.query;
         const { limit, offset } = parsePagination(rawLimit, rawOffset);
 
-        logger.info('API', `⭐ [COURIERS] Fetching reviews for courier ${id}`);
+        logger.info('API', `[COURIERS] Fetching reviews for courier ${id}`);
 
-        // First verify the courier exists and get their aggregate rating
+        // Verify courier exists and belongs to this store
         const { data: courier, error: courierError } = await supabaseAdmin
             .from('carriers')
             .select('id, name, average_rating, total_ratings')
@@ -668,7 +889,9 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
             });
         }
 
-        // Fetch individual reviews (orders with ratings for this courier)
+        // Fetch paginated reviews (only real columns). Previous version queried
+        // `customer` and `date` which do not exist, causing PostgREST to fail
+        // silently and the UI to render an empty review list.
         const { data: reviews, error: reviewsError, count } = await supabaseAdmin
             .from('orders')
             .select(`
@@ -678,16 +901,16 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
                 rated_at,
                 shopify_order_number,
                 shopify_order_name,
+                customer_name,
                 customer_first_name,
                 customer_last_name,
-                customer,
                 delivered_at,
-                date
+                created_at
             `, { count: 'exact' })
             .eq('courier_id', id)
             .eq('store_id', req.storeId)
             .not('delivery_rating', 'is', null)
-            .order('rated_at', { ascending: false })
+            .order('rated_at', { ascending: false, nullsFirst: false })
             .range(offset, offset + limit - 1);
 
         if (reviewsError) {
@@ -695,67 +918,117 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
             throw reviewsError;
         }
 
-        // Calculate rating distribution
-        const { data: distribution, error: distError } = await supabaseAdmin
+        // Aggregate: distribution + derived stats in one scan of rating-only rows.
+        // Kept on a separate query so pagination on `reviews` is independent of stats.
+        const { data: allRatingRows, error: distError } = await supabaseAdmin
             .from('orders')
-            .select('delivery_rating')
+            .select('delivery_rating, delivery_rating_comment, rated_at, delivered_at')
             .eq('courier_id', id)
             .eq('store_id', req.storeId)
             .not('delivery_rating', 'is', null);
 
-        const ratingDistribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-        if (!distError && distribution) {
-            distribution.forEach((r: any) => {
-                if (r.delivery_rating >= 1 && r.delivery_rating <= 5) {
-                    ratingDistribution[r.delivery_rating as keyof typeof ratingDistribution]++;
-                }
-            });
+        if (distError) {
+            logger.error('API', '[COURIERS] Distribution query error:', distError);
+            throw distError;
         }
+
+        const ratingDistribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        let commentCount = 0;
+        let last30dCount = 0;
+        let ratingTimeSum = 0;
+        let ratingTimeSamples = 0;
+        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+        const nowMs = Date.now();
+
+        for (const row of allRatingRows || []) {
+            const rating = row.delivery_rating as number;
+            if (rating >= 1 && rating <= 5) {
+                ratingDistribution[rating as 1 | 2 | 3 | 4 | 5]++;
+            }
+
+            if (row.delivery_rating_comment && String(row.delivery_rating_comment).trim().length > 0) {
+                commentCount++;
+            }
+
+            if (row.rated_at) {
+                const ratedMs = new Date(row.rated_at as string).getTime();
+                if (!Number.isNaN(ratedMs) && nowMs - ratedMs <= THIRTY_DAYS_MS) {
+                    last30dCount++;
+                }
+                if (row.delivered_at) {
+                    const deliveredMs = new Date(row.delivered_at as string).getTime();
+                    if (!Number.isNaN(ratedMs) && !Number.isNaN(deliveredMs) && ratedMs >= deliveredMs) {
+                        ratingTimeSum += (ratedMs - deliveredMs) / (1000 * 60 * 60);
+                        ratingTimeSamples++;
+                    }
+                }
+            }
+        }
+
+        const totalRated = (allRatingRows || []).length;
+        const commentRate = totalRated > 0 ? Math.round((commentCount / totalRated) * 100) : 0;
+        const avgHoursToRate = ratingTimeSamples > 0
+            ? Number((ratingTimeSum / ratingTimeSamples).toFixed(2))
+            : null;
+
+        // Recompute average from the raw ratings (authoritative). Avoids drift if
+        // the trigger ever lags.
+        const sumRatings = (allRatingRows || []).reduce(
+            (acc, r) => acc + (r.delivery_rating as number || 0),
+            0
+        );
+        const computedAverage = totalRated > 0 ? sumRatings / totalRated : 0;
 
         // Format reviews for response with safe null handling
         const formattedReviews = (reviews || []).map(r => {
-            // Safe order number - prefer Shopify fields, fallback to ID slice
             let orderNumber = '#N/A';
             if (r.shopify_order_name) {
-                orderNumber = r.shopify_order_name;
+                orderNumber = String(r.shopify_order_name);
             } else if (r.shopify_order_number) {
                 orderNumber = `#${r.shopify_order_number}`;
             } else if (r.id) {
-                orderNumber = `#${r.id.slice(0, 4).toUpperCase()}`;
+                orderNumber = `#${String(r.id).slice(0, 4).toUpperCase()}`;
             }
 
-            // Safe customer name with fallbacks
-            const customerName = r.customer
+            const customerName = (r.customer_name && String(r.customer_name).trim())
                 || `${r.customer_first_name || ''} ${r.customer_last_name || ''}`.trim()
                 || 'Cliente';
 
             return {
                 id: r.id || '',
+                order_id: r.id || '',
                 rating: r.delivery_rating || 0,
                 comment: r.delivery_rating_comment || null,
                 rated_at: r.rated_at || null,
                 order_number: orderNumber,
                 customer_name: customerName,
-                delivery_date: r.delivered_at || r.date || null
+                delivery_date: r.delivered_at || r.created_at || null
             };
         });
 
-        logger.info('API', `✅ [COURIERS] Found ${formattedReviews.length} reviews for courier ${id}`);
+        logger.info('API', `[COURIERS] Found ${formattedReviews.length} reviews (total ${totalRated}) for courier ${id}`);
 
         res.json({
             courier: {
                 id: courier.id,
                 name: courier.name,
-                average_rating: parseFloat(courier.average_rating) || 0,
-                total_ratings: courier.total_ratings || 0
+                average_rating: Number(computedAverage.toFixed(2)),
+                total_ratings: totalRated
             },
             reviews: formattedReviews,
             rating_distribution: ratingDistribution,
+            stats: {
+                total_ratings: totalRated,
+                last_30d_count: last30dCount,
+                comments_count: commentCount,
+                comment_rate_percent: commentRate,
+                avg_hours_to_rate: avgHoursToRate
+            },
             pagination: {
-                total: count || 0,
+                total: count || totalRated,
                 limit,
                 offset,
-                hasMore: offset + (formattedReviews.length) < (count || 0)
+                hasMore: offset + formattedReviews.length < (count || totalRated)
             }
         });
     } catch (error: any) {
