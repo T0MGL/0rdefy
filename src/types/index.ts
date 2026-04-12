@@ -1,3 +1,10 @@
+// Single source of truth for order lifecycle. See src/lib/status.ts and
+// db/migrations/148a_add_settled_enum_value.sql. Plan: iterative-whistling-flute.
+import type { OrderStatus, LegacyOrderStatus } from '../lib/status';
+
+// Re-export so downstream consumers can import from @/types as before.
+export type { OrderStatus, LegacyOrderStatus };
+
 export interface DashboardOverview {
   totalOrders: number;
   revenue: number;
@@ -76,7 +83,11 @@ export interface Order {
   product: string;
   quantity: number;
   total: number;
-  status: 'pending' | 'contacted' | 'awaiting_carrier' | 'confirmed' | 'in_preparation' | 'ready_to_ship' | 'shipped' | 'in_transit' | 'delivered' | 'returned' | 'cancelled' | 'incident';
+  // Canonical: OrderStatus mirrors the Postgres enum exactly.
+  // Legacy values (contacted, awaiting_carrier, shipped, incident) are kept
+  // via LegacyOrderStatus during the sleeves_status transition window. They
+  // are removed once migration 148c is applied and the code sweep is done.
+  status: OrderStatus | LegacyOrderStatus;
   payment_status?: 'pending' | 'collected' | 'failed';
   carrier: string;
   carrier_id?: string;
@@ -100,6 +111,10 @@ export interface Order {
   courier_notes?: string; // Notas del transportista durante confirmación/falla
   delivered_at?: string;
   reconciled_at?: string;
+  // Set by promote_orders_to_settled() when the linked settlement is paid.
+  // Distinct from reconciled_at: reconciled_at means "courier reported
+  // delivery"; settled_at means "money received from courier".
+  settled_at?: string | null;
   // COD specific fields
   delivery_attempts?: number;
   failed_reason?: string;

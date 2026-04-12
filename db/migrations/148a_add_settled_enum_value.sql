@@ -1,0 +1,34 @@
+-- ============================================================================
+-- MIGRATION 148a: Add 'settled' value to order_status enum
+-- ============================================================================
+-- Date: 2026-04-09
+-- Plan: iterative-whistling-flute
+--
+-- Purpose:
+--   Introduce a terminal financial state that distinguishes "courier reported
+--   delivery" (delivered) from "money received from courier" (settled).
+--   Today the order_status enum terminates at 'delivered' and a delivered
+--   order that has been reconciled disappears from dispatch session UI because
+--   there is no consultable state for "courier liquido el dinero".
+--
+-- Why this migration is standalone:
+--   Postgres prohibits using a newly added enum value inside the same
+--   transaction that adds it. Migration 148b needs to reference 'settled'
+--   in function bodies, indexes, and backfill DML, so 148a must run in its
+--   own transaction first and commit before 148b executes.
+--
+-- Transactional guarantee:
+--   ALTER TYPE ADD VALUE is non transactional in Postgres 12+ and completes
+--   in well under a second, so the production window is effectively zero.
+--   IF NOT EXISTS makes this idempotent.
+--
+-- Rollback:
+--   Postgres does not support removing an enum value (no DROP VALUE). If this
+--   migration needs to be reverted, the value must be left in place and
+--   considered unused. Any downstream migrations (148b, 148c) that depend on
+--   'settled' must be rolled back instead (see their individual rollback
+--   sections). This is safe because nothing reads or writes 'settled' until
+--   148b runs.
+-- ============================================================================
+
+ALTER TYPE order_status ADD VALUE IF NOT EXISTS 'settled' AFTER 'delivered';
