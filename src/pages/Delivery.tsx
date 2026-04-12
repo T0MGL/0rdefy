@@ -346,6 +346,17 @@ export default function Delivery() {
       return;
     }
 
+    // The backend requires the delivery token to authorize the rating.
+    // Token comes from the public URL `/delivery/:token` the customer scanned.
+    if (!token) {
+      toast({
+        title: 'Enlace inválido',
+        description: 'No se encontró un token de entrega válido. Recarga la página desde el QR.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       setSubmitting(true);
 
@@ -358,7 +369,8 @@ export default function Delivery() {
           },
           body: JSON.stringify({
             rating,
-            comment: ratingComment || null,
+            comment: ratingComment?.trim() ? ratingComment.trim() : undefined,
+            delivery_token: token,
           }),
         }
       );
