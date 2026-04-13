@@ -742,6 +742,9 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                             onChange={(e) => setCertPassword(e.target.value)}
                             className="mt-1.5"
                           />
+                          <HintText>
+                            Te la entregó el PSC cuando te emitió el certificado. No es tu contraseña de Marangatú.
+                          </HintText>
                         </motion.div>
                       )}
                     </div>
