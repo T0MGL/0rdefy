@@ -2497,8 +2497,11 @@ async function processManualReconciliationLegacy(
   const settlementCode = await generateSettlementCodeWithRetry(storeId);
 
   // Calculate net receivable
-  // Formula: COD collected - carrier fees for delivered - failed attempt fees
-  const netReceivable = stats.total_cod_collected - stats.total_carrier_fees - stats.failed_attempt_fee;
+  // What courier still owes store:
+  //   COD they collected from customers (total_cod_expected from delivered orders)
+  //   minus their fees (delivery + failed attempts)
+  //   minus cash they already handed over (total_cod_collected = user input).
+  const netReceivable = stats.total_cod_expected - stats.total_carrier_fees - stats.failed_attempt_fee - stats.total_cod_collected;
 
   // Build notes with discrepancy info if applicable
   let finalNotes = discrepancy_notes || '';
@@ -3286,6 +3289,7 @@ async function getPendingReconciliationOrdersFallback(
       shipping_city,
       shipping_city_normalized,
       total_price,
+      cod_amount,
       payment_method,
       prepaid_method,
       delivered_at
@@ -3405,7 +3409,10 @@ async function getPendingReconciliationOrdersFallback(
         : (order.shipping_address?.address1 || ''),
       customer_city: order.shipping_city || order.delivery_zone || '',
       total_price: order.total_price || 0,
-      cod_amount: isCod ? (order.total_price || 0) : 0,
+      // cod_amount is the actual cash the courier collects from the customer.
+      // 0 is SEMANTIC (paid online via Shopify), not missing data.
+      // Only fall back to total_price when cod_amount is null/undefined (pre-migration 019 orders).
+      cod_amount: isCod ? (order.cod_amount ?? order.total_price ?? 0) : 0,
       payment_method: order.payment_method || '',
       prepaid_method: order.prepaid_method || null,
       is_cod: isCod,
@@ -3672,7 +3679,12 @@ async function processDeliveryReconciliationFallback(
     throw new Error('No hay pedidos válidos para procesar');
   }
 
-  const netReceivable = params.total_amount_collected - totalCarrierFees - failedAttemptFee;
+  // What the courier still owes the store after this reconciliation:
+  //   COD they collected from delivered customers (totalCodExpected)
+  //   minus their delivery fees + failed attempt fees
+  //   minus cash they already handed over (params.total_amount_collected).
+  // Positive => courier still owes store. Negative => store overpaid courier.
+  const netReceivable = totalCodExpected - totalCarrierFees - failedAttemptFee - params.total_amount_collected;
 
   // STEP 5: Generate settlement code atomically
   // Format: LIQ-DDMMYYYY-XXX (e.g., LIQ-23012026-001)

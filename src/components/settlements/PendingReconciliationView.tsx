@@ -434,7 +434,12 @@ export function PendingReconciliationView() {
     const totalCarrierFees = stats.deliveredCarrierFees;
     const failedAttemptFees = stats.notDeliveredCarrierFees * failedFeePercent;
     const codCollected = totalAmountCollected || 0;
-    const netReceivable = codCollected - totalCarrierFees - failedAttemptFees;
+    // Net the courier still owes the store:
+    //   COD they collected from customers (codExpected)
+    //   minus their delivery fees (carrier + failed attempt)
+    //   minus cash they already handed over (codCollected).
+    // Positive = courier still owes store. Negative = store overpaid courier.
+    const netReceivable = stats.codExpected - totalCarrierFees - failedAttemptFees - codCollected;
 
     const discrepancy = codCollected - stats.codExpected;
     const hasDiscrepancy = Math.abs(discrepancy) > 0.01;
