@@ -110,6 +110,30 @@ export interface InvoiceStats {
   total_facturado: number;
 }
 
+export interface ManualInvoiceItem {
+  descripcion: string;
+  cantidad: number;
+  precioUnitario: number;
+  ivaRate: 10 | 5 | 0;
+}
+
+export interface ManualInvoiceInput {
+  tipoDocumento: 1 | 5 | 6;
+  customerName: string;
+  customerRuc?: string;
+  customerRucDv?: number;
+  customerEmail?: string;
+  items: ManualInvoiceItem[];
+}
+
+export interface ManualInvoiceResult {
+  invoice_id: string;
+  cdc?: string;
+  document_number: number;
+  status: string;
+  kude_url?: string | null;
+}
+
 // ================================================================
 // API Methods
 // ================================================================
@@ -177,6 +201,19 @@ export const invoicingService = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Error al generar factura');
+    }
+    return res.json();
+  },
+
+  async generateManualInvoice(input: ManualInvoiceInput): Promise<{ data: ManualInvoiceResult; message: string }> {
+    const res = await fetch(`${API_BASE_URL}/generate/manual`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al emitir factura');
     }
     return res.json();
   },

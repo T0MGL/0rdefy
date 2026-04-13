@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, FileText, CheckCircle2, XCircle, Clock, FlaskConical, Settings2 } from 'lucide-react';
+import { Loader2, FileText, CheckCircle2, XCircle, Settings2, Plus } from 'lucide-react';
 import { invoicingService, InvoiceStats, FiscalConfig } from '@/services/invoicing.service';
 import { InvoicingSetupWizard } from '@/components/InvoicingSetupWizard';
 import { InvoiceHistoryTable } from '@/components/InvoiceHistoryTable';
+import { ManualInvoiceModal } from '@/components/ManualInvoiceModal';
 import { formatCurrency } from '@/utils/currency';
 import { useToast } from '@/hooks/use-toast';
 
@@ -21,7 +22,9 @@ export default function Invoicing() {
   const [setupRequired, setSetupRequired] = useState(false);
   const [stats, setStats] = useState<InvoiceStats | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+  const [showManualModal, setShowManualModal] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [invoiceTableKey, setInvoiceTableKey] = useState(0);
   const isMountedRef = useRef(true);
   const { toast } = useToast();
 
@@ -126,11 +129,26 @@ export default function Invoicing() {
           <h1 className="text-2xl font-bold">Facturación Electrónica</h1>
           <Badge className={envInfo.color}>{envInfo.label}</Badge>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowSetup(true)}>
-          <Settings2 size={14} className="mr-2" />
-          Configuración
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setShowManualModal(true)}>
+            <Plus size={14} className="mr-2" />
+            Nueva Factura
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowSetup(true)}>
+            <Settings2 size={14} className="mr-2" />
+            Configuración
+          </Button>
+        </div>
       </div>
+
+      <ManualInvoiceModal
+        open={showManualModal}
+        onOpenChange={setShowManualModal}
+        onSuccess={() => {
+          setInvoiceTableKey((k) => k + 1);
+          loadData();
+        }}
+      />
 
       {/* Config summary */}
       {config && (
@@ -217,7 +235,7 @@ export default function Invoicing() {
           <CardTitle>Historial de Facturas</CardTitle>
         </CardHeader>
         <CardContent>
-          <InvoiceHistoryTable />
+          <InvoiceHistoryTable key={invoiceTableKey} />
         </CardContent>
       </Card>
     </div>

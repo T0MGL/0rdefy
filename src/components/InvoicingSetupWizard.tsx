@@ -98,7 +98,10 @@ const step3Schema = z.object({
 });
 
 const step4Schema = z.object({
-  timbrado: z.string().min(1, 'El número de timbrado es requerido'),
+  timbrado: z
+    .string()
+    .min(1, 'El número de timbrado es requerido')
+    .regex(/^\d+$/, 'El timbrado solo puede contener números'),
   timbrado_fecha_inicio: z.string().optional(),
   timbrado_fecha_fin: z.string().optional(),
 });

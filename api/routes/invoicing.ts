@@ -123,6 +123,9 @@ invoicingRouter.post('/config', requireRole(Role.OWNER), async (req: PermissionR
     if (!timbrado || typeof timbrado !== 'string' || timbrado.trim().length === 0) {
       return res.status(400).json({ error: 'Timbrado requerido.' });
     }
+    if (!/^\d+$/.test(timbrado.trim())) {
+      return res.status(400).json({ error: 'El número de timbrado solo puede contener dígitos.' });
+    }
     if (timbrado.length > 50) {
       return res.status(400).json({ error: 'Número de timbrado muy largo (máx. 50 caracteres).' });
     }
@@ -188,6 +191,89 @@ invoicingRouter.get('/config/validate', async (req: PermissionRequest, res: Resp
     res.status(500).json({ error: sanitizeErrorForClient(err) });
   }
 });
+
+// ================================================================
+// POST /generate/manual - Generate invoice without an order
+// Must be registered before /generate/:orderId to avoid the
+// :orderId param matching the literal string "manual".
+// ================================================================
+invoicingRouter.post(
+  '/generate/manual',
+  requirePermission(Module.INVOICING, Permission.CREATE),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const { tipoDocumento, customerName, customerRuc, customerRucDv, customerEmail, items } = req.body;
+
+      const validDocTypes = [1, 5, 6];
+      if (!tipoDocumento || !validDocTypes.includes(Number(tipoDocumento))) {
+        return res.status(400).json({ error: 'Tipo de documento inválido. Valores válidos: 1 (Factura), 5 (Nota de Crédito), 6 (Nota de Débito).' });
+      }
+
+      if (!customerName || typeof customerName !== 'string' || customerName.trim().length === 0) {
+        return res.status(400).json({ error: 'Nombre del comprador requerido.' });
+      }
+
+      if (customerRuc !== undefined && customerRuc !== null && customerRuc !== '') {
+        if (typeof customerRuc !== 'string' || !/^\d{1,20}$/.test(customerRuc)) {
+          return res.status(400).json({ error: 'RUC inválido.' });
+        }
+        if (customerRucDv === undefined || customerRucDv === null || !Number.isInteger(Number(customerRucDv))) {
+          return res.status(400).json({ error: 'Dígito verificador del comprador requerido.' });
+        }
+      }
+
+      if (customerEmail !== undefined && customerEmail !== null && customerEmail !== '') {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(customerEmail)) {
+          return res.status(400).json({ error: 'Email del comprador inválido.' });
+        }
+      }
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Se requiere al menos un ítem.' });
+      }
+
+      const validIvaRates = [0, 5, 10];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item.descripcion || typeof item.descripcion !== 'string' || item.descripcion.trim().length === 0) {
+          return res.status(400).json({ error: `Ítem ${i + 1}: descripción requerida.` });
+        }
+        if (!Number.isFinite(item.cantidad) || item.cantidad <= 0) {
+          return res.status(400).json({ error: `Ítem ${i + 1}: cantidad debe ser mayor a 0.` });
+        }
+        if (!Number.isFinite(item.precioUnitario) || item.precioUnitario < 0) {
+          return res.status(400).json({ error: `Ítem ${i + 1}: precio unitario inválido.` });
+        }
+        if (!validIvaRates.includes(Number(item.ivaRate))) {
+          return res.status(400).json({ error: `Ítem ${i + 1}: tasa IVA inválida. Valores válidos: 0, 5, 10.` });
+        }
+      }
+
+      const result = await invoicingService.generateManualInvoice(req.storeId!, {
+        tipoDocumento: Number(tipoDocumento) as 1 | 5 | 6,
+        customerName: customerName.trim(),
+        customerRuc: customerRuc || undefined,
+        customerRucDv: customerRucDv !== undefined && customerRucDv !== null && customerRucDv !== '' ? Number(customerRucDv) : undefined,
+        customerEmail: customerEmail || undefined,
+        items: items.map((item: any) => ({
+          descripcion: item.descripcion.trim(),
+          cantidad: Number(item.cantidad),
+          precioUnitario: Number(item.precioUnitario),
+          ivaRate: Number(item.ivaRate) as 10 | 5 | 0,
+        })),
+      });
+
+      res.json({
+        data: result,
+        message: 'Factura emitida exitosamente',
+      });
+    } catch (err: any) {
+      logger.error('[Invoicing] POST /generate/manual error:', err.message);
+      res.status(400).json({ error: sanitizeErrorForClient(err) });
+    }
+  }
+);
 
 // ================================================================
 // POST /generate/:orderId - Generate invoice for an order

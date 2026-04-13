@@ -711,6 +711,323 @@ export async function generateInvoice(storeId: string, orderId: string) {
 }
 
 // ================================================================
+// Manual Invoice Generation
+// ================================================================
+
+export interface ManualInvoiceItem {
+  descripcion: string;
+  cantidad: number;
+  precioUnitario: number;
+  ivaRate: 10 | 5 | 0; // 10 = gravado 10%, 5 = gravado 5%, 0 = exento
+}
+
+export interface ManualInvoiceInput {
+  tipoDocumento: 1 | 5 | 6; // 1=Factura, 5=Nota crédito, 6=Nota débito
+  customerName: string;
+  customerRuc?: string;
+  customerRucDv?: number;
+  customerEmail?: string;
+  items: ManualInvoiceItem[];
+}
+
+/**
+ * Generate an invoice from manually provided buyer data and line items.
+ * Does not require an existing order.
+ */
+export async function generateManualInvoice(storeId: string, input: ManualInvoiceInput) {
+  logger.info(`[Invoicing] Generating manual invoice for store ${storeId}`);
+
+  const { data: config, error: configErr } = await supabaseAdmin
+    .from('fiscal_config')
+    .select('*')
+    .eq('store_id', storeId)
+    .eq('is_active', true)
+    .single();
+
+  if (configErr || !config) {
+    throw new Error('No active fiscal configuration found. Please complete setup first.');
+  }
+
+  const storeResult = await supabaseAdmin
+    .from('stores')
+    .select('name')
+    .eq('id', storeId)
+    .single();
+
+  const storeName = storeResult.data?.name || config.razon_social || config.nombre_fantasia || 'Tienda';
+
+  const { data: docNumber, error: docErr } = await supabaseAdmin
+    .rpc('get_next_invoice_number', { p_store_id: storeId });
+
+  if (docErr || !docNumber) {
+    throw new Error(`Failed to get next document number: ${docErr?.message}`);
+  }
+
+  const isDemo = config.sifen_environment === 'demo';
+
+  let subtotal = 0;
+  let iva10 = 0;
+  let iva5 = 0;
+  let ivaExento = 0;
+
+  const xmlItems = input.items.map((item, index) => {
+    const lineTotal = item.precioUnitario * item.cantidad;
+    subtotal += lineTotal;
+    if (item.ivaRate === 10) {
+      iva10 += Math.round(lineTotal / 11);
+    } else if (item.ivaRate === 5) {
+      iva5 += Math.round(lineTotal / 21);
+    }
+    return {
+      codigo: String(index + 1),
+      descripcion: item.descripcion,
+      observacion: '',
+      unidadMedida: 77,
+      cantidad: item.cantidad,
+      precioUnitario: item.precioUnitario,
+      cambio: 0,
+      descuento: 0,
+      anticipo: 0,
+      ppiGravado: item.ivaRate,
+      tipoIvaPorItem: item.ivaRate === 0 ? 3 : 1,
+      propina: 0,
+    };
+  });
+
+  const total = subtotal;
+
+  const params = {
+    version: 150,
+    ruc: config.ruc,
+    razonSocial: config.razon_social,
+    nombreFantasia: config.nombre_fantasia || config.razon_social,
+    tpiCDC: null as any,
+    tipoContribuyente: config.tipo_contribuyente,
+    tipoRegimen: config.tipo_regimen || undefined,
+    timbradoNumero: config.timbrado,
+    timbradoFecha: config.timbrado_fecha_inicio || new Date().toISOString().split('T')[0],
+    tipoDocumento: input.tipoDocumento,
+    establecimiento: config.establecimiento_codigo || '001',
+    punto: config.punto_expedicion || '001',
+    numero: String(docNumber).padStart(7, '0'),
+    fecha: new Date().toISOString().split('T')[0],
+    tipoEmision: 1,
+    tipoTransaccion: 2,
+    tipoImpuesto: 1,
+    moneda: 'PYG',
+    condicionAnticipo: undefined,
+    condicionTipoCambio: undefined,
+  };
+
+  const hasRuc = !!input.customerRuc;
+  const data = {
+    tipoDocumento: input.tipoDocumento,
+    establecimiento: params.establecimiento,
+    punto: params.punto,
+    numero: params.numero,
+    fecha: params.fecha,
+    tipoEmision: 1,
+    tipoTransaccion: 2,
+    tipoImpuesto: 1,
+    moneda: 'PYG',
+    cliente: {
+      contribuyente: hasRuc,
+      ruc: input.customerRuc || undefined,
+      dvRuc: input.customerRucDv !== undefined ? input.customerRucDv : undefined,
+      tipoOperacion: hasRuc ? 1 : 2, // 1=B2B, 2=B2C
+      nombre: input.customerName,
+      direccion: '',
+      email: input.customerEmail || '',
+      pais: 'PRY',
+      tipoContribuyente: hasRuc ? 1 : undefined,
+    },
+    factura: {
+      presencia: 2,
+    },
+    condicion: {
+      tipo: 1, // Contado
+      entregas: [{
+        tipo: 1,
+        monto: String(total),
+        moneda: 'PYG',
+      }],
+    },
+    items: xmlItems,
+  };
+
+  let xmlGenerated: string;
+  let cdc: string | undefined;
+
+  try {
+    const xmlgenLib = await getXmlgen();
+    const result = await xmlgenLib.generateXMLDE(params, data);
+    xmlGenerated = typeof result === 'string' ? result : result.xml || result;
+    const cdcMatch = xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/);
+    cdc = cdcMatch ? cdcMatch[1] : undefined;
+  } catch (err: any) {
+    logger.error(`[Invoicing] Manual XML generation failed:`, err.message);
+    await logInvoiceEvent(storeId, null, 'error', { phase: 'xml_generation', error: err.message });
+    throw new Error(`XML generation failed: ${err.message}`);
+  }
+
+  const { data: invoice, error: invoiceErr } = await supabaseAdmin
+    .from('invoices')
+    .insert({
+      store_id: storeId,
+      order_id: null,
+      cdc,
+      document_number: docNumber,
+      tipo_documento: input.tipoDocumento,
+      customer_ruc: input.customerRuc || null,
+      customer_ruc_dv: input.customerRucDv ?? null,
+      customer_name: input.customerName,
+      customer_email: input.customerEmail || null,
+      customer_address: null,
+      subtotal,
+      iva_5: iva5,
+      iva_10: iva10,
+      iva_exento: ivaExento,
+      total,
+      currency: 'PYG',
+      sifen_status: isDemo ? 'demo' : 'pending',
+      xml_generated: xmlGenerated,
+    })
+    .select()
+    .single();
+
+  if (invoiceErr || !invoice) {
+    throw new Error(`Failed to create invoice record: ${invoiceErr?.message}`);
+  }
+
+  await logInvoiceEvent(storeId, invoice.id, 'generated', {
+    document_number: docNumber,
+    cdc,
+    environment: config.sifen_environment,
+    source: 'manual',
+  });
+
+  const emailParams = {
+    invoiceId: invoice.id,
+    storeId,
+    storeName,
+    customerEmail: input.customerEmail || null,
+    customerName: input.customerName,
+    documentNumber: docNumber as number,
+    invoiceDate: new Date().toISOString(),
+    lineItems: input.items.map((item) => ({
+      product_name: item.descripcion,
+      quantity: item.cantidad,
+      unit_price: item.precioUnitario,
+    })),
+    subtotal,
+    iva10,
+    total,
+    kudeUrl: null as string | null,
+    isDemo,
+  };
+
+  let sifenResponse: SifenResponse;
+
+  if (isDemo) {
+    sifenResponse = sifenDemo.mockSendDE(String(docNumber), cdc || '');
+    const kudeUrl = cdc ? buildKudeUrl(cdc) : null;
+    emailParams.kudeUrl = kudeUrl;
+
+    await supabaseAdmin
+      .from('invoices')
+      .update({
+        sifen_status: 'demo',
+        sifen_response_code: sifenResponse.responseCode,
+        sifen_response_message: sifenResponse.responseMessage,
+        kude_url: kudeUrl,
+      })
+      .eq('id', invoice.id);
+
+    await logInvoiceEvent(storeId, invoice.id, 'approved', { mode: 'demo', response: sifenResponse });
+    void dispatchInvoiceEmail(emailParams);
+  } else {
+    try {
+      if (!config.encrypted_private_key || !config.cert_pem) {
+        throw new Error('Certificado digital no configurado. Suba un certificado .p12 en la configuración fiscal.');
+      }
+
+      const privateKeyPem = decrypt(config.encrypted_private_key);
+      const xmlSigned = await signXML(xmlGenerated, privateKeyPem, config.cert_pem);
+
+      await supabaseAdmin
+        .from('invoices')
+        .update({ xml_signed: xmlSigned })
+        .eq('id', invoice.id);
+
+      await logInvoiceEvent(storeId, invoice.id, 'signed', { cdc });
+
+      sifenResponse = await sifenClient.sendDE(
+        String(docNumber),
+        xmlSigned,
+        config.sifen_environment as Exclude<SifenEnv, 'demo'>
+      );
+
+      const newStatus = sifenResponse.success ? 'approved' : 'rejected';
+      const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
+
+      if (sifenResponse.success) {
+        emailParams.kudeUrl = kudeUrl;
+      }
+
+      await supabaseAdmin
+        .from('invoices')
+        .update({
+          xml_signed: xmlSigned,
+          sifen_status: newStatus,
+          sifen_response_code: sifenResponse.responseCode,
+          sifen_response_message: sifenResponse.responseMessage,
+          sent_to_sifen_at: new Date().toISOString(),
+          ...(sifenResponse.success && {
+            approved_at: new Date().toISOString(),
+            kude_url: kudeUrl,
+          }),
+        })
+        .eq('id', invoice.id);
+
+      await logInvoiceEvent(storeId, invoice.id, sifenResponse.success ? 'approved' : 'rejected', {
+        response_code: sifenResponse.responseCode,
+        response_message: sifenResponse.responseMessage,
+      });
+
+      if (sifenResponse.success) {
+        void dispatchInvoiceEmail(emailParams);
+      }
+    } catch (err: any) {
+      logger.error(`[Invoicing] Manual SIFEN send failed:`, err.message);
+
+      await supabaseAdmin
+        .from('invoices')
+        .update({ sifen_status: 'rejected', sifen_response_message: err.message })
+        .eq('id', invoice.id);
+
+      await logInvoiceEvent(storeId, invoice.id, 'error', { phase: 'sifen_send', error: err.message });
+
+      sifenResponse = {
+        success: false,
+        responseCode: 'SEND_ERROR',
+        responseMessage: err.message,
+      };
+    }
+  }
+
+  logger.info(`[Invoicing] Manual invoice ${invoice.id} created (status: ${isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected'})`);
+
+  return {
+    invoice_id: invoice.id,
+    cdc,
+    document_number: docNumber,
+    status: isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected',
+    kude_url: isDemo ? (cdc ? buildKudeUrl(cdc) : null) : (sifenResponse.success && cdc ? buildKudeUrl(cdc) : null),
+    response: sifenResponse,
+  };
+}
+
+// ================================================================
 // Invoice Queries
 // ================================================================
 
