@@ -53,11 +53,13 @@ import {
   Search,
   Save,
   Trash2,
+  Download,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { logger } from '@/utils/logger';
+import { generateReconciliationPDF } from './ReconciliationPDF';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -858,6 +860,23 @@ export function PendingReconciliationView() {
               <Trash2 className="h-3.5 w-3.5" /> Descartar
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() =>
+              generateReconciliationPDF({
+                carrierName: selectedGroup.carrier_name,
+                deliveryDate: selectedGroup.delivery_date,
+                orders,
+                reconciliationState,
+                totalAmountCollected,
+              })
+            }
+          >
+            <Download className="h-3.5 w-3.5" />
+            Descargar
+          </Button>
         </div>
 
         {/* Stats Bar */}
