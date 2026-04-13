@@ -1,65 +1,81 @@
 /**
- * AES-256-CBC Encryption Service for SIFEN certificates
+ * AES-256-GCM Encryption for SIFEN private keys
  *
- * Encrypts certificate passwords before storing in database.
- * Uses FISCAL_ENCRYPTION_KEY env var (32-byte hex string).
+ * The private key is encrypted at upload time and never stored in plaintext.
+ * The encryption key lives in Railway env vars, never in the database.
+ * Key env var: SIFEN_ENCRYPTION_KEY (64-char hex = 32 bytes)
+ * Legacy alias: FISCAL_ENCRYPTION_KEY (accepted for backward compatibility)
+ *
+ * Format stored in DB: base64(iv[12] || authTag[16] || ciphertext)
  */
 
 import crypto from 'crypto';
 
-const ALGORITHM = 'aes-256-cbc';
-const IV_LENGTH = 16;
+const ALGORITHM = 'aes-256-gcm';
+const IV_BYTES = 12;   // 96-bit IV (recommended for GCM)
+const TAG_BYTES = 16;  // 128-bit auth tag
 
 function getEncryptionKey(): Buffer {
-  const key = process.env.FISCAL_ENCRYPTION_KEY;
-  if (!key || key.length !== 64) {
-    throw new Error('FISCAL_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)');
+  const raw = process.env.SIFEN_ENCRYPTION_KEY ?? process.env.FISCAL_ENCRYPTION_KEY;
+  if (!raw || raw.length !== 64) {
+    throw new Error(
+      'SIFEN_ENCRYPTION_KEY must be a 64-character hex string (32 bytes). ' +
+      'Generate with: openssl rand -hex 32'
+    );
   }
-  return Buffer.from(key, 'hex');
+  return Buffer.from(raw, 'hex');
 }
 
 /**
- * Encrypt a plaintext string.
- * Returns "iv:ciphertext" in hex format.
+ * Encrypt a plaintext string (intended for PEM private keys).
+ * Returns a base64-encoded blob: IV (12B) || AuthTag (16B) || Ciphertext.
  */
 export function encrypt(plaintext: string): string {
   const key = getEncryptionKey();
-  const iv = crypto.randomBytes(IV_LENGTH);
+  const iv = crypto.randomBytes(IV_BYTES);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  let encrypted = cipher.update(plaintext, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return `${iv.toString('hex')}:${encrypted}`;
+
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext, 'utf8'),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return Buffer.concat([iv, authTag, ciphertext]).toString('base64');
 }
 
 /**
- * Decrypt an "iv:ciphertext" hex string back to plaintext.
+ * Decrypt a base64 blob produced by encrypt().
  */
-export function decrypt(encrypted: string): string {
-  if (!encrypted || typeof encrypted !== 'string') {
-    throw new Error('No se puede descifrar: valor vacío o inválido');
+export function decrypt(blob: string): string {
+  if (!blob || typeof blob !== 'string') {
+    throw new Error('Cannot decrypt: empty or invalid value');
   }
 
   const key = getEncryptionKey();
-  const parts = encrypted.split(':');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error('Formato de cifrado inválido');
-  }
-
-  const [ivHex, ciphertextHex] = parts;
-
-  // Validate IV length (16 bytes = 32 hex chars)
-  if (ivHex.length !== 32) {
-    throw new Error('Formato de cifrado inválido: IV corrupto');
-  }
+  let raw: Buffer;
 
   try {
-    const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    let decrypted = decipher.update(ciphertextHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    raw = Buffer.from(blob, 'base64');
   } catch {
-    // Sanitize error - never expose crypto internals
-    throw new Error('Error al descifrar la contraseña del certificado. Verifique la clave de cifrado.');
+    throw new Error('Invalid encrypted blob: not valid base64');
+  }
+
+  if (raw.length < IV_BYTES + TAG_BYTES + 1) {
+    throw new Error('Invalid encrypted blob: too short');
+  }
+
+  const iv = raw.subarray(0, IV_BYTES);
+  const authTag = raw.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
+  const ciphertext = raw.subarray(IV_BYTES + TAG_BYTES);
+
+  try {
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+  } catch {
+    throw new Error(
+      'Decryption failed. The SIFEN_ENCRYPTION_KEY may not match the one used during setup.'
+    );
   }
 }

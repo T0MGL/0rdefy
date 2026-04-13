@@ -2,64 +2,25 @@
  * XML Digital Signature for SIFEN
  *
  * Signs XML documents with RSA-SHA256 enveloped signature.
- * Uses node-forge to parse .p12 certificates and xml-crypto for signing.
- * No Java dependency required.
+ * Accepts pre-extracted PEM strings (private key + certificate).
+ * The .p12 file and its password are never accepted or persisted here.
  */
 
-import forge from 'node-forge';
 import { SignedXml } from 'xml-crypto';
 
 /**
- * Parse a .p12 (PKCS#12) certificate buffer and extract private key + X.509 cert.
- * Wraps in try/catch to sanitize errors (never expose cert password in stack traces).
- */
-function parseCertificate(p12Buffer: Buffer, password: string): { privateKeyPem: string; certPem: string } {
-  try {
-    const p12Asn1 = forge.asn1.fromDer(p12Buffer.toString('binary'));
-    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
-
-    // Extract private key
-    const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
-    const keyBag = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag];
-    if (!keyBag || keyBag.length === 0 || !keyBag[0].key) {
-      throw new Error('No private key found in certificate');
-    }
-    const privateKeyPem = forge.pki.privateKeyToPem(keyBag[0].key);
-
-    // Extract X.509 certificate
-    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
-    const certBag = certBags[forge.pki.oids.certBag];
-    if (!certBag || certBag.length === 0 || !certBag[0].cert) {
-      throw new Error('No certificate found in .p12 file');
-    }
-    const certPem = forge.pki.certificateToPem(certBag[0].cert);
-
-    return { privateKeyPem, certPem };
-  } catch (err: any) {
-    // Sanitize: never expose the password in error messages/stack traces
-    const msg = err.message || '';
-    if (msg.includes('Invalid password') || msg.includes('PKCS#12 MAC') || msg.includes('bad decrypt')) {
-      throw new Error('Contraseña del certificado incorrecta');
-    }
-    if (msg.includes('No private key') || msg.includes('No certificate')) {
-      throw new Error(msg); // These are safe to expose
-    }
-    throw new Error('Error al procesar el certificado .p12. Verifique que el archivo y la contraseña sean correctos.');
-  }
-}
-
-/**
- * Sign an XML document using enveloped RSA-SHA256 signature.
+ * Sign an XML document using an enveloped RSA-SHA256 signature.
  *
- * @param xml - The unsigned XML string
- * @param certBuffer - The .p12 certificate file as Buffer
- * @param password - The certificate password
+ * @param xml          - The unsigned XML string
+ * @param privateKeyPem - RSA private key in PEM format (decrypted in memory, not stored)
+ * @param certPem       - X.509 certificate in PEM format
  * @returns The signed XML string
  */
-export async function signXML(xml: string, certBuffer: Buffer, password: string): Promise<string> {
-  const { privateKeyPem, certPem } = parseCertificate(certBuffer, password);
-
-  // Clean PEM for embedding in KeyInfo
+export async function signXML(
+  xml: string,
+  privateKeyPem: string,
+  certPem: string,
+): Promise<string> {
   const cleanCert = certPem
     .replace('-----BEGIN CERTIFICATE-----', '')
     .replace('-----END CERTIFICATE-----', '')
@@ -71,7 +32,6 @@ export async function signXML(xml: string, certBuffer: Buffer, password: string)
     signatureAlgorithm: 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
   });
 
-  // Reference to the DE element with enveloped signature transform
   sig.addReference({
     xpath: "//*[local-name(.)='DE']",
     digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
@@ -81,7 +41,6 @@ export async function signXML(xml: string, certBuffer: Buffer, password: string)
     ],
   });
 
-  // Add KeyInfo with X509 certificate
   (sig as unknown as { keyInfoProvider: { getKeyInfo(): string } }).keyInfoProvider = {
     getKeyInfo(): string {
       return `<X509Data><X509Certificate>${cleanCert}</X509Certificate></X509Data>`;
@@ -93,4 +52,56 @@ export async function signXML(xml: string, certBuffer: Buffer, password: string)
   });
 
   return sig.getSignedXml();
+}
+
+/**
+ * Parse a .p12 (PKCS#12) buffer and extract private key + X.509 certificate as PEM.
+ * Used once during setup. The password and .p12 buffer are discarded after this call.
+ */
+export function extractPemsFromP12(
+  p12Buffer: Buffer,
+  password: string,
+): { privateKeyPem: string; certPem: string } {
+  // Lazy import: node-forge is only needed at certificate setup time
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const forge = require('node-forge') as typeof import('node-forge');
+
+  try {
+    const p12Asn1 = forge.asn1.fromDer(p12Buffer.toString('binary'));
+    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
+
+    const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
+    const keyBag = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag];
+    if (!keyBag || keyBag.length === 0 || !keyBag[0].key) {
+      throw new Error('No se encontró clave privada en el archivo .p12');
+    }
+    const privateKeyPem = forge.pki.privateKeyToPem(keyBag[0].key);
+
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
+    const certBag = certBags[forge.pki.oids.certBag];
+    if (!certBag || certBag.length === 0 || !certBag[0].cert) {
+      throw new Error('No se encontró certificado en el archivo .p12');
+    }
+    const certPem = forge.pki.certificateToPem(certBag[0].cert);
+
+    return { privateKeyPem, certPem };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '';
+    if (
+      msg.includes('Invalid password') ||
+      msg.includes('PKCS#12 MAC') ||
+      msg.includes('bad decrypt')
+    ) {
+      throw new Error('Contraseña del certificado incorrecta');
+    }
+    if (
+      msg.includes('No se encontró clave privada') ||
+      msg.includes('No se encontró certificado')
+    ) {
+      throw err;
+    }
+    throw new Error(
+      'Error al procesar el certificado .p12. Verifique que el archivo y la contraseña sean correctos.',
+    );
+  }
 }

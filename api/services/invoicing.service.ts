@@ -12,7 +12,7 @@
 import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 import { encrypt, decrypt } from './sifen/encryption';
-import { signXML } from './sifen/xml-signer';
+import { signXML, extractPemsFromP12 } from './sifen/xml-signer';
 import * as sifenClient from './sifen/sifen-client';
 import * as sifenDemo from './sifen/sifen-demo';
 import type { SifenEnv, SifenResponse } from './sifen/sifen-client';
@@ -81,8 +81,8 @@ export interface FiscalConfigInput {
 export interface FiscalConfig extends FiscalConfigInput {
   id: string;
   store_id: string;
-  certificate_data: any;
-  certificate_password_encrypted: string | null;
+  cert_pem: string | null;
+  encrypted_private_key: string | null;
   next_document_number: number;
   is_active: boolean;
   setup_completed: boolean;
@@ -116,11 +116,11 @@ export async function getFiscalConfig(storeId: string) {
 
   if (error || !data) return null;
 
-  // Mask sensitive fields
+  // Mask sensitive fields before returning to client
   return {
     ...data,
-    certificate_data: data.certificate_data ? '[ENCRYPTED]' : null,
-    certificate_password_encrypted: data.certificate_password_encrypted ? '***' : null,
+    cert_pem: data.cert_pem ? '[PRESENT]' : null,
+    encrypted_private_key: data.encrypted_private_key ? '[PRESENT]' : null,
   };
 }
 
@@ -193,17 +193,33 @@ export async function setupFiscalConfig(storeId: string, input: FiscalConfigInpu
 }
 
 /**
- * Upload and encrypt a .p12 certificate.
+ * Process a .p12 certificate upload.
+ *
+ * Security contract:
+ *   1. Parse the .p12 in memory, extract private key PEM + certificate PEM.
+ *   2. Encrypt the private key with AES-256-GCM using SIFEN_ENCRYPTION_KEY (Railway env var).
+ *   3. Persist: cert_pem (not secret), encrypted_private_key, nothing else.
+ *   4. The .p12 buffer and the merchant password never reach the database.
  */
-export async function uploadCertificate(storeId: string, certBuffer: Buffer, certPassword: string) {
-  // Encrypt the password before storing
-  const encryptedPassword = encrypt(certPassword);
+export async function uploadCertificate(
+  storeId: string,
+  certBuffer: Buffer,
+  certPassword: string,
+) {
+  // Extract PEMs server-side; throws if password is wrong or file is corrupt
+  const { privateKeyPem, certPem } = extractPemsFromP12(certBuffer, certPassword);
+
+  // Encrypt the private key (the only secret). Password is discarded after this line.
+  const encryptedPrivateKey = encrypt(privateKeyPem);
+
+  // certPassword and certBuffer are no longer referenced after this point.
+  // Node GC will collect them; they never leave this process.
 
   const { data, error } = await supabaseAdmin
     .from('fiscal_config')
     .update({
-      certificate_data: certBuffer,
-      certificate_password_encrypted: encryptedPassword,
+      cert_pem: certPem,
+      encrypted_private_key: encryptedPrivateKey,
       setup_completed: true,
     })
     .eq('store_id', storeId)
@@ -242,15 +258,12 @@ export async function validateConfig(storeId: string) {
   if (!config.tipo_contribuyente) errors.push('Tipo de contribuyente no configurado');
 
   if (config.sifen_environment !== 'demo') {
-    if (config.certificate_data === null || config.certificate_data === '[ENCRYPTED]' === false) {
-      // certificate_data is masked as '[ENCRYPTED]' when present
-    }
-    if (config.certificate_password_encrypted === null || config.certificate_password_encrypted === '***' === false) {
-      // password is masked as '***' when present
-    }
-    // Since we're working with the masked version, check for non-demo requiring cert
-    if (!config.certificate_data || config.certificate_data === null) {
+    // cert_pem and encrypted_private_key are masked as '[PRESENT]' when present
+    if (!config.cert_pem) {
       errors.push('Certificado digital requerido para ambiente ' + config.sifen_environment);
+    }
+    if (!config.encrypted_private_key) {
+      errors.push('Clave privada del certificado no configurada');
     }
   }
 
@@ -490,22 +503,17 @@ export async function generateInvoice(storeId: string, orderId: string) {
     // Test/Prod: sign XML → send to SIFEN
     try {
       // Validate certificate exists before attempting to sign
-      if (!config.certificate_password_encrypted || !config.certificate_data) {
-        throw new Error('Certificado digital no configurado. Suba un certificado .p12 en la configuración fiscal.');
+      if (!config.encrypted_private_key || !config.cert_pem) {
+        throw new Error(
+          'Certificado digital no configurado. Suba un certificado .p12 en la configuración fiscal.',
+        );
       }
 
-      // Decrypt certificate password
-      const certPassword = decrypt(config.certificate_password_encrypted);
-      // Supabase returns BYTEA as hex string prefixed with \x
-      const certHex = typeof config.certificate_data === 'string'
-        ? config.certificate_data.replace(/^\\x/, '')
-        : config.certificate_data;
-      const certBuffer = typeof certHex === 'string'
-        ? Buffer.from(certHex, 'hex')
-        : Buffer.from(config.certificate_data);
+      // Decrypt private key in memory; key never written to disk or logs
+      const privateKeyPem = decrypt(config.encrypted_private_key);
 
       // Sign XML
-      const xmlSigned = await signXML(xmlGenerated, certBuffer, certPassword);
+      const xmlSigned = await signXML(xmlGenerated, privateKeyPem, config.cert_pem);
 
       await supabaseAdmin
         .from('invoices')
@@ -800,17 +808,11 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   // If we have unsigned XML, sign it first
   let xmlSigned = invoice.xml_signed;
   if (!xmlSigned && invoice.xml_generated) {
-    if (!config.certificate_password_encrypted || !config.certificate_data) {
+    if (!config.encrypted_private_key || !config.cert_pem) {
       throw new Error('Certificado digital no configurado para re-firmar.');
     }
-    const certPassword = decrypt(config.certificate_password_encrypted);
-    const certHex = typeof config.certificate_data === 'string'
-      ? config.certificate_data.replace(/^\\x/, '')
-      : config.certificate_data;
-    const certBuffer = typeof certHex === 'string'
-      ? Buffer.from(certHex, 'hex')
-      : Buffer.from(config.certificate_data);
-    xmlSigned = await signXML(invoice.xml_generated, certBuffer, certPassword);
+    const privateKeyPem = decrypt(config.encrypted_private_key);
+    xmlSigned = await signXML(invoice.xml_generated, privateKeyPem, config.cert_pem);
 
     await supabaseAdmin
       .from('invoices')
