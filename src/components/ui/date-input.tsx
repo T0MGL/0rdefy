@@ -1,5 +1,5 @@
 import * as React from "react";
-import { format } from "date-fns";
+import { format, setMonth, setYear, getMonth, getYear } from "date-fns";
 import { es } from "date-fns/locale";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import type { CaptionProps } from "react-day-picker";
+
+const MONTHS_ES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+const FROM_YEAR = 2020;
+const TO_YEAR = 2035;
+
+const YEARS = Array.from({ length: TO_YEAR - FROM_YEAR + 1 }, (_, i) => FROM_YEAR + i);
 
 interface DateInputProps {
   value: string; // YYYY-MM-DD
@@ -39,6 +50,10 @@ function DateInput({
   const minDate = min ? new Date(min + "T00:00:00") : undefined;
   const maxDate = max ? new Date(max + "T00:00:00") : undefined;
 
+  const [month, setCurrentMonth] = React.useState<Date>(
+    selectedDate ?? new Date()
+  );
+
   const handleSelect = (date: Date | undefined) => {
     if (date) {
       onChange(format(date, "yyyy-MM-dd"));
@@ -53,6 +68,46 @@ function DateInput({
     if (maxDate && date > maxDate) return true;
     return false;
   };
+
+  function CustomCaption({ displayMonth }: CaptionProps) {
+    const currentMonthIndex = getMonth(displayMonth);
+    const currentYear = getYear(displayMonth);
+
+    const handleMonthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setCurrentMonth(setMonth(displayMonth, parseInt(e.target.value, 10)));
+    };
+
+    const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setCurrentMonth(setYear(displayMonth, parseInt(e.target.value, 10)));
+    };
+
+    return (
+      <div className="flex items-center justify-center gap-2 px-1 py-0.5">
+        <select
+          value={currentMonthIndex}
+          onChange={handleMonthChange}
+          className="text-sm bg-card border border-border rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer text-foreground"
+        >
+          {MONTHS_ES.map((name, idx) => (
+            <option key={name} value={idx}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={currentYear}
+          onChange={handleYearChange}
+          className="text-sm bg-card border border-border rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer text-foreground"
+        >
+          {YEARS.map((yr) => (
+            <option key={yr} value={yr}>
+              {yr}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -81,13 +136,10 @@ function DateInput({
           disabled={isDateDisabled}
           initialFocus
           locale={es}
-          captionLayout="dropdown-buttons"
-          fromYear={2020}
-          toYear={2035}
-          classNames={{
-            caption_dropdowns: "flex items-center gap-1.5",
-            dropdown: "text-sm bg-card border border-border rounded-md px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer",
-          }}
+          month={month}
+          onMonthChange={setCurrentMonth}
+          showOutsideDays={false}
+          components={{ Caption: CustomCaption }}
         />
       </PopoverContent>
     </Popover>

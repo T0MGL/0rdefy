@@ -94,7 +94,7 @@ const step3Schema = z.object({
   establecimiento_codigo: z.string().min(1).max(3).default('001'),
   punto_expedicion: z.string().min(1).max(3).default('001'),
   establecimiento_direccion: z.string().max(500).optional(),
-  establecimiento_telefono: z.string().max(20).optional(),
+  establecimiento_telefono: z.string().max(50).optional(),
 });
 
 const step4Schema = z.object({

@@ -123,6 +123,14 @@ invoicingRouter.post('/config', requireRole(Role.OWNER), async (req: PermissionR
     if (!timbrado || typeof timbrado !== 'string' || timbrado.trim().length === 0) {
       return res.status(400).json({ error: 'Timbrado requerido.' });
     }
+    if (timbrado.length > 50) {
+      return res.status(400).json({ error: 'Número de timbrado muy largo (máx. 50 caracteres).' });
+    }
+
+    const { establecimiento_telefono } = req.body;
+    if (establecimiento_telefono && typeof establecimiento_telefono === 'string' && establecimiento_telefono.length > 50) {
+      return res.status(400).json({ error: 'Teléfono muy largo (máx. 50 caracteres).' });
+    }
 
     const config = await invoicingService.setupFiscalConfig(req.storeId!, req.body);
     res.json({ data: config, message: 'Configuración fiscal guardada' });
