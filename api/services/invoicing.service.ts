@@ -142,7 +142,6 @@ export interface FiscalConfigInput {
   establecimiento_distrito?: number;
   establecimiento_ciudad?: number;
   establecimiento_telefono?: string;
-  establecimiento_email?: string;
   actividad_economica_codigo?: string;
   actividad_economica_descripcion?: string;
   sifen_environment?: SifenEnv;
@@ -230,7 +229,6 @@ export async function setupFiscalConfig(storeId: string, input: FiscalConfigInpu
     establecimiento_distrito: input.establecimiento_distrito || null,
     establecimiento_ciudad: input.establecimiento_ciudad || null,
     establecimiento_telefono: input.establecimiento_telefono || null,
-    establecimiento_email: input.establecimiento_email || null,
     actividad_economica_codigo: input.actividad_economica_codigo || null,
     actividad_economica_descripcion: input.actividad_economica_descripcion || null,
     sifen_environment: environment,

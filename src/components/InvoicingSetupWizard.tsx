@@ -95,12 +95,6 @@ const step3Schema = z.object({
   punto_expedicion: z.string().min(1).max(3).default('001'),
   establecimiento_direccion: z.string().max(500).optional(),
   establecimiento_telefono: z.string().max(20).optional(),
-  establecimiento_email: z
-    .string()
-    .email('Email inválido')
-    .max(255)
-    .optional()
-    .or(z.literal('')),
 });
 
 const step4Schema = z.object({
@@ -164,7 +158,6 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
       punto_expedicion: '001',
       establecimiento_direccion: '',
       establecimiento_telefono: '',
-      establecimiento_email: '',
     },
   });
   const form4 = useForm({
@@ -540,26 +533,12 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>Teléfono</Label>
-                      <Input
-                        placeholder="021-123456"
-                        {...form3.register('establecimiento_telefono')}
-                      />
-                    </div>
-                    <div>
-                      <Label>Email de facturación</Label>
-                      <Input
-                        placeholder="facturacion@empresa.com"
-                        {...form3.register('establecimiento_email')}
-                      />
-                      {form3.formState.errors.establecimiento_email && (
-                        <p className="text-sm text-destructive mt-1">
-                          {form3.formState.errors.establecimiento_email.message}
-                        </p>
-                      )}
-                    </div>
+                  <div>
+                    <Label>Teléfono</Label>
+                    <Input
+                      placeholder="021-123456"
+                      {...form3.register('establecimiento_telefono')}
+                    />
                   </div>
 
                   <div className="flex justify-between">
