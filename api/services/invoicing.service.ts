@@ -275,7 +275,7 @@ export async function uploadCertificate(
   certPassword: string,
 ) {
   // Extract PEMs server-side; throws if password is wrong or file is corrupt
-  const { privateKeyPem, certPem } = extractPemsFromP12(certBuffer, certPassword);
+  const { privateKeyPem, certPem } = await extractPemsFromP12(certBuffer, certPassword);
 
   // Encrypt the private key (the only secret). Password is discarded after this line.
   const encryptedPrivateKey = encrypt(privateKeyPem);

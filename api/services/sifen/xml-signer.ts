@@ -58,13 +58,11 @@ export async function signXML(
  * Parse a .p12 (PKCS#12) buffer and extract private key + X.509 certificate as PEM.
  * Used once during setup. The password and .p12 buffer are discarded after this call.
  */
-export function extractPemsFromP12(
+export async function extractPemsFromP12(
   p12Buffer: Buffer,
   password: string,
-): { privateKeyPem: string; certPem: string } {
-  // Lazy import: node-forge is only needed at certificate setup time
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const forge = require('node-forge') as typeof import('node-forge');
+): Promise<{ privateKeyPem: string; certPem: string }> {
+  const forge = (await import('node-forge')).default ?? (await import('node-forge'));
 
   try {
     const p12Asn1 = forge.asn1.fromDer(p12Buffer.toString('binary'));
