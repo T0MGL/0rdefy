@@ -578,6 +578,83 @@ export function orderConfirmationTemplate(data: OrderConfirmationTemplateData): 
 }
 
 // ================================================================
+// TEMPLATE: Electronic Invoice (SIFEN - Paraguay)
+// ================================================================
+
+export interface InvoiceEmailTemplateData {
+  customerName: string;
+  storeName: string;
+  documentNumber: string;
+  invoiceDate: string;
+  items: Array<{ name: string; quantity: number; unitPrice: string }>;
+  subtotal: string;
+  iva10: string;
+  total: string;
+  kudeUrl: string | null;
+  isDemo: boolean;
+}
+
+export function invoiceEmailTemplate(data: InvoiceEmailTemplateData): { html: string; text: string; subject: string } {
+  const formattedNumber = data.documentNumber.padStart(7, '0');
+
+  const itemRows = data.items.map((item) =>
+    `<tr>
+      <td style="padding: 10px 0; font-size: 14px; color: ${BRAND.text}; border-bottom: 1px solid ${BRAND.divider};">${item.name}</td>
+      <td style="padding: 10px 8px; font-size: 14px; color: ${BRAND.textSecondary}; text-align: center; border-bottom: 1px solid ${BRAND.divider};">${item.quantity}</td>
+      <td style="padding: 10px 0; font-size: 14px; color: ${BRAND.text}; text-align: right; font-weight: 500; border-bottom: 1px solid ${BRAND.divider};">${item.unitPrice}</td>
+    </tr>`
+  ).join('');
+
+  const itemsTable = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 20px 0;">
+    <tr>
+      <td style="padding: 8px 0; font-size: 11px; color: ${BRAND.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid ${BRAND.divider};">Descripcion</td>
+      <td style="padding: 8px 8px; font-size: 11px; color: ${BRAND.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; border-bottom: 1px solid ${BRAND.divider};">Cant.</td>
+      <td style="padding: 8px 0; font-size: 11px; color: ${BRAND.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; text-align: right; border-bottom: 1px solid ${BRAND.divider};">P. Unitario</td>
+    </tr>
+    ${itemRows}
+    <tr>
+      <td colspan="2" style="padding: 12px 0 4px; font-size: 13px; color: ${BRAND.textSecondary}; text-align: right;">IVA 10%</td>
+      <td style="padding: 12px 0 4px; font-size: 14px; color: ${BRAND.text}; text-align: right;">${data.iva10}</td>
+    </tr>
+    <tr>
+      <td colspan="2" style="padding: 4px 0 0; font-size: 15px; color: ${BRAND.white}; text-align: right; font-weight: 700;">Total</td>
+      <td style="padding: 4px 0 0; font-size: 16px; color: ${BRAND.primary}; text-align: right; font-weight: 700;">${data.total}</td>
+    </tr>
+  </table>`;
+
+  const kudeSection = data.kudeUrl
+    ? ctaButton('Ver factura electronica en DNIT', data.kudeUrl)
+    : '';
+
+  const validationNote = data.isDemo
+    ? 'Esta factura fue generada en modo demo y no tiene validez fiscal ante la DNIT.'
+    : 'Esta es tu factura electronica valida ante la DNIT. Puedes consultarla en el portal oficial usando el boton de arriba.';
+
+  const content = [
+    heading(`Factura #${formattedNumber}`),
+    subheading(`Tu comprobante electronico de ${data.storeName}.`),
+    paragraph(`Hola ${data.customerName}, adjunto encontraras los detalles de tu factura electronica.`),
+    infoTable([
+      { label: 'Numero', value: `#${formattedNumber}` },
+      { label: 'Fecha', value: data.invoiceDate },
+      { label: 'Emisor', value: data.storeName },
+    ]),
+    itemsTable,
+    kudeSection,
+    divider(),
+    smallText(validationNote),
+  ].join('');
+
+  const itemsText = data.items.map((i) => `  ${i.name} x${i.quantity}: ${i.unitPrice}`).join('\n');
+
+  return {
+    subject: `Tu factura electronica #${formattedNumber} - ${data.storeName}`,
+    html: baseLayout({ preheader: `Factura #${formattedNumber} de ${data.storeName}. Total: ${data.total}`, content }),
+    text: `Factura electronica #${formattedNumber}\n\nHola ${data.customerName},\n\nAdjunto los detalles de tu factura electronica de ${data.storeName}.\n\nFecha: ${data.invoiceDate}\n\nProductos:\n${itemsText}\n\nIVA 10%: ${data.iva10}\nTotal: ${data.total}\n\n${data.kudeUrl ? `Ver en DNIT: ${data.kudeUrl}\n\n` : ''}${validationNote}\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+  };
+}
+
+// ================================================================
 // TEMPLATE: Generic Transactional Wrapper
 // ================================================================
 

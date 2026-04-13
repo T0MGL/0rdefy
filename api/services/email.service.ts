@@ -10,6 +10,7 @@ import {
   planUpgradeTemplate,
   planCancellationTemplate,
   orderConfirmationTemplate,
+  invoiceEmailTemplate,
   genericTemplate,
 } from './email-templates';
 import type {
@@ -22,6 +23,7 @@ import type {
   PlanUpgradeTemplateData,
   PlanCancellationTemplateData,
   OrderConfirmationTemplateData,
+  InvoiceEmailTemplateData,
   GenericEmailTemplateData,
 } from './email-templates';
 
@@ -50,7 +52,8 @@ interface SendResult {
 async function send(
   to: string,
   template: { html: string; text: string; subject: string },
-  tag: string
+  tag: string,
+  fromOverride?: string
 ): Promise<SendResult> {
   if (!isEmailEnabled()) {
     logger.info('EMAIL', `Resend not configured, skipping ${tag} to: ${to}`);
@@ -60,7 +63,7 @@ async function send(
   try {
     const client = getResendClient()!;
     const { data: result, error } = await client.emails.send({
-      from: FROM_EMAIL,
+      from: fromOverride || FROM_EMAIL,
       to: [to],
       subject: template.subject,
       html: template.html,
@@ -119,6 +122,22 @@ export async function sendPlanCancellation(to: string, data: PlanCancellationTem
 
 export async function sendOrderConfirmation(to: string, data: OrderConfirmationTemplateData): Promise<SendResult> {
   return send(to, orderConfirmationTemplate(data), 'order-confirmation');
+}
+
+/**
+ * Send an electronic invoice email to a store customer.
+ * The "from" address uses the store name as display name so the customer
+ * sees "NOCTE <noreply@ops.ordefy.io>" instead of the generic Ordefy sender.
+ */
+export async function sendInvoiceEmail(
+  to: string,
+  data: InvoiceEmailTemplateData,
+  storeName: string
+): Promise<SendResult> {
+  // Sanitize store name: strip angle brackets to prevent header injection
+  const safeName = storeName.replace(/[<>]/g, '').trim();
+  const fromAddress = `${safeName} <noreply@ops.ordefy.io>`;
+  return send(to, invoiceEmailTemplate(data), 'invoice-email', fromAddress);
 }
 
 export async function sendGenericEmail(to: string, data: GenericEmailTemplateData): Promise<SendResult> {

@@ -16,6 +16,76 @@ import { signXML, extractPemsFromP12 } from './sifen/xml-signer';
 import * as sifenClient from './sifen/sifen-client';
 import * as sifenDemo from './sifen/sifen-demo';
 import type { SifenEnv, SifenResponse } from './sifen/sifen-client';
+import { sendInvoiceEmail } from './email.service';
+
+// ================================================================
+// SIFEN KUDE URL
+// Public consultation URL for an approved DTE on DNIT's portal.
+// Format is the same for test and prod environments.
+// ================================================================
+function buildKudeUrl(cdc: string): string {
+  return `https://ekuatia.set.gov.py/consultas/qr?nVersion=150&Id=${cdc}`;
+}
+
+/**
+ * Fire-and-forget: send the invoice email to the customer.
+ * Never throws. Logs errors and continues.
+ */
+async function dispatchInvoiceEmail(params: {
+  invoiceId: string;
+  storeId: string;
+  storeName: string;
+  customerEmail: string | null | undefined;
+  customerName: string | null | undefined;
+  documentNumber: number;
+  invoiceDate: string;
+  lineItems: Array<{ product_name: string | null; quantity: number; unit_price: number }>;
+  subtotal: number;
+  iva10: number;
+  total: number;
+  kudeUrl: string | null;
+  isDemo: boolean;
+}): Promise<void> {
+  if (!params.customerEmail) {
+    logger.info(`[Invoicing] No customer email for invoice ${params.invoiceId}, skipping email`);
+    return;
+  }
+
+  const formatPyg = (amount: number) =>
+    new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(amount);
+
+  const invoiceDate = new Date(params.invoiceDate).toLocaleDateString('es-PY', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  try {
+    await sendInvoiceEmail(
+      params.customerEmail,
+      {
+        customerName: params.customerName || 'Cliente',
+        storeName: params.storeName,
+        documentNumber: String(params.documentNumber),
+        invoiceDate,
+        items: params.lineItems.map((item) => ({
+          name: item.product_name || 'Producto',
+          quantity: item.quantity || 1,
+          unitPrice: formatPyg(item.unit_price || 0),
+        })),
+        subtotal: formatPyg(params.subtotal),
+        iva10: formatPyg(params.iva10),
+        total: formatPyg(params.total),
+        kudeUrl: params.kudeUrl,
+        isDemo: params.isDemo,
+      },
+      params.storeName
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    logger.error(`[Invoicing] Invoice email failed for invoice ${params.invoiceId}: ${message}`);
+  }
+}
 
 /**
  * Validate Paraguay RUC DV using Modulo 11 algorithm.
@@ -296,21 +366,32 @@ export async function generateInvoice(storeId: string, orderId: string) {
     throw new Error('No active fiscal configuration found. Please complete setup first.');
   }
 
-  // 2. Get order with line items and customer data
-  const { data: order, error: orderErr } = await supabaseAdmin
-    .from('orders')
-    .select(`
-      *,
-      order_line_items(id, product_name, quantity, unit_price, sku),
-      customers(name, email, address)
-    `)
-    .eq('id', orderId)
-    .eq('store_id', storeId)
-    .single();
+  // 2. Get order with line items and customer data, plus store name in parallel
+  const [orderResult, storeResult] = await Promise.all([
+    supabaseAdmin
+      .from('orders')
+      .select(`
+        *,
+        order_line_items(id, product_name, quantity, unit_price, sku),
+        customers(name, email, address)
+      `)
+      .eq('id', orderId)
+      .eq('store_id', storeId)
+      .single(),
+    supabaseAdmin
+      .from('stores')
+      .select('name')
+      .eq('id', storeId)
+      .single(),
+  ]);
+
+  const { data: order, error: orderErr } = orderResult;
 
   if (orderErr || !order) {
     throw new Error(`Order not found: ${orderId}`);
   }
+
+  const storeName = storeResult.data?.name || config.razon_social || config.nombre_fantasia || 'Tienda';
 
   // 3. Validate customer has RUC
   if (!order.customer_ruc) {
@@ -482,9 +563,34 @@ export async function generateInvoice(storeId: string, orderId: string) {
   // 8. Handle by environment
   let sifenResponse: SifenResponse;
 
+  // Common email dispatch params (populated after approval)
+  const emailParams = {
+    invoiceId: invoice.id,
+    storeId,
+    storeName,
+    customerEmail: invoice.customer_email as string | null,
+    customerName: invoice.customer_name as string | null,
+    documentNumber: docNumber as number,
+    invoiceDate: new Date().toISOString(),
+    lineItems: (order.order_line_items || []) as Array<{
+      product_name: string | null;
+      quantity: number;
+      unit_price: number;
+    }>,
+    subtotal,
+    iva10,
+    total,
+    kudeUrl: null as string | null,
+    isDemo,
+  };
+
   if (isDemo) {
     // Demo mode: mock response, no SIFEN call
     sifenResponse = sifenDemo.mockSendDE(String(docNumber), cdc || '');
+
+    // Build KUDE URL even in demo so operators can see the format
+    const kudeUrl = cdc ? buildKudeUrl(cdc) : null;
+    emailParams.kudeUrl = kudeUrl;
 
     await supabaseAdmin
       .from('invoices')
@@ -492,6 +598,7 @@ export async function generateInvoice(storeId: string, orderId: string) {
         sifen_status: 'demo',
         sifen_response_code: sifenResponse.responseCode,
         sifen_response_message: sifenResponse.responseMessage,
+        kude_url: kudeUrl,
       })
       .eq('id', invoice.id);
 
@@ -499,6 +606,9 @@ export async function generateInvoice(storeId: string, orderId: string) {
       mode: 'demo',
       response: sifenResponse,
     });
+
+    // Non-blocking email dispatch
+    void dispatchInvoiceEmail(emailParams);
   } else {
     // Test/Prod: sign XML → send to SIFEN
     try {
@@ -530,6 +640,11 @@ export async function generateInvoice(storeId: string, orderId: string) {
       );
 
       const newStatus = sifenResponse.success ? 'approved' : 'rejected';
+      const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
+
+      if (sifenResponse.success) {
+        emailParams.kudeUrl = kudeUrl;
+      }
 
       await supabaseAdmin
         .from('invoices')
@@ -539,7 +654,10 @@ export async function generateInvoice(storeId: string, orderId: string) {
           sifen_response_code: sifenResponse.responseCode,
           sifen_response_message: sifenResponse.responseMessage,
           sent_to_sifen_at: new Date().toISOString(),
-          ...(sifenResponse.success && { approved_at: new Date().toISOString() }),
+          ...(sifenResponse.success && {
+            approved_at: new Date().toISOString(),
+            kude_url: kudeUrl,
+          }),
         })
         .eq('id', invoice.id);
 
@@ -547,6 +665,11 @@ export async function generateInvoice(storeId: string, orderId: string) {
         response_code: sifenResponse.responseCode,
         response_message: sifenResponse.responseMessage,
       });
+
+      // Non-blocking email dispatch only on approval
+      if (sifenResponse.success) {
+        void dispatchInvoiceEmail(emailParams);
+      }
     } catch (err: any) {
       logger.error(`[Invoicing] SIFEN send failed:`, err.message);
 
@@ -828,6 +951,7 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   );
 
   const newStatus = response.success ? 'approved' : 'rejected';
+  const kudeUrl = response.success && invoice.cdc ? buildKudeUrl(invoice.cdc) : null;
 
   await supabaseAdmin
     .from('invoices')
@@ -836,7 +960,10 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       sifen_response_code: response.responseCode,
       sifen_response_message: response.responseMessage,
       sent_to_sifen_at: new Date().toISOString(),
-      ...(response.success && { approved_at: new Date().toISOString() }),
+      ...(response.success && {
+        approved_at: new Date().toISOString(),
+        kude_url: kudeUrl,
+      }),
     })
     .eq('id', invoiceId);
 
@@ -845,6 +972,39 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     response_code: response.responseCode,
     response_message: response.responseMessage,
   });
+
+  if (response.success) {
+    const [storeResult, orderResult] = await Promise.all([
+      supabaseAdmin.from('stores').select('name').eq('id', storeId).single(),
+      invoice.order_id
+        ? supabaseAdmin
+            .from('orders')
+            .select('order_line_items(product_name, quantity, unit_price)')
+            .eq('id', invoice.order_id)
+            .single()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const storeName = storeResult.data?.name || 'Tienda';
+    const lineItems: Array<{ product_name: string | null; quantity: number; unit_price: number }> =
+      (orderResult.data as any)?.order_line_items || [];
+
+    void dispatchInvoiceEmail({
+      invoiceId,
+      storeId,
+      storeName,
+      customerEmail: invoice.customer_email as string | null,
+      customerName: invoice.customer_name as string | null,
+      documentNumber: invoice.document_number as number,
+      invoiceDate: new Date().toISOString(),
+      lineItems,
+      subtotal: invoice.subtotal as number,
+      iva10: invoice.iva_10 as number,
+      total: invoice.total as number,
+      kudeUrl,
+      isDemo: false,
+    });
+  }
 
   return {
     success: response.success,
