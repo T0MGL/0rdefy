@@ -1612,9 +1612,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
   const handleBulkPrint = useCallback(async () => {
     const selectedOrders = orders.filter(o => selectedOrderIds.has(o.id) && o.delivery_link_token && (o.is_pickup || o.carrier_id));
-    // Only confirmed orders have labels available for printing
-    const confirmedOrders = selectedOrders.filter(o => o.status === 'confirmed');
-    const skippedCount = selectedOrders.length - confirmedOrders.length;
+
+    // Pending and contacted orders have no label to print yet.
+    // Confirmed and any subsequent status (in_preparation, ready_to_ship, in_transit, etc.) can always print/reprint.
+    const BLOCKED_STATUSES = new Set(['pending', 'contacted']);
+    const printableOrders = selectedOrders.filter(o => !BLOCKED_STATUSES.has(o.status));
+    const skippedCount = selectedOrders.length - printableOrders.length;
 
     if (selectedOrders.length === 0) {
       toast({
@@ -1625,10 +1628,10 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       return;
     }
 
-    if (confirmedOrders.length === 0) {
+    if (printableOrders.length === 0) {
       toast({
-        title: 'Sin pedidos confirmados',
-        description: `Los ${skippedCount} pedidos seleccionados no estan en estado "Confirmado". Solo se pueden imprimir pedidos confirmados.`,
+        title: 'Sin pedidos imprimibles',
+        description: `Los ${skippedCount} pedidos seleccionados estan en estado Pendiente o Contactado. Confirma los pedidos antes de imprimir etiquetas.`,
         variant: 'destructive',
       });
       return;
@@ -1636,7 +1639,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
     try {
       setIsPrinting(true);
-      const labelsData = confirmedOrders.map(order => ({
+      const labelsData = printableOrders.map(order => ({
         storeName: currentStore?.name || 'ORDEFY',
         orderNumber: order.shopify_order_name || order.id.substring(0, 8),
         orderDate: order.date ? format(new Date(order.date), "dd/MM/yyyy", { locale: es }) : undefined,
@@ -1683,12 +1686,18 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
       // Mark as printed via atomic bulk endpoint
       const printResult = await ordersService.bulkPrintAndDispatch(
-        confirmedOrders.map(o => o.id)
+        printableOrders.map(o => o.id)
       );
 
-      // Transition confirmed orders to in_preparation
-      const confirmedIds = confirmedOrders.map(o => o.id);
-      const statusResult = await ordersService.bulkStatusChange(confirmedIds, 'in_preparation');
+      // Only auto-transition orders currently at 'confirmed' to in_preparation.
+      // Orders already past confirmed (in_preparation, ready_to_ship, in_transit, etc.)
+      // are reprints: status must not go backwards.
+      const confirmedOnlyIds = printableOrders.filter(o => o.status === 'confirmed').map(o => o.id);
+
+      let statusResult: Awaited<ReturnType<typeof ordersService.bulkStatusChange>> | null = null;
+      if (confirmedOnlyIds.length > 0) {
+        statusResult = await ordersService.bulkStatusChange(confirmedOnlyIds, 'in_preparation');
+      }
 
       // Refresh local orders state preserving current filters, date range, and pagination
       const isSearching = !!serverFiltersRef.current.search;
@@ -1701,32 +1710,39 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
       // Determine combined outcome
       const printFailed = !printResult.success || printResult.data.failed > 0;
-      const statusFailed = !statusResult.success || statusResult.data.failed > 0;
+      const statusFailed = statusResult !== null && (!statusResult.success || statusResult.data.failed > 0);
 
       if (printFailed || statusFailed) {
         const printFailures = printResult.data.failures || [];
-        const statusFailures = statusResult.data.failures || [];
+        const statusFailures = statusResult?.data.failures || [];
         const allFailures = [...printFailures, ...statusFailures];
         const failedNumbers = allFailures.map(f => f.order_number).join(', ');
 
         toast({
-          title: `Impresion parcial (${printResult.data.succeeded}/${confirmedOrders.length})`,
-          description: `Pedidos con errores: ${failedNumbers}.${skippedCount > 0 ? ` ${skippedCount} omitidos (no estaban confirmados).` : ''}`,
+          title: `Impresion parcial (${printResult.data.succeeded}/${printableOrders.length})`,
+          description: `Pedidos con errores: ${failedNumbers}.${skippedCount > 0 ? ` ${skippedCount} omitidos (pendientes o contactados).` : ''}`,
           variant: 'destructive',
           duration: 10000,
         });
       } else {
+        const moved = statusResult?.data.succeeded ?? 0;
+        const reprinted = printableOrders.length - confirmedOnlyIds.length;
         const skippedMsg = skippedCount > 0
-          ? ` ${skippedCount} omitidos (no estaban confirmados).`
+          ? ` ${skippedCount} omitidos (pendientes o contactados).`
           : '';
+        const details = [
+          moved > 0 && `${moved} movidos a "En Preparacion"`,
+          reprinted > 0 && `${reprinted} reimpresos`,
+        ].filter(Boolean).join(', ');
         toast({
           title: 'Impresion completada',
-          description: `${statusResult.data.succeeded} pedidos impresos y movidos a "En Preparacion".${skippedMsg}`,
+          description: `${printResult.data.succeeded} etiquetas generadas${details ? ` (${details})` : ''}.${skippedMsg}`,
         });
       }
 
       // Clear selection on full success
-      if (printResult.success && printResult.data.failed === 0 && statusResult.success && statusResult.data.failed === 0) {
+      const noStatusFailures = statusResult === null || (statusResult.success && statusResult.data.failed === 0);
+      if (printResult.success && printResult.data.failed === 0 && noStatusFailures) {
         setSelectedOrderIds(new Set());
       }
     } catch (error) {

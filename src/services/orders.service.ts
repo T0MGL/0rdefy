@@ -808,8 +808,10 @@ export const ordersService = {
         message: 'Error desconocido al cambiar estado'
       }));
 
-      // For 207 Multi-Status, return partial results
-      if (response.status === 207 && errorData.data) {
+      // 400 with structured failure data: all orders failed validation.
+      // Return as partial result so the caller can show per-order errors
+      // instead of a generic thrown exception.
+      if (response.status === 400 && errorData.data?.failures) {
         return {
           success: false,
           data: errorData.data

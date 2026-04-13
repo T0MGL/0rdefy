@@ -5027,7 +5027,13 @@ ordersRouter.post('/bulk-status', requirePermission(Module.ORDERS, Permission.ED
 
             for (const outcome of settled) {
                 if (outcome.status === 'rejected') {
-                    const errorMessage = outcome.reason instanceof Error ? outcome.reason.message : 'Error desconocido';
+                    const reason = outcome.reason;
+                    const errorMessage =
+                        reason instanceof Error
+                            ? reason.message
+                            : typeof reason === 'object' && reason !== null && 'message' in reason
+                                ? String((reason as Record<string, unknown>).message)
+                                : 'Error desconocido';
                     results.failures.push({ order_id: 'unknown', order_number: 'unknown', error: errorMessage });
                 } else if (outcome.value.ok) {
                     results.successes.push({
