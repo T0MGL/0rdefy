@@ -1236,33 +1236,17 @@ $$ LANGUAGE plpgsql;
 -- ================================================================
 -- PARTE 19: FUNCIONES DE CUSTOMER STATS
 -- ================================================================
+-- The legacy functions fn_update_customer_stats and
+-- fn_update_customer_stats_on_update were removed in migration 155.
+-- They double-counted with fn_update_customer_stats_comprehensive.
+-- Customer stats are now managed exclusively by
+-- fn_update_customer_stats_comprehensive (migrations 053, 084), which
+-- handles INSERT, UPDATE, and DELETE cases with status-awareness.
+-- DO NOT re-introduce the legacy functions. Run migrations 053 and 084
+-- in order after this master migration if installing from scratch.
 
-CREATE OR REPLACE FUNCTION fn_update_customer_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.customer_id IS NOT NULL THEN
-        UPDATE customers
-        SET
-            total_orders = total_orders + 1,
-            total_spent = total_spent + COALESCE(NEW.total_price, 0),
-            last_order_at = NOW()
-        WHERE id = NEW.customer_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_update_customer_stats_on_update()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF OLD.customer_id IS NOT NULL AND OLD.total_price IS DISTINCT FROM NEW.total_price THEN
-        UPDATE customers
-        SET total_spent = total_spent - COALESCE(OLD.total_price, 0) + COALESCE(NEW.total_price, 0)
-        WHERE id = OLD.customer_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+DROP FUNCTION IF EXISTS fn_update_customer_stats();
+DROP FUNCTION IF EXISTS fn_update_customer_stats_on_update();
 
 -- ================================================================
 -- PARTE 20: FUNCIONES DE ORDER STATUS
@@ -2465,14 +2449,15 @@ CREATE TRIGGER trigger_generate_order_number
 -- ================================================================
 -- PARTE 36: TRIGGERS DE CUSTOMER STATS
 -- ================================================================
+-- Customer stats are managed exclusively by trg_customer_stats_comprehensive
+-- (created in migrations 053 and 084). The legacy trigger_update_customer_stats
+-- and trigger_update_customer_stats_on_update triggers were removed in
+-- migration 155 because they double-counted with the comprehensive trigger.
+-- DO NOT re-create them here. Run migration 084 to install the comprehensive
+-- trigger and function if they are missing.
 
 DROP TRIGGER IF EXISTS trigger_update_customer_stats ON orders;
-CREATE TRIGGER trigger_update_customer_stats
-    AFTER INSERT ON orders FOR EACH ROW EXECUTE FUNCTION fn_update_customer_stats();
-
 DROP TRIGGER IF EXISTS trigger_update_customer_stats_on_update ON orders;
-CREATE TRIGGER trigger_update_customer_stats_on_update
-    AFTER UPDATE OF total_price ON orders FOR EACH ROW EXECUTE FUNCTION fn_update_customer_stats_on_update();
 
 -- ================================================================
 -- PARTE 37: TRIGGERS DE CARRIER STATS

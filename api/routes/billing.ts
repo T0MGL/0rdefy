@@ -560,7 +560,7 @@ router.post('/change-plan', requireRole(Role.OWNER), async (req: PermissionReque
     await stripeService.changeSubscriptionPlan(
       subscription.stripe_subscription_id,
       plan,
-      billingCycle,
+      billingCycle ?? 'monthly',
       userId
     );
 

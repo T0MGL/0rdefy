@@ -483,10 +483,20 @@ export class ShopifyImportService {
 
   // Upsert customer to database
   private async upsertCustomer(shopifyCustomer: ShopifyCustomer): Promise<void> {
+    const firstName = (shopifyCustomer.first_name || '').trim();
+    const lastName = (shopifyCustomer.last_name || '').trim();
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    // NOTE: total_orders/total_spent are intentionally omitted. The DB trigger
+    // trg_customer_stats_comprehensive owns those columns. Pre-seeding them
+    // here caused double counting when orders were imported afterwards, and
+    // overwrote live counts on re-imports. See migration 155.
     const customerData = {
       store_id: this.integration.store_id,
       shopify_customer_id: shopifyCustomer.id.toString(),
-      name: `${shopifyCustomer.first_name} ${shopifyCustomer.last_name}`.trim(),
+      first_name: firstName || null,
+      last_name: lastName || null,
+      name: fullName || null,
       email: shopifyCustomer.email,
       phone: shopifyCustomer.phone || '',
       address: shopifyCustomer.default_address?.address1 || '',
@@ -496,8 +506,6 @@ export class ShopifyImportService {
       country: shopifyCustomer.default_address?.country || '',
       notes: shopifyCustomer.note || '',
       tags: shopifyCustomer.tags,
-      total_orders: shopifyCustomer.orders_count || 0,
-      total_spent: Number.isFinite(parseFloat(shopifyCustomer.total_spent)) ? parseFloat(shopifyCustomer.total_spent) : 0,
       shopify_data: shopifyCustomer,
       last_synced_at: new Date().toISOString(),
       sync_status: 'synced'

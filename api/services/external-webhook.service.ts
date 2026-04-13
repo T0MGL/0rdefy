@@ -366,9 +366,23 @@ export class ExternalWebhookService {
       const hasGoogleMapsOnly = shippingAddress.google_maps_url &&
         (!shippingAddress.address || shippingAddress.address.trim() === '');
 
+      // Split the full name into first_name / last_name for the UI, which
+      // reads those columns directly. Everything after the first space goes
+      // to last_name; single-word names go entirely to first_name.
+      const rawName = (customerData.name || '').trim();
+      const firstSpace = rawName.indexOf(' ');
+      const firstName = firstSpace >= 0 ? rawName.slice(0, firstSpace) : rawName;
+      const lastName = firstSpace >= 0 ? rawName.slice(firstSpace + 1).trim() : '';
+
+      // NOTE: total_orders / total_spent are intentionally NOT set. The
+      // trg_customer_stats_comprehensive trigger on orders owns those
+      // columns and will increment them on the subsequent order INSERT.
+      // Pre-seeding them here caused double counting. See migration 155.
       const newCustomer = {
         store_id: storeId,
-        name: customerData.name,
+        name: rawName || null,
+        first_name: firstName || null,
+        last_name: lastName || null,
         email: customerData.email || null,
         phone: customerData.phone ? this.normalizePhone(customerData.phone) : null,
         address: hasGoogleMapsOnly ? 'Ver ubicación en Google Maps' : shippingAddress.address,
@@ -377,9 +391,7 @@ export class ExternalWebhookService {
         notes: shippingAddress.google_maps_url
           ? `Google Maps: ${shippingAddress.google_maps_url}${shippingAddress.reference ? ` | ${shippingAddress.reference}` : ''}`
           : (shippingAddress.reference || null),
-        source: 'webhook_externo',
-        total_orders: 1,
-        total_spent: 0
+        source: 'webhook_externo'
       };
 
       const { data: created, error } = await supabaseAdmin
