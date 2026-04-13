@@ -81,6 +81,13 @@ function DateInput({
           disabled={isDateDisabled}
           initialFocus
           locale={es}
+          captionLayout="dropdown-buttons"
+          fromYear={2020}
+          toYear={2035}
+          classNames={{
+            caption_dropdowns: "flex items-center gap-1.5",
+            dropdown: "text-sm bg-card border border-border rounded-md px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer",
+          }}
         />
       </PopoverContent>
     </Popover>
