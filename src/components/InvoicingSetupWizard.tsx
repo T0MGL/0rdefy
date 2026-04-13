@@ -704,6 +704,14 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                         junto con una contraseña de apertura.
                       </div>
 
+                      <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/15 px-3 py-2.5">
+                        <Shield size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                          Tu certificado .p12 nunca se almacena en nuestros servidores. Al momento de configurarlo, extraemos
+                          únicamente la información necesaria para firmar tus facturas y el archivo original se descarta de inmediato.
+                        </p>
+                      </div>
+
                       {certFile ? (
                         <div className="flex items-center gap-3 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-3 py-2.5">
                           <CheckCircle2 size={15} className="text-green-600 dark:text-green-400 shrink-0" />
