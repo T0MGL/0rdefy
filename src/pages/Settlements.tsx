@@ -373,10 +373,6 @@ const formatCurrency = (amount: number): string => {
   }).format(amount) + ' Gs';
 };
 
-// TODO: Legacy flow uses flat-rate fee assumption. Migrate fully to delivery-based
-// reconciliation (PendingReconciliationView) which uses real per-order carrier fees.
-const LEGACY_DEFAULT_CARRIER_FEE = 25000;
-
 // Main tab type
 type MainTab = 'conciliaciones' | 'cuentas' | 'pagos';
 
@@ -2168,8 +2164,9 @@ export default function Settlements() {
           totalNotDelivered={stats.notDelivered}
           totalCodExpected={stats.codExpected}
           totalCodCollected={totalAmountCollected || 0}
-          totalCarrierFees={stats.delivered * LEGACY_DEFAULT_CARRIER_FEE}
-          totalFailedAttemptFees={stats.notDelivered * (LEGACY_DEFAULT_CARRIER_FEE * ((selectedGroup.failed_attempt_fee_percent ?? 50) / 100))}
+          totalCarrierFees={0}
+          totalFailedAttemptFees={0}
+          feesAreEstimated={true}
           discrepancyNotes={discrepancyNotes}
           onConfirm={handleConfirmReconciliation}
           onCancel={handleBack}

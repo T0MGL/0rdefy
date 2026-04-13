@@ -1834,6 +1834,7 @@ export async function getShippedOrdersGrouped(
         shipping_address,
         delivery_zone,
         total_price,
+        cod_amount,
         payment_method,
         prepaid_method,
         payment_status,
@@ -1901,7 +1902,8 @@ export async function getShippedOrdersGrouped(
       const carrierData = carrierMap.get(order.courier_id) || { name: 'Sin courier', failed_attempt_fee_percent: 50 };
       // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
       const isCod = !order.prepaid_method && isCodPayment(order.payment_method);
-      const codAmount = isCod ? (order.total_price || 0) : 0;
+      // cod_amount is the cash the courier collects; falls back to total_price for older orders
+      const codAmount = isCod ? (order.cod_amount ?? order.total_price ?? 0) : 0;
 
       // Determine display order number:
       // 1. Shopify order name (#1315 format) - preferred for Shopify orders
@@ -2299,7 +2301,8 @@ async function processManualReconciliationLegacy(
 
       if (isCod) {
         stats.total_cod_delivered++;
-        const orderAmount = dbOrder.total_price || 0;
+        // cod_amount is the cash the courier collects; falls back to total_price for older orders
+        const orderAmount = dbOrder.cod_amount ?? dbOrder.total_price ?? 0;
         stats.total_cod_expected += orderAmount;
         codDeliveredOrders.push({ id: dbOrder.id, expected: orderAmount });
       } else {
@@ -3491,7 +3494,7 @@ async function processDeliveryReconciliationFallback(
   const orderIds = params.orders.map(o => o.order_id);
   const { data: existingOrders, error: fetchError } = await supabaseAdmin
     .from('orders')
-    .select('id, total_price, payment_method, prepaid_method, delivery_zone, shipping_city, shipping_city_normalized, reconciled_at, store_id')
+    .select('id, total_price, cod_amount, payment_method, prepaid_method, delivery_zone, shipping_city, shipping_city_normalized, reconciled_at, store_id')
     .in('id', orderIds)
     .eq('store_id', storeId);
 
@@ -3634,11 +3637,15 @@ async function processDeliveryReconciliationFallback(
     const baseCod = !order.prepaid_method && isCodPayment(order.payment_method);
     const isCod = baseCod && !orderData.override_prepaid;
 
+    // cod_amount is the actual cash the courier collects from the customer.
+    // Falls back to total_price if cod_amount is not set (older orders).
+    const codAmount = order.cod_amount ?? order.total_price ?? 0;
+
     if (orderData.delivered) {
       totalDelivered++;
       totalCarrierFees += zoneRate;
       if (isCod) {
-        totalCodExpected += order.total_price || 0;
+        totalCodExpected += codAmount;
         totalCodDelivered++;
       } else {
         totalPrepaidDelivered++;
@@ -3656,7 +3663,7 @@ async function processDeliveryReconciliationFallback(
       delivered: orderData.delivered,
       is_cod: isCod,
       carrier_fee: zoneRate,
-      amount_collected: isCod ? (order.total_price || 0) : 0,
+      amount_collected: isCod ? codAmount : 0,
       failure_reason: orderData.failure_reason
     });
   }

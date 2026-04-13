@@ -22,6 +22,7 @@ interface ReconciliationSummaryProps {
   totalCarrierFees: number;
   totalFailedAttemptFees: number;
   discrepancyNotes?: string;
+  feesAreEstimated?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   isProcessing: boolean;
@@ -46,10 +47,12 @@ export function ReconciliationSummary({
   totalCarrierFees,
   totalFailedAttemptFees,
   discrepancyNotes,
+  feesAreEstimated = false,
   onConfirm,
   onCancel,
   isProcessing,
 }: ReconciliationSummaryProps) {
+  // NETO = COD cobrado por el courier - tarifas de entrega - tarifas por intentos fallidos
   const netReceivable = totalCodCollected - totalCarrierFees - totalFailedAttemptFees;
   const hasDiscrepancy = totalCodCollected !== totalCodExpected;
 
@@ -141,35 +144,56 @@ export function ReconciliationSummary({
         <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
           Tarifas
         </div>
-        <div className="flex items-center justify-between py-1 text-muted-foreground">
-          <span>Entregas ({totalDelivered} pedidos)</span>
-          <span>-{formatCurrency(totalCarrierFees)}</span>
-        </div>
-        {totalNotDelivered > 0 && totalFailedAttemptFees > 0 && (
+        {feesAreEstimated ? (
           <div className="flex items-center justify-between py-1 text-muted-foreground">
-            <span>Fallidos ({totalNotDelivered} pedidos)</span>
-            <span>-{formatCurrency(totalFailedAttemptFees)}</span>
+            <span>Tarifas de entrega</span>
+            <span className="text-xs italic">calculadas al confirmar</span>
           </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between py-1 text-muted-foreground">
+              <span>Entregas ({totalDelivered} pedidos)</span>
+              <span>-{formatCurrency(totalCarrierFees)}</span>
+            </div>
+            {totalNotDelivered > 0 && totalFailedAttemptFees > 0 && (
+              <div className="flex items-center justify-between py-1 text-muted-foreground">
+                <span>Fallidos ({totalNotDelivered} pedidos)</span>
+                <span>-{formatCurrency(totalFailedAttemptFees)}</span>
+              </div>
+            )}
+          </>
         )}
 
         <div className="border-t border-primary/20 my-3" />
 
         {/* NETO */}
-        <div className="flex items-center justify-between pt-2">
-          <div className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5 text-primary" />
-            <span className="font-bold text-lg">NETO A RECIBIR</span>
+        {feesAreEstimated ? (
+          <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-muted-foreground" />
+              <span className="font-bold text-lg text-muted-foreground">NETO A RECIBIR</span>
+            </div>
+            <span className="text-sm text-muted-foreground italic">calculado al confirmar</span>
           </div>
-          <span className={cn(
-            'text-2xl font-bold',
-            netReceivable >= 0 ? 'text-green-600' : 'text-red-600'
-          )}>
-            {formatCurrency(netReceivable)}
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground text-right">
-          {netReceivable >= 0 ? 'El courier te debe' : 'Le debes al courier'}
-        </p>
+        ) : (
+          <>
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-primary" />
+                <span className="font-bold text-lg">NETO A RECIBIR</span>
+              </div>
+              <span className={cn(
+                'text-2xl font-bold',
+                netReceivable >= 0 ? 'text-green-600' : 'text-red-600'
+              )}>
+                {formatCurrency(netReceivable)}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground text-right">
+              {netReceivable >= 0 ? 'El courier te debe' : 'Le debes al courier'}
+            </p>
+          </>
+        )}
       </div>
 
       {/* Discrepancy Warning */}

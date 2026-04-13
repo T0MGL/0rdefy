@@ -1119,16 +1119,24 @@ export function PendingReconciliationView() {
             <CardContent className="space-y-3">
               <div className="space-y-2 text-sm">
                 {/* Delivery counts */}
-                <div className="flex justify-between">
-                  <span>Entregados ({stats.delivered})</span>
-                  {stats.codExpected > 0 && stats.prepaidCount > 0 ? (
-                    <span className="text-green-600">+{formatCurrency(stats.codExpected)} COD</span>
-                  ) : stats.codExpected > 0 ? (
+                {stats.codExpected > 0 && (
+                  <div className="flex justify-between">
+                    <span>COD entregados ({stats.delivered - stats.prepaidCount})</span>
                     <span className="text-green-600">+{formatCurrency(stats.codExpected)}</span>
-                  ) : (
-                    <span className="text-muted-foreground">{stats.prepaidCount} prepago</span>
-                  )}
-                </div>
+                  </div>
+                )}
+                {stats.prepaidCount > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Prepago entregados ({stats.prepaidCount})</span>
+                    <span>ya cobrado</span>
+                  </div>
+                )}
+                {stats.codExpected === 0 && stats.prepaidCount > 0 && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Entregados ({stats.delivered})</span>
+                    <span>todo prepago</span>
+                  </div>
+                )}
                 {stats.notDelivered > 0 && (
                   <div className="flex justify-between">
                     <span>Fallidos ({stats.notDelivered})</span>
@@ -1158,10 +1166,10 @@ export function PendingReconciliationView() {
                   </>
                 )}
 
-                {/* Prepaid info - only when there are prepaid orders */}
+                {/* Prepaid info - informational only, already collected by store */}
                 {stats.prepaidCount > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Prepago ({stats.prepaidCount} pedidos)</span>
+                  <div className="flex justify-between text-muted-foreground text-xs">
+                    <span>Prepago ({stats.prepaidCount} pedidos, ya en tu cuenta)</span>
                     <span>{formatCurrency(stats.prepaidValue)}</span>
                   </div>
                 )}
