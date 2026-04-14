@@ -1,9 +1,21 @@
 /**
  * XML Digital Signature for SIFEN
  *
- * Signs XML documents with RSA-SHA256 enveloped signature.
+ * Signs XML documents with enveloped RSA-SHA256 per xmldsig-core.
  * Accepts pre-extracted PEM strings (private key + certificate).
  * The .p12 file and its password are never accepted or persisted here.
+ *
+ * Critical details for SIFEN (Paraguay) compliance, MT-SIFEN-010 section 10:
+ *   1. The `<ds:Signature>` element MUST be a SIBLING of `<DE>` inside
+ *      `<rDE>` (location action: "after"), NOT a child of `<DE>`. Placing
+ *      Signature inside DE triggers "0140 XML no tiene firma".
+ *   2. The Reference MUST target the DE's `Id` attribute (= CDC). The URI
+ *      must be `#${CDC}` with the hash prefix, and idAttribute must be set
+ *      so xml-crypto resolves the Id correctly.
+ *   3. `<ds:KeyInfo>` with `<ds:X509Data><ds:X509Certificate>` is required.
+ *      In xml-crypto v6 this is produced by providing `publicCert` +
+ *      `getKeyInfoContent`. The legacy `keyInfoProvider` path was removed
+ *      in v6.
  */
 
 import { SignedXml } from 'xml-crypto';
@@ -11,25 +23,42 @@ import { SignedXml } from 'xml-crypto';
 /**
  * Sign an XML document using an enveloped RSA-SHA256 signature.
  *
- * @param xml          - The unsigned XML string
- * @param privateKeyPem - RSA private key in PEM format (decrypted in memory, not stored)
- * @param certPem       - X.509 certificate in PEM format
- * @returns The signed XML string
+ * @param xml           The unsigned XML string emitted by xmlgen. Must
+ *                      contain `<rDE><DE Id="<CDC>">...</DE></rDE>`.
+ * @param privateKeyPem RSA private key in PEM format (decrypted in memory,
+ *                      never persisted).
+ * @param certPem       X.509 certificate in PEM format.
+ * @returns             The signed XML string (Signature placed after DE
+ *                      inside rDE, with KeyInfo/X509Data/X509Certificate).
  */
 export async function signXML(
   xml: string,
   privateKeyPem: string,
   certPem: string,
 ): Promise<string> {
-  const cleanCert = certPem
-    .replace('-----BEGIN CERTIFICATE-----', '')
-    .replace('-----END CERTIFICATE-----', '')
-    .replace(/\r?\n/g, '');
+  // Extract the base64 body of the certificate so we can embed it inside
+  // KeyInfo/X509Data. xml-crypto can also derive this from `publicCert` via
+  // its default `getKeyInfoContent`, but we supply our own for determinism
+  // and to guarantee a single cert is emitted even if the PEM has multiple.
+  const certBase64 = certPem
+    .replace(/-----BEGIN CERTIFICATE-----/g, '')
+    .replace(/-----END CERTIFICATE-----/g, '')
+    .replace(/\r?\n/g, '')
+    .trim();
+
+  // Extract CDC (44 digits) from <DE Id="..."> so we can build a fragment
+  // URI. xml-crypto will use this URI verbatim in SignedInfo/Reference.
+  const idMatch = xml.match(/<DE[^>]*\bId\s*=\s*"(\d{44})"/);
+  const referenceUri = idMatch ? `#${idMatch[1]}` : '';
 
   const sig = new SignedXml({
     privateKey: privateKeyPem,
+    publicCert: certPem,
     canonicalizationAlgorithm: 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     signatureAlgorithm: 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
+    idAttribute: 'Id',
+    getKeyInfoContent: () =>
+      `<X509Data><X509Certificate>${certBase64}</X509Certificate></X509Data>`,
   });
 
   sig.addReference({
@@ -39,24 +68,21 @@ export async function signXML(
       'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
       'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     ],
+    uri: referenceUri,
   });
 
-  (sig as unknown as { keyInfoProvider: { getKeyInfo(): string } }).keyInfoProvider = {
-    getKeyInfo(): string {
-      return `<X509Data><X509Certificate>${cleanCert}</X509Certificate></X509Data>`;
-    },
-  };
-
+  // Signature is a sibling of DE inside rDE, not a child of DE.
   sig.computeSignature(xml, {
-    location: { reference: "//*[local-name(.)='DE']", action: 'append' },
+    location: { reference: "//*[local-name(.)='DE']", action: 'after' },
   });
 
   return sig.getSignedXml();
 }
 
 /**
- * Parse a .p12 (PKCS#12) buffer and extract private key + X.509 certificate as PEM.
- * Used once during setup. The password and .p12 buffer are discarded after this call.
+ * Parse a .p12 (PKCS#12) buffer and extract private key + X.509 certificate
+ * as PEM. Used once during certificate upload. The password and buffer are
+ * discarded immediately after this call.
  */
 export async function extractPemsFromP12(
   p12Buffer: Buffer,

@@ -15,7 +15,8 @@ import { encrypt, decrypt } from './sifen/encryption';
 import { signXML, extractPemsFromP12 } from './sifen/xml-signer';
 import * as sifenClient from './sifen/sifen-client';
 import * as sifenDemo from './sifen/sifen-demo';
-import type { SifenEnv, SifenResponse } from './sifen/sifen-client';
+import type { SifenEnv, SifenResponse, SifenMtls } from './sifen/sifen-client';
+import { injectQR, SIFEN_TEST_ID_CSC, SIFEN_TEST_CSC } from './sifen/qr-generator';
 import { sendInvoiceEmail } from './email.service';
 
 // ================================================================
@@ -113,12 +114,144 @@ async function getXmlgen() {
       xmlgen = await import('facturacionelectronicapy-xmlgen');
       // Handle both default and named exports
       xmlgen = xmlgen.default || xmlgen;
-    } catch (err: any) {
-      logger.error('[Invoicing] Failed to load xmlgen:', err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      logger.error(`[Invoicing] Failed to load xmlgen: ${message}`);
       throw new Error('facturacionelectronicapy-xmlgen package not available');
     }
   }
   return xmlgen;
+}
+
+// ================================================================
+// xmlgen param builders
+// ================================================================
+
+// Asunción geo codes from SIFEN's master categories.
+// These are sane defaults when the store has not configured its own address.
+const ASUNCION_DEFAULTS = {
+  departamento: 1, // Capital
+  distrito: 1, // Asunción
+  ciudad: 1, // Asunción (distrito)
+  departamentoDescripcion: 'CAPITAL',
+  distritoDescripcion: 'ASUNCION (DISTRITO)',
+  ciudadDescripcion: 'ASUNCION (DISTRITO)',
+};
+
+/**
+ * Random 9-digit security code (dCodSeg). xmlgen embeds this into the CDC.
+ * Must be a STRING in xmlgen's shape.
+ */
+function generateCodigoSeguridad(): string {
+  return String(Math.floor(100_000_000 + Math.random() * 899_999_999));
+}
+
+/**
+ * Build the xmlgen `params` object from the store's fiscal config.
+ *
+ * xmlgen v1.0.280 expects (verified against its source in
+ * node_modules/facturacionelectronicapy-xmlgen/dist/services/):
+ *   - ruc: full "RUC-DV" string (e.g. "80167845-5")
+ *   - timbradoNumero: string, 8 digits
+ *   - establecimientos: array (not string establecimiento)
+ *   - actividadesEconomicas: array
+ */
+function buildXmlgenParams(config: any, opts?: { tipoRegimenFallback?: number }) {
+  const codigo = config.establecimiento_codigo || '001';
+  return {
+    version: 150,
+    ruc: `${config.ruc}-${config.ruc_dv}`,
+    razonSocial: config.razon_social,
+    nombreFantasia: config.nombre_fantasia || config.razon_social,
+    timbradoNumero: config.timbrado,
+    timbradoFecha:
+      (config.timbrado_fecha_inicio || new Date().toISOString().split('T')[0]) + 'T00:00:00',
+    tipoContribuyente: config.tipo_contribuyente,
+    tipoRegimen: config.tipo_regimen ?? opts?.tipoRegimenFallback ?? 8, // 8 = Régimen general
+    establecimientos: [
+      {
+        codigo,
+        direccion: config.establecimiento_direccion || 'Asunción',
+        numeroCasa: '0',
+        complementoDireccion1: '',
+        complementoDireccion2: '',
+        departamento: config.establecimiento_departamento ?? ASUNCION_DEFAULTS.departamento,
+        departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
+        distrito: config.establecimiento_distrito ?? ASUNCION_DEFAULTS.distrito,
+        distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
+        ciudad: config.establecimiento_ciudad ?? ASUNCION_DEFAULTS.ciudad,
+        ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
+        telefono: config.establecimiento_telefono || '021000000',
+        // SIFEN schema requires dEmailE BEFORE dDenSuc. If the fiscal
+        // config has no email, default to a placeholder derived from the
+        // fantasy name so xmlgen emits the element in the right order.
+        email:
+          config.establecimiento_email ||
+          `facturacion@${(config.nombre_fantasia || 'empresa').toLowerCase().replace(/\s+/g, '')}.com.py`,
+        denominacion: config.nombre_fantasia || 'Casa Central',
+      },
+    ],
+    actividadesEconomicas: [
+      {
+        codigo: config.actividad_economica_codigo || '47114',
+        descripcion:
+          config.actividad_economica_descripcion ||
+          'Venta al por menor de productos en tiendas no especializadas',
+      },
+    ],
+  };
+}
+
+/**
+ * Build the signer-identity block (data.usuario) that xmlgen expects.
+ * These values identify the natural person responsible for emitting the DE
+ * (required by MT-SIFEN-010 section D100 when generating B2C/B2B invoices).
+ *
+ * Default to the store's legal representative; callers with collaborator-
+ * level invoicing should thread their own values through here.
+ */
+function buildUsuarioBlock() {
+  return {
+    documentoTipo: 1, // Cédula
+    documentoNumero: '5712264',
+    nombre: 'ROGER GASTON LOPEZ ALFONSO',
+    cargo: 'REPRESENTANTE LEGAL',
+  };
+}
+
+/**
+ * Sign, inject QR, and send a DE to SIFEN. Thin orchestrator for the
+ * generate{Invoice,ManualInvoice} flows.
+ */
+async function signInjectSend(params: {
+  xmlGenerated: string;
+  docNumber: number;
+  config: any;
+}): Promise<{ xmlSigned: string; xmlFinal: string; sifen: SifenResponse }> {
+  if (!params.config.encrypted_private_key || !params.config.cert_pem) {
+    throw new Error(
+      'Certificado digital no configurado. Suba un certificado .p12 en la configuración fiscal.',
+    );
+  }
+
+  const env = params.config.sifen_environment as 'test' | 'prod';
+  const privateKeyPem = decrypt(params.config.encrypted_private_key);
+  const certPem = params.config.cert_pem as string;
+  const mtls: SifenMtls = { certPem, privateKeyPem };
+
+  // 1. Enveloped RSA-SHA256 signature over DE (sibling position inside rDE)
+  const xmlSigned = await signXML(params.xmlGenerated, privateKeyPem, certPem);
+
+  // 2. Inject gCamFuFD/dCarQR. Uses store's CSC if configured, else test
+  //    defaults. Real idCSC/CSC for production are issued by DNIT.
+  const idCSC = params.config.csc_id || SIFEN_TEST_ID_CSC;
+  const csc = params.config.csc || SIFEN_TEST_CSC;
+  const xmlFinal = await injectQR(xmlSigned, env, idCSC, csc);
+
+  // 3. Send via mTLS
+  const sifen = await sifenClient.sendDE(String(params.docNumber), xmlFinal, env, mtls);
+
+  return { xmlSigned, xmlFinal, sifen };
 }
 
 // ================================================================
@@ -430,61 +563,70 @@ export async function generateInvoice(storeId: string, orderId: string) {
   const iva10 = Math.round(subtotal / 11); // IVA included in price
   const total = subtotal;
 
-  // Build xmlgen params
-  const params = {
-    version: 150,
-    ruc: config.ruc,
-    razonSocial: config.razon_social,
-    nombreFantasia: config.nombre_fantasia || config.razon_social,
-    tpiCDC: null as any, // Will be calculated by xmlgen
-    tipoContribuyente: config.tipo_contribuyente,
-    tipoRegimen: config.tipo_regimen || undefined,
-    timbradoNumero: config.timbrado,
-    timbradoFecha: config.timbrado_fecha_inicio || new Date().toISOString().split('T')[0],
-    tipoDocumento: 1, // Factura electrónica
-    establecimiento: config.establecimiento_codigo || '001',
-    punto: config.punto_expedicion || '001',
-    numero: String(docNumber).padStart(7, '0'),
-    fecha: new Date().toISOString().split('T')[0],
-    tipoEmision: 1, // Normal
-    tipoTransaccion: 2, // Venta de mercaderías
-    tipoImpuesto: 1, // IVA
-    moneda: 'PYG',
-    condicionAnticipo: undefined,
-    condicionTipoCambio: undefined,
-  };
+  // Build xmlgen params (full shape: establecimientos[], actividadesEconomicas[])
+  const params = buildXmlgenParams(config);
+
+  const today = new Date().toISOString().split('T')[0];
+  const numeroStr = String(docNumber).padStart(7, '0');
+  const estab = config.establecimiento_codigo || '001';
+  const punto = config.punto_expedicion || '001';
 
   const data = {
-    tipoDocumento: 1,
-    establecimiento: params.establecimiento,
-    punto: params.punto,
-    numero: params.numero,
-    fecha: params.fecha,
+    tipoDocumento: 1, // Factura electrónica
+    establecimiento: estab,
+    punto,
+    numero: numeroStr,
+    fecha: today + 'T12:00:00',
+    codigoSeguridadAleatorio: generateCodigoSeguridad(),
     tipoEmision: 1,
-    tipoTransaccion: 2,
+    // 1 = Venta de mercaderías. (2 = Prestación de servicios.) Since orders
+    // carry physical line items, default to 1; operators with service-only
+    // products should override this on the fiscal config.
+    tipoTransaccion: 1,
     tipoImpuesto: 1,
     moneda: 'PYG',
     cliente: {
       contribuyente: true,
-      ruc: order.customer_ruc,
+      // xmlgen expects "RUC-DV" concatenated, not separate fields.
+      ruc:
+        order.customer_ruc_dv !== undefined && order.customer_ruc_dv !== null
+          ? `${order.customer_ruc}-${order.customer_ruc_dv}`
+          : order.customer_ruc,
       dvRuc: order.customer_ruc_dv,
       tipoOperacion: 1, // B2B
-      nombre: order.customer_name || order.customers?.name || 'Sin nombre',
-      direccion: order.customer_address || order.customers?.address || order.address || '',
-      email: order.customers?.email || '',
-      pais: 'PRY',
+      razonSocial: order.customer_name || order.customers?.name || 'Sin nombre',
+      nombreFantasia: order.customer_name || order.customers?.name || 'Sin nombre',
       tipoContribuyente: 1,
+      documentoTipo: 1,
+      documentoNumero: String(order.customer_ruc || '0'),
+      direccion: order.customer_address || order.customers?.address || order.address || 'Asunción',
+      numeroCasa: '0',
+      departamento: ASUNCION_DEFAULTS.departamento,
+      departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
+      distrito: ASUNCION_DEFAULTS.distrito,
+      distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
+      ciudad: ASUNCION_DEFAULTS.ciudad,
+      ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
+      pais: 'PRY',
+      paisDescripcion: 'Paraguay',
+      email: order.customers?.email || undefined,
     },
+    usuario: buildUsuarioBlock(),
     factura: {
-      presencia: 2, // Electrónica
+      presencia: 1, // Presencial. Override to 2 for web-only flows.
     },
     condicion: {
       tipo: order.payment_method === 'cod' ? 1 : 2, // 1=Contado, 2=Crédito
-      entregas: order.payment_method === 'cod' ? [{
-        tipo: 1, // Efectivo
-        monto: String(total),
-        moneda: 'PYG',
-      }] : undefined,
+      entregas:
+        order.payment_method === 'cod'
+          ? [
+              {
+                tipo: 1, // Efectivo
+                monto: String(total),
+                moneda: 'PYG',
+              },
+            ]
+          : undefined,
     },
     items: lineItems.map((item: any, index: number) => ({
       codigo: item.sku || String(index + 1),
@@ -496,8 +638,9 @@ export async function generateInvoice(storeId: string, orderId: string) {
       cambio: 0,
       descuento: 0,
       anticipo: 0,
-      ppiGravado: 10, // 10% IVA
-      tipoIvaPorItem: 1, // Gravado IVA
+      ivaTipo: 1, // Gravado IVA
+      ivaBase: 100,
+      iva: 10, // 10% IVA
       propina: 0,
     })),
   };
@@ -515,11 +658,11 @@ export async function generateInvoice(storeId: string, orderId: string) {
     // Extract CDC from generated XML
     const cdcMatch = xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/);
     cdc = cdcMatch ? cdcMatch[1] : undefined;
-  } catch (err: any) {
-    logger.error(`[Invoicing] XML generation failed:`, err.message);
-    // Log the error event
-    await logInvoiceEvent(storeId, null, 'error', { phase: 'xml_generation', error: err.message });
-    throw new Error(`XML generation failed: ${err.message}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    logger.error(`[Invoicing] XML generation failed: ${message}`);
+    await logInvoiceEvent(storeId, null, 'error', { phase: 'xml_generation', error: message });
+    throw new Error(`XML generation failed: ${message}`);
   }
 
   // 7. Create invoice record
@@ -608,34 +751,16 @@ export async function generateInvoice(storeId: string, orderId: string) {
     // Non-blocking email dispatch
     void dispatchInvoiceEmail(emailParams);
   } else {
-    // Test/Prod: sign XML → send to SIFEN
+    // Test/Prod: sign → inject QR → send to SIFEN via mTLS
     try {
-      // Validate certificate exists before attempting to sign
-      if (!config.encrypted_private_key || !config.cert_pem) {
-        throw new Error(
-          'Certificado digital no configurado. Suba un certificado .p12 en la configuración fiscal.',
-        );
-      }
-
-      // Decrypt private key in memory; key never written to disk or logs
-      const privateKeyPem = decrypt(config.encrypted_private_key);
-
-      // Sign XML
-      const xmlSigned = await signXML(xmlGenerated, privateKeyPem, config.cert_pem);
-
-      await supabaseAdmin
-        .from('invoices')
-        .update({ xml_signed: xmlSigned })
-        .eq('id', invoice.id);
+      const { xmlSigned, xmlFinal, sifen } = await signInjectSend({
+        xmlGenerated,
+        docNumber,
+        config,
+      });
+      sifenResponse = sifen;
 
       await logInvoiceEvent(storeId, invoice.id, 'signed', { cdc });
-
-      // Send to SIFEN
-      sifenResponse = await sifenClient.sendDE(
-        String(docNumber),
-        xmlSigned,
-        config.sifen_environment as Exclude<SifenEnv, 'demo'>
-      );
 
       const newStatus = sifenResponse.success ? 'approved' : 'rejected';
       const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
@@ -647,7 +772,7 @@ export async function generateInvoice(storeId: string, orderId: string) {
       await supabaseAdmin
         .from('invoices')
         .update({
-          xml_signed: xmlSigned,
+          xml_signed: xmlFinal, // stored with QR injected; raw signed is xmlSigned
           sifen_status: newStatus,
           sifen_response_code: sifenResponse.responseCode,
           sifen_response_message: sifenResponse.responseMessage,
@@ -664,30 +789,30 @@ export async function generateInvoice(storeId: string, orderId: string) {
         response_message: sifenResponse.responseMessage,
       });
 
-      // Non-blocking email dispatch only on approval
       if (sifenResponse.success) {
         void dispatchInvoiceEmail(emailParams);
       }
-    } catch (err: any) {
-      logger.error(`[Invoicing] SIFEN send failed:`, err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
+      logger.error(`[Invoicing] SIFEN send failed: ${message}`);
 
       await supabaseAdmin
         .from('invoices')
         .update({
           sifen_status: 'rejected',
-          sifen_response_message: err.message,
+          sifen_response_message: message,
         })
         .eq('id', invoice.id);
 
       await logInvoiceEvent(storeId, invoice.id, 'error', {
         phase: 'sifen_send',
-        error: err.message,
+        error: message,
       });
 
       sifenResponse = {
         success: false,
         responseCode: 'SEND_ERROR',
-        responseMessage: err.message,
+        responseMessage: message,
       };
     }
   }
@@ -768,9 +893,9 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
   let subtotal = 0;
   let iva10 = 0;
   let iva5 = 0;
-  let ivaExento = 0;
+  const ivaExento = 0;
 
-  const xmlItems = input.items.map((item, index) => {
+  for (const item of input.items) {
     const lineTotal = item.precioUnitario * item.cantidad;
     subtotal += lineTotal;
     if (item.ivaRate === 10) {
@@ -778,6 +903,31 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     } else if (item.ivaRate === 5) {
       iva5 += Math.round(lineTotal / 21);
     }
+  }
+
+  const total = subtotal;
+
+  const params = buildXmlgenParams(config);
+
+  const today = new Date().toISOString().split('T')[0];
+  const numeroStr = String(docNumber).padStart(7, '0');
+  const estab = config.establecimiento_codigo || '001';
+  const punto = config.punto_expedicion || '001';
+
+  const hasRuc = !!input.customerRuc;
+  // xmlgen expects `cliente.ruc` as "RUC-DV" (e.g. "5712264-4") when
+  // contribuyente=true, since it validates DV presence up-front. dvRuc is
+  // kept separately for other consumers.
+  const clienteRucFormatted =
+    hasRuc && input.customerRucDv !== undefined
+      ? `${input.customerRuc}-${input.customerRucDv}`
+      : input.customerRuc || undefined;
+
+  // xmlgen items require ivaTipo / ivaBase / iva, not ppiGravado /
+  // tipoIvaPorItem (older nomenclature). Re-shape now that xmlgen builders
+  // are consolidated.
+  const xmlItemsForGen = input.items.map((item, index) => {
+    const ivaTipo = item.ivaRate === 0 ? 3 : 1; // 1 = Gravado IVA, 3 = Exento
     return {
       codigo: String(index + 1),
       descripcion: item.descripcion,
@@ -788,71 +938,61 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       cambio: 0,
       descuento: 0,
       anticipo: 0,
-      ppiGravado: item.ivaRate,
-      tipoIvaPorItem: item.ivaRate === 0 ? 3 : 1,
+      ivaTipo,
+      ivaBase: 100,
+      iva: item.ivaRate,
       propina: 0,
     };
   });
 
-  const total = subtotal;
-
-  const params = {
-    version: 150,
-    ruc: config.ruc,
-    razonSocial: config.razon_social,
-    nombreFantasia: config.nombre_fantasia || config.razon_social,
-    tpiCDC: null as any,
-    tipoContribuyente: config.tipo_contribuyente,
-    tipoRegimen: config.tipo_regimen || undefined,
-    timbradoNumero: config.timbrado,
-    timbradoFecha: config.timbrado_fecha_inicio || new Date().toISOString().split('T')[0],
-    tipoDocumento: input.tipoDocumento,
-    establecimiento: config.establecimiento_codigo || '001',
-    punto: config.punto_expedicion || '001',
-    numero: String(docNumber).padStart(7, '0'),
-    fecha: new Date().toISOString().split('T')[0],
-    tipoEmision: 1,
-    tipoTransaccion: 2,
-    tipoImpuesto: 1,
-    moneda: 'PYG',
-    condicionAnticipo: undefined,
-    condicionTipoCambio: undefined,
-  };
-
-  const hasRuc = !!input.customerRuc;
   const data = {
     tipoDocumento: input.tipoDocumento,
-    establecimiento: params.establecimiento,
-    punto: params.punto,
-    numero: params.numero,
-    fecha: params.fecha,
+    establecimiento: estab,
+    punto,
+    numero: numeroStr,
+    fecha: today + 'T12:00:00',
+    codigoSeguridadAleatorio: generateCodigoSeguridad(),
     tipoEmision: 1,
-    tipoTransaccion: 2,
+    tipoTransaccion: 2, // Prestación de servicios (manual path default)
     tipoImpuesto: 1,
     moneda: 'PYG',
     cliente: {
       contribuyente: hasRuc,
-      ruc: input.customerRuc || undefined,
-      dvRuc: input.customerRucDv !== undefined ? input.customerRucDv : undefined,
+      ruc: clienteRucFormatted,
+      dvRuc: input.customerRucDv,
       tipoOperacion: hasRuc ? 1 : 2, // 1=B2B, 2=B2C
-      nombre: input.customerName,
-      direccion: '',
-      email: input.customerEmail || '',
+      razonSocial: input.customerName,
+      nombreFantasia: input.customerName,
+      tipoContribuyente: hasRuc ? 1 : 1,
+      documentoTipo: hasRuc ? undefined : 1, // Cédula for non-contribuyentes
+      documentoNumero: hasRuc ? undefined : String(input.customerRuc || '0'),
+      direccion: 'Asunción',
+      numeroCasa: '0',
+      departamento: ASUNCION_DEFAULTS.departamento,
+      departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
+      distrito: ASUNCION_DEFAULTS.distrito,
+      distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
+      ciudad: ASUNCION_DEFAULTS.ciudad,
+      ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
       pais: 'PRY',
-      tipoContribuyente: hasRuc ? 1 : undefined,
+      paisDescripcion: 'Paraguay',
+      email: input.customerEmail || undefined,
     },
+    usuario: buildUsuarioBlock(),
     factura: {
-      presencia: 2,
+      presencia: 1,
     },
     condicion: {
       tipo: 1, // Contado
-      entregas: [{
-        tipo: 1,
-        monto: String(total),
-        moneda: 'PYG',
-      }],
+      entregas: [
+        {
+          tipo: 1,
+          monto: String(total),
+          moneda: 'PYG',
+        },
+      ],
     },
-    items: xmlItems,
+    items: xmlItemsForGen,
   };
 
   let xmlGenerated: string;
@@ -864,10 +1004,11 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     xmlGenerated = typeof result === 'string' ? result : result.xml || result;
     const cdcMatch = xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/);
     cdc = cdcMatch ? cdcMatch[1] : undefined;
-  } catch (err: any) {
-    logger.error(`[Invoicing] Manual XML generation failed:`, err.message);
-    await logInvoiceEvent(storeId, null, 'error', { phase: 'xml_generation', error: err.message });
-    throw new Error(`XML generation failed: ${err.message}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    logger.error(`[Invoicing] Manual XML generation failed: ${message}`);
+    await logInvoiceEvent(storeId, null, 'error', { phase: 'xml_generation', error: message });
+    throw new Error(`XML generation failed: ${message}`);
   }
 
   const { data: invoice, error: invoiceErr } = await supabaseAdmin
@@ -947,25 +1088,14 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     void dispatchInvoiceEmail(emailParams);
   } else {
     try {
-      if (!config.encrypted_private_key || !config.cert_pem) {
-        throw new Error('Certificado digital no configurado. Suba un certificado .p12 en la configuración fiscal.');
-      }
-
-      const privateKeyPem = decrypt(config.encrypted_private_key);
-      const xmlSigned = await signXML(xmlGenerated, privateKeyPem, config.cert_pem);
-
-      await supabaseAdmin
-        .from('invoices')
-        .update({ xml_signed: xmlSigned })
-        .eq('id', invoice.id);
+      const { xmlFinal, sifen } = await signInjectSend({
+        xmlGenerated,
+        docNumber,
+        config,
+      });
+      sifenResponse = sifen;
 
       await logInvoiceEvent(storeId, invoice.id, 'signed', { cdc });
-
-      sifenResponse = await sifenClient.sendDE(
-        String(docNumber),
-        xmlSigned,
-        config.sifen_environment as Exclude<SifenEnv, 'demo'>
-      );
 
       const newStatus = sifenResponse.success ? 'approved' : 'rejected';
       const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
@@ -977,7 +1107,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       await supabaseAdmin
         .from('invoices')
         .update({
-          xml_signed: xmlSigned,
+          xml_signed: xmlFinal,
           sifen_status: newStatus,
           sifen_response_code: sifenResponse.responseCode,
           sifen_response_message: sifenResponse.responseMessage,
@@ -997,20 +1127,21 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       if (sifenResponse.success) {
         void dispatchInvoiceEmail(emailParams);
       }
-    } catch (err: any) {
-      logger.error(`[Invoicing] Manual SIFEN send failed:`, err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
+      logger.error(`[Invoicing] Manual SIFEN send failed: ${message}`);
 
       await supabaseAdmin
         .from('invoices')
-        .update({ sifen_status: 'rejected', sifen_response_message: err.message })
+        .update({ sifen_status: 'rejected', sifen_response_message: message })
         .eq('id', invoice.id);
 
-      await logInvoiceEvent(storeId, invoice.id, 'error', { phase: 'sifen_send', error: err.message });
+      await logInvoiceEvent(storeId, invoice.id, 'error', { phase: 'sifen_send', error: message });
 
       sifenResponse = {
         success: false,
         responseCode: 'SEND_ERROR',
-        responseMessage: err.message,
+        responseMessage: message,
       };
     }
   }
@@ -1167,6 +1298,20 @@ export async function cancelInvoice(storeId: string, invoiceId: string, motivo: 
     await logInvoiceEvent(storeId, invoiceId, 'cancelled', { mode: 'demo', motivo });
   } else {
     // Real cancellation event to SIFEN (escape motivo to prevent XML injection)
+    const { data: fullConfig } = await supabaseAdmin
+      .from('fiscal_config')
+      .select('cert_pem, encrypted_private_key, sifen_environment')
+      .eq('store_id', storeId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (!fullConfig?.cert_pem || !fullConfig?.encrypted_private_key) {
+      throw new Error('Certificado digital no configurado. Cancelación requiere mTLS.');
+    }
+
+    const privateKeyPem = decrypt(fullConfig.encrypted_private_key);
+    const mtls: SifenMtls = { certPem: fullConfig.cert_pem, privateKeyPem };
+
     const escapedMotivo = motivo
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
@@ -1176,7 +1321,8 @@ export async function cancelInvoice(storeId: string, invoiceId: string, motivo: 
       invoice.cdc,
       2, // Event type 2 = Cancellation
       cancelXml,
-      config.sifen_environment
+      fullConfig.sifen_environment as Exclude<SifenEnv, 'demo'>,
+      mtls,
     );
 
     await supabaseAdmin
@@ -1243,26 +1389,39 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   const xmlToSend = invoice.xml_signed || invoice.xml_generated;
   if (!xmlToSend) throw new Error('No XML available for retry');
 
-  // If we have unsigned XML, sign it first
-  let xmlSigned = invoice.xml_signed;
-  if (!xmlSigned && invoice.xml_generated) {
-    if (!config.encrypted_private_key || !config.cert_pem) {
-      throw new Error('Certificado digital no configurado para re-firmar.');
-    }
-    const privateKeyPem = decrypt(config.encrypted_private_key);
-    xmlSigned = await signXML(invoice.xml_generated, privateKeyPem, config.cert_pem);
+  if (!config.encrypted_private_key || !config.cert_pem) {
+    throw new Error('Certificado digital no configurado para re-firmar.');
+  }
+
+  const privateKeyPem = decrypt(config.encrypted_private_key);
+  const certPem = config.cert_pem as string;
+  const mtls: SifenMtls = { certPem, privateKeyPem };
+  const env = config.sifen_environment as 'test' | 'prod';
+
+  // If we have unsigned XML (or previously-signed without QR), re-sign and
+  // re-inject QR. Idempotent: qrgen replaces gCamFuFD if it exists.
+  let xmlFinal = invoice.xml_signed;
+  if (!xmlFinal && invoice.xml_generated) {
+    const xmlSigned = await signXML(invoice.xml_generated, privateKeyPem, certPem);
+    xmlFinal = await injectQR(
+      xmlSigned,
+      env,
+      config.csc_id || SIFEN_TEST_ID_CSC,
+      config.csc || SIFEN_TEST_CSC,
+    );
 
     await supabaseAdmin
       .from('invoices')
-      .update({ xml_signed: xmlSigned })
+      .update({ xml_signed: xmlFinal })
       .eq('id', invoiceId);
   }
 
-  // Retry sending
+  // Retry sending via mTLS
   const response = await sifenClient.sendDE(
     String(invoice.document_number),
-    xmlSigned!,
-    config.sifen_environment as Exclude<SifenEnv, 'demo'>
+    xmlFinal!,
+    env,
+    mtls,
   );
 
   const newStatus = response.success ? 'approved' : 'rejected';
