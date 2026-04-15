@@ -13,7 +13,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
 import { Module } from '../permissions';
-import { getTodayInTimezone } from '../utils/dateUtils';
+import { formatDateInTimezone, getStoreTimezone, getTodayInTimezone } from '../utils/dateUtils';
 
 export const codMetricsRouter = Router();
 
@@ -34,6 +34,8 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
     const { start_date, end_date } = req.query;
 
     logger.info('API', '📊 [COD-METRICS] Fetching metrics for store:', req.storeId);
+
+    const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
     // Default to last 30 days if no dates provided
     const endDate = end_date ? new Date(end_date as string) : new Date();
@@ -101,11 +103,13 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
       o.sleeves_status === 'shipped' && o.payment_status === 'pending'
     ) || [];
 
-    // Calculate collected today
-    const today = getTodayInTimezone();
+    // Calculate collected today in the store's local timezone. `updated_at` is a
+    // UTC timestamp, so we compare the formatted local date, not a raw string prefix.
+    const today = getTodayInTimezone(storeTz);
     const collectedToday = orders?.filter(o =>
       o.payment_status === 'collected' &&
-      o.updated_at?.startsWith(today)
+      o.updated_at &&
+      formatDateInTimezone(o.updated_at, storeTz) === today,
     ) || [];
     const collected_today = collectedToday.reduce((sum, o) =>
       sum + Number(o.total_price || 0), 0
@@ -129,8 +133,8 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
       paid_orders: paidOrders,
       failed_orders: failedOrders.length,
       period: {
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0]
+        start_date: formatDateInTimezone(startDate, storeTz),
+        end_date: formatDateInTimezone(endDate, storeTz)
       }
     };
 
@@ -149,6 +153,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
 codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
   try {
     const { days = '7' } = req.query;
+    const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
     logger.info('API', `📅 [COD-METRICS] Fetching daily breakdown for ${days} days`);
 
@@ -167,11 +172,12 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
       return res.status(500).json({ error: 'Error al obtener pedidos' });
     }
 
-    // Group by date
+    // Group by date in the store's local timezone so an order placed at 22:00
+    // Asuncion on day D always aggregates into "day D", never day D+1 UTC.
     const dailyMetrics: Record<string, any> = {};
 
     orders?.forEach(order => {
-      const date = order.created_at.split('T')[0];
+      const date = formatDateInTimezone(order.created_at, storeTz);
 
       if (!dailyMetrics[date]) {
         dailyMetrics[date] = {
@@ -209,8 +215,8 @@ codMetricsRouter.get('/daily', async (req: AuthRequest, res: Response) => {
     res.json({
       data: dailyArray,
       period: {
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
+        start_date: formatDateInTimezone(startDate, storeTz),
+        end_date: formatDateInTimezone(endDate, storeTz),
         days: parseInt(days as string, 10)
       }
     });

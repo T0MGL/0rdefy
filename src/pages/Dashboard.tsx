@@ -107,7 +107,7 @@ export default function Dashboard() {
 
   // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
-    const range = getDateRange();
+    const range = getDateRange(storeTimezone);
     const diffTime = Math.abs(range.to.getTime() - range.from.getTime());
     const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 

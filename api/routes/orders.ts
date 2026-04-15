@@ -19,7 +19,7 @@ import { ShopifyGraphQLClientService } from '../services/shopify-graphql-client.
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
 import { isValidUUID, validateUUIDParam, sanitizeSearchInput } from '../utils/sanitize';
 import { isCodPayment as isCodPaymentUtil } from '../utils/payment';
-import { getTodayInTimezone } from '../utils/dateUtils';
+import { endOfDayIso, getStoreTimezone, getTodayInTimezone, startOfDayIso } from '../utils/dateUtils';
 import { validate } from '../utils/validate';
 
 // ================================================================
@@ -923,8 +923,13 @@ function mapStatus(dbStatus: string): 'pending' | 'contacted' | 'awaiting_carrie
 ordersRouter.get('/stats/counts-by-status', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
-        // Build base filter conditions
+        // Resolve date bounds once, in the store's local timezone, so every
+        // per-status parallel count sees identical boundaries.
+        const startIso = startDate ? startOfDayIso(startDate as string, storeTz) : null;
+        const endIso = endDate ? endOfDayIso(endDate as string, storeTz) : null;
+
         const statuses = [
           'pending', 'contacted', 'confirmed', 'in_preparation',
           'ready_to_ship', 'shipped', 'in_transit', 'delivered',
@@ -941,14 +946,8 @@ ordersRouter.get('/stats/counts-by-status', async (req: AuthRequest, res: Respon
                 .is('deleted_at', null)
                 .or('is_test.is.null,is_test.eq.false');
 
-            if (startDate) {
-                query = query.gte('created_at', startDate as string);
-            }
-            if (endDate) {
-                const end = new Date(endDate as string);
-                end.setHours(23, 59, 59, 999);
-                query = query.lte('created_at', end.toISOString());
-            }
+            if (startIso) query = query.gte('created_at', startIso);
+            if (endIso) query = query.lte('created_at', endIso);
 
             const { count } = await query;
             return { status, count: count || 0 };
@@ -992,6 +991,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             scheduled_filter = 'all',  // Filter for scheduled deliveries: 'all' | 'scheduled' | 'ready'
             timezone                   // Store IANA timezone (e.g. 'America/Asuncion') for date calculations
         } = req.query;
+
+        // Prefer the client-supplied timezone (already sourced from currentStore.timezone);
+        // fall back to the store row so the scheduled-delivery filter and legacy date
+        // conversions both use the correct local calendar.
+        const resolvedTz = (typeof timezone === 'string' && timezone) || await getStoreTimezone(supabaseAdmin, req.storeId!);
 
         // Build query - OPTIMIZED (Migration 083)
         // ✅ SELECT explicit fields (15 vs 60+ columns = 75% less data)
@@ -1159,46 +1163,31 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             query = query.eq('shopify_order_id', shopify_order_id);
         }
 
-        // Date range filtering
-        // Supports both full ISO timestamps (timezone-safe) and YYYY-MM-DD date strings (legacy)
+        // Date range filtering. We accept both full ISO timestamps and legacy
+        // YYYY-MM-DD strings. YYYY-MM-DD is interpreted in the store's local
+        // timezone so an order placed at 22:00 Asuncion on day D always lands
+        // inside the "day D" bucket, regardless of server UTC offset.
         if (startDate) {
-            query = query.gte('created_at', startDate as string);
+            const startStr = startDate as string;
+            const startIso = startStr.includes('T')
+                ? startStr
+                : startOfDayIso(startStr, resolvedTz);
+            query = query.gte('created_at', startIso);
         }
 
         if (endDate) {
             const endStr = endDate as string;
-            if (endStr.includes('T')) {
-                // Full ISO timestamp (includes end-of-day time) - use directly
-                query = query.lte('created_at', endStr);
-            } else {
-                // Legacy YYYY-MM-DD format - add one day and use lte to include the full last day
-                const endDateTime = new Date(endStr);
-                endDateTime.setDate(endDateTime.getDate() + 1);
-                query = query.lte('created_at', endDateTime.toISOString());
-            }
+            const endIso = endStr.includes('T')
+                ? endStr
+                : endOfDayIso(endStr, resolvedTz);
+            query = query.lte('created_at', endIso);
         }
 
         // Scheduled delivery filter (Migration 125: server-side filtering)
-        // Uses JSONB field with functional index for performance
+        // Uses JSONB field with functional index for performance.
+        // "Today" is anchored to the store's local timezone, not server UTC.
         if (scheduled_filter === 'scheduled' || scheduled_filter === 'ready') {
-            // Calculate "today" in the store's configured timezone, NOT in server UTC.
-            // A store in Paraguay (UTC-4) could be 2026-02-19 while the server (UTC) says 2026-02-20,
-            // causing scheduled orders to be incorrectly marked as past or future.
-            const tz = (timezone as string) || 'America/Asuncion';
-            const today = (() => {
-                try {
-                    // Intl.DateTimeFormat with en-CA locale formats as YYYY-MM-DD natively
-                    return new Intl.DateTimeFormat('en-CA', {
-                        timeZone: tz,
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit'
-                    }).format(new Date());
-                } catch {
-                    // Fallback to UTC if timezone is invalid
-                    return new Date().toISOString().split('T')[0];
-                }
-            })();
+            const today = getTodayInTimezone(resolvedTz);
 
             if (scheduled_filter === 'scheduled') {
                 // Show only orders with a future delivery restriction

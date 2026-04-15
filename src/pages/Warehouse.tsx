@@ -109,7 +109,7 @@ export default function Warehouse() {
 
   // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
-    const range = getDateRange();
+    const range = getDateRange(storeTimezone);
 
     // CRITICAL FIX (Bug #17): Validate dates before calling toISOString()
     // Invalid dates will throw exception and crash the entire page

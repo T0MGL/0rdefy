@@ -1,12 +1,29 @@
 /**
  * Invoicing Service (Orchestrator)
  *
- * Manages the full electronic invoicing lifecycle:
- * 1. Fiscal config setup (RUC, timbrado, certificate)
- * 2. Invoice generation (XML via xmlgen)
- * 3. XML signing (RSA-SHA256)
- * 4. SIFEN submission (or demo mock)
- * 5. Invoice storage and event logging
+ * Manages the full electronic invoicing lifecycle for Paraguay SIFEN:
+ *   1. Fiscal identity management (RUC-level, shared across stores)
+ *   2. Per-store link setup (establecimiento, punto expedicion, timbrado)
+ *   3. Invoice generation (XML via xmlgen)
+ *   4. XML signing (RSA-SHA256)
+ *   5. SIFEN submission (or demo mock)
+ *   6. Invoice storage and event logging
+ *
+ * Data model (post migration 161):
+ *   fiscal_identities           : one row per RUC, owned by a user
+ *   fiscal_identity_activities  : N activities per identity (1 principal)
+ *   fiscal_identity_stores      : link identity <-> store, carries
+ *                                 establecimiento / punto / timbrado /
+ *                                 next_document_number
+ *
+ * Read path: getFiscalContext(storeId) returns the full { identity, link,
+ * activities } joined shape, secrets masked. Every generator reads through
+ * it - no direct fiscal_config access.
+ *
+ * Write path: setup is split into createIdentity / linkIdentityToStore /
+ * updateStoreFields / uploadCertificate. The single setupFiscalConfig
+ * entrypoint is kept (thin compat wrapper) so the existing wizard step
+ * keeps working until the frontend ships the new split wizard.
  */
 
 import { logger } from '../utils/logger';
@@ -18,19 +35,280 @@ import * as sifenDemo from './sifen/sifen-demo';
 import type { SifenEnv, SifenResponse, SifenMtls } from './sifen/sifen-client';
 import { injectQR, SIFEN_TEST_ID_CSC, SIFEN_TEST_CSC } from './sifen/qr-generator';
 import { sendInvoiceEmail } from './email.service';
+import {
+  validateRucDV,
+  assertReadyToEmit,
+  assertInvoicingCountry,
+} from '../utils/fiscal-guards';
+import { getStoreTimezone, getTodayInTimezone } from '../utils/dateUtils';
 
 // ================================================================
-// SIFEN KUDE URL
-// Public consultation URL for an approved DTE on DNIT's portal.
-// Format is the same for test and prod environments.
+// Types (exported for guards + routes)
 // ================================================================
+
+export interface FiscalIdentityRow {
+  id: string;
+  owner_user_id: string;
+  ruc: string;
+  ruc_dv: number;
+  razon_social: string;
+  nombre_fantasia: string | null;
+  tipo_contribuyente: number;
+  tipo_regimen: number | null;
+  country: string;
+  sifen_environment: SifenEnv;
+  has_certificate: boolean;
+  csc_id: string | null;
+  representante_legal_nombre: string | null;
+  representante_legal_documento_tipo: number | null;
+  representante_legal_documento_numero: string | null;
+  representante_legal_cargo: string | null;
+  domicilio_fiscal_direccion: string | null;
+  domicilio_fiscal_numero_casa: string | null;
+  domicilio_fiscal_departamento: number | null;
+  domicilio_fiscal_distrito: number | null;
+  domicilio_fiscal_ciudad: number | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FiscalActivityRow {
+  id: string;
+  codigo: string;
+  descripcion: string;
+  is_principal: boolean;
+  display_order: number;
+}
+
+export interface FiscalIdentityStoreRow {
+  id: string;
+  store_id: string;
+  timbrado: string;
+  timbrado_fecha_inicio: string | null;
+  timbrado_fecha_fin: string | null;
+  establecimiento_codigo: string;
+  punto_expedicion: string;
+  establecimiento_direccion: string | null;
+  establecimiento_departamento: number | null;
+  establecimiento_distrito: number | null;
+  establecimiento_ciudad: number | null;
+  establecimiento_telefono: string | null;
+  establecimiento_email: string | null;
+  next_document_number: number;
+  is_active: boolean;
+  setup_completed: boolean;
+}
+
+export interface FiscalContext {
+  identity: FiscalIdentityRow;
+  link: FiscalIdentityStoreRow;
+  activities: FiscalActivityRow[];
+}
+
+export interface FiscalIdentityInput {
+  ruc: string;
+  ruc_dv: number;
+  razon_social: string;
+  nombre_fantasia?: string | null;
+  tipo_contribuyente: number;
+  tipo_regimen?: number | null;
+  sifen_environment?: SifenEnv;
+  representante_legal_nombre?: string | null;
+  representante_legal_documento_tipo?: number | null;
+  representante_legal_documento_numero?: string | null;
+  representante_legal_cargo?: string | null;
+  domicilio_fiscal_direccion?: string | null;
+  domicilio_fiscal_numero_casa?: string | null;
+  domicilio_fiscal_departamento?: number | null;
+  domicilio_fiscal_distrito?: number | null;
+  domicilio_fiscal_ciudad?: number | null;
+}
+
+export interface FiscalIdentityActivityInput {
+  codigo: string;
+  descripcion: string;
+  is_principal?: boolean;
+  display_order?: number;
+}
+
+export interface FiscalStoreLinkInput {
+  timbrado: string;
+  timbrado_fecha_inicio?: string | null;
+  timbrado_fecha_fin?: string | null;
+  establecimiento_codigo?: string;
+  punto_expedicion?: string;
+  establecimiento_direccion?: string | null;
+  establecimiento_departamento?: number | null;
+  establecimiento_distrito?: number | null;
+  establecimiento_ciudad?: number | null;
+  establecimiento_telefono?: string | null;
+  establecimiento_email?: string | null;
+}
+
+export interface InvoiceFilters {
+  status?: string;
+  tipo_documento?: number;
+  from_date?: string;
+  to_date?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// ================================================================
+// SIFEN constants
+// ================================================================
+
 function buildKudeUrl(cdc: string): string {
   return `https://ekuatia.set.gov.py/consultas/qr?nVersion=150&Id=${cdc}`;
 }
 
+// Asuncion geo codes, used when the store has no configured address.
+const ASUNCION_DEFAULTS = {
+  departamento: 1,
+  distrito: 1,
+  ciudad: 1,
+  departamentoDescripcion: 'CAPITAL',
+  distritoDescripcion: 'ASUNCION (DISTRITO)',
+  ciudadDescripcion: 'ASUNCION (DISTRITO)',
+};
+
+// ================================================================
+// xmlgen dynamic import (CommonJS interop)
+// ================================================================
+
+let xmlgen: any = null;
+async function getXmlgen() {
+  if (!xmlgen) {
+    try {
+      xmlgen = await import('facturacionelectronicapy-xmlgen');
+      xmlgen = xmlgen.default || xmlgen;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      logger.error(`[Invoicing] Failed to load xmlgen: ${message}`);
+      throw new Error('facturacionelectronicapy-xmlgen package not available');
+    }
+  }
+  return xmlgen;
+}
+
+function generateCodigoSeguridad(): string {
+  return String(Math.floor(100_000_000 + Math.random() * 899_999_999));
+}
+
+// ================================================================
+// xmlgen param builders (consume FiscalContext)
+// ================================================================
+
 /**
- * Fire-and-forget: send the invoice email to the customer.
- * Never throws. Logs errors and continues.
+ * Build xmlgen `params` (emitter + establecimiento + actividades) from
+ * a resolved fiscal context.
+ *
+ * Accepts an optional `activityCode` to restrict the actividadesEconomicas
+ * block to a single activity. Used when an identity has multiple
+ * activities and the UI offered the operator a choice.
+ */
+function buildXmlgenParams(
+  ctx: FiscalContext,
+  opts?: { tipoRegimenFallback?: number; activityCode?: string; storeTimezone?: string },
+) {
+  const { identity, link, activities } = ctx;
+  const codigo = link.establecimiento_codigo || '001';
+  const tz = opts?.storeTimezone || 'America/Asuncion';
+
+  // Principal activity first; selected code (if any) overrides.
+  let activityList = activities;
+  if (opts?.activityCode) {
+    const filtered = activities.filter((a) => a.codigo === opts.activityCode);
+    if (filtered.length === 0) {
+      throw new Error(
+        `La actividad economica ${opts.activityCode} no esta registrada en la identidad fiscal.`,
+      );
+    }
+    activityList = filtered;
+  } else if (activities.length > 1) {
+    const principal = activities.find((a) => a.is_principal);
+    activityList = principal ? [principal] : activities.slice(0, 1);
+  }
+
+  return {
+    version: 150,
+    ruc: `${identity.ruc}-${identity.ruc_dv}`,
+    razonSocial: identity.razon_social,
+    nombreFantasia: identity.nombre_fantasia || identity.razon_social,
+    timbradoNumero: link.timbrado,
+    timbradoFecha:
+      (link.timbrado_fecha_inicio || getTodayInTimezone(tz)) + 'T00:00:00',
+    tipoContribuyente: identity.tipo_contribuyente,
+    tipoRegimen: identity.tipo_regimen ?? opts?.tipoRegimenFallback ?? 8,
+    establecimientos: [
+      {
+        codigo,
+        direccion: link.establecimiento_direccion || 'Asuncion',
+        numeroCasa: '0',
+        complementoDireccion1: '',
+        complementoDireccion2: '',
+        departamento: link.establecimiento_departamento ?? ASUNCION_DEFAULTS.departamento,
+        departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
+        distrito: link.establecimiento_distrito ?? ASUNCION_DEFAULTS.distrito,
+        distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
+        ciudad: link.establecimiento_ciudad ?? ASUNCION_DEFAULTS.ciudad,
+        ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
+        telefono: link.establecimiento_telefono || '021000000',
+        email:
+          link.establecimiento_email ||
+          `facturacion@${(identity.nombre_fantasia || 'empresa').toLowerCase().replace(/\s+/g, '')}.com.py`,
+        denominacion: identity.nombre_fantasia || 'Casa Central',
+      },
+    ],
+    actividadesEconomicas: activityList.map((a) => ({
+      codigo: a.codigo,
+      descripcion: a.descripcion,
+    })),
+  };
+}
+
+/**
+ * Build xmlgen `data.usuario` (signer identity) from the fiscal context.
+ * Replaces the old hardcoded representante legal with identity-level data.
+ */
+function buildUsuarioBlock(ctx: FiscalContext) {
+  const id = ctx.identity;
+  return {
+    documentoTipo: id.representante_legal_documento_tipo ?? 1, // 1 = Cedula
+    documentoNumero: id.representante_legal_documento_numero ?? '0',
+    nombre: id.representante_legal_nombre ?? id.razon_social,
+    cargo: id.representante_legal_cargo ?? 'REPRESENTANTE LEGAL',
+  };
+}
+
+// ================================================================
+// SIFEN pipeline (shared by generate / manual / retry)
+// ================================================================
+
+async function signInjectSend(params: {
+  xmlGenerated: string;
+  docNumber: number;
+  identity: FiscalIdentityRow;
+  certPem: string;
+  privateKeyPem: string;
+}): Promise<{ xmlSigned: string; xmlFinal: string; sifen: SifenResponse }> {
+  const env = params.identity.sifen_environment as 'test' | 'prod';
+  const mtls: SifenMtls = { certPem: params.certPem, privateKeyPem: params.privateKeyPem };
+
+  const xmlSigned = await signXML(params.xmlGenerated, params.privateKeyPem, params.certPem);
+
+  const idCSC = params.identity.csc_id || SIFEN_TEST_ID_CSC;
+  const csc = SIFEN_TEST_CSC; // identity.csc is encrypted when present; stub uses test CSC
+  const xmlFinal = await injectQR(xmlSigned, env, idCSC, csc);
+
+  const sifen = await sifenClient.sendDE(String(params.docNumber), xmlFinal, env, mtls);
+
+  return { xmlSigned, xmlFinal, sifen };
+}
+
+/**
+ * Fire-and-forget invoice email dispatch.
  */
 async function dispatchInvoiceEmail(params: {
   invoiceId: string;
@@ -53,7 +331,11 @@ async function dispatchInvoiceEmail(params: {
   }
 
   const formatPyg = (amount: number) =>
-    new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(amount);
+    new Intl.NumberFormat('es-PY', {
+      style: 'currency',
+      currency: 'PYG',
+      maximumFractionDigits: 0,
+    }).format(amount);
 
   const invoiceDate = new Date(params.invoiceDate).toLocaleDateString('es-PY', {
     day: 'numeric',
@@ -80,7 +362,7 @@ async function dispatchInvoiceEmail(params: {
         kudeUrl: params.kudeUrl,
         isDemo: params.isDemo,
       },
-      params.storeName
+      params.storeName,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -88,448 +370,647 @@ async function dispatchInvoiceEmail(params: {
   }
 }
 
-/**
- * Validate Paraguay RUC DV using Modulo 11 algorithm.
- */
-function validateRucDV(ruc: string, dv: number): boolean {
-  if (!ruc || !/^\d+$/.test(ruc)) return false;
-  const baseMax = 11;
-  let total = 0;
-  let factor = 2;
-  for (let i = ruc.length - 1; i >= 0; i--) {
-    total += parseInt(ruc[i], 10) * factor;
-    factor++;
-    if (factor > baseMax) factor = 2;
-  }
-  const resto = total % 11;
-  const expected = resto > 1 ? 11 - resto : 0;
-  return expected === dv;
-}
-
-// xmlgen is dynamically imported since it's a CommonJS module
-let xmlgen: any = null;
-async function getXmlgen() {
-  if (!xmlgen) {
-    try {
-      xmlgen = await import('facturacionelectronicapy-xmlgen');
-      // Handle both default and named exports
-      xmlgen = xmlgen.default || xmlgen;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'unknown error';
-      logger.error(`[Invoicing] Failed to load xmlgen: ${message}`);
-      throw new Error('facturacionelectronicapy-xmlgen package not available');
-    }
-  }
-  return xmlgen;
-}
-
 // ================================================================
-// xmlgen param builders
+// Fiscal context resolution
 // ================================================================
 
-// Asunción geo codes from SIFEN's master categories.
-// These are sane defaults when the store has not configured its own address.
-const ASUNCION_DEFAULTS = {
-  departamento: 1, // Capital
-  distrito: 1, // Asunción
-  ciudad: 1, // Asunción (distrito)
-  departamentoDescripcion: 'CAPITAL',
-  distritoDescripcion: 'ASUNCION (DISTRITO)',
-  ciudadDescripcion: 'ASUNCION (DISTRITO)',
-};
-
 /**
- * Random 9-digit security code (dCodSeg). xmlgen embeds this into the CDC.
- * Must be a STRING in xmlgen's shape.
- */
-function generateCodigoSeguridad(): string {
-  return String(Math.floor(100_000_000 + Math.random() * 899_999_999));
-}
-
-/**
- * Build the xmlgen `params` object from the store's fiscal config.
+ * Resolve the full fiscal context (identity + link + activities) for a
+ * store via RPC. Secrets are masked (`has_certificate` boolean instead of
+ * `cert_pem` / `encrypted_private_key`).
  *
- * xmlgen v1.0.280 expects (verified against its source in
- * node_modules/facturacionelectronicapy-xmlgen/dist/services/):
- *   - ruc: full "RUC-DV" string (e.g. "80167845-5")
- *   - timbradoNumero: string, 8 digits
- *   - establecimientos: array (not string establecimiento)
- *   - actividadesEconomicas: array
+ * Returns null if the store has no linked identity yet.
  */
-function buildXmlgenParams(config: any, opts?: { tipoRegimenFallback?: number }) {
-  const codigo = config.establecimiento_codigo || '001';
-  return {
-    version: 150,
-    ruc: `${config.ruc}-${config.ruc_dv}`,
-    razonSocial: config.razon_social,
-    nombreFantasia: config.nombre_fantasia || config.razon_social,
-    timbradoNumero: config.timbrado,
-    timbradoFecha:
-      (config.timbrado_fecha_inicio || new Date().toISOString().split('T')[0]) + 'T00:00:00',
-    tipoContribuyente: config.tipo_contribuyente,
-    tipoRegimen: config.tipo_regimen ?? opts?.tipoRegimenFallback ?? 8, // 8 = Régimen general
-    establecimientos: [
-      {
-        codigo,
-        direccion: config.establecimiento_direccion || 'Asunción',
-        numeroCasa: '0',
-        complementoDireccion1: '',
-        complementoDireccion2: '',
-        departamento: config.establecimiento_departamento ?? ASUNCION_DEFAULTS.departamento,
-        departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
-        distrito: config.establecimiento_distrito ?? ASUNCION_DEFAULTS.distrito,
-        distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
-        ciudad: config.establecimiento_ciudad ?? ASUNCION_DEFAULTS.ciudad,
-        ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
-        telefono: config.establecimiento_telefono || '021000000',
-        // SIFEN schema requires dEmailE BEFORE dDenSuc. If the fiscal
-        // config has no email, default to a placeholder derived from the
-        // fantasy name so xmlgen emits the element in the right order.
-        email:
-          config.establecimiento_email ||
-          `facturacion@${(config.nombre_fantasia || 'empresa').toLowerCase().replace(/\s+/g, '')}.com.py`,
-        denominacion: config.nombre_fantasia || 'Casa Central',
-      },
-    ],
-    actividadesEconomicas: [
-      {
-        codigo: config.actividad_economica_codigo || '47114',
-        descripcion:
-          config.actividad_economica_descripcion ||
-          'Venta al por menor de productos en tiendas no especializadas',
-      },
-    ],
-  };
-}
+export async function getFiscalContext(storeId: string): Promise<FiscalContext | null> {
+  const { data, error } = await supabaseAdmin.rpc('get_fiscal_context_for_store', {
+    p_store_id: storeId,
+  });
 
-/**
- * Build the signer-identity block (data.usuario) that xmlgen expects.
- * These values identify the natural person responsible for emitting the DE
- * (required by MT-SIFEN-010 section D100 when generating B2C/B2B invoices).
- *
- * Default to the store's legal representative; callers with collaborator-
- * level invoicing should thread their own values through here.
- */
-function buildUsuarioBlock() {
-  return {
-    documentoTipo: 1, // Cédula
-    documentoNumero: '5712264',
-    nombre: 'ROGER GASTON LOPEZ ALFONSO',
-    cargo: 'REPRESENTANTE LEGAL',
-  };
-}
-
-/**
- * Sign, inject QR, and send a DE to SIFEN. Thin orchestrator for the
- * generate{Invoice,ManualInvoice} flows.
- */
-async function signInjectSend(params: {
-  xmlGenerated: string;
-  docNumber: number;
-  config: any;
-}): Promise<{ xmlSigned: string; xmlFinal: string; sifen: SifenResponse }> {
-  if (!params.config.encrypted_private_key || !params.config.cert_pem) {
-    throw new Error(
-      'Certificado digital no configurado. Suba un certificado .p12 en la configuración fiscal.',
-    );
+  if (error) {
+    logger.error(`[Invoicing] get_fiscal_context_for_store error: ${error.message}`);
+    return null;
   }
+  if (!data) return null;
 
-  const env = params.config.sifen_environment as 'test' | 'prod';
-  const privateKeyPem = decrypt(params.config.encrypted_private_key);
-  const certPem = params.config.cert_pem as string;
-  const mtls: SifenMtls = { certPem, privateKeyPem };
-
-  // 1. Enveloped RSA-SHA256 signature over DE (sibling position inside rDE)
-  const xmlSigned = await signXML(params.xmlGenerated, privateKeyPem, certPem);
-
-  // 2. Inject gCamFuFD/dCarQR. Uses store's CSC if configured, else test
-  //    defaults. Real idCSC/CSC for production are issued by DNIT.
-  const idCSC = params.config.csc_id || SIFEN_TEST_ID_CSC;
-  const csc = params.config.csc || SIFEN_TEST_CSC;
-  const xmlFinal = await injectQR(xmlSigned, env, idCSC, csc);
-
-  // 3. Send via mTLS
-  const sifen = await sifenClient.sendDE(String(params.docNumber), xmlFinal, env, mtls);
-
-  return { xmlSigned, xmlFinal, sifen };
+  return data as FiscalContext;
 }
-
-// ================================================================
-// Types
-// ================================================================
-
-export interface FiscalConfigInput {
-  ruc: string;
-  ruc_dv: number;
-  razon_social: string;
-  nombre_fantasia?: string;
-  tipo_contribuyente: number;
-  tipo_regimen?: number;
-  timbrado: string;
-  timbrado_fecha_inicio?: string;
-  timbrado_fecha_fin?: string;
-  establecimiento_codigo?: string;
-  punto_expedicion?: string;
-  establecimiento_direccion?: string;
-  establecimiento_departamento?: number;
-  establecimiento_distrito?: number;
-  establecimiento_ciudad?: number;
-  establecimiento_telefono?: string;
-  actividad_economica_codigo?: string;
-  actividad_economica_descripcion?: string;
-  sifen_environment?: SifenEnv;
-}
-
-export interface FiscalConfig extends FiscalConfigInput {
-  id: string;
-  store_id: string;
-  cert_pem: string | null;
-  encrypted_private_key: string | null;
-  next_document_number: number;
-  is_active: boolean;
-  setup_completed: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface InvoiceFilters {
-  status?: string;
-  tipo_documento?: number;
-  from_date?: string;
-  to_date?: string;
-  limit?: number;
-  offset?: number;
-}
-
-// ================================================================
-// Fiscal Config Management
-// ================================================================
 
 /**
- * Get the fiscal config for a store. Masks sensitive fields.
+ * Internal: load raw secrets (cert_pem + decrypted private key) for a
+ * store's identity. Never returns these to the client.
  */
-export async function getFiscalConfig(storeId: string) {
+async function loadCertificateMaterial(
+  identityId: string,
+): Promise<{ certPem: string; privateKeyPem: string }> {
   const { data, error } = await supabaseAdmin
-    .from('fiscal_config')
-    .select('*')
-    .eq('store_id', storeId)
+    .from('fiscal_identities')
+    .select('cert_pem, encrypted_private_key')
+    .eq('id', identityId)
     .eq('is_active', true)
     .single();
 
-  if (error || !data) return null;
+  if (error || !data) throw new Error('Identidad fiscal no encontrada');
+  if (!data.cert_pem || !data.encrypted_private_key) {
+    throw new Error('Certificado digital no configurado en la identidad fiscal.');
+  }
 
-  // Mask sensitive fields before returning to client
   return {
-    ...data,
-    cert_pem: data.cert_pem ? '[PRESENT]' : null,
-    encrypted_private_key: data.encrypted_private_key ? '[PRESENT]' : null,
+    certPem: data.cert_pem as string,
+    privateKeyPem: decrypt(data.encrypted_private_key as string),
   };
 }
 
-/**
- * Create or update fiscal config for a store.
- */
-export async function setupFiscalConfig(storeId: string, input: FiscalConfigInput) {
-  // Validate RUC + DV (Modulo 11)
-  if (!validateRucDV(input.ruc, input.ruc_dv)) {
-    throw new Error('El dígito verificador (DV) no coincide con el RUC. Verifique el número.');
-  }
+// ================================================================
+// Identity CRUD
+// ================================================================
 
-  // Check if config already exists
-  const { data: existing } = await supabaseAdmin
-    .from('fiscal_config')
-    .select('id')
-    .eq('store_id', storeId)
-    .single();
+/**
+ * Create a new fiscal identity for the given owner. The identity is
+ * shareable across the owner's stores via linkIdentityToStore.
+ */
+export async function createIdentity(
+  ownerUserId: string,
+  input: FiscalIdentityInput,
+): Promise<FiscalIdentityRow> {
+  if (!validateRucDV(input.ruc, input.ruc_dv)) {
+    throw new Error('El digito verificador (DV) no coincide con el RUC. Verifique el numero.');
+  }
 
   const environment = input.sifen_environment || 'demo';
 
-  const configData = {
-    store_id: storeId,
-    ruc: input.ruc,
-    ruc_dv: input.ruc_dv,
-    razon_social: input.razon_social,
-    nombre_fantasia: input.nombre_fantasia || null,
-    tipo_contribuyente: input.tipo_contribuyente,
-    tipo_regimen: input.tipo_regimen || null,
-    timbrado: input.timbrado,
-    timbrado_fecha_inicio: input.timbrado_fecha_inicio || null,
-    timbrado_fecha_fin: input.timbrado_fecha_fin || null,
-    establecimiento_codigo: input.establecimiento_codigo || '001',
-    punto_expedicion: input.punto_expedicion || '001',
-    establecimiento_direccion: input.establecimiento_direccion || null,
-    establecimiento_departamento: input.establecimiento_departamento || null,
-    establecimiento_distrito: input.establecimiento_distrito || null,
-    establecimiento_ciudad: input.establecimiento_ciudad || null,
-    establecimiento_telefono: input.establecimiento_telefono || null,
-    actividad_economica_codigo: input.actividad_economica_codigo || null,
-    actividad_economica_descripcion: input.actividad_economica_descripcion || null,
-    sifen_environment: environment,
-    is_active: true,
-    // In demo mode, setup is complete without certificate (cert only needed for signing in test/prod)
-    // In test/prod, setup_completed is set to true when certificate is uploaded
-    setup_completed: environment === 'demo',
-  };
+  const { data, error } = await supabaseAdmin
+    .from('fiscal_identities')
+    .insert({
+      owner_user_id: ownerUserId,
+      ruc: input.ruc,
+      ruc_dv: input.ruc_dv,
+      razon_social: input.razon_social,
+      nombre_fantasia: input.nombre_fantasia ?? null,
+      tipo_contribuyente: input.tipo_contribuyente,
+      tipo_regimen: input.tipo_regimen ?? null,
+      country: 'PY',
+      sifen_environment: environment,
+      representante_legal_nombre: input.representante_legal_nombre ?? null,
+      representante_legal_documento_tipo: input.representante_legal_documento_tipo ?? null,
+      representante_legal_documento_numero: input.representante_legal_documento_numero ?? null,
+      representante_legal_cargo: input.representante_legal_cargo ?? null,
+      domicilio_fiscal_direccion: input.domicilio_fiscal_direccion ?? null,
+      domicilio_fiscal_numero_casa: input.domicilio_fiscal_numero_casa ?? null,
+      domicilio_fiscal_departamento: input.domicilio_fiscal_departamento ?? null,
+      domicilio_fiscal_distrito: input.domicilio_fiscal_distrito ?? null,
+      domicilio_fiscal_ciudad: input.domicilio_fiscal_ciudad ?? null,
+    })
+    .select(
+      'id, owner_user_id, ruc, ruc_dv, razon_social, nombre_fantasia, tipo_contribuyente, tipo_regimen, country, sifen_environment, csc_id, representante_legal_nombre, representante_legal_documento_tipo, representante_legal_documento_numero, representante_legal_cargo, domicilio_fiscal_direccion, domicilio_fiscal_numero_casa, domicilio_fiscal_departamento, domicilio_fiscal_distrito, domicilio_fiscal_ciudad, is_active, created_at, updated_at',
+    )
+    .single();
 
-  if (existing) {
-    const { data, error } = await supabaseAdmin
-      .from('fiscal_config')
-      .update(configData)
-      .eq('id', existing.id)
-      .select()
-      .single();
-
-    if (error) throw new Error(`Error updating fiscal config: ${error.message}`);
-    return data;
-  } else {
-    const { data, error } = await supabaseAdmin
-      .from('fiscal_config')
-      .insert(configData)
-      .select()
-      .single();
-
-    if (error) throw new Error(`Error creating fiscal config: ${error.message}`);
-    return data;
+  if (error || !data) {
+    throw new Error(`Error creando identidad fiscal: ${error?.message ?? 'unknown'}`);
   }
+
+  return { ...(data as any), has_certificate: false } as FiscalIdentityRow;
 }
 
 /**
- * Process a .p12 certificate upload.
- *
- * Security contract:
- *   1. Parse the .p12 in memory, extract private key PEM + certificate PEM.
- *   2. Encrypt the private key with AES-256-GCM using SIFEN_ENCRYPTION_KEY (Railway env var).
- *   3. Persist: cert_pem (not secret), encrypted_private_key, nothing else.
- *   4. The .p12 buffer and the merchant password never reach the database.
+ * Update an existing identity. Does not touch the certificate.
  */
-export async function uploadCertificate(
-  storeId: string,
-  certBuffer: Buffer,
-  certPassword: string,
-) {
-  // Extract PEMs server-side; throws if password is wrong or file is corrupt
-  const { privateKeyPem, certPem } = await extractPemsFromP12(certBuffer, certPassword);
+export async function updateIdentity(
+  identityId: string,
+  input: Partial<FiscalIdentityInput>,
+): Promise<FiscalIdentityRow> {
+  if (input.ruc && input.ruc_dv !== undefined) {
+    if (!validateRucDV(input.ruc, input.ruc_dv)) {
+      throw new Error('El digito verificador (DV) no coincide con el RUC.');
+    }
+  }
 
-  // Encrypt the private key (the only secret). Password is discarded after this line.
-  const encryptedPrivateKey = encrypt(privateKeyPem);
+  const patch: Record<string, unknown> = {};
+  const writable: (keyof FiscalIdentityInput)[] = [
+    'razon_social',
+    'nombre_fantasia',
+    'tipo_contribuyente',
+    'tipo_regimen',
+    'sifen_environment',
+    'representante_legal_nombre',
+    'representante_legal_documento_tipo',
+    'representante_legal_documento_numero',
+    'representante_legal_cargo',
+    'domicilio_fiscal_direccion',
+    'domicilio_fiscal_numero_casa',
+    'domicilio_fiscal_departamento',
+    'domicilio_fiscal_distrito',
+    'domicilio_fiscal_ciudad',
+  ];
+  for (const key of writable) {
+    if (input[key] !== undefined) patch[key] = input[key];
+  }
+  // RUC / DV only mutable when both provided together.
+  if (input.ruc !== undefined && input.ruc_dv !== undefined) {
+    patch.ruc = input.ruc;
+    patch.ruc_dv = input.ruc_dv;
+  }
 
-  // certPassword and certBuffer are no longer referenced after this point.
-  // Node GC will collect them; they never leave this process.
+  if (Object.keys(patch).length === 0) {
+    throw new Error('Nada para actualizar.');
+  }
 
   const { data, error } = await supabaseAdmin
-    .from('fiscal_config')
+    .from('fiscal_identities')
+    .update(patch)
+    .eq('id', identityId)
+    .select(
+      'id, owner_user_id, ruc, ruc_dv, razon_social, nombre_fantasia, tipo_contribuyente, tipo_regimen, country, sifen_environment, csc_id, representante_legal_nombre, representante_legal_documento_tipo, representante_legal_documento_numero, representante_legal_cargo, domicilio_fiscal_direccion, domicilio_fiscal_numero_casa, domicilio_fiscal_departamento, domicilio_fiscal_distrito, domicilio_fiscal_ciudad, is_active, created_at, updated_at, cert_pem, encrypted_private_key',
+    )
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Error actualizando identidad fiscal: ${error?.message ?? 'unknown'}`);
+  }
+
+  const hasCert = Boolean((data as any).cert_pem && (data as any).encrypted_private_key);
+  const { cert_pem: _a, encrypted_private_key: _b, ...rest } = data as any;
+  return { ...rest, has_certificate: hasCert } as FiscalIdentityRow;
+}
+
+/**
+ * List fiscal identities owned by the given user.
+ */
+export async function listIdentitiesForOwner(
+  ownerUserId: string,
+): Promise<Array<FiscalIdentityRow & { activities: FiscalActivityRow[] }>> {
+  const { data, error } = await supabaseAdmin
+    .from('fiscal_identities')
+    .select(
+      'id, owner_user_id, ruc, ruc_dv, razon_social, nombre_fantasia, tipo_contribuyente, tipo_regimen, country, sifen_environment, cert_pem, encrypted_private_key, csc_id, representante_legal_nombre, representante_legal_documento_tipo, representante_legal_documento_numero, representante_legal_cargo, domicilio_fiscal_direccion, domicilio_fiscal_numero_casa, domicilio_fiscal_departamento, domicilio_fiscal_distrito, domicilio_fiscal_ciudad, is_active, created_at, updated_at, fiscal_identity_activities(id, codigo, descripcion, is_principal, display_order)',
+    )
+    .eq('owner_user_id', ownerUserId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: true });
+
+  if (error) throw new Error(`Error listando identidades: ${error.message}`);
+
+  return (data ?? []).map((row: any) => {
+    const { cert_pem, encrypted_private_key, fiscal_identity_activities, ...rest } = row;
+    return {
+      ...rest,
+      has_certificate: Boolean(cert_pem && encrypted_private_key),
+      activities: (fiscal_identity_activities ?? []).sort(
+        (a: FiscalActivityRow, b: FiscalActivityRow) => a.display_order - b.display_order,
+      ),
+    };
+  });
+}
+
+// ================================================================
+// Identity activities CRUD
+// ================================================================
+
+export async function addIdentityActivity(
+  identityId: string,
+  input: FiscalIdentityActivityInput,
+): Promise<FiscalActivityRow> {
+  const is_principal = input.is_principal ?? false;
+
+  // If flagging as principal, demote any other principal first.
+  if (is_principal) {
+    await supabaseAdmin
+      .from('fiscal_identity_activities')
+      .update({ is_principal: false })
+      .eq('identity_id', identityId)
+      .eq('is_principal', true);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('fiscal_identity_activities')
+    .insert({
+      identity_id: identityId,
+      codigo: input.codigo,
+      descripcion: input.descripcion,
+      is_principal,
+      display_order: input.display_order ?? 0,
+    })
+    .select('id, codigo, descripcion, is_principal, display_order')
+    .single();
+
+  if (error || !data) throw new Error(`Error creando actividad: ${error?.message ?? 'unknown'}`);
+  return data as FiscalActivityRow;
+}
+
+export async function updateIdentityActivity(
+  identityId: string,
+  activityId: string,
+  input: Partial<FiscalIdentityActivityInput>,
+): Promise<FiscalActivityRow> {
+  const patch: Record<string, unknown> = {};
+  if (input.codigo !== undefined) patch.codigo = input.codigo;
+  if (input.descripcion !== undefined) patch.descripcion = input.descripcion;
+  if (input.display_order !== undefined) patch.display_order = input.display_order;
+
+  if (input.is_principal === true) {
+    await supabaseAdmin
+      .from('fiscal_identity_activities')
+      .update({ is_principal: false })
+      .eq('identity_id', identityId)
+      .neq('id', activityId);
+    patch.is_principal = true;
+  } else if (input.is_principal === false) {
+    patch.is_principal = false;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('fiscal_identity_activities')
+    .update(patch)
+    .eq('id', activityId)
+    .eq('identity_id', identityId)
+    .select('id, codigo, descripcion, is_principal, display_order')
+    .single();
+
+  if (error || !data) throw new Error(`Error actualizando actividad: ${error?.message ?? 'unknown'}`);
+  return data as FiscalActivityRow;
+}
+
+export async function deleteIdentityActivity(
+  identityId: string,
+  activityId: string,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('fiscal_identity_activities')
+    .delete()
+    .eq('id', activityId)
+    .eq('identity_id', identityId);
+
+  if (error) throw new Error(`Error eliminando actividad: ${error.message}`);
+}
+
+// ================================================================
+// Identity <-> Store link CRUD
+// ================================================================
+
+/**
+ * Link an existing identity to a store with its establecimiento / punto /
+ * timbrado config. Fails if the store is already linked (one-per-store
+ * enforced by UNIQUE on fiscal_identity_stores.store_id).
+ */
+export async function linkIdentityToStore(
+  identityId: string,
+  storeId: string,
+  input: FiscalStoreLinkInput,
+): Promise<FiscalIdentityStoreRow> {
+  const { data, error } = await supabaseAdmin
+    .from('fiscal_identity_stores')
+    .insert({
+      identity_id: identityId,
+      store_id: storeId,
+      timbrado: input.timbrado,
+      timbrado_fecha_inicio: input.timbrado_fecha_inicio ?? null,
+      timbrado_fecha_fin: input.timbrado_fecha_fin ?? null,
+      establecimiento_codigo: input.establecimiento_codigo ?? '001',
+      punto_expedicion: input.punto_expedicion ?? '001',
+      establecimiento_direccion: input.establecimiento_direccion ?? null,
+      establecimiento_departamento: input.establecimiento_departamento ?? null,
+      establecimiento_distrito: input.establecimiento_distrito ?? null,
+      establecimiento_ciudad: input.establecimiento_ciudad ?? null,
+      establecimiento_telefono: input.establecimiento_telefono ?? null,
+      establecimiento_email: input.establecimiento_email ?? null,
+      setup_completed: true,
+    })
+    .select(
+      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, next_document_number, is_active, setup_completed',
+    )
+    .single();
+
+  if (error || !data) throw new Error(`Error vinculando identidad a tienda: ${error?.message ?? 'unknown'}`);
+  return data as FiscalIdentityStoreRow;
+}
+
+/**
+ * Update the per-store fields (establecimiento, punto, timbrado, etc).
+ */
+export async function updateStoreFields(
+  storeId: string,
+  input: Partial<FiscalStoreLinkInput>,
+): Promise<FiscalIdentityStoreRow> {
+  const patch: Record<string, unknown> = {};
+  const writable: (keyof FiscalStoreLinkInput)[] = [
+    'timbrado',
+    'timbrado_fecha_inicio',
+    'timbrado_fecha_fin',
+    'establecimiento_codigo',
+    'punto_expedicion',
+    'establecimiento_direccion',
+    'establecimiento_departamento',
+    'establecimiento_distrito',
+    'establecimiento_ciudad',
+    'establecimiento_telefono',
+    'establecimiento_email',
+  ];
+  for (const key of writable) {
+    if (input[key] !== undefined) patch[key] = input[key];
+  }
+
+  if (Object.keys(patch).length === 0) throw new Error('Nada para actualizar.');
+
+  const { data, error } = await supabaseAdmin
+    .from('fiscal_identity_stores')
+    .update(patch)
+    .eq('store_id', storeId)
+    .eq('is_active', true)
+    .select(
+      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, next_document_number, is_active, setup_completed',
+    )
+    .single();
+
+  if (error || !data) throw new Error(`Error actualizando link: ${error?.message ?? 'unknown'}`);
+  return data as FiscalIdentityStoreRow;
+}
+
+// ================================================================
+// Certificate upload (identity-level)
+// ================================================================
+
+/**
+ * Process a .p12 certificate upload at the identity level. All stores
+ * linked to this identity will share the same certificate.
+ *
+ * Security contract (unchanged from legacy):
+ *   1. Parse the .p12 in memory, extract private key PEM + certificate PEM.
+ *   2. Encrypt the private key with AES-256-GCM using SIFEN_ENCRYPTION_KEY.
+ *   3. Persist: cert_pem (not secret), encrypted_private_key.
+ *   4. The .p12 buffer and password never reach the database.
+ */
+export async function uploadCertificate(
+  identityId: string,
+  certBuffer: Buffer,
+  certPassword: string,
+): Promise<{ identity_id: string; has_certificate: true }> {
+  const { privateKeyPem, certPem } = await extractPemsFromP12(certBuffer, certPassword);
+  const encryptedPrivateKey = encrypt(privateKeyPem);
+
+  const { error } = await supabaseAdmin
+    .from('fiscal_identities')
     .update({
       cert_pem: certPem,
       encrypted_private_key: encryptedPrivateKey,
-      setup_completed: true,
     })
-    .eq('store_id', storeId)
-    .eq('is_active', true)
-    .select('id, setup_completed')
-    .single();
+    .eq('id', identityId)
+    .eq('is_active', true);
 
-  if (error) throw new Error(`Error uploading certificate: ${error.message}`);
-  return data;
+  if (error) throw new Error(`Error guardando certificado: ${error.message}`);
+
+  // Mark all linked stores as setup_completed (certificate unblocks them).
+  await supabaseAdmin
+    .from('fiscal_identity_stores')
+    .update({ setup_completed: true })
+    .eq('identity_id', identityId)
+    .eq('is_active', true);
+
+  return { identity_id: identityId, has_certificate: true };
+}
+
+// ================================================================
+// Legacy-compatible facade: keeps /api/invoicing/config working
+// ================================================================
+
+/**
+ * Legacy wrapper. Returns a flat shape that mirrors the old fiscal_config
+ * row (with secrets masked). Used by the current wizard until it is split
+ * into identity / link / certificate.
+ */
+export async function getFiscalConfig(storeId: string) {
+  const ctx = await getFiscalContext(storeId);
+  if (!ctx) return null;
+
+  return {
+    id: ctx.link.id,
+    store_id: ctx.link.store_id,
+    ruc: ctx.identity.ruc,
+    ruc_dv: ctx.identity.ruc_dv,
+    razon_social: ctx.identity.razon_social,
+    nombre_fantasia: ctx.identity.nombre_fantasia,
+    tipo_contribuyente: ctx.identity.tipo_contribuyente,
+    tipo_regimen: ctx.identity.tipo_regimen,
+    timbrado: ctx.link.timbrado,
+    timbrado_fecha_inicio: ctx.link.timbrado_fecha_inicio,
+    timbrado_fecha_fin: ctx.link.timbrado_fecha_fin,
+    establecimiento_codigo: ctx.link.establecimiento_codigo,
+    punto_expedicion: ctx.link.punto_expedicion,
+    establecimiento_direccion: ctx.link.establecimiento_direccion,
+    establecimiento_departamento: ctx.link.establecimiento_departamento,
+    establecimiento_distrito: ctx.link.establecimiento_distrito,
+    establecimiento_ciudad: ctx.link.establecimiento_ciudad,
+    establecimiento_telefono: ctx.link.establecimiento_telefono,
+    establecimiento_email: ctx.link.establecimiento_email,
+    actividad_economica_codigo: ctx.activities.find((a) => a.is_principal)?.codigo ?? null,
+    actividad_economica_descripcion: ctx.activities.find((a) => a.is_principal)?.descripcion ?? null,
+    sifen_environment: ctx.identity.sifen_environment,
+    next_document_number: ctx.link.next_document_number,
+    is_active: ctx.link.is_active,
+    setup_completed: ctx.link.setup_completed,
+    identity_id: ctx.identity.id,
+    cert_pem: ctx.identity.has_certificate ? '[PRESENT]' : null,
+    encrypted_private_key: ctx.identity.has_certificate ? '[PRESENT]' : null,
+  };
 }
 
 /**
- * Validate the current fiscal config.
+ * Legacy wrapper: receive the merged wizard payload and internally split
+ * it into createIdentity + linkIdentityToStore. Idempotent on the link
+ * (if the store already has an identity, we update in place).
+ */
+export async function setupFiscalConfig(
+  storeId: string,
+  input: {
+    ruc: string;
+    ruc_dv: number;
+    razon_social: string;
+    nombre_fantasia?: string;
+    tipo_contribuyente: number;
+    tipo_regimen?: number;
+    timbrado: string;
+    timbrado_fecha_inicio?: string;
+    timbrado_fecha_fin?: string;
+    establecimiento_codigo?: string;
+    punto_expedicion?: string;
+    establecimiento_direccion?: string;
+    establecimiento_departamento?: number;
+    establecimiento_distrito?: number;
+    establecimiento_ciudad?: number;
+    establecimiento_telefono?: string;
+    establecimiento_email?: string;
+    actividad_economica_codigo?: string;
+    actividad_economica_descripcion?: string;
+    sifen_environment?: SifenEnv;
+  },
+) {
+  if (!validateRucDV(input.ruc, input.ruc_dv)) {
+    throw new Error('El digito verificador (DV) no coincide con el RUC. Verifique el numero.');
+  }
+
+  // Resolve store owner (same rule as migration 161 data migration).
+  const { data: ownerRow } = await supabaseAdmin
+    .from('user_stores')
+    .select('user_id')
+    .eq('store_id', storeId)
+    .eq('role', 'owner')
+    .eq('is_active', true)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!ownerRow) {
+    throw new Error('No se encontro owner para esta tienda.');
+  }
+  const ownerUserId = ownerRow.user_id as string;
+
+  // Upsert identity (by owner + RUC + DV).
+  let identityId: string;
+  const { data: existingIdentity } = await supabaseAdmin
+    .from('fiscal_identities')
+    .select('id')
+    .eq('owner_user_id', ownerUserId)
+    .eq('ruc', input.ruc)
+    .eq('ruc_dv', input.ruc_dv)
+    .maybeSingle();
+
+  if (existingIdentity) {
+    identityId = existingIdentity.id;
+    await updateIdentity(identityId, {
+      razon_social: input.razon_social,
+      nombre_fantasia: input.nombre_fantasia,
+      tipo_contribuyente: input.tipo_contribuyente,
+      tipo_regimen: input.tipo_regimen,
+      sifen_environment: input.sifen_environment,
+    });
+  } else {
+    const identity = await createIdentity(ownerUserId, {
+      ruc: input.ruc,
+      ruc_dv: input.ruc_dv,
+      razon_social: input.razon_social,
+      nombre_fantasia: input.nombre_fantasia,
+      tipo_contribuyente: input.tipo_contribuyente,
+      tipo_regimen: input.tipo_regimen,
+      sifen_environment: input.sifen_environment,
+    });
+    identityId = identity.id;
+  }
+
+  // Upsert activity (legacy path exposes a single principal activity).
+  if (input.actividad_economica_codigo && input.actividad_economica_descripcion) {
+    const { data: existingActivity } = await supabaseAdmin
+      .from('fiscal_identity_activities')
+      .select('id')
+      .eq('identity_id', identityId)
+      .eq('codigo', input.actividad_economica_codigo)
+      .maybeSingle();
+
+    if (existingActivity) {
+      await updateIdentityActivity(identityId, existingActivity.id, {
+        descripcion: input.actividad_economica_descripcion,
+        is_principal: true,
+      });
+    } else {
+      await addIdentityActivity(identityId, {
+        codigo: input.actividad_economica_codigo,
+        descripcion: input.actividad_economica_descripcion,
+        is_principal: true,
+      });
+    }
+  }
+
+  // Upsert link.
+  const { data: existingLink } = await supabaseAdmin
+    .from('fiscal_identity_stores')
+    .select('id')
+    .eq('store_id', storeId)
+    .maybeSingle();
+
+  if (existingLink) {
+    await updateStoreFields(storeId, {
+      timbrado: input.timbrado,
+      timbrado_fecha_inicio: input.timbrado_fecha_inicio,
+      timbrado_fecha_fin: input.timbrado_fecha_fin,
+      establecimiento_codigo: input.establecimiento_codigo,
+      punto_expedicion: input.punto_expedicion,
+      establecimiento_direccion: input.establecimiento_direccion,
+      establecimiento_departamento: input.establecimiento_departamento,
+      establecimiento_distrito: input.establecimiento_distrito,
+      establecimiento_ciudad: input.establecimiento_ciudad,
+      establecimiento_telefono: input.establecimiento_telefono,
+      establecimiento_email: input.establecimiento_email,
+    });
+  } else {
+    await linkIdentityToStore(identityId, storeId, {
+      timbrado: input.timbrado,
+      timbrado_fecha_inicio: input.timbrado_fecha_inicio,
+      timbrado_fecha_fin: input.timbrado_fecha_fin,
+      establecimiento_codigo: input.establecimiento_codigo,
+      punto_expedicion: input.punto_expedicion,
+      establecimiento_direccion: input.establecimiento_direccion,
+      establecimiento_departamento: input.establecimiento_departamento,
+      establecimiento_distrito: input.establecimiento_distrito,
+      establecimiento_ciudad: input.establecimiento_ciudad,
+      establecimiento_telefono: input.establecimiento_telefono,
+      establecimiento_email: input.establecimiento_email,
+    });
+  }
+
+  return getFiscalConfig(storeId);
+}
+
+/**
+ * Legacy wrapper: validate via RPC (which now reads from new schema).
  */
 export async function validateConfig(storeId: string) {
-  // Try the RPC first (available after migration 125)
-  const { data, error } = await supabaseAdmin
-    .rpc('validate_fiscal_config', { p_store_id: storeId });
-
-  if (!error) return data;
-
-  // Fallback validation if RPC doesn't exist yet
-  logger.warn('[Invoicing] validate_fiscal_config RPC not available, using fallback:', error.message);
-
-  const config = await getFiscalConfig(storeId);
-  if (!config) {
-    return { valid: false, errors: ['No hay configuración fiscal activa'], warnings: [] };
-  }
-
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  if (!config.ruc) errors.push('RUC no configurado');
-  if (!config.razon_social) errors.push('Razón social no configurada');
-  if (!config.timbrado) errors.push('Timbrado no configurado');
-  if (!config.tipo_contribuyente) errors.push('Tipo de contribuyente no configurado');
-
-  if (config.sifen_environment !== 'demo') {
-    // cert_pem and encrypted_private_key are masked as '[PRESENT]' when present
-    if (!config.cert_pem) {
-      errors.push('Certificado digital requerido para ambiente ' + config.sifen_environment);
-    }
-    if (!config.encrypted_private_key) {
-      errors.push('Clave privada del certificado no configurada');
-    }
-  }
-
-  if (!config.establecimiento_codigo) warnings.push('Código de establecimiento no configurado (usando 001)');
-  if (!config.punto_expedicion) warnings.push('Punto de expedición no configurado (usando 001)');
-
-  return { valid: errors.length === 0, errors, warnings };
+  const { data, error } = await supabaseAdmin.rpc('validate_fiscal_config', {
+    p_store_id: storeId,
+  });
+  if (error) throw new Error(`Error validando config: ${error.message}`);
+  return data;
 }
 
 // ================================================================
 // Invoice Generation
 // ================================================================
 
-/**
- * Generate an invoice for a delivered order.
- * Full pipeline: validate → build XML → sign → send/mock → store.
- */
-export async function generateInvoice(storeId: string, orderId: string) {
+export async function generateInvoice(
+  storeId: string,
+  orderId: string,
+  opts?: { activityCode?: string },
+) {
   logger.info(`[Invoicing] Generating invoice for order ${orderId} in store ${storeId}`);
 
-  // 1. Get fiscal config
-  const { data: config, error: configErr } = await supabaseAdmin
-    .from('fiscal_config')
-    .select('*')
-    .eq('store_id', storeId)
-    .eq('is_active', true)
-    .single();
-
-  if (configErr || !config) {
-    throw new Error('No active fiscal configuration found. Please complete setup first.');
+  const ctx = await getFiscalContext(storeId);
+  if (!ctx) {
+    throw new Error('No hay configuracion fiscal activa para esta tienda.');
   }
+  assertInvoicingCountry(ctx);
+  assertReadyToEmit(ctx);
 
-  // 2. Get order with line items and customer data, plus store name in parallel
   const [orderResult, storeResult] = await Promise.all([
     supabaseAdmin
       .from('orders')
-      .select(`
-        *,
+      .select(
+        `*,
         order_line_items(id, product_name, quantity, unit_price, sku),
-        customers(name, email, address)
-      `)
+        customers(name, email, address)`,
+      )
       .eq('id', orderId)
       .eq('store_id', storeId)
       .single(),
-    supabaseAdmin
-      .from('stores')
-      .select('name')
-      .eq('id', storeId)
-      .single(),
+    supabaseAdmin.from('stores').select('name').eq('id', storeId).single(),
   ]);
 
   const { data: order, error: orderErr } = orderResult;
+  if (orderErr || !order) throw new Error(`Order not found: ${orderId}`);
 
-  if (orderErr || !order) {
-    throw new Error(`Order not found: ${orderId}`);
-  }
+  const storeName =
+    storeResult.data?.name || ctx.identity.razon_social || ctx.identity.nombre_fantasia || 'Tienda';
 
-  const storeName = storeResult.data?.name || config.razon_social || config.nombre_fantasia || 'Tienda';
-
-  // 3. Validate customer has RUC
   if (!order.customer_ruc) {
-    throw new Error('Customer RUC is required for invoicing. Order has no customer_ruc.');
+    throw new Error('El cliente de esta orden no tiene RUC. Agrega el RUC antes de facturar.');
   }
 
-  // Check if invoice already exists for this order
   const { data: existingInvoice } = await supabaseAdmin
     .from('invoices')
     .select('id, cdc, sifen_status')
@@ -539,67 +1020,64 @@ export async function generateInvoice(storeId: string, orderId: string) {
     .single();
 
   if (existingInvoice) {
-    throw new Error(`Invoice already exists for this order (CDC: ${existingInvoice.cdc || 'pending'})`);
+    throw new Error(`Ya existe una factura para esta orden (CDC: ${existingInvoice.cdc || 'pending'})`);
   }
 
-  // 4. Get next document number (atomic)
-  const { data: docNumber, error: docErr } = await supabaseAdmin
-    .rpc('get_next_invoice_number', { p_store_id: storeId });
+  const { data: docNumber, error: docErr } = await supabaseAdmin.rpc('get_next_invoice_number', {
+    p_store_id: storeId,
+  });
 
   if (docErr || !docNumber) {
-    throw new Error(`Failed to get next document number: ${docErr?.message}`);
+    throw new Error(`No se pudo obtener el siguiente numero de documento: ${docErr?.message}`);
   }
 
-  // 5. Build parameters for xmlgen
-  const isDemo = config.sifen_environment === 'demo';
+  const isDemo = ctx.identity.sifen_environment === 'demo';
   const lineItems = order.order_line_items || [];
-
-  // Calculate IVA (Paraguay: 10% standard rate)
-  const subtotal = lineItems.reduce((sum: number, item: any) => {
-    return sum + (item.unit_price || 0) * (item.quantity || 1);
-  }, 0);
-
-  // All items at 10% IVA rate by default
-  const iva10 = Math.round(subtotal / 11); // IVA included in price
+  const subtotal = lineItems.reduce(
+    (sum: number, item: any) => sum + (item.unit_price || 0) * (item.quantity || 1),
+    0,
+  );
+  const iva10 = Math.round(subtotal / 11);
   const total = subtotal;
 
-  // Build xmlgen params (full shape: establecimientos[], actividadesEconomicas[])
-  const params = buildXmlgenParams(config);
+  // SIFEN requires the invoice date in local Paraguay time. Building it from
+  // UTC at 21:00+ local drifts into "tomorrow" and the receipt is rejected.
+  const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+  const params = buildXmlgenParams(ctx, {
+    activityCode: opts?.activityCode,
+    storeTimezone: storeTz,
+  });
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayInTimezone(storeTz);
   const numeroStr = String(docNumber).padStart(7, '0');
-  const estab = config.establecimiento_codigo || '001';
-  const punto = config.punto_expedicion || '001';
+  const estab = ctx.link.establecimiento_codigo || '001';
+  const punto = ctx.link.punto_expedicion || '001';
 
   const data = {
-    tipoDocumento: 1, // Factura electrónica
+    tipoDocumento: 1,
     establecimiento: estab,
     punto,
     numero: numeroStr,
     fecha: today + 'T12:00:00',
     codigoSeguridadAleatorio: generateCodigoSeguridad(),
     tipoEmision: 1,
-    // 1 = Venta de mercaderías. (2 = Prestación de servicios.) Since orders
-    // carry physical line items, default to 1; operators with service-only
-    // products should override this on the fiscal config.
     tipoTransaccion: 1,
     tipoImpuesto: 1,
     moneda: 'PYG',
     cliente: {
       contribuyente: true,
-      // xmlgen expects "RUC-DV" concatenated, not separate fields.
       ruc:
         order.customer_ruc_dv !== undefined && order.customer_ruc_dv !== null
           ? `${order.customer_ruc}-${order.customer_ruc_dv}`
           : order.customer_ruc,
       dvRuc: order.customer_ruc_dv,
-      tipoOperacion: 1, // B2B
+      tipoOperacion: 1,
       razonSocial: order.customer_name || order.customers?.name || 'Sin nombre',
       nombreFantasia: order.customer_name || order.customers?.name || 'Sin nombre',
       tipoContribuyente: 1,
       documentoTipo: 1,
       documentoNumero: String(order.customer_ruc || '0'),
-      direccion: order.customer_address || order.customers?.address || order.address || 'Asunción',
+      direccion: order.customer_address || order.customers?.address || order.address || 'Asuncion',
       numeroCasa: '0',
       departamento: ASUNCION_DEFAULTS.departamento,
       departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
@@ -611,51 +1089,39 @@ export async function generateInvoice(storeId: string, orderId: string) {
       paisDescripcion: 'Paraguay',
       email: order.customers?.email || undefined,
     },
-    usuario: buildUsuarioBlock(),
-    factura: {
-      presencia: 1, // Presencial. Override to 2 for web-only flows.
-    },
+    usuario: buildUsuarioBlock(ctx),
+    factura: { presencia: 1 },
     condicion: {
-      tipo: order.payment_method === 'cod' ? 1 : 2, // 1=Contado, 2=Crédito
+      tipo: order.payment_method === 'cod' ? 1 : 2,
       entregas:
         order.payment_method === 'cod'
-          ? [
-              {
-                tipo: 1, // Efectivo
-                monto: String(total),
-                moneda: 'PYG',
-              },
-            ]
+          ? [{ tipo: 1, monto: String(total), moneda: 'PYG' }]
           : undefined,
     },
     items: lineItems.map((item: any, index: number) => ({
       codigo: item.sku || String(index + 1),
       descripcion: item.product_name || 'Producto',
       observacion: '',
-      unidadMedida: 77, // Unidad
+      unidadMedida: 77,
       cantidad: item.quantity || 1,
       precioUnitario: item.unit_price || 0,
       cambio: 0,
       descuento: 0,
       anticipo: 0,
-      ivaTipo: 1, // Gravado IVA
+      ivaTipo: 1,
       ivaBase: 100,
-      iva: 10, // 10% IVA
+      iva: 10,
       propina: 0,
     })),
   };
 
-  // 6. Generate XML
   let xmlGenerated: string;
   let cdc: string | undefined;
 
   try {
     const xmlgenLib = await getXmlgen();
-    // xmlgen.generateXMLDE returns an object with xml and CDC
     const result = await xmlgenLib.generateXMLDE(params, data);
     xmlGenerated = typeof result === 'string' ? result : result.xml || result;
-
-    // Extract CDC from generated XML
     const cdcMatch = xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/);
     cdc = cdcMatch ? cdcMatch[1] : undefined;
   } catch (err: unknown) {
@@ -665,7 +1131,6 @@ export async function generateInvoice(storeId: string, orderId: string) {
     throw new Error(`XML generation failed: ${message}`);
   }
 
-  // 7. Create invoice record
   const { data: invoice, error: invoiceErr } = await supabaseAdmin
     .from('invoices')
     .insert({
@@ -698,13 +1163,10 @@ export async function generateInvoice(storeId: string, orderId: string) {
   await logInvoiceEvent(storeId, invoice.id, 'generated', {
     document_number: docNumber,
     cdc,
-    environment: config.sifen_environment,
+    environment: ctx.identity.sifen_environment,
   });
 
-  // 8. Handle by environment
   let sifenResponse: SifenResponse;
-
-  // Common email dispatch params (populated after approval)
   const emailParams = {
     invoiceId: invoice.id,
     storeId,
@@ -726,10 +1188,7 @@ export async function generateInvoice(storeId: string, orderId: string) {
   };
 
   if (isDemo) {
-    // Demo mode: mock response, no SIFEN call
     sifenResponse = sifenDemo.mockSendDE(String(docNumber), cdc || '');
-
-    // Build KUDE URL even in demo so operators can see the format
     const kudeUrl = cdc ? buildKudeUrl(cdc) : null;
     emailParams.kudeUrl = kudeUrl;
 
@@ -743,20 +1202,17 @@ export async function generateInvoice(storeId: string, orderId: string) {
       })
       .eq('id', invoice.id);
 
-    await logInvoiceEvent(storeId, invoice.id, 'approved', {
-      mode: 'demo',
-      response: sifenResponse,
-    });
-
-    // Non-blocking email dispatch
+    await logInvoiceEvent(storeId, invoice.id, 'approved', { mode: 'demo', response: sifenResponse });
     void dispatchInvoiceEmail(emailParams);
   } else {
-    // Test/Prod: sign → inject QR → send to SIFEN via mTLS
     try {
-      const { xmlSigned, xmlFinal, sifen } = await signInjectSend({
+      const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
+      const { xmlFinal, sifen } = await signInjectSend({
         xmlGenerated,
         docNumber,
-        config,
+        identity: ctx.identity,
+        certPem,
+        privateKeyPem,
       });
       sifenResponse = sifen;
 
@@ -764,15 +1220,12 @@ export async function generateInvoice(storeId: string, orderId: string) {
 
       const newStatus = sifenResponse.success ? 'approved' : 'rejected';
       const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
-
-      if (sifenResponse.success) {
-        emailParams.kudeUrl = kudeUrl;
-      }
+      if (sifenResponse.success) emailParams.kudeUrl = kudeUrl;
 
       await supabaseAdmin
         .from('invoices')
         .update({
-          xml_signed: xmlFinal, // stored with QR injected; raw signed is xmlSigned
+          xml_signed: xmlFinal,
           sifen_status: newStatus,
           sifen_response_code: sifenResponse.responseCode,
           sifen_response_message: sifenResponse.responseMessage,
@@ -789,25 +1242,17 @@ export async function generateInvoice(storeId: string, orderId: string) {
         response_message: sifenResponse.responseMessage,
       });
 
-      if (sifenResponse.success) {
-        void dispatchInvoiceEmail(emailParams);
-      }
+      if (sifenResponse.success) void dispatchInvoiceEmail(emailParams);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
       logger.error(`[Invoicing] SIFEN send failed: ${message}`);
 
       await supabaseAdmin
         .from('invoices')
-        .update({
-          sifen_status: 'rejected',
-          sifen_response_message: message,
-        })
+        .update({ sifen_status: 'rejected', sifen_response_message: message })
         .eq('id', invoice.id);
 
-      await logInvoiceEvent(storeId, invoice.id, 'error', {
-        phase: 'sifen_send',
-        error: message,
-      });
+      await logInvoiceEvent(storeId, invoice.id, 'error', { phase: 'sifen_send', error: message });
 
       sifenResponse = {
         success: false,
@@ -817,14 +1262,15 @@ export async function generateInvoice(storeId: string, orderId: string) {
     }
   }
 
-  // 9. Link invoice to order
   await supabaseAdmin
     .from('orders')
     .update({ invoice_id: invoice.id })
     .eq('id', orderId)
     .eq('store_id', storeId);
 
-  logger.info(`[Invoicing] Invoice ${invoice.id} created for order ${orderId} (status: ${isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected'})`);
+  logger.info(
+    `[Invoicing] Invoice ${invoice.id} created for order ${orderId} (status: ${isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected'})`,
+  );
 
   return {
     invoice_id: invoice.id,
@@ -843,52 +1289,40 @@ export interface ManualInvoiceItem {
   descripcion: string;
   cantidad: number;
   precioUnitario: number;
-  ivaRate: 10 | 5 | 0; // 10 = gravado 10%, 5 = gravado 5%, 0 = exento
+  ivaRate: 10 | 5 | 0;
 }
 
 export interface ManualInvoiceInput {
-  tipoDocumento: 1 | 5 | 6; // 1=Factura, 5=Nota crédito, 6=Nota débito
+  tipoDocumento: 1 | 5 | 6;
   customerName: string;
   customerRuc?: string;
   customerRucDv?: number;
   customerEmail?: string;
   items: ManualInvoiceItem[];
+  activityCode?: string;
 }
 
-/**
- * Generate an invoice from manually provided buyer data and line items.
- * Does not require an existing order.
- */
 export async function generateManualInvoice(storeId: string, input: ManualInvoiceInput) {
   logger.info(`[Invoicing] Generating manual invoice for store ${storeId}`);
 
-  const { data: config, error: configErr } = await supabaseAdmin
-    .from('fiscal_config')
-    .select('*')
-    .eq('store_id', storeId)
-    .eq('is_active', true)
-    .single();
+  const ctx = await getFiscalContext(storeId);
+  if (!ctx) throw new Error('No hay configuracion fiscal activa para esta tienda.');
+  assertInvoicingCountry(ctx);
+  assertReadyToEmit(ctx);
 
-  if (configErr || !config) {
-    throw new Error('No active fiscal configuration found. Please complete setup first.');
-  }
+  const storeResult = await supabaseAdmin.from('stores').select('name').eq('id', storeId).single();
+  const storeName =
+    storeResult.data?.name || ctx.identity.razon_social || ctx.identity.nombre_fantasia || 'Tienda';
 
-  const storeResult = await supabaseAdmin
-    .from('stores')
-    .select('name')
-    .eq('id', storeId)
-    .single();
-
-  const storeName = storeResult.data?.name || config.razon_social || config.nombre_fantasia || 'Tienda';
-
-  const { data: docNumber, error: docErr } = await supabaseAdmin
-    .rpc('get_next_invoice_number', { p_store_id: storeId });
+  const { data: docNumber, error: docErr } = await supabaseAdmin.rpc('get_next_invoice_number', {
+    p_store_id: storeId,
+  });
 
   if (docErr || !docNumber) {
-    throw new Error(`Failed to get next document number: ${docErr?.message}`);
+    throw new Error(`No se pudo obtener el siguiente numero de documento: ${docErr?.message}`);
   }
 
-  const isDemo = config.sifen_environment === 'demo';
+  const isDemo = ctx.identity.sifen_environment === 'demo';
 
   let subtotal = 0;
   let iva10 = 0;
@@ -898,36 +1332,30 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
   for (const item of input.items) {
     const lineTotal = item.precioUnitario * item.cantidad;
     subtotal += lineTotal;
-    if (item.ivaRate === 10) {
-      iva10 += Math.round(lineTotal / 11);
-    } else if (item.ivaRate === 5) {
-      iva5 += Math.round(lineTotal / 21);
-    }
+    if (item.ivaRate === 10) iva10 += Math.round(lineTotal / 11);
+    else if (item.ivaRate === 5) iva5 += Math.round(lineTotal / 21);
   }
 
   const total = subtotal;
-
-  const params = buildXmlgenParams(config);
-
-  const today = new Date().toISOString().split('T')[0];
+  // SIFEN requires the invoice date in local Paraguay time.
+  const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+  const params = buildXmlgenParams(ctx, {
+    activityCode: input.activityCode,
+    storeTimezone: storeTz,
+  });
+  const today = getTodayInTimezone(storeTz);
   const numeroStr = String(docNumber).padStart(7, '0');
-  const estab = config.establecimiento_codigo || '001';
-  const punto = config.punto_expedicion || '001';
+  const estab = ctx.link.establecimiento_codigo || '001';
+  const punto = ctx.link.punto_expedicion || '001';
 
   const hasRuc = !!input.customerRuc;
-  // xmlgen expects `cliente.ruc` as "RUC-DV" (e.g. "5712264-4") when
-  // contribuyente=true, since it validates DV presence up-front. dvRuc is
-  // kept separately for other consumers.
   const clienteRucFormatted =
     hasRuc && input.customerRucDv !== undefined
       ? `${input.customerRuc}-${input.customerRucDv}`
       : input.customerRuc || undefined;
 
-  // xmlgen items require ivaTipo / ivaBase / iva, not ppiGravado /
-  // tipoIvaPorItem (older nomenclature). Re-shape now that xmlgen builders
-  // are consolidated.
   const xmlItemsForGen = input.items.map((item, index) => {
-    const ivaTipo = item.ivaRate === 0 ? 3 : 1; // 1 = Gravado IVA, 3 = Exento
+    const ivaTipo = item.ivaRate === 0 ? 3 : 1;
     return {
       codigo: String(index + 1),
       descripcion: item.descripcion,
@@ -953,20 +1381,20 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     fecha: today + 'T12:00:00',
     codigoSeguridadAleatorio: generateCodigoSeguridad(),
     tipoEmision: 1,
-    tipoTransaccion: 2, // Prestación de servicios (manual path default)
+    tipoTransaccion: 2,
     tipoImpuesto: 1,
     moneda: 'PYG',
     cliente: {
       contribuyente: hasRuc,
       ruc: clienteRucFormatted,
       dvRuc: input.customerRucDv,
-      tipoOperacion: hasRuc ? 1 : 2, // 1=B2B, 2=B2C
+      tipoOperacion: hasRuc ? 1 : 2,
       razonSocial: input.customerName,
       nombreFantasia: input.customerName,
-      tipoContribuyente: hasRuc ? 1 : 1,
-      documentoTipo: hasRuc ? undefined : 1, // Cédula for non-contribuyentes
+      tipoContribuyente: 1,
+      documentoTipo: hasRuc ? undefined : 1,
       documentoNumero: hasRuc ? undefined : String(input.customerRuc || '0'),
-      direccion: 'Asunción',
+      direccion: 'Asuncion',
       numeroCasa: '0',
       departamento: ASUNCION_DEFAULTS.departamento,
       departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
@@ -978,19 +1406,11 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       paisDescripcion: 'Paraguay',
       email: input.customerEmail || undefined,
     },
-    usuario: buildUsuarioBlock(),
-    factura: {
-      presencia: 1,
-    },
+    usuario: buildUsuarioBlock(ctx),
+    factura: { presencia: 1 },
     condicion: {
-      tipo: 1, // Contado
-      entregas: [
-        {
-          tipo: 1,
-          monto: String(total),
-          moneda: 'PYG',
-        },
-      ],
+      tipo: 1,
+      entregas: [{ tipo: 1, monto: String(total), moneda: 'PYG' }],
     },
     items: xmlItemsForGen,
   };
@@ -1043,7 +1463,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
   await logInvoiceEvent(storeId, invoice.id, 'generated', {
     document_number: docNumber,
     cdc,
-    environment: config.sifen_environment,
+    environment: ctx.identity.sifen_environment,
     source: 'manual',
   });
 
@@ -1088,10 +1508,13 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     void dispatchInvoiceEmail(emailParams);
   } else {
     try {
+      const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
       const { xmlFinal, sifen } = await signInjectSend({
         xmlGenerated,
         docNumber,
-        config,
+        identity: ctx.identity,
+        certPem,
+        privateKeyPem,
       });
       sifenResponse = sifen;
 
@@ -1099,10 +1522,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
 
       const newStatus = sifenResponse.success ? 'approved' : 'rejected';
       const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
-
-      if (sifenResponse.success) {
-        emailParams.kudeUrl = kudeUrl;
-      }
+      if (sifenResponse.success) emailParams.kudeUrl = kudeUrl;
 
       await supabaseAdmin
         .from('invoices')
@@ -1124,9 +1544,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
         response_message: sifenResponse.responseMessage,
       });
 
-      if (sifenResponse.success) {
-        void dispatchInvoiceEmail(emailParams);
-      }
+      if (sifenResponse.success) void dispatchInvoiceEmail(emailParams);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
       logger.error(`[Invoicing] Manual SIFEN send failed: ${message}`);
@@ -1146,14 +1564,22 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     }
   }
 
-  logger.info(`[Invoicing] Manual invoice ${invoice.id} created (status: ${isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected'})`);
+  logger.info(
+    `[Invoicing] Manual invoice ${invoice.id} created (status: ${isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected'})`,
+  );
 
   return {
     invoice_id: invoice.id,
     cdc,
     document_number: docNumber,
     status: isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected',
-    kude_url: isDemo ? (cdc ? buildKudeUrl(cdc) : null) : (sifenResponse.success && cdc ? buildKudeUrl(cdc) : null),
+    kude_url: isDemo
+      ? cdc
+        ? buildKudeUrl(cdc)
+        : null
+      : sifenResponse.success && cdc
+        ? buildKudeUrl(cdc)
+        : null,
     response: sifenResponse,
   };
 }
@@ -1162,13 +1588,12 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
 // Invoice Queries
 // ================================================================
 
-/**
- * Get a single invoice with its events.
- */
 export async function getInvoice(storeId: string, invoiceId: string) {
   const { data: invoice, error } = await supabaseAdmin
     .from('invoices')
-    .select('id, cdc, document_number, tipo_documento, customer_ruc, customer_ruc_dv, customer_name, customer_email, customer_address, subtotal, iva_5, iva_10, iva_exento, total, currency, sifen_status, sifen_response_code, sifen_response_message, kude_url, sent_to_sifen_at, approved_at, created_at, updated_at, order_id')
+    .select(
+      'id, cdc, document_number, tipo_documento, customer_ruc, customer_ruc_dv, customer_name, customer_email, customer_address, subtotal, iva_5, iva_10, iva_exento, total, currency, sifen_status, sifen_response_code, sifen_response_message, kude_url, sent_to_sifen_at, approved_at, created_at, updated_at, order_id',
+    )
     .eq('id', invoiceId)
     .eq('store_id', storeId)
     .single();
@@ -1184,15 +1609,15 @@ export async function getInvoice(storeId: string, invoiceId: string) {
   return { ...invoice, events: events || [] };
 }
 
-/**
- * List invoices with filters and pagination.
- */
 export async function getInvoices(storeId: string, filters: InvoiceFilters = {}) {
   const { status, tipo_documento, from_date, to_date, limit = 50, offset = 0 } = filters;
 
   let query = supabaseAdmin
     .from('invoices')
-    .select('id, cdc, document_number, tipo_documento, customer_ruc, customer_name, total, sifen_status, created_at, order_id', { count: 'exact' })
+    .select(
+      'id, cdc, document_number, tipo_documento, customer_ruc, customer_name, total, sifen_status, created_at, order_id',
+      { count: 'exact' },
+    )
     .eq('store_id', storeId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -1203,22 +1628,12 @@ export async function getInvoices(storeId: string, filters: InvoiceFilters = {})
   if (to_date) query = query.lte('created_at', to_date);
 
   const { data, error, count } = await query;
-
   if (error) throw new Error(`Error fetching invoices: ${error.message}`);
 
-  return {
-    invoices: data || [],
-    total: count || 0,
-    limit,
-    offset,
-  };
+  return { invoices: data || [], total: count || 0, limit, offset };
 }
 
-/**
- * Get invoice statistics for a store.
- */
 export async function getInvoiceStats(storeId: string) {
-  // Use the v_invoice_summary view for efficient aggregation (no full table scan)
   const { data, error } = await supabaseAdmin
     .from('v_invoice_summary')
     .select('*')
@@ -1226,7 +1641,6 @@ export async function getInvoiceStats(storeId: string) {
     .maybeSingle();
 
   if (error) {
-    // Fallback to manual count if view doesn't exist yet
     logger.warn('[Invoicing] v_invoice_summary view error, using fallback:', error.message);
     const { count } = await supabaseAdmin
       .from('invoices')
@@ -1263,9 +1677,6 @@ export async function getInvoiceStats(storeId: string) {
 // Invoice Actions
 // ================================================================
 
-/**
- * Cancel an invoice via SIFEN event.
- */
 export async function cancelInvoice(storeId: string, invoiceId: string, motivo: string) {
   const { data: invoice, error } = await supabaseAdmin
     .from('invoices')
@@ -1278,18 +1689,12 @@ export async function cancelInvoice(storeId: string, invoiceId: string, motivo: 
   if (invoice.sifen_status === 'cancelled') throw new Error('Invoice is already cancelled');
   if (!invoice.cdc) throw new Error('Invoice has no CDC');
 
-  // Separate query for fiscal config (avoids fragile join syntax)
-  const { data: config } = await supabaseAdmin
-    .from('fiscal_config')
-    .select('sifen_environment, certificate_data, certificate_password_encrypted')
-    .eq('store_id', storeId)
-    .eq('is_active', true)
-    .maybeSingle();
+  const ctx = await getFiscalContext(storeId);
+  if (!ctx) throw new Error('No hay configuracion fiscal activa para esta tienda.');
 
-  const isDemo = !config || config.sifen_environment === 'demo';
+  const isDemo = ctx.identity.sifen_environment === 'demo';
 
   if (isDemo) {
-    // Demo mode: just update status
     await supabaseAdmin
       .from('invoices')
       .update({ sifen_status: 'cancelled' })
@@ -1297,31 +1702,26 @@ export async function cancelInvoice(storeId: string, invoiceId: string, motivo: 
 
     await logInvoiceEvent(storeId, invoiceId, 'cancelled', { mode: 'demo', motivo });
   } else {
-    // Real cancellation event to SIFEN (escape motivo to prevent XML injection)
-    const { data: fullConfig } = await supabaseAdmin
-      .from('fiscal_config')
-      .select('cert_pem, encrypted_private_key, sifen_environment')
-      .eq('store_id', storeId)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (!fullConfig?.cert_pem || !fullConfig?.encrypted_private_key) {
-      throw new Error('Certificado digital no configurado. Cancelación requiere mTLS.');
+    if (!ctx.identity.has_certificate) {
+      throw new Error('Certificado digital no configurado. Cancelacion requiere mTLS.');
     }
-
-    const privateKeyPem = decrypt(fullConfig.encrypted_private_key);
-    const mtls: SifenMtls = { certPem: fullConfig.cert_pem, privateKeyPem };
+    const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
+    const mtls: SifenMtls = { certPem, privateKeyPem };
 
     const escapedMotivo = motivo
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
-      .substring(0, 500); // Limit length for SIFEN
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+      .substring(0, 500);
     const cancelXml = `<gCamEven><mOtEve>${escapedMotivo}</mOtEve></gCamEven>`;
+
     const response = await sifenClient.sendEvent(
       invoice.cdc,
-      2, // Event type 2 = Cancellation
+      2,
       cancelXml,
-      fullConfig.sifen_environment as Exclude<SifenEnv, 'demo'>,
+      ctx.identity.sifen_environment as Exclude<SifenEnv, 'demo'>,
       mtls,
     );
 
@@ -1340,12 +1740,9 @@ export async function cancelInvoice(storeId: string, invoiceId: string, motivo: 
       response_message: response.responseMessage,
     });
 
-    if (!response.success) {
-      throw new Error(`SIFEN cancellation failed: ${response.responseMessage}`);
-    }
+    if (!response.success) throw new Error(`SIFEN cancellation failed: ${response.responseMessage}`);
   }
 
-  // Unlink invoice from order
   if (invoice.order_id) {
     await supabaseAdmin
       .from('orders')
@@ -1357,9 +1754,6 @@ export async function cancelInvoice(storeId: string, invoiceId: string, motivo: 
   return { success: true, message: 'Invoice cancelled' };
 }
 
-/**
- * Retry sending a failed invoice to SIFEN.
- */
 export async function retryInvoice(storeId: string, invoiceId: string) {
   const { data: invoice, error } = await supabaseAdmin
     .from('invoices')
@@ -1373,50 +1767,32 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     throw new Error('Only rejected invoices can be retried');
   }
 
-  // Get config
-  const { data: config } = await supabaseAdmin
-    .from('fiscal_config')
-    .select('*')
-    .eq('store_id', storeId)
-    .eq('is_active', true)
-    .single();
-
-  if (!config) throw new Error('No active fiscal config');
-  if (config.sifen_environment === 'demo') {
-    throw new Error('Cannot retry in demo mode');
+  const ctx = await getFiscalContext(storeId);
+  if (!ctx) throw new Error('No hay configuracion fiscal activa para esta tienda.');
+  if (ctx.identity.sifen_environment === 'demo') throw new Error('Cannot retry in demo mode');
+  if (!ctx.identity.has_certificate) {
+    throw new Error('Certificado digital no configurado para re-firmar.');
   }
 
   const xmlToSend = invoice.xml_signed || invoice.xml_generated;
   if (!xmlToSend) throw new Error('No XML available for retry');
 
-  if (!config.encrypted_private_key || !config.cert_pem) {
-    throw new Error('Certificado digital no configurado para re-firmar.');
-  }
-
-  const privateKeyPem = decrypt(config.encrypted_private_key);
-  const certPem = config.cert_pem as string;
+  const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
+  const env = ctx.identity.sifen_environment as 'test' | 'prod';
   const mtls: SifenMtls = { certPem, privateKeyPem };
-  const env = config.sifen_environment as 'test' | 'prod';
 
-  // If we have unsigned XML (or previously-signed without QR), re-sign and
-  // re-inject QR. Idempotent: qrgen replaces gCamFuFD if it exists.
   let xmlFinal = invoice.xml_signed;
   if (!xmlFinal && invoice.xml_generated) {
     const xmlSigned = await signXML(invoice.xml_generated, privateKeyPem, certPem);
     xmlFinal = await injectQR(
       xmlSigned,
       env,
-      config.csc_id || SIFEN_TEST_ID_CSC,
-      config.csc || SIFEN_TEST_CSC,
+      ctx.identity.csc_id || SIFEN_TEST_ID_CSC,
+      SIFEN_TEST_CSC,
     );
-
-    await supabaseAdmin
-      .from('invoices')
-      .update({ xml_signed: xmlFinal })
-      .eq('id', invoiceId);
+    await supabaseAdmin.from('invoices').update({ xml_signed: xmlFinal }).eq('id', invoiceId);
   }
 
-  // Retry sending via mTLS
   const response = await sifenClient.sendDE(
     String(invoice.document_number),
     xmlFinal!,
@@ -1487,9 +1863,6 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   };
 }
 
-/**
- * Download invoice XML.
- */
 export async function downloadXML(storeId: string, invoiceId: string) {
   const { data, error } = await supabaseAdmin
     .from('invoices')
@@ -1515,7 +1888,7 @@ async function logInvoiceEvent(
   invoiceId: string | null,
   eventType: string,
   details: Record<string, any>,
-  createdBy?: string
+  createdBy?: string,
 ) {
   if (!invoiceId) return;
 

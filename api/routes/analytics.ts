@@ -11,6 +11,16 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule } from '../middleware/permissions';
 import { Module } from '../permissions';
+import {
+    DEFAULT_TIMEZONE,
+    addDaysInTimezone,
+    endOfDayIso,
+    formatDateInTimezone,
+    getStartOfDayInTimezone,
+    getStoreTimezone,
+    getTodayInTimezone,
+    startOfDayIso,
+} from '../utils/dateUtils';
 
 export const analyticsRouter = Router();
 
@@ -18,13 +28,6 @@ analyticsRouter.use(verifyToken, extractStoreId, extractUserRole);
 
 // Apply module-level access check for all routes
 analyticsRouter.use(requireModule(Module.ANALYTICS));
-
-// Helper function to convert date string to end of day ISO string
-const toEndOfDay = (dateString: string): string => {
-    const date = new Date(dateString);
-    date.setHours(23, 59, 59, 999);
-    return date.toISOString();
-};
 
 
 // ================================================================
@@ -34,10 +37,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
 
-        // Get store tax rate and confirmation fee from store_config
+        // Get store tax rate, timezone and confirmation fee from store_config
         const { data: storeData, error: storeError } = await supabaseAdmin
             .from('stores')
-            .select('tax_rate')
+            .select('tax_rate, timezone')
             .eq('id', req.storeId)
             .single();
 
@@ -46,6 +49,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         }
 
         const taxRate = Number(storeData?.tax_rate) || 0;
+        const storeTz: string = (storeData?.timezone as string | null) || DEFAULT_TIMEZONE;
 
         // Get confirmation fee from store_config
         const { data: configData } = await supabaseAdmin
@@ -57,17 +61,16 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         const confirmationFee = Number(configData?.confirmation_fee) || 0;
 
         // Calculate date ranges for comparison (use provided dates or default to 7 days)
+        // All day boundaries are anchored to the store's local timezone, not server UTC.
         let currentPeriodStart: Date;
         let currentPeriodEnd: Date;
         let previousPeriodStart: Date;
         let previousPeriodEnd: Date;
 
         if (startDate && endDate) {
-            currentPeriodStart = new Date(startDate as string);
-            // Convert endDate to end of day to include all orders from that day
-            currentPeriodEnd = new Date(toEndOfDay(endDate as string));
+            currentPeriodStart = new Date(startOfDayIso(startDate as string, storeTz));
+            currentPeriodEnd = new Date(endOfDayIso(endDate as string, storeTz));
 
-            // Validate dates are valid and start < end
             if (isNaN(currentPeriodStart.getTime()) || isNaN(currentPeriodEnd.getTime())) {
                 return res.status(400).json({ error: 'Fechas inválidas' });
             }
@@ -128,8 +131,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             .eq('store_id', req.storeId)
             .eq('category', 'marketing')
             .eq('type', 'expense')
-            .gte('date', previousPeriodStart.toISOString().split('T')[0])
-            .lte('date', currentPeriodEnd.toISOString().split('T')[0]);
+            .gte('date', formatDateInTimezone(previousPeriodStart, storeTz))
+            .lte('date', formatDateInTimezone(currentPeriodEnd, storeTz));
 
         if (marketingExpensesError) {
             logger.error('SERVER', '[GET /api/analytics/overview] Marketing expenses query error:', marketingExpensesError);
@@ -177,8 +180,8 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             .from('additional_values')
             .select('type, amount, date')
             .eq('store_id', req.storeId)
-            .gte('date', previousPeriodStart.toISOString().split('T')[0])
-            .lte('date', currentPeriodEnd.toISOString().split('T')[0]);
+            .gte('date', formatDateInTimezone(previousPeriodStart, storeTz))
+            .lte('date', formatDateInTimezone(currentPeriodEnd, storeTz));
 
         const allAdditionalValues = allAdditionalValuesData || [];
 
@@ -556,6 +559,8 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
     try {
         const { days = '7', startDate: startDateParam, endDate: endDateParam } = req.query;
 
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+
         // OPTIMIZATION: Only select required fields for chart data
         let query = supabaseAdmin
             .from('orders')
@@ -564,13 +569,13 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         // Apply date filters
         if (startDateParam && endDateParam) {
-            // Convert endDate to end of day to include all orders from that day
-            query = query.gte('created_at', startDateParam).lte('created_at', toEndOfDay(endDateParam as string));
+            query = query
+                .gte('created_at', startOfDayIso(startDateParam as string, storeTz))
+                .lte('created_at', endOfDayIso(endDateParam as string, storeTz));
         } else {
             const daysCount = parseInt(days as string, 10);
-            const startDate = new Date();
-            startDate.setDate(startDate.getDate() - daysCount);
-            query = query.gte('created_at', startDate.toISOString());
+            const startIso = startOfDayIso(addDaysInTimezone(-daysCount, storeTz), storeTz);
+            query = query.gte('created_at', startIso);
         }
 
         const { data: ordersData, error: ordersError } = await query;
@@ -634,9 +639,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             additionalValuesQuery = additionalValuesQuery.lte('date', endDateParam);
         } else if (!startDateParam) {
             const daysCount = parseInt(days as string, 10);
-            const startDate = new Date();
-            startDate.setDate(startDate.getDate() - daysCount);
-            additionalValuesQuery = additionalValuesQuery.gte('date', startDate.toISOString().split('T')[0]);
+            additionalValuesQuery = additionalValuesQuery.gte('date', addDaysInTimezone(-daysCount, storeTz));
         }
 
         const { data: additionalValuesData } = await additionalValuesQuery;
@@ -668,7 +671,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         }> = {};
 
         for (const order of orders) {
-            const date = new Date(order.created_at).toISOString().split('T')[0];
+            const date = formatDateInTimezone(order.created_at, storeTz);
 
             if (!dailyData[date]) {
                 dailyData[date] = { projectedRevenue: 0, realRevenue: 0, productCosts: 0, shippingCosts: 0, gasto_publicitario: 0 };
@@ -747,6 +750,7 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
         // Build query - OPTIMIZATION: Only select required fields
         let query = supabaseAdmin
@@ -754,13 +758,12 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             .select('id, created_at, sleeves_status, confirmed_at, delivered_at, deleted_at, is_test')
             .eq('store_id', req.storeId)
 
-        // Apply date filters if provided
+        // Apply date filters if provided (interpreted in store's local timezone)
         if (startDate) {
-            query = query.gte('created_at', startDate);
+            query = query.gte('created_at', startOfDayIso(startDate as string, storeTz));
         }
         if (endDate) {
-            // Convert endDate to end of day to include all orders from that day
-            query = query.lte('created_at', toEndOfDay(endDate as string));
+            query = query.lte('created_at', endOfDayIso(endDate as string, storeTz));
         }
 
         const { data: ordersData, error: ordersError } = await query;
@@ -778,14 +781,13 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
 
         const pendingOrders = orders.filter(o => o.sleeves_status === 'pending').length;
 
-        // Get today's orders
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayOrders = orders.filter(o => {
-            const orderDate = new Date(o.created_at);
-            orderDate.setHours(0, 0, 0, 0);
-            return orderDate.getTime() === today.getTime();
-        });
+        // "Today" anchored to store's local timezone, not server UTC. An order
+        // placed at 22:00 Asuncion must still count as "today" even if the
+        // server clock already rolled past midnight UTC.
+        const todayStr = getTodayInTimezone(storeTz);
+        const todayOrders = orders.filter(o =>
+            formatDateInTimezone(o.created_at, storeTz) === todayStr,
+        );
 
         const todayConfirmed = todayOrders.filter(o =>
             o.sleeves_status === 'confirmed' ||
@@ -904,6 +906,8 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             });
         }
 
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId);
+
         // Build query - SOLO pedidos entregados (ventas reales)
         let query = supabaseAdmin
             .from('orders')
@@ -911,20 +915,17 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
             .eq('store_id', req.storeId)
             .eq('sleeves_status', 'delivered'); // Solo pedidos entregados
 
-        // Apply date filters if provided
+        // Apply date filters if provided (store-local day boundaries)
         if (startDate) {
-            query = query.gte('created_at', startDate);
+            query = query.gte('created_at', startOfDayIso(startDate as string, storeTz));
         }
         if (endDate) {
-            // Convert endDate to end of day to include all orders from that day
-            query = query.lte('created_at', toEndOfDay(endDate as string));
+            query = query.lte('created_at', endOfDayIso(endDate as string, storeTz));
         }
 
-        // Add default 1-year window for top products analysis
+        // Default 1-year window anchored to the store's local calendar
         if (!startDate && !endDate) {
-            const oneYearAgo = new Date();
-            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-            query = query.gte('created_at', oneYearAgo.toISOString());
+            query = query.gte('created_at', startOfDayIso(addDaysInTimezone(-365, storeTz), storeTz));
         }
 
         const { data: ordersData, error: ordersError } = await query;
@@ -1207,6 +1208,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
 analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
         // Build query - exclude deleted and test orders
         let query = supabaseAdmin
@@ -1216,20 +1218,17 @@ analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: 
             .is('deleted_at', null)
             .or('is_test.is.null,is_test.eq.false');
 
-        // Apply date filters if provided
+        // Apply date filters if provided (store-local day boundaries)
         if (startDate) {
-            query = query.gte('created_at', startDate);
+            query = query.gte('created_at', startOfDayIso(startDate as string, storeTz));
         }
         if (endDate) {
-            // Convert endDate to end of day to include all orders from that day
-            query = query.lte('created_at', toEndOfDay(endDate as string));
+            query = query.lte('created_at', endOfDayIso(endDate as string, storeTz));
         }
 
-        // Add default 90-day window for status distribution
+        // Default 90-day window anchored to the store's local calendar
         if (!startDate && !endDate) {
-            const ninetyDaysAgo = new Date();
-            ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-            query = query.gte('created_at', ninetyDaysAgo.toISOString());
+            query = query.gte('created_at', startOfDayIso(addDaysInTimezone(-90, storeTz), storeTz));
         }
 
         const { data: ordersData, error: ordersError } = await query;
@@ -1271,34 +1270,30 @@ analyticsRouter.get('/order-status-distribution', async (req: AuthRequest, res: 
 analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Response) => {
     try {
         const { periodType = 'week' } = req.query; // 'day' or 'week'
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
-        // Get all active orders (not cancelled or returned) - OPTIMIZATION: Only required fields
-        // Add default 90-day window for cash flow projection
-        const ninetyDaysAgo = new Date();
-        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+        // Default 90-day projection window, anchored to the store's local calendar
+        const ninetyDaysAgoIso = startOfDayIso(addDaysInTimezone(-90, storeTz), storeTz);
 
         const { data: activeOrders, error: ordersError } = await supabaseAdmin
             .from('orders')
             .select('id, total_price, sleeves_status, shipping_cost')
             .eq('store_id', req.storeId)
             .not('sleeves_status', 'in', '(cancelled,returned)')
-            .gte('created_at', ninetyDaysAgo.toISOString())
+            .gte('created_at', ninetyDaysAgoIso)
 
         if (ordersError) throw ordersError;
 
         const orders = activeOrders || [];
 
-        // Get gasto publicitario costs (for proration) from additional_values (marketing expenses)
-        // Get expenses from last 30 days for proration
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        // 30-day marketing expense window for per-order proration (store-local dates)
         const { data: marketingExpensesData } = await supabaseAdmin
             .from('additional_values')
             .select('amount')
             .eq('store_id', req.storeId)
             .eq('category', 'marketing')
             .eq('type', 'expense')
-            .gte('date', thirtyDaysAgo.toISOString().split('T')[0]);
+            .gte('date', addDaysInTimezone(-30, storeTz));
 
         const totalGastoPublicitario = (marketingExpensesData || []).reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
         const gastoPublicitarioPerOrder = orders.length > 0 ? totalGastoPublicitario / orders.length : 0;
@@ -1338,18 +1333,21 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
             }
         };
 
-        // Helper function: Get period key from date
+        // Period key computed in the store's local timezone. For week buckets we
+        // derive year/week from the local YYYY-MM-DD so a delivery at 22:00
+        // Asuncion never leaks into the next calendar week on the UTC clock.
         const getPeriodKey = (date: Date): string => {
+            const localDateStr = formatDateInTimezone(date, storeTz);
             if (periodType === 'day') {
-                return date.toISOString().split('T')[0]; // YYYY-MM-DD
-            } else {
-                // Week format: YYYY-WXX (e.g., 2025-W01)
-                const year = date.getFullYear();
-                const firstDayOfYear = new Date(year, 0, 1);
-                const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
-                const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-                return `${year}-W${String(weekNumber).padStart(2, '0')}`;
+                return localDateStr;
             }
+            const [yearStr, monthStr, dayStr] = localDateStr.split('-');
+            const year = Number(yearStr);
+            const localDate = new Date(Date.UTC(year, Number(monthStr) - 1, Number(dayStr)));
+            const firstDayOfYear = new Date(Date.UTC(year, 0, 1));
+            const pastDaysOfYear = (localDate.getTime() - firstDayOfYear.getTime()) / 86400000;
+            const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getUTCDay() + 1) / 7);
+            return `${year}-W${String(weekNumber).padStart(2, '0')}`;
         };
 
         // Initialize timeline data structure
@@ -1361,8 +1359,7 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
             ordersCount: { conservative: number; moderate: number; optimistic: number };
         }> = {};
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const today = getStartOfDayInTimezone(storeTz);
 
         // Process each order
         for (const order of orders) {
@@ -1509,20 +1506,20 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
 analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
-        // Build date filter
+        // Build date filter with store-local day boundaries
         let dateFilter: { start: Date; end: Date };
         if (startDate && endDate) {
             dateFilter = {
-                start: new Date(startDate as string),
-                end: new Date(toEndOfDay(endDate as string))
+                start: new Date(startOfDayIso(startDate as string, storeTz)),
+                end: new Date(endOfDayIso(endDate as string, storeTz))
             };
         } else {
-            // Default: last 30 days
-            const now = new Date();
+            // Default: last 30 days (store-local)
             dateFilter = {
-                end: now,
-                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+                end: new Date(),
+                start: new Date(startOfDayIso(addDaysInTimezone(-30, storeTz), storeTz))
             };
         }
 
@@ -1704,20 +1701,18 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
 analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
-        // Build date filter
         let dateFilter: { start: Date; end: Date };
         if (startDate && endDate) {
             dateFilter = {
-                start: new Date(startDate as string),
-                end: new Date(toEndOfDay(endDate as string))
+                start: new Date(startOfDayIso(startDate as string, storeTz)),
+                end: new Date(endOfDayIso(endDate as string, storeTz))
             };
         } else {
-            // Default: last 30 days
-            const now = new Date();
             dateFilter = {
-                end: now,
-                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+                end: new Date(),
+                start: new Date(startOfDayIso(addDaysInTimezone(-30, storeTz), storeTz))
             };
         }
 
@@ -1837,20 +1832,18 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
-        // Build date filter
         let dateFilter: { start: Date; end: Date };
         if (startDate && endDate) {
             dateFilter = {
-                start: new Date(startDate as string),
-                end: new Date(toEndOfDay(endDate as string))
+                start: new Date(startOfDayIso(startDate as string, storeTz)),
+                end: new Date(endOfDayIso(endDate as string, storeTz))
             };
         } else {
-            // Default: last 30 days
-            const now = new Date();
             dateFilter = {
-                end: now,
-                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+                end: new Date(),
+                start: new Date(startOfDayIso(addDaysInTimezone(-30, storeTz), storeTz))
             };
         }
 
@@ -1931,20 +1924,18 @@ analyticsRouter.get('/incidents-metrics', async (req: AuthRequest, res: Response
 analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
+        const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
 
-        // Build date filter
         let dateFilter: { start: Date; end: Date };
         if (startDate && endDate) {
             dateFilter = {
-                start: new Date(startDate as string),
-                end: new Date(toEndOfDay(endDate as string))
+                start: new Date(startOfDayIso(startDate as string, storeTz)),
+                end: new Date(endOfDayIso(endDate as string, storeTz))
             };
         } else {
-            // Default: last 30 days
-            const now = new Date();
             dateFilter = {
-                end: now,
-                start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+                end: new Date(),
+                start: new Date(startOfDayIso(addDaysInTimezone(-30, storeTz), storeTz))
             };
         }
 
@@ -1974,7 +1965,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
         const orders = ordersData || [];
 
         // ===== 2. GET SETTLEMENTS DATA (actual payments to carriers) =====
-        // Use left join to handle settlements without carrier (edge case)
+        // settlement_date is a DATE column, so compare against store-local calendar days.
         const { data: settlementsData, error: settlementsError } = await supabaseAdmin
             .from('daily_settlements')
             .select(`
@@ -1989,8 +1980,8 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
                 carriers!left(id, name)
             `)
             .eq('store_id', req.storeId)
-            .gte('settlement_date', dateFilter.start.toISOString().split('T')[0])
-            .lte('settlement_date', dateFilter.end.toISOString().split('T')[0]);
+            .gte('settlement_date', formatDateInTimezone(dateFilter.start, storeTz))
+            .lte('settlement_date', formatDateInTimezone(dateFilter.end, storeTz));
 
         if (settlementsError) throw settlementsError;
         const settlements = settlementsData || [];
@@ -2199,10 +2190,10 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
                 // Carrier Breakdown
                 carrierBreakdown,
 
-                // Period info
+                // Period info (store-local calendar dates for display)
                 period: {
-                    start: dateFilter.start.toISOString().split('T')[0],
-                    end: dateFilter.end.toISOString().split('T')[0],
+                    start: formatDateInTimezone(dateFilter.start, storeTz),
+                    end: formatDateInTimezone(dateFilter.end, storeTz),
                 }
             }
         });

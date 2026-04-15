@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useMemo, ReactNode, useEffect, useCallback } from 'react';
+import { fromZonedTime } from 'date-fns-tz';
 import { logger } from '@/utils/logger';
+import { formatLocalDate } from '@/utils/timeUtils';
 
 export type DateRangeValue = 'today' | '7d' | '30d' | 'all' | 'custom';
 
@@ -13,7 +15,19 @@ interface DateRangeContextValue {
   setSelectedRange: (range: DateRangeValue) => void;
   customRange: DateRange | null;
   setCustomRange: (range: DateRange | null) => void;
-  getDateRange: () => DateRange;
+  /**
+   * Returns the selected date range as UTC Date instants.
+   *
+   * When `storeTimezone` is provided, the range is anchored to that timezone:
+   * `from` is midnight-local-in-tz expressed as a UTC Date, `to` is
+   * end-of-day-local-in-tz expressed as a UTC Date. This is what the backend
+   * expects for timestamptz filtering.
+   *
+   * When `storeTimezone` is omitted, we fall back to browser-local boundaries
+   * for backwards compatibility. Callers that need store-local boundaries
+   * should always pass the store timezone.
+   */
+  getDateRange: (storeTimezone?: string) => DateRange;
 }
 
 const DateRangeContext = createContext<DateRangeContextValue | undefined>(undefined);
@@ -80,56 +94,64 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // CRITICAL FIX (Bug #6): Memoize getDateRange to prevent infinite render loops
-  // Without useCallback, this function is recreated on every render, causing
-  // any useMemo/useCallback that depends on it to re-run infinitely
-  const getDateRange = useCallback((): DateRange => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Memoized so consumers that depend on the function reference (via useMemo/
+  // useCallback) don't re-run every render. Only selectedRange/customRange
+  // actually change the output.
+  const getDateRange = useCallback(
+    (storeTimezone?: string): DateRange => {
+      const now = new Date();
 
-    if (selectedRange === 'custom' && customRange) {
-      return customRange;
-    }
+      // Resolve "today" anchored to the store's timezone when provided, so a
+      // user operating at 22:00 Asuncion sees the range their backend sees,
+      // not one that silently rolls into tomorrow UTC.
+      const todayIsoDate = storeTimezone
+        ? formatLocalDate(now, storeTimezone)
+        : formatLocalDate(now);
 
-    switch (selectedRange) {
-      case 'today':
-        return {
-          from: today,
-          to: now,
-        };
-      case '7d': {
-        const sevenDaysAgo = new Date(today);
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        return {
-          from: sevenDaysAgo,
-          to: now,
-        };
+      const startOfLocalDay = (isoDate: string): Date => {
+        if (storeTimezone) {
+          return fromZonedTime(`${isoDate} 00:00:00.000`, storeTimezone);
+        }
+        const [y, m, d] = isoDate.split('-').map(Number);
+        return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
+      };
+
+      const shiftDays = (isoDate: string, delta: number): string => {
+        const [y, m, d] = isoDate.split('-').map(Number);
+        const utc = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+        utc.setUTCDate(utc.getUTCDate() + delta);
+        const yy = utc.getUTCFullYear();
+        const mm = String(utc.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(utc.getUTCDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+      };
+
+      const today = startOfLocalDay(todayIsoDate);
+
+      if (selectedRange === 'custom' && customRange) {
+        return customRange;
       }
-      case '30d': {
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        return {
-          from: thirtyDaysAgo,
-          to: now,
-        };
+
+      switch (selectedRange) {
+        case 'today':
+          return { from: today, to: now };
+        case '7d':
+          return { from: startOfLocalDay(shiftDays(todayIsoDate, -7)), to: now };
+        case '30d':
+          return { from: startOfLocalDay(shiftDays(todayIsoDate, -30)), to: now };
+        case 'all':
+          return {
+            from: storeTimezone
+              ? fromZonedTime('2020-01-01 00:00:00.000', storeTimezone)
+              : new Date(2020, 0, 1),
+            to: now,
+          };
+        default:
+          return { from: startOfLocalDay(shiftDays(todayIsoDate, -7)), to: now };
       }
-      case 'all': {
-        return {
-          from: new Date(2020, 0, 1),
-          to: now,
-        };
-      }
-      default: {
-        // Default to 7 days
-        const defaultSevenDaysAgo = new Date(today);
-        defaultSevenDaysAgo.setDate(defaultSevenDaysAgo.getDate() - 7);
-        return {
-          from: defaultSevenDaysAgo,
-          to: now,
-        };
-      }
-    }
-  }, [selectedRange, customRange]); // Only recreate when these dependencies change
+    },
+    [selectedRange, customRange],
+  );
 
   // Log when range changes (for debugging)
   useEffect(() => {

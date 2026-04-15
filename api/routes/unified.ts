@@ -10,6 +10,12 @@ import { Router, Response } from 'express';
 import { supabaseAdmin } from '../db/connection';
 import { parsePagination } from '../utils/sanitize';
 import { verifyToken, AuthRequest } from '../middleware/auth';
+import {
+    DEFAULT_TIMEZONE,
+    endOfDayIso,
+    formatDateInTimezone,
+    startOfDayIso,
+} from '../utils/dateUtils';
 
 export const unifiedRouter = Router();
 
@@ -351,11 +357,24 @@ unifiedRouter.get('/shipping/ready', async (req: AuthRequest, res: Response) => 
 // This is READ-ONLY and safe for Global View
 // ================================================================
 
-// Helper function to convert date string to end of day ISO string
-const toEndOfDay = (dateString: string): string => {
-    const date = new Date(dateString);
-    date.setHours(23, 59, 59, 999);
-    return date.toISOString();
+// Resolve a reference timezone for unified (cross-store) analytics.
+// Picks the first store's configured timezone; falls back to the default.
+// Cross-store aggregates must commit to a single calendar, so we make that
+// choice explicit rather than silently drifting to UTC.
+const resolveReferenceTimezone = async (storeIds: string[]): Promise<string> => {
+    if (!storeIds.length) return DEFAULT_TIMEZONE;
+    try {
+        const { data } = await supabaseAdmin
+            .from('stores')
+            .select('timezone')
+            .in('id', storeIds)
+            .limit(1)
+            .maybeSingle();
+        return (data?.timezone as string | null) || DEFAULT_TIMEZONE;
+    } catch (error) {
+        logger.warn('API', 'resolveReferenceTimezone failed, using default', error);
+        return DEFAULT_TIMEZONE;
+    }
 };
 
 unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response) => {
@@ -400,15 +419,17 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
             confirmationFeeMap.set(c.store_id, Number(c.confirmation_fee) || 0);
         });
 
-        // Calculate date ranges
+        const refTz = await resolveReferenceTimezone(storeIds);
+
+        // Calculate date ranges in the reference timezone
         let currentPeriodStart: Date;
         let currentPeriodEnd: Date;
         let previousPeriodStart: Date;
         let previousPeriodEnd: Date;
 
         if (startDate && endDate) {
-            currentPeriodStart = new Date(startDate as string);
-            currentPeriodEnd = new Date(toEndOfDay(endDate as string));
+            currentPeriodStart = new Date(startOfDayIso(startDate as string, refTz));
+            currentPeriodEnd = new Date(endOfDayIso(endDate as string, refTz));
             const periodDuration = currentPeriodEnd.getTime() - currentPeriodStart.getTime();
             previousPeriodStart = new Date(currentPeriodStart.getTime() - periodDuration);
             previousPeriodEnd = currentPeriodStart;
@@ -433,15 +454,16 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
         // Filter out soft-deleted and test orders
         const orders = (ordersData || []).filter(o => !o.deleted_at && o.is_test !== true);
 
-        // Fetch marketing expenses from additional_values (category='marketing', type='expense')
+        // Fetch marketing expenses from additional_values (category='marketing', type='expense').
+        // `date` is a DATE column, so we compare against local calendar days.
         const { data: marketingExpensesData } = await supabaseAdmin
             .from('additional_values')
             .select('amount, date, store_id')
             .in('store_id', storeIds)
             .eq('category', 'marketing')
             .eq('type', 'expense')
-            .gte('date', previousPeriodStart.toISOString().split('T')[0])
-            .lte('date', currentPeriodEnd.toISOString().split('T')[0]);
+            .gte('date', formatDateInTimezone(previousPeriodStart, refTz))
+            .lte('date', formatDateInTimezone(currentPeriodEnd, refTz));
 
         const marketingExpenses = marketingExpensesData || [];
 
@@ -751,6 +773,8 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
 
         const { days = '7', startDate: startDateParam, endDate: endDateParam } = req.query;
 
+        const refTz = await resolveReferenceTimezone(storeIds);
+
         let query = supabaseAdmin
             .from('orders')
             .select('created_at, total_price, sleeves_status, shipping_cost, store_id, line_items, deleted_at, is_test')
@@ -758,8 +782,8 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
 
         if (startDateParam && endDateParam) {
             query = query
-                .gte('created_at', startDateParam as string)
-                .lte('created_at', toEndOfDay(endDateParam as string));
+                .gte('created_at', startOfDayIso(startDateParam as string, refTz))
+                .lte('created_at', endOfDayIso(endDateParam as string, refTz));
         } else {
             const daysCount = parseInt(days as string, 10);
             const startDate = new Date();
@@ -813,7 +837,7 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
         const dailyData: { [key: string]: { revenue: number; realRevenue: number; costs: number; gasto_publicitario: number; profit: number } } = {};
 
         for (const order of filteredOrders) {
-            const date = new Date(order.created_at).toISOString().split('T')[0];
+            const date = formatDateInTimezone(order.created_at, refTz);
             if (!dailyData[date]) {
                 dailyData[date] = { revenue: 0, realRevenue: 0, costs: 0, gasto_publicitario: 0, profit: 0 };
             }

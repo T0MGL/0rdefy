@@ -61,7 +61,7 @@ export function RevenueIntelligence() {
 
   // Calculate date ranges from global context using store timezone
   const dateRange = useMemo(() => {
-    const range = getDateRange();
+    const range = getDateRange(storeTimezone);
     return {
       startDate: formatLocalDate(range.from, storeTimezone),
       endDate: formatLocalDate(range.to, storeTimezone),

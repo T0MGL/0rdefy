@@ -12,7 +12,13 @@
 
 import { supabaseAdmin } from '../db/connection';
 import { generateDispatchExcel, DispatchOrder } from '../utils/excel-export';
-import { getTodayInTimezone } from '../utils/dateUtils';
+import {
+  endOfDayIso,
+  formatDateInTimezone,
+  getStoreTimezone,
+  getTodayInTimezone,
+  startOfDayIso,
+} from '../utils/dateUtils';
 import {
   isCodPayment,
   normalizePaymentMethod,
@@ -441,8 +447,11 @@ export async function createDispatchSession(
     throw new Error(`${duplicateOrders.length} orden(es) ya están en sesiones activas: ${duplicateIds}`);
   }
 
-  // Generate session code atomically using RPC (prevents race conditions)
-  const today = new Date();
+  // Generate session code atomically using RPC (prevents race conditions).
+  // `dispatch_date` is a DATE column, so resolve it in the store's local
+  // timezone to avoid writing "tomorrow" when it's still late evening in Paraguay.
+  const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+  const todayLocal = getTodayInTimezone(storeTz);
   const sessionCode = await generateDispatchCodeWithRetry(storeId);
 
   // ============================================================
@@ -582,7 +591,7 @@ export async function createDispatchSession(
       store_id: storeId,
       carrier_id: carrierId,
       session_code: sessionCode,
-      dispatch_date: today.toISOString().split('T')[0],
+      dispatch_date: todayLocal,
       total_orders: orders.length,
       status: 'dispatched',
       created_by: userId,
@@ -1196,8 +1205,11 @@ async function processSettlementLegacy(
     }
   }
 
-  // Generate settlement code atomically using RPC (prevents race conditions)
-  const today = new Date();
+  // Generate settlement code atomically using RPC (prevents race conditions).
+  // settlement_date is a DATE column, store-local calendar is what the courier
+  // reconciles against.
+  const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+  const todayLocal = getTodayInTimezone(storeTz);
   const settlementCode = await generateSettlementCodeWithRetry(storeId);
 
   // Calculate net receivable
@@ -1232,7 +1244,7 @@ async function processSettlementLegacy(
       carrier_id: session.carrier_id,
       dispatch_session_id: sessionId,
       settlement_code: settlementCode,
-      settlement_date: today.toISOString().split('T')[0],
+      settlement_date: todayLocal,
       ...stats,
       net_receivable: netReceivable,
       balance_due: balanceDue,
@@ -1820,6 +1832,7 @@ export async function getShippedOrdersGrouped(
   logger.info('SETTLEMENTS', 'getShippedOrdersGrouped called', { storeId });
 
   try {
+    const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
     // First get shipped orders
     const { data: orders, error } = await supabaseAdmin
       .from('orders')
@@ -1894,9 +1907,11 @@ export async function getShippedOrdersGrouped(
     const groupMap = new Map<string, CourierDateGroup>();
 
     orders.forEach((order: any) => {
+      // Dispatch date bucketed by the store's local calendar; a 22:00 Asuncion
+      // ship event must not drift into the next UTC day.
       const dispatchDate = order.shipped_at
-        ? new Date(order.shipped_at).toISOString().split('T')[0]
-        : new Date(order.created_at).toISOString().split('T')[0];
+        ? formatDateInTimezone(order.shipped_at, storeTz)
+        : formatDateInTimezone(order.created_at, storeTz);
 
       const groupKey = `${order.courier_id}_${dispatchDate}`;
       const carrierData = carrierMap.get(order.courier_id) || { name: 'Sin courier', failed_attempt_fee_percent: 50 };
@@ -3176,6 +3191,8 @@ export async function getPendingReconciliation(storeId: string): Promise<Deliver
 async function getPendingReconciliationFallback(storeId: string): Promise<DeliveryDateGroup[]> {
   logger.info('SETTLEMENTS', 'Using fallback query for pending reconciliation');
 
+  const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+
   const { data: orders, error } = await supabaseAdmin
     .from('orders')
     .select(`
@@ -3205,11 +3222,11 @@ async function getPendingReconciliationFallback(storeId: string): Promise<Delive
 
   const carrierMap = new Map(carriers?.map(c => [c.id, c]) || []);
 
-  // Group by date and carrier
+  // Group by delivery date in store-local TZ + carrier
   const groupMap = new Map<string, DeliveryDateGroup>();
 
   orders.forEach((order: any) => {
-    const deliveryDate = new Date(order.delivered_at).toISOString().split('T')[0];
+    const deliveryDate = formatDateInTimezone(order.delivered_at, storeTz);
     const groupKey = `${order.courier_id}_${deliveryDate}`;
     const carrier = carrierMap.get(order.courier_id);
     // IMPORTANT: If prepaid_method is set, it's NOT COD (even if payment_method was 'efectivo')
@@ -3272,8 +3289,12 @@ async function getPendingReconciliationOrdersFallback(
   carrierId: string,
   deliveryDate: string
 ): Promise<PendingReconciliationOrder[]> {
-  const startOfDay = `${deliveryDate}T00:00:00.000Z`;
-  const endOfDay = `${deliveryDate}T23:59:59.999Z`;
+  // Bound the delivered_at window by the store's local calendar day. Using raw
+  // UTC would include the next day's early-morning Paraguay deliveries, or
+  // miss late-night ones, depending on the offset.
+  const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+  const startOfDay = startOfDayIso(deliveryDate, storeTz);
+  const endOfDay = endOfDayIso(deliveryDate, storeTz);
 
   const { data: orders, error } = await supabaseAdmin
     .from('orders')

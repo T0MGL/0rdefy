@@ -16,6 +16,7 @@ import { FilterChips } from '@/components/FilterChips';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { invoicingService } from '@/services/invoicing.service';
+import { useInvoicingAvailability } from '@/hooks/useInvoicingAvailability';
 import { useCarriers } from '@/hooks/useCarriers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
@@ -35,7 +36,7 @@ import { ordersExportColumns, createPlanillaTransportadoraColumns } from '@/util
 import { formatCurrency } from '@/utils/currency';
 import { showErrorToast } from '@/utils/errorMessages';
 import { logger } from '@/utils/logger';
-import { startOfDayInTimezone, endOfDayInTimezone } from '@/utils/timeUtils';
+import { startOfDayInTimezone, endOfDayInTimezone, formatLocalDate } from '@/utils/timeUtils';
 import {
   Select,
   SelectContent,
@@ -45,7 +46,7 @@ import {
 } from '@/components/ui/select';
 import { Search, Filter, Eye, Phone, Calendar as CalendarIcon, CalendarClock, List, CheckCircle, XCircle, Plus, ShoppingCart, Edit, Trash2, Printer, Check, RefreshCw, Package2, Package, Loader2, PackageOpen, MessageSquare, Truck, RotateCcw, AlertTriangle, Store, MoreHorizontal, Star, StickyNote, X, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { format, isAfter, startOfDay } from 'date-fns';
+import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
   Tooltip,
@@ -122,23 +123,29 @@ const statusLabels: Record<string, string> = {
   incident: 'Incidencia',
 };
 
-// Helper to check if order has active delivery restriction (scheduled for future)
-const getScheduledDeliveryInfo = (order: Order): { isScheduled: boolean; date: Date | null; summary: string | null } => {
+// Helper to check if an order has an active delivery restriction (scheduled
+// for a future day). Dates must be compared in the store's local calendar, not
+// the browser's, otherwise a scheduled delivery for "tomorrow in Paraguay" can
+// look like "today" from a browser ahead of the Asuncion offset.
+const getScheduledDeliveryInfo = (
+  order: Order,
+  storeTimezone: string,
+): { isScheduled: boolean; date: Date | null; summary: string | null } => {
   const prefs = order.delivery_preferences;
   if (!prefs || !prefs.not_before_date) {
     return { isScheduled: false, date: null, summary: null };
   }
 
   const notBeforeDate = new Date(prefs.not_before_date);
-  const today = startOfDay(new Date());
+  const notBeforeKey = formatLocalDate(notBeforeDate, storeTimezone);
+  const todayKey = formatLocalDate(new Date(), storeTimezone);
 
-  if (!isAfter(notBeforeDate, today)) {
+  if (notBeforeKey <= todayKey) {
     return { isScheduled: false, date: notBeforeDate, summary: null };
   }
 
-  // Build summary
   const parts: string[] = [];
-  parts.push(format(notBeforeDate, "dd/MM", { locale: es }));
+  parts.push(format(notBeforeDate, 'dd/MM', { locale: es }));
 
   if (prefs.preferred_time_slot && prefs.preferred_time_slot !== 'any') {
     const slots: Record<string, string> = { morning: 'Mañana', afternoon: 'Tarde', evening: 'Noche' };
@@ -148,7 +155,7 @@ const getScheduledDeliveryInfo = (order: Order): { isScheduled: boolean; date: D
   return {
     isScheduled: true,
     date: notBeforeDate,
-    summary: parts.join(' • ')
+    summary: parts.join(' • '),
   };
 };
 
@@ -236,6 +243,7 @@ export default function Orders() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentStore, user } = useAuth();
+  const invoicingAvailability = useInvoicingAvailability();
   const { hasFeature } = useSubscription();
   const userRole = currentStore?.role?.toLowerCase() || 'viewer'; // Role is on store, not user
 
@@ -357,10 +365,13 @@ export default function Orders() {
   // Store timezone from preferences (IANA format, e.g., "America/Asuncion")
   const storeTimezone = currentStore?.timezone || 'America/Asuncion';
 
-  // Memoize date params to trigger refetch when date range changes
-  // Uses the store's configured timezone for accurate day boundaries
+  // Memoize date params to trigger refetch when date range changes.
+  // Passing storeTimezone makes `getDateRange` anchor the lower bound to the
+  // store's local midnight, not the browser's. Re-wrapping with
+  // startOfDayInTimezone/endOfDayInTimezone is still valuable because the
+  // outgoing filter is an ISO instant derived from the range's local day.
   const dateParams = useMemo(() => {
-    const dateRange = getDateRange();
+    const dateRange = getDateRange(storeTimezone);
     return {
       startDate: startOfDayInTimezone(dateRange.from, storeTimezone),
       endDate: endOfDayInTimezone(dateRange.to, storeTimezone),
@@ -2747,7 +2758,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                                 </Tooltip>
                               </TooltipProvider>
                             )}
-                            {currentStore?.country === 'PY' && (order.invoice_id || order.customer_ruc) && (
+                            {invoicingAvailability.available && (order.invoice_id || order.customer_ruc) && (
                               <Button
                                 size="sm"
                                 variant="outline"

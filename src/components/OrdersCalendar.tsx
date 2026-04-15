@@ -7,6 +7,8 @@ import { getOrderDisplayId } from '@/utils/orderDisplay';
 import type { Order } from '@/types';
 import { logger } from '@/utils/logger';
 import { formatCurrency } from '@/utils/currency';
+import { formatLocalDate } from '@/utils/timeUtils';
+import { useAuth } from '@/contexts/AuthContext';
 
 const statusColors = {
   pending: 'bg-yellow-500',
@@ -23,6 +25,8 @@ const statusColors = {
 };
 
 export function OrdersCalendar() {
+  const { currentStore } = useAuth();
+  const storeTimezone = currentStore?.timezone || 'America/Asuncion';
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,17 +58,18 @@ export function OrdersCalendar() {
     loadOrders();
   }, []);
 
-  // Agrupar pedidos por fecha
+  // Group orders by their local calendar day in the store's timezone. Using
+  // `toDateString()` would bucket by the browser's timezone, which can drift
+  // by several hours from the store's actual operating day.
   const ordersByDate = orders.reduce((acc, order) => {
-    const date = new Date(order.date).toDateString();
-    if (!acc[date]) acc[date] = [];
-    acc[date].push(order);
+    const key = formatLocalDate(new Date(order.date), storeTimezone);
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(order);
     return acc;
   }, {} as Record<string, Order[]>);
 
-  const selectedDateOrders = selectedDate
-    ? ordersByDate[selectedDate.toDateString()] || []
-    : [];
+  const selectedDateKey = selectedDate ? formatLocalDate(selectedDate, storeTimezone) : null;
+  const selectedDateOrders = selectedDateKey ? ordersByDate[selectedDateKey] || [] : [];
 
   if (isLoading) {
     return (
@@ -96,9 +101,7 @@ export function OrdersCalendar() {
           onSelect={setSelectedDate}
           className="rounded-md border"
           modifiers={{
-            hasOrders: (date) => {
-              return !!ordersByDate[date.toDateString()];
-            },
+            hasOrders: (date) => !!ordersByDate[formatLocalDate(date, storeTimezone)],
           }}
           modifiersClassNames={{
             hasOrders: 'bg-primary/10 font-bold',
