@@ -55,6 +55,7 @@ import { shopifyBillingRouter } from './routes/shopify-billing';
 import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
 import { invoicingRouter } from './routes/invoicing';
+import { fiscalRouter } from './routes/fiscal';
 import { supabaseAdmin } from './db/connection';
 import { requestLoggerMiddleware, logger } from './utils/logger';
 import { registerCleanup, setupShutdownHandlers } from './utils/shutdown';
@@ -691,6 +692,9 @@ app.use('/api/onboarding', onboardingRouter);
 
 // Invoicing routes (SIFEN electronic invoicing - Paraguay only)
 app.use('/api/invoicing', invoicingRouter);
+
+// Fiscal routes (identity / activities / store link - Paraguay only)
+app.use('/api/fiscal', fiscalRouter);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

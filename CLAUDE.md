@@ -346,6 +346,7 @@ Glassmorphism, iOS safe areas, Framer Motion, permission-filtered. Layout: sideb
 - **Onboarding:** onboarding_progress
 - **Shopify:** shopify_integrations, shopify_oauth_states, shopify_import_jobs, shopify_webhook_events, shopify_sync_conflicts, shopify_webhook_idempotency, shopify_webhook_retry_queue, shopify_webhook_metrics
 - **Outbound Webhooks:** outbound_webhook_configs, outbound_webhook_deliveries
+- **Fiscal (PY SIFEN):** fiscal_identities, fiscal_identity_activities, fiscal_identity_stores, invoices, invoice_events (legacy fiscal_config kept for back-compat, slated for column drop)
 
 **Key Triggers:**
 - Auto-update: customer/carrier stats, order status history, delivery tokens, COD calc, warehouse timestamps
@@ -424,3 +425,5 @@ Revenue = Sum(total_price), Costs = Sum(cost*qty), Marketing = Sum(active campai
 | 110 | Returns variant & bundle support |
 | 124 | customers.city VARCHAR(150) fix |
 | 130 | Outbound webhooks (status change notifications to external URLs) |
+| 161 | Fiscal identities refactor (3-table model: identities + activities + store link) |
+| 162 | stores.country NOT NULL + CHECK + index (invoicing country gate) |

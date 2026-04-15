@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFieldArray, useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,7 +15,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { invoicingService, ManualInvoiceResult } from '@/services/invoicing.service';
+import {
+  invoicingService,
+  fiscalService,
+  ManualInvoiceResult,
+  FiscalActivity,
+} from '@/services/invoicing.service';
 import { Loader2, Plus, Trash2, CheckCircle2, ExternalLink, Copy } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 
@@ -173,7 +178,32 @@ interface Props {
 export function ManualInvoiceModal({ open, onOpenChange, onSuccess }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ data: ManualInvoiceResult; tipoDocumento: number } | null>(null);
+  const [activities, setActivities] = useState<FiscalActivity[]>([]);
+  const [selectedActivityCode, setSelectedActivityCode] = useState<string>('');
   const { toast } = useToast();
+
+  // Load activities for the current store's fiscal identity. Only surfaces
+  // the dropdown when there are 2+ activities; with a single (principal)
+  // activity the backend picks it automatically.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fiscalService
+      .getContext()
+      .then((ctx) => {
+        if (cancelled) return;
+        const list = ctx?.activities ?? [];
+        setActivities(list);
+        const principal = list.find((a) => a.is_principal);
+        setSelectedActivityCode(principal?.codigo ?? list[0]?.codigo ?? '');
+      })
+      .catch(() => {
+        // Non-fatal: falls back to principal activity on the backend.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -220,6 +250,11 @@ export function ManualInvoiceModal({ open, onOpenChange, onSuccess }: Props) {
           precioUnitario: item.precioUnitario,
           ivaRate: item.ivaRate,
         })),
+        // Only send activity_code when the identity has multiple activities
+        // and the operator made an explicit choice.
+        ...(activities.length > 1 && selectedActivityCode
+          ? { activityCode: selectedActivityCode }
+          : {}),
       });
       setResult({ data: res.data, tipoDocumento: values.tipoDocumento });
       onSuccess();
@@ -279,6 +314,26 @@ export function ManualInvoiceModal({ open, onOpenChange, onSuccess }: Props) {
                   )}
                 />
               </div>
+
+              {/* Activity picker (only when the identity has 2+ activities) */}
+              {activities.length > 1 && (
+                <div>
+                  <Label>Actividad economica</Label>
+                  <Select value={selectedActivityCode} onValueChange={setSelectedActivityCode}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activities.map((a) => (
+                        <SelectItem key={a.id} value={a.codigo}>
+                          {a.codigo} - {a.descripcion}
+                          {a.is_principal ? ' (principal)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Buyer data */}
               <div className="space-y-4">

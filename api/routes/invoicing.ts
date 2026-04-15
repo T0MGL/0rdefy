@@ -12,8 +12,8 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, requireRole, PermissionRequest } from '../middleware/permissions';
+import { requireInvoicingCountry } from '../middleware/require-invoicing-country';
 import { Module, Role, Permission } from '../permissions';
-import { supabaseAdmin } from '../db/connection';
 import { logger } from '../utils/logger';
 import { validateUUIDParam, parsePagination, sanitizeErrorForClient } from '../utils/sanitize';
 import * as invoicingService from '../services/invoicing.service';
@@ -43,42 +43,15 @@ const upload = (multer as unknown)({
 });
 
 // ================================================================
-// Middleware: Country validation (PY only)
-// ================================================================
-async function requireParaguayStore(req: PermissionRequest, res: Response, next: () => void) {
-  try {
-    const storeId = req.storeId;
-    if (!storeId) {
-      return res.status(401).json({ error: 'Store ID required' });
-    }
-
-    const { data: store } = await supabaseAdmin
-      .from('stores')
-      .select('country')
-      .eq('id', storeId)
-      .single();
-
-    if (!store || store.country !== 'PY') {
-      return res.status(403).json({
-        error: 'Facturación electrónica solo disponible para tiendas en Paraguay',
-        code: 'COUNTRY_NOT_SUPPORTED',
-      });
-    }
-
-    next();
-  } catch (err: any) {
-    return res.status(500).json({ error: 'Error validating store country' });
-  }
-}
-
-// ================================================================
 // Apply middleware chain
+// requireInvoicingCountry replaces the old inline requireParaguayStore
+// and will stay accurate as we expand to other SIFEN-style backends.
 // ================================================================
 invoicingRouter.use(verifyToken);
 invoicingRouter.use(extractStoreId);
 invoicingRouter.use(extractUserRole);
 invoicingRouter.use(requireModule(Module.INVOICING));
-invoicingRouter.use(requireParaguayStore);
+invoicingRouter.use(requireInvoicingCountry);
 
 // ================================================================
 // GET /config - Get fiscal configuration

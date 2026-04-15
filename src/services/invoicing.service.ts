@@ -11,6 +11,7 @@ cleanBaseURL = cleanBaseURL.trim();
 cleanBaseURL = cleanBaseURL.replace(/(\/api\/?)+$/i, '');
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
 const API_BASE_URL = `${cleanBaseURL}/api/invoicing`;
+const API_FISCAL_URL = `${cleanBaseURL}/api/fiscal`;
 
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('auth_token');
@@ -124,6 +125,13 @@ export interface ManualInvoiceInput {
   customerRucDv?: number;
   customerEmail?: string;
   items: ManualInvoiceItem[];
+  /**
+   * Optional economic-activity code. Required when the fiscal identity has
+   * more than one registered activity so the emitter specifies which one
+   * applies to this invoice. When omitted, the identity's principal
+   * activity is used.
+   */
+  activityCode?: string;
 }
 
 export interface ManualInvoiceResult {
@@ -295,6 +303,232 @@ export const invoicingService = {
       throw new Error(err.error || 'Error al obtener estadísticas');
     }
     const json = await res.json();
+    return json.data;
+  },
+};
+
+// ================================================================
+// Fiscal identities / activities / store link (/api/fiscal/*)
+//
+// This API surfaces the new 3-table model (fiscal_identities,
+// fiscal_identity_activities, fiscal_identity_stores). The legacy
+// /api/invoicing/config endpoints stay available while the wizard is
+// migrated.
+// ================================================================
+
+export interface FiscalActivity {
+  id: string;
+  codigo: string;
+  descripcion: string;
+  is_principal: boolean;
+  display_order: number;
+}
+
+export interface FiscalIdentity {
+  id: string;
+  owner_user_id: string;
+  ruc: string;
+  ruc_dv: number;
+  razon_social: string;
+  nombre_fantasia: string | null;
+  tipo_contribuyente: 1 | 2;
+  tipo_regimen: number | null;
+  country: 'PY';
+  sifen_environment: 'demo' | 'test' | 'prod';
+  has_certificate: boolean;
+  csc_id: string | null;
+  representante_legal_nombre: string | null;
+  representante_legal_documento_tipo: 1 | 2 | 3 | 4 | 5 | 6 | 9 | null;
+  representante_legal_documento_numero: string | null;
+  representante_legal_cargo: string | null;
+  domicilio_fiscal_direccion: string | null;
+  domicilio_fiscal_numero_casa: string | null;
+  domicilio_fiscal_departamento: number | null;
+  domicilio_fiscal_distrito: number | null;
+  domicilio_fiscal_ciudad: number | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  activities: FiscalActivity[];
+}
+
+export interface FiscalStoreLink {
+  id: string;
+  store_id: string;
+  timbrado: string;
+  timbrado_fecha_inicio: string | null;
+  timbrado_fecha_fin: string | null;
+  establecimiento_codigo: string;
+  punto_expedicion: string;
+  establecimiento_direccion: string | null;
+  establecimiento_departamento: number | null;
+  establecimiento_distrito: number | null;
+  establecimiento_ciudad: number | null;
+  establecimiento_telefono: string | null;
+  establecimiento_email: string | null;
+  next_document_number: number;
+  is_active: boolean;
+  setup_completed: boolean;
+}
+
+export interface FiscalContext {
+  identity: Omit<FiscalIdentity, 'activities'>;
+  link: FiscalStoreLink;
+  activities: FiscalActivity[];
+}
+
+export interface FiscalIdentityInput {
+  ruc: string;
+  ruc_dv: number;
+  razon_social: string;
+  nombre_fantasia?: string | null;
+  tipo_contribuyente: 1 | 2;
+  tipo_regimen?: number | null;
+  sifen_environment?: 'demo' | 'test' | 'prod';
+  representante_legal_nombre?: string | null;
+  representante_legal_documento_tipo?: 1 | 2 | 3 | 4 | 5 | 6 | 9 | null;
+  representante_legal_documento_numero?: string | null;
+  representante_legal_cargo?: string | null;
+  domicilio_fiscal_direccion?: string | null;
+  domicilio_fiscal_numero_casa?: string | null;
+  domicilio_fiscal_departamento?: number | null;
+  domicilio_fiscal_distrito?: number | null;
+  domicilio_fiscal_ciudad?: number | null;
+}
+
+export interface FiscalActivityInput {
+  codigo: string;
+  descripcion: string;
+  is_principal?: boolean;
+  display_order?: number;
+}
+
+export interface FiscalStoreLinkInput {
+  timbrado: string;
+  timbrado_fecha_inicio?: string | null;
+  timbrado_fecha_fin?: string | null;
+  establecimiento_codigo?: string;
+  punto_expedicion?: string;
+  establecimiento_direccion?: string | null;
+  establecimiento_departamento?: number | null;
+  establecimiento_distrito?: number | null;
+  establecimiento_ciudad?: number | null;
+  establecimiento_telefono?: string | null;
+  establecimiento_email?: string | null;
+}
+
+async function fiscalFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_FISCAL_URL}${path}`, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), ...getAuthHeaders() },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const message =
+      err.code === 'INVOICING_COUNTRY_UNSUPPORTED'
+        ? 'Facturacion electronica no disponible para este pais'
+        : err.error || `HTTP ${res.status}`;
+    const e = new Error(message);
+    (e as any).code = err.code;
+    (e as any).status = res.status;
+    throw e;
+  }
+  return res.json();
+}
+
+export const fiscalService = {
+  async getContext(): Promise<FiscalContext | null> {
+    const json = await fiscalFetch<{ data: FiscalContext | null }>('/context');
+    return json.data;
+  },
+
+  async listIdentities(): Promise<FiscalIdentity[]> {
+    const json = await fiscalFetch<{ data: FiscalIdentity[] }>('/identities');
+    return json.data;
+  },
+
+  async createIdentity(input: FiscalIdentityInput): Promise<FiscalIdentity> {
+    const json = await fiscalFetch<{ data: FiscalIdentity }>('/identities', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    return json.data;
+  },
+
+  async updateIdentity(id: string, input: Partial<FiscalIdentityInput>): Promise<FiscalIdentity> {
+    const json = await fiscalFetch<{ data: FiscalIdentity }>(`/identities/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+    return json.data;
+  },
+
+  async uploadIdentityCertificate(
+    id: string,
+    file: File,
+    password: string,
+  ): Promise<{ identity_id: string; has_certificate: true }> {
+    const formData = new FormData();
+    formData.append('certificate', file);
+    formData.append('password', password);
+
+    const res = await fetch(`${API_FISCAL_URL}/identities/${id}/certificate`, {
+      method: 'POST',
+      headers: getAuthHeadersNoContentType(),
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al cargar certificado');
+    }
+    const json = await res.json();
+    return json.data;
+  },
+
+  async addActivity(identityId: string, input: FiscalActivityInput): Promise<FiscalActivity> {
+    const json = await fiscalFetch<{ data: FiscalActivity }>(`/identities/${identityId}/activities`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    return json.data;
+  },
+
+  async updateActivity(
+    identityId: string,
+    activityId: string,
+    input: Partial<FiscalActivityInput>,
+  ): Promise<FiscalActivity> {
+    const json = await fiscalFetch<{ data: FiscalActivity }>(
+      `/identities/${identityId}/activities/${activityId}`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
+    return json.data;
+  },
+
+  async deleteActivity(identityId: string, activityId: string): Promise<void> {
+    await fiscalFetch(`/identities/${identityId}/activities/${activityId}`, { method: 'DELETE' });
+  },
+
+  async linkIdentityToStore(
+    storeId: string,
+    identityId: string,
+    link: FiscalStoreLinkInput,
+  ): Promise<FiscalStoreLink> {
+    const json = await fiscalFetch<{ data: FiscalStoreLink }>(`/stores/${storeId}/link`, {
+      method: 'POST',
+      body: JSON.stringify({ identity_id: identityId, link }),
+    });
+    return json.data;
+  },
+
+  async updateStoreFields(
+    storeId: string,
+    input: Partial<FiscalStoreLinkInput>,
+  ): Promise<FiscalStoreLink> {
+    const json = await fiscalFetch<{ data: FiscalStoreLink }>(`/stores/${storeId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
     return json.data;
   },
 };

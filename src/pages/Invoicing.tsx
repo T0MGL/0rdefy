@@ -9,6 +9,8 @@ import { InvoiceHistoryTable } from '@/components/InvoiceHistoryTable';
 import { ManualInvoiceModal } from '@/components/ManualInvoiceModal';
 import { formatCurrency } from '@/utils/currency';
 import { useToast } from '@/hooks/use-toast';
+import { useInvoicingAvailability } from '@/hooks/useInvoicingAvailability';
+import { ComingSoonPlaceholder } from '@/components/ComingSoonPlaceholder';
 
 const ENV_LABELS: Record<string, { label: string; color: string }> = {
   demo: { label: 'Demo', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' },
@@ -27,6 +29,7 @@ export default function Invoicing() {
   const [invoiceTableKey, setInvoiceTableKey] = useState(0);
   const isMountedRef = useRef(true);
   const { toast } = useToast();
+  const availability = useInvoicingAvailability();
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -74,6 +77,24 @@ export default function Invoicing() {
   useEffect(() => {
     loadData();
   }, []);
+
+  if (!availability.available) {
+    return (
+      <ComingSoonPlaceholder
+        title="Facturacion electronica"
+        message={
+          availability.status === 'coming_soon'
+            ? `Disponible hoy solo para Paraguay. Tu tienda esta en ${availability.country ?? 'otra region'}.`
+            : 'Selecciona una tienda para ver esta seccion.'
+        }
+        hint={
+          availability.status === 'coming_soon'
+            ? 'Estamos trabajando para soportar mas paises. Te avisaremos cuando este listo.'
+            : undefined
+        }
+      />
+    );
+  }
 
   if (loading) {
     return (
