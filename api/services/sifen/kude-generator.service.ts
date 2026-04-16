@@ -598,17 +598,24 @@ function renderFooter(
       { width: pageWidth, align: 'center' },
     );
 
-  // Brand line: text-only. Logo lives in the top-right corner (Anthropic
-  // style), not in the footer. 'Ordefy' is a clickable link.
+  // Brand line: text-only. Logo lives in the top-right corner, not in
+  // the footer. 'Ordefy' is a clickable link.
+  //
+  // NOTE: pdfkit's combination of { lineBreak: false, link: '...' } on
+  // text() yields NaN in the annotation's height when finalizing the
+  // PDF (pdfkit can't measure unbounded inline text). Workaround: draw
+  // the text, then overlay a doc.link() rectangle with explicit coords.
   const brandY = legendY + 14;
   const prefix = 'Generado por ';
   const brand = 'Ordefy';
-  const suffix = '  ·  Documento electronico aprobado por la DNIT.';
+  const suffix = '  \u00b7  Documento electronico aprobado por la DNIT.';
 
   doc.font('Helvetica-Oblique').fontSize(8);
   const prefixWidth = doc.widthOfString(prefix);
-  const brandWidth = doc.font('Helvetica-Bold').widthOfString(brand);
-  doc.font('Helvetica-Oblique');
+  doc.font('Helvetica-Bold').fontSize(8);
+  const brandWidth = doc.widthOfString(brand);
+  const brandHeight = doc.currentLineHeight();
+  doc.font('Helvetica-Oblique').fontSize(8);
   const suffixWidth = doc.widthOfString(suffix);
   const totalWidth = prefixWidth + brandWidth + suffixWidth;
   const startX = leftX + (pageWidth - totalWidth) / 2;
@@ -619,15 +626,17 @@ function renderFooter(
     .fillColor('#64748B')
     .text(prefix, startX, brandY, { lineBreak: false });
 
+  const brandX = startX + prefixWidth;
   doc
     .font('Helvetica-Bold')
     .fontSize(8)
     .fillColor('#0F172A')
-    .text(brand, startX + prefixWidth, brandY, { lineBreak: false, link: 'https://ordefy.io' });
+    .text(brand, brandX, brandY, { lineBreak: false });
+  doc.link(brandX, brandY, brandWidth, brandHeight, 'https://ordefy.io');
 
   doc
     .font('Helvetica-Oblique')
     .fontSize(8)
     .fillColor('#64748B')
-    .text(suffix, startX + prefixWidth + brandWidth, brandY, { lineBreak: false });
+    .text(suffix, brandX + brandWidth, brandY, { lineBreak: false });
 }
