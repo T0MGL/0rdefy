@@ -220,15 +220,33 @@ function renderHeader(doc: PDFKit.PDFDocument, input: KudeInput): void {
   const rightWidth = pageWidth * 0.38;
   const rightX = leftX + pageWidth - rightWidth;
 
+  // --- TOP-RIGHT: Ordefy wordmark (Anthropic-style corner mark) ---
+  // Sits above the timbrado box, right-aligned. Clickable to ordefy.io.
+  let timbradoTopY = topY;
+  if (LOGO_BUFFER) {
+    const logoWidth = 72;
+    const logoHeight = logoWidth / (1920 / 544);
+    const logoX = leftX + pageWidth - logoWidth;
+    const logoY = topY;
+    try {
+      doc.image(LOGO_BUFFER, logoX, logoY, { width: logoWidth });
+      doc.link(logoX, logoY, logoWidth, logoHeight, 'https://ordefy.io');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`[KUDE] Embedding Ordefy wordmark failed: ${msg}`);
+    }
+    timbradoTopY = topY + logoHeight + 10;
+  }
+
   // --- LEFT COLUMN: emitter identity ---
   let ly = topY;
 
   doc
     .font('Helvetica-Bold')
-    .fontSize(14)
+    .fontSize(20)
     .fillColor('#0F172A')
     .text(emitter.nombreFantasia || emitter.razonSocial, leftX, ly, { width: leftWidth });
-  ly = doc.y + 4;
+  ly = doc.y + 6;
 
   const emitterLines: string[] = [];
   if (emitter.nombreFantasia && emitter.nombreFantasia !== emitter.razonSocial) {
@@ -248,7 +266,7 @@ function renderHeader(doc: PDFKit.PDFDocument, input: KudeInput): void {
   }
 
   // --- RIGHT COLUMN: timbrado + document identification ---
-  // Fixed-height box with deterministic line placement. No overlap possible.
+  // Fixed-height box, starts below the wordmark.
   const boxPadX = 10;
   const boxPadY = 10;
   const lineGap = 12;
@@ -256,13 +274,13 @@ function renderHeader(doc: PDFKit.PDFDocument, input: KudeInput): void {
 
   doc
     .save()
-    .roundedRect(rightX, topY, rightWidth, boxHeight, 4)
+    .roundedRect(rightX, timbradoTopY, rightWidth, boxHeight, 4)
     .strokeColor('#CBD5E1')
     .lineWidth(0.8)
     .stroke()
     .restore();
 
-  let ry = topY + boxPadY;
+  let ry = timbradoTopY + boxPadY;
 
   const kv = (label: string, value: string) => {
     doc
@@ -283,7 +301,7 @@ function renderHeader(doc: PDFKit.PDFDocument, input: KudeInput): void {
   if (emitter.timbradoInicio) kv('Inicio de Vigencia', emitter.timbradoInicio);
 
   // Doc type title sits below the timbrado box
-  const titleY = topY + boxHeight + 10;
+  const titleY = timbradoTopY + boxHeight + 10;
   doc
     .font('Helvetica-Bold')
     .fontSize(12)
@@ -303,9 +321,10 @@ function renderHeader(doc: PDFKit.PDFDocument, input: KudeInput): void {
     .text(serie, rightX, titleY + 16, { width: rightWidth, align: 'right' });
 
   // Compute the floor of both columns and advance cursor past the taller one.
+  // Tightened gap (was +10) so the receiver block sits closer to the emitter.
   const rightFloor = titleY + 16 + 22;
   const leftFloor = ly;
-  doc.y = Math.max(leftFloor, rightFloor) + 10;
+  doc.y = Math.max(leftFloor, rightFloor) + 6;
   doc.x = leftX;
   doc.fillColor('#000000');
 }
@@ -578,50 +597,36 @@ function renderFooter(
       { width: pageWidth, align: 'center' },
     );
 
-  // Brand line: small Ordefy logo (clickable to ordefy.io) + DNIT legend,
-  // both centered under the legal legend. Uses the logo aspect ratio
-  // (3.5:1) at ~56x16 so it sits flush with 8pt text.
+  // Brand line: text-only. Logo lives in the top-right corner (Anthropic
+  // style), not in the footer. 'Ordefy' is a clickable link.
   const brandY = legendY + 14;
+  const prefix = 'Generado por ';
+  const brand = 'Ordefy';
   const suffix = '  ·  Documento electronico aprobado por la DNIT.';
 
-  doc.font('Helvetica-Oblique').fontSize(8).fillColor('#64748B');
+  doc.font('Helvetica-Oblique').fontSize(8);
+  const prefixWidth = doc.widthOfString(prefix);
+  const brandWidth = doc.font('Helvetica-Bold').widthOfString(brand);
+  doc.font('Helvetica-Oblique');
   const suffixWidth = doc.widthOfString(suffix);
+  const totalWidth = prefixWidth + brandWidth + suffixWidth;
+  const startX = leftX + (pageWidth - totalWidth) / 2;
 
-  if (LOGO_BUFFER) {
-    const logoWidth = 56;
-    const logoHeight = logoWidth / (1920 / 544); // preserve aspect
-    const totalWidth = logoWidth + suffixWidth;
-    const startX = leftX + (pageWidth - totalWidth) / 2;
-    const logoY = brandY - 3;
+  doc
+    .font('Helvetica-Oblique')
+    .fontSize(8)
+    .fillColor('#64748B')
+    .text(prefix, startX, brandY, { lineBreak: false });
 
-    try {
-      doc.image(LOGO_BUFFER, startX, logoY, { width: logoWidth });
-      // Make the logo region a link to ordefy.io.
-      doc.link(startX, logoY, logoWidth, logoHeight, 'https://ordefy.io');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error(`[KUDE] Embedding Ordefy logo failed: ${msg}`);
-    }
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(8)
+    .fillColor('#0F172A')
+    .text(brand, startX + prefixWidth, brandY, { lineBreak: false, link: 'https://ordefy.io' });
 
-    doc
-      .font('Helvetica-Oblique')
-      .fontSize(8)
-      .fillColor('#64748B')
-      .text(suffix, startX + logoWidth, brandY, { lineBreak: false });
-  } else {
-    // Fallback if the logo file is missing: text-only brand.
-    const fallbackPrefix = 'Ordefy';
-    doc.font('Helvetica-Bold').fontSize(8);
-    const prefixWidth = doc.widthOfString(fallbackPrefix);
-    const totalWidth = prefixWidth + suffixWidth;
-    const startX = leftX + (pageWidth - totalWidth) / 2;
-    doc
-      .fillColor('#0F172A')
-      .text(fallbackPrefix, startX, brandY, { lineBreak: false, link: 'https://ordefy.io' });
-    doc
-      .font('Helvetica-Oblique')
-      .fontSize(8)
-      .fillColor('#64748B')
-      .text(suffix, startX + prefixWidth, brandY, { lineBreak: false });
-  }
+  doc
+    .font('Helvetica-Oblique')
+    .fontSize(8)
+    .fillColor('#64748B')
+    .text(suffix, startX + prefixWidth + brandWidth, brandY, { lineBreak: false });
 }
