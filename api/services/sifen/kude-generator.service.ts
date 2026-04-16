@@ -21,7 +21,23 @@
 
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
+import fs from 'fs';
+import path from 'path';
 import { logger } from '../../utils/logger';
+
+// Logo is bundled with the service and read once at module load. Keeps
+// cold-start cheap (no filesystem hit per render) and removes any runtime
+// dependency on public/ being shipped alongside the API container.
+const LOGO_PATH = path.join(__dirname, 'ordefy-logo.png');
+const LOGO_BUFFER: Buffer | null = (() => {
+  try {
+    return fs.readFileSync(LOGO_PATH);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[KUDE] Ordefy logo not found at ${LOGO_PATH}: ${msg}`);
+    return null;
+  }
+})();
 
 // ================================================================
 // Types
@@ -556,32 +572,50 @@ function renderFooter(
       { width: pageWidth, align: 'center' },
     );
 
-  // Brand line: "Generado por Ordefy" with Ordefy clickable to ordefy.io.
-  const brandY = legendY + 12;
-  const prefix = 'Generado por ';
-  const brand = 'Ordefy';
-  const suffix = ' · Documento electronico aprobado por la DNIT.';
+  // Brand line: small Ordefy logo (clickable to ordefy.io) + DNIT legend,
+  // both centered under the legal legend. Uses the logo aspect ratio
+  // (3.5:1) at ~56x16 so it sits flush with 8pt text.
+  const brandY = legendY + 14;
+  const suffix = '  ·  Documento electronico aprobado por la DNIT.';
 
-  doc.font('Helvetica-Oblique').fontSize(8);
-  const prefixWidth = doc.widthOfString(prefix);
-  const brandWidth = doc.widthOfString(brand);
+  doc.font('Helvetica-Oblique').fontSize(8).fillColor('#64748B');
   const suffixWidth = doc.widthOfString(suffix);
-  const totalWidth = prefixWidth + brandWidth + suffixWidth;
-  const startX = leftX + (pageWidth - totalWidth) / 2;
 
-  doc
-    .fillColor('#64748B')
-    .text(prefix, startX, brandY, { lineBreak: false });
+  if (LOGO_BUFFER) {
+    const logoWidth = 56;
+    const logoHeight = logoWidth / (1920 / 544); // preserve aspect
+    const totalWidth = logoWidth + suffixWidth;
+    const startX = leftX + (pageWidth - totalWidth) / 2;
+    const logoY = brandY - 3;
 
-  doc
-    .fillColor('#0F172A')
-    .font('Helvetica-Bold')
-    .fontSize(8)
-    .text(brand, startX + prefixWidth, brandY, { lineBreak: false, link: 'https://ordefy.io' });
+    try {
+      doc.image(LOGO_BUFFER, startX, logoY, { width: logoWidth });
+      // Make the logo region a link to ordefy.io.
+      doc.link(startX, logoY, logoWidth, logoHeight, 'https://ordefy.io');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`[KUDE] Embedding Ordefy logo failed: ${msg}`);
+    }
 
-  doc
-    .font('Helvetica-Oblique')
-    .fontSize(8)
-    .fillColor('#64748B')
-    .text(suffix, startX + prefixWidth + brandWidth, brandY, { lineBreak: false });
+    doc
+      .font('Helvetica-Oblique')
+      .fontSize(8)
+      .fillColor('#64748B')
+      .text(suffix, startX + logoWidth, brandY, { lineBreak: false });
+  } else {
+    // Fallback if the logo file is missing: text-only brand.
+    const fallbackPrefix = 'Ordefy';
+    doc.font('Helvetica-Bold').fontSize(8);
+    const prefixWidth = doc.widthOfString(fallbackPrefix);
+    const totalWidth = prefixWidth + suffixWidth;
+    const startX = leftX + (pageWidth - totalWidth) / 2;
+    doc
+      .fillColor('#0F172A')
+      .text(fallbackPrefix, startX, brandY, { lineBreak: false, link: 'https://ordefy.io' });
+    doc
+      .font('Helvetica-Oblique')
+      .fontSize(8)
+      .fillColor('#64748B')
+      .text(suffix, startX + prefixWidth, brandY, { lineBreak: false });
+  }
 }
