@@ -49,11 +49,18 @@ interface SendResult {
   error?: string;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 async function send(
   to: string,
   template: { html: string; text: string; subject: string },
   tag: string,
-  fromOverride?: string
+  fromOverride?: string,
+  attachments?: EmailAttachment[],
 ): Promise<SendResult> {
   if (!isEmailEnabled()) {
     logger.info('EMAIL', `Resend not configured, skipping ${tag} to: ${to}`);
@@ -62,13 +69,25 @@ async function send(
 
   try {
     const client = getResendClient()!;
-    const { data: result, error } = await client.emails.send({
+    const payload: Record<string, unknown> = {
       from: fromOverride || FROM_EMAIL,
       to: [to],
       subject: template.subject,
       html: template.html,
       text: template.text,
-    });
+    };
+
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments.map((att) => ({
+        filename: att.filename,
+        content: att.content,
+        contentType: att.contentType || 'application/pdf',
+      }));
+    }
+
+    const { data: result, error } = await client.emails.send(
+      payload as unknown as Parameters<typeof client.emails.send>[0],
+    );
 
     if (error) {
       logger.error('EMAIL', `Resend error on ${tag}: ${error.message}`);
@@ -128,16 +147,19 @@ export async function sendOrderConfirmation(to: string, data: OrderConfirmationT
  * Send an electronic invoice email to a store customer.
  * The "from" address uses the store name as display name so the customer
  * sees "NOCTE <noreply@ops.ordefy.io>" instead of the generic Ordefy sender.
+ *
+ * Optionally attaches files (KUDE PDF in typical usage).
  */
 export async function sendInvoiceEmail(
   to: string,
   data: InvoiceEmailTemplateData,
-  storeName: string
+  storeName: string,
+  attachments?: EmailAttachment[],
 ): Promise<SendResult> {
   // Sanitize store name: strip angle brackets to prevent header injection
   const safeName = storeName.replace(/[<>]/g, '').trim();
   const fromAddress = `${safeName} <noreply@ops.ordefy.io>`;
-  return send(to, invoiceEmailTemplate(data), 'invoice-email', fromAddress);
+  return send(to, invoiceEmailTemplate(data), 'invoice-email', fromAddress, attachments);
 }
 
 export async function sendGenericEmail(to: string, data: GenericEmailTemplateData): Promise<SendResult> {

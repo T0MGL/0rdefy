@@ -586,6 +586,12 @@ ordersRouter.post('/token/:token/delivery-confirm', validate(DeliveryConfirmSche
         ).catch((err) => {
             logger.error('ORDERS', 'Outbound webhook fire on delivery-confirm failed (non-blocking):', err.message);
         });
+
+        // Fire-and-forget auto-invoice. Gates (country, RUC, opt-in,
+        // setup_completed) live inside the helper.
+        import('../services/invoicing.service')
+            .then(({ tryAutoEmitOnDelivery }) => tryAutoEmitOnDelivery(existingOrder.store_id, id))
+            .catch((err) => { logger.error('ORDERS', '[AutoInvoice] Helper import failed:', err); });
     } catch (error: any) {
         res.status(500).json({
             error: 'Error al confirmar entrega',
@@ -2609,30 +2615,12 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
         if (sleeves_status === 'delivered') {
             updateData.delivered_at = new Date().toISOString();
 
-            // Non-blocking auto-invoice: fire-and-forget if customer has RUC (PY stores only)
-            // Fetch customer_ruc separately (column may not exist until migration 125)
-            supabaseAdmin
-                .from('orders')
-                .select('customer_ruc')
-                .eq('id', id)
-                .single()
-                .then(({ data: orderRuc }) => {
-                    if (!orderRuc?.customer_ruc) return;
-                    // Check store country before attempting invoice
-                    supabaseAdmin
-                        .from('stores')
-                        .select('country')
-                        .eq('id', req.storeId)
-                        .single()
-                        .then(({ data: store }) => {
-                            if (store?.country === 'PY') {
-                                import('../services/invoicing.service').then(({ generateInvoice }) => {
-                                    generateInvoice(req.storeId!, id)
-                                        .catch((err: any) => logger.error('[AutoInvoice] Failed:', err.message));
-                                }).catch((err) => { logger.error('API', 'Failed to import invoicing service:', err); });
-                            }
-                        }, (err: unknown) => { logger.error('API', 'Failed to fetch store country for auto-invoice:', err); });
-                }, (err: unknown) => { logger.error('API', 'Failed to fetch customer_ruc for auto-invoice:', err); });
+            // Fire-and-forget auto-invoice. All gating (country, customer
+            // RUC, fiscal context, setup_completed, opt-in toggle) lives
+            // inside the helper.
+            import('../services/invoicing.service')
+                .then(({ tryAutoEmitOnDelivery }) => tryAutoEmitOnDelivery(req.storeId!, id))
+                .catch((err) => { logger.error('API', '[AutoInvoice] Helper import failed:', err); });
         }
 
         if (sleeves_status === 'cancelled' || sleeves_status === 'rejected') {

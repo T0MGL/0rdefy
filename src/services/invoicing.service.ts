@@ -269,6 +269,17 @@ export const invoicingService = {
     return res.blob();
   },
 
+  async downloadKude(invoiceId: string): Promise<Blob> {
+    const res = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/kude`, {
+      headers: getAuthHeadersNoContentType(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al descargar PDF de la factura');
+    }
+    return res.blob();
+  },
+
   async cancelInvoice(invoiceId: string, motivo: string): Promise<any> {
     const res = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/cancel`, {
       method: 'POST',

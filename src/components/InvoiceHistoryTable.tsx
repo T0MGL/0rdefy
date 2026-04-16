@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { invoicingService, Invoice } from '@/services/invoicing.service';
-import { Loader2, Download, RefreshCw, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, Download, RefreshCw, Eye, ChevronLeft, ChevronRight, FileText, FileCode } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 
 const STATUS_BADGES: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -67,6 +67,20 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
       const a = document.createElement('a');
       a.href = url;
       a.download = `DTE-${cdc || invoiceId}.xml`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleDownloadPDF = async (invoiceId: string, documentNumber?: number) => {
+    try {
+      const blob = await invoicingService.downloadKude(invoiceId);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Factura-${String(documentNumber ?? invoiceId).padStart(7, '0')}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
@@ -181,8 +195,13 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
                             <Eye size={14} />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadXML(inv.id, inv.cdc)} title="Descargar XML">
-                          <Download size={14} />
+                        {(inv.sifen_status === 'approved' || inv.sifen_status === 'demo') && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadPDF(inv.id, inv.document_number)} title="Descargar PDF (KUDE)">
+                            <FileText size={14} />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadXML(inv.id, inv.cdc)} title="Descargar XML firmado">
+                          <FileCode size={14} />
                         </Button>
                         {inv.sifen_status === 'rejected' && (
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-600" onClick={() => handleRetry(inv.id)} disabled={retryingId === inv.id} title="Reintentar envío">

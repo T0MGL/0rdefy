@@ -339,6 +339,28 @@ invoicingRouter.get('/invoices/:id/xml', validateUUIDParam('id'), async (req: Pe
 });
 
 // ================================================================
+// GET /invoices/:id/kude - Download invoice KUDE PDF
+// ================================================================
+// Returns 404 for invoices that are not in an approved/demo state. The
+// PDF represents a CDC authorized by SIFEN; we never render one for a
+// pending or rejected invoice.
+invoicingRouter.get('/invoices/:id/kude', validateUUIDParam('id'), async (req: PermissionRequest, res: Response) => {
+  try {
+    const result = await invoicingService.downloadKude(req.storeId!, req.params.id);
+    if (!result) {
+      return res.status(404).json({ error: 'KUDE no disponible. La factura debe estar aprobada por SIFEN.' });
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.setHeader('Content-Length', String(result.pdf.length));
+    res.send(result.pdf);
+  } catch (err: any) {
+    logger.error('[Invoicing] GET /invoices/:id/kude error:', err.message);
+    res.status(500).json({ error: sanitizeErrorForClient(err) });
+  }
+});
+
+// ================================================================
 // POST /invoices/:id/cancel - Cancel invoice
 // ================================================================
 invoicingRouter.post(

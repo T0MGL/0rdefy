@@ -35,6 +35,7 @@ import * as sifenDemo from './sifen/sifen-demo';
 import type { SifenEnv, SifenResponse, SifenMtls } from './sifen/sifen-client';
 import { injectQR, SIFEN_TEST_ID_CSC, SIFEN_TEST_CSC } from './sifen/qr-generator';
 import { sendInvoiceEmail } from './email.service';
+import { generateKudePdf, type KudeInput, type KudeItem } from './sifen/kude-generator.service';
 import {
   validateRucDV,
   assertReadyToEmit,
@@ -98,6 +99,10 @@ export interface FiscalIdentityStoreRow {
   next_document_number: number;
   is_active: boolean;
   setup_completed: boolean;
+  // Migration 163: per-store invoicing preferences.
+  default_generic_description: string;
+  use_generic_description: boolean;
+  auto_emit_invoice_on_delivery: boolean;
 }
 
 export interface FiscalContext {
@@ -144,6 +149,10 @@ export interface FiscalStoreLinkInput {
   establecimiento_ciudad?: number | null;
   establecimiento_telefono?: string | null;
   establecimiento_email?: string | null;
+  // Migration 163: store-level invoicing preferences.
+  default_generic_description?: string;
+  use_generic_description?: boolean;
+  auto_emit_invoice_on_delivery?: boolean;
 }
 
 export interface InvoiceFilters {
@@ -283,6 +292,141 @@ function buildUsuarioBlock(ctx: FiscalContext) {
 }
 
 // ================================================================
+// KUDE input resolver
+// ================================================================
+
+/**
+ * Build a KudeInput struct from the already-persisted invoice data plus
+ * the resolved fiscal context. Pure function: no DB calls, no side effects.
+ *
+ * The caller is expected to hold items already in their post-override form
+ * (i.e. generic description already applied if the store requested it).
+ * We ALSO apply the generic-description override here as a belt-and-braces
+ * safety net in case a caller forgets; it's idempotent when items are
+ * already generic.
+ */
+function buildKudeInput(args: {
+  ctx: FiscalContext;
+  invoiceId: string;
+  tipoDocumento: KudeInput['tipoDocumento'];
+  documentNumber: number;
+  cdc: string;
+  fechaEmision: string;
+  environment: KudeInput['environment'];
+  qrUrl: string;
+  customerName: string;
+  customerRuc: string | null;
+  customerRucDv: number | null;
+  customerDocumento?: string | null;
+  customerEmail?: string | null;
+  customerAddress?: string | null;
+  items: Array<{
+    codigo: string;
+    descripcion: string;
+    cantidad: number;
+    precioUnitario: number;
+    ivaRate: 0 | 5 | 10;
+  }>;
+  totals: KudeInput['totals'];
+  condicionVenta?: 'Contado' | 'Credito';
+  moneda?: string;
+}): KudeInput {
+  const { ctx } = args;
+  const link = ctx.link;
+  const identity = ctx.identity;
+  const principalActivity = ctx.activities.find((a) => a.is_principal) ?? ctx.activities[0];
+
+  const kudeItems: KudeItem[] = args.items.map((it) => ({
+    codigo: it.codigo,
+    descripcion: it.descripcion,
+    cantidad: it.cantidad,
+    precioUnitario: it.precioUnitario,
+    ivaRate: it.ivaRate,
+    subtotal: Math.round(it.cantidad * it.precioUnitario),
+  }));
+
+  return {
+    tipoDocumento: args.tipoDocumento,
+    documentNumber: args.documentNumber,
+    cdc: args.cdc,
+    fechaEmision: args.fechaEmision,
+    environment: args.environment,
+    qrUrl: args.qrUrl,
+    condicionVenta: args.condicionVenta ?? 'Contado',
+    moneda: args.moneda ?? 'PYG',
+    emitter: {
+      razonSocial: identity.razon_social,
+      nombreFantasia: identity.nombre_fantasia,
+      ruc: identity.ruc,
+      rucDv: identity.ruc_dv,
+      timbrado: link.timbrado,
+      timbradoInicio: link.timbrado_fecha_inicio,
+      establecimientoCodigo: link.establecimiento_codigo,
+      puntoExpedicion: link.punto_expedicion,
+      direccion: link.establecimiento_direccion,
+      ciudadDescripcion: null,
+      telefono: link.establecimiento_telefono,
+      email: link.establecimiento_email,
+      actividadEconomica: principalActivity
+        ? `${principalActivity.codigo} - ${principalActivity.descripcion}`
+        : null,
+    },
+    receiver: {
+      nombre: args.customerName,
+      ruc: args.customerRuc,
+      rucDv: args.customerRucDv,
+      documentoTipo: args.customerRuc ? 'RUC' : args.customerDocumento ? 'CI' : null,
+      documentoNumero: args.customerDocumento ?? null,
+      email: args.customerEmail ?? null,
+      direccion: args.customerAddress ?? null,
+    },
+    items: kudeItems,
+    totals: args.totals,
+  };
+}
+
+/**
+ * Apply the per-store `use_generic_description` override to a list of
+ * invoice items. When the flag is true, every item's description is
+ * replaced with the store's configured `default_generic_description`.
+ * The `codigo` column is preserved so the audit trail can still map back
+ * to the original product / SKU.
+ */
+function applyGenericDescription<T extends { descripcion: string }>(
+  items: T[],
+  link: FiscalIdentityStoreRow,
+): T[] {
+  if (!link.use_generic_description) return items;
+  const generic = (link.default_generic_description || 'Productos varios').trim();
+  return items.map((it) => ({ ...it, descripcion: generic }));
+}
+
+function buildQrUrlForInvoice(
+  xmlSigned: string | null,
+  cdc: string,
+  env: 'test' | 'prod' | 'demo',
+  identity: FiscalIdentityRow,
+): string {
+  // Prefer reading the canonical QR out of the signed XML (that's the one
+  // SIFEN validated). When only the generated XML is present (pre-send),
+  // fall back to the public consulta URL.
+  if (xmlSigned) {
+    const qrMatch = xmlSigned.match(/<dCarQR>([\s\S]*?)<\/dCarQR>/);
+    if (qrMatch) {
+      return qrMatch[1]
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
+    }
+  }
+  const useTestHost = env === 'test' || (env === 'demo' && identity.sifen_environment !== 'prod');
+  const base = useTestHost
+    ? 'https://ekuatia.set.gov.py/consultas-test/qr'
+    : 'https://ekuatia.set.gov.py/consultas/qr';
+  return `${base}?nVersion=150&Id=${cdc}`;
+}
+
+// ================================================================
 // SIFEN pipeline (shared by generate / manual / retry)
 // ================================================================
 
@@ -307,10 +451,27 @@ async function signInjectSend(params: {
   return { xmlSigned, xmlFinal, sifen };
 }
 
-/**
- * Fire-and-forget invoice email dispatch.
- */
-async function dispatchInvoiceEmail(params: {
+// ================================================================
+// Invoice email dispatch
+// ================================================================
+//
+// HARD CONTRACT (per CEO directive):
+//   - Email to the buyer is sent ONLY when the invoice reached a terminal
+//     approved state. That means `sifen_status === 'approved'` for
+//     production / test envs, or `sifen_status === 'demo'` for the demo
+//     env (SIFEN is never called in demo mode).
+//   - If SIFEN rejected or returned an unexpected code, NO email goes out.
+//     Instead, an owner_alert is persisted so the store owner resolves the
+//     rejection manually.
+//   - Email is attempted ONLY if the invoice has a customer_email.
+//   - Email always includes the KUDE PDF as attachment AND a link to the
+//     official SIFEN QR page (ekuatia.set.gov.py). If PDF generation
+//     fails, the email still goes out with just the link and we log an
+//     owner_alert for the broken PDF pipeline.
+//   - Every path emits an invoice_events audit row so ops can verify
+//     after-the-fact why a customer did or did not receive mail.
+
+interface DispatchEmailParams {
   invoiceId: string;
   storeId: string;
   storeName: string;
@@ -324,10 +485,90 @@ async function dispatchInvoiceEmail(params: {
   total: number;
   kudeUrl: string | null;
   isDemo: boolean;
-}): Promise<void> {
-  if (!params.customerEmail) {
-    logger.info(`[Invoicing] No customer email for invoice ${params.invoiceId}, skipping email`);
+  sifenStatus: string;
+  sifenResponseCode?: string | null;
+  sifenResponseMessage?: string | null;
+  orderId?: string | null;
+  // KUDE payload. Optional: when present we attach the PDF; when null we
+  // skip the attachment but still send the link-only email.
+  kudeInput?: KudeInput | null;
+}
+
+async function dispatchInvoiceEmail(params: DispatchEmailParams): Promise<void> {
+  // Gate 1: invoice must be in an approved terminal state. Anything else is
+  // an owner problem, not a customer problem.
+  const isApproved = params.sifenStatus === 'approved' || params.sifenStatus === 'demo';
+
+  if (!isApproved) {
+    logger.info(
+      `[Invoicing] Skipping customer email for invoice ${params.invoiceId}: status=${params.sifenStatus} (not approved)`,
+    );
+    await logInvoiceEvent(params.storeId, params.invoiceId, 'email_skipped', {
+      reason: 'not_approved',
+      sifen_status: params.sifenStatus,
+      response_code: params.sifenResponseCode ?? null,
+      response_message: params.sifenResponseMessage ?? null,
+    });
+
+    // If SIFEN rejected, the store owner needs to know. We surface via
+    // owner_alerts so it shows up in the UI feed.
+    if (params.sifenStatus === 'rejected') {
+      await emitOwnerAlert({
+        storeId: params.storeId,
+        alertType: 'invoice_rejected',
+        severity: 'high',
+        title: 'Factura rechazada por SIFEN',
+        message: `La factura ${params.documentNumber} fue rechazada (${params.sifenResponseCode ?? 'sin codigo'}: ${params.sifenResponseMessage ?? 'sin mensaje'}). El cliente NO recibio email. Revisa el motivo, corrige los datos y usa Reintentar.`,
+        invoiceId: params.invoiceId,
+        orderId: params.orderId ?? null,
+        metadata: {
+          document_number: params.documentNumber,
+          sifen_response_code: params.sifenResponseCode ?? null,
+          sifen_response_message: params.sifenResponseMessage ?? null,
+        },
+      });
+    }
     return;
+  }
+
+  // Gate 2: need an email address.
+  if (!params.customerEmail) {
+    logger.info(`[Invoicing] No customer email on invoice ${params.invoiceId}, skipping dispatch`);
+    await logInvoiceEvent(params.storeId, params.invoiceId, 'email_skipped', {
+      reason: 'no_customer_email',
+    });
+    return;
+  }
+
+  // Build PDF attachment. If the KUDE generator fails we still send the
+  // email with only the QR link (customer-friendly fallback) and raise an
+  // owner_alert so we can investigate the PDF pipeline.
+  let kudePdfBuffer: Buffer | null = null;
+  if (params.kudeInput) {
+    try {
+      kudePdfBuffer = await generateKudePdf(params.kudeInput);
+      await logInvoiceEvent(params.storeId, params.invoiceId, 'kude_generated', {
+        size_bytes: kudePdfBuffer.length,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      logger.error(
+        `[Invoicing] KUDE generation failed for invoice ${params.invoiceId}: ${message}`,
+      );
+      await logInvoiceEvent(params.storeId, params.invoiceId, 'kude_generation_failed', {
+        error: message,
+      });
+      await emitOwnerAlert({
+        storeId: params.storeId,
+        alertType: 'kude_generation_failed',
+        severity: 'medium',
+        title: 'Error generando PDF de la factura',
+        message: `La factura ${params.documentNumber} se envio al cliente solo con el link al QR. El PDF adjunto no se pudo generar (${message}).`,
+        invoiceId: params.invoiceId,
+        orderId: params.orderId ?? null,
+        metadata: { error: message },
+      });
+    }
   }
 
   const formatPyg = (amount: number) =>
@@ -337,20 +578,22 @@ async function dispatchInvoiceEmail(params: {
       maximumFractionDigits: 0,
     }).format(amount);
 
-  const invoiceDate = new Date(params.invoiceDate).toLocaleDateString('es-PY', {
+  const invoiceDateFmt = new Date(params.invoiceDate).toLocaleDateString('es-PY', {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   });
 
+  const kudeFilename = `Factura-${String(params.documentNumber).padStart(7, '0')}.pdf`;
+
   try {
-    await sendInvoiceEmail(
+    const result = await sendInvoiceEmail(
       params.customerEmail,
       {
         customerName: params.customerName || 'Cliente',
         storeName: params.storeName,
         documentNumber: String(params.documentNumber),
-        invoiceDate,
+        invoiceDate: invoiceDateFmt,
         items: params.lineItems.map((item) => ({
           name: item.product_name || 'Producto',
           quantity: item.quantity || 1,
@@ -363,10 +606,51 @@ async function dispatchInvoiceEmail(params: {
         isDemo: params.isDemo,
       },
       params.storeName,
+      kudePdfBuffer
+        ? [{ filename: kudeFilename, content: kudePdfBuffer }]
+        : undefined,
     );
+
+    if (result.success) {
+      await logInvoiceEvent(params.storeId, params.invoiceId, 'email_sent', {
+        message_id: result.messageId ?? null,
+        has_attachment: !!kudePdfBuffer,
+        attachment_bytes: kudePdfBuffer?.length ?? 0,
+        to: params.customerEmail,
+      });
+    } else {
+      await logInvoiceEvent(params.storeId, params.invoiceId, 'email_failed', {
+        error: result.error ?? 'unknown',
+        to: params.customerEmail,
+      });
+      await emitOwnerAlert({
+        storeId: params.storeId,
+        alertType: 'invoice_send_error',
+        severity: 'high',
+        title: 'Factura aprobada pero el email al cliente fallo',
+        message: `La factura ${params.documentNumber} fue aprobada por SIFEN pero no llego al cliente (${result.error ?? 'sin detalle'}). Reenvia desde el historial.`,
+        invoiceId: params.invoiceId,
+        orderId: params.orderId ?? null,
+        metadata: { email: params.customerEmail, error: result.error ?? null },
+      });
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error(`[Invoicing] Invoice email failed for invoice ${params.invoiceId}: ${message}`);
+    logger.error(`[Invoicing] Invoice email threw for invoice ${params.invoiceId}: ${message}`);
+    await logInvoiceEvent(params.storeId, params.invoiceId, 'email_failed', {
+      error: message,
+      to: params.customerEmail,
+    });
+    await emitOwnerAlert({
+      storeId: params.storeId,
+      alertType: 'invoice_send_error',
+      severity: 'high',
+      title: 'Factura aprobada pero el email al cliente fallo',
+      message: `La factura ${params.documentNumber} fue aprobada pero el envio lanzo una excepcion: ${message}.`,
+      invoiceId: params.invoiceId,
+      orderId: params.orderId ?? null,
+      metadata: { email: params.customerEmail, error: message },
+    });
   }
 }
 
@@ -704,9 +988,21 @@ export async function updateStoreFields(
     'establecimiento_ciudad',
     'establecimiento_telefono',
     'establecimiento_email',
+    'default_generic_description',
+    'use_generic_description',
+    'auto_emit_invoice_on_delivery',
   ];
   for (const key of writable) {
     if (input[key] !== undefined) patch[key] = input[key];
+  }
+
+  // Length guard for generic description (DB also has a CHECK, but fail-fast).
+  if (typeof patch.default_generic_description === 'string') {
+    const trimmed = (patch.default_generic_description as string).trim();
+    if (trimmed.length < 1 || trimmed.length > 120) {
+      throw new Error('Descripcion generica debe tener entre 1 y 120 caracteres.');
+    }
+    patch.default_generic_description = trimmed;
   }
 
   if (Object.keys(patch).length === 0) throw new Error('Nada para actualizar.');
@@ -717,7 +1013,7 @@ export async function updateStoreFields(
     .eq('store_id', storeId)
     .eq('is_active', true)
     .select(
-      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, next_document_number, is_active, setup_completed',
+      'id, store_id, timbrado, timbrado_fecha_inicio, timbrado_fecha_fin, establecimiento_codigo, punto_expedicion, establecimiento_direccion, establecimiento_departamento, establecimiento_distrito, establecimiento_ciudad, establecimiento_telefono, establecimiento_email, next_document_number, is_active, setup_completed, default_generic_description, use_generic_description, auto_emit_invoice_on_delivery',
     )
     .single();
 
@@ -1167,30 +1463,13 @@ export async function generateInvoice(
   });
 
   let sifenResponse: SifenResponse;
-  const emailParams = {
-    invoiceId: invoice.id,
-    storeId,
-    storeName,
-    customerEmail: invoice.customer_email as string | null,
-    customerName: invoice.customer_name as string | null,
-    documentNumber: docNumber as number,
-    invoiceDate: new Date().toISOString(),
-    lineItems: (order.order_line_items || []) as Array<{
-      product_name: string | null;
-      quantity: number;
-      unit_price: number;
-    }>,
-    subtotal,
-    iva10,
-    total,
-    kudeUrl: null as string | null,
-    isDemo,
-  };
+  let finalStatus: string = isDemo ? 'demo' : 'pending';
+  let finalXmlSigned: string | null = null;
+  let finalKudeUrl: string | null = null;
 
   if (isDemo) {
     sifenResponse = sifenDemo.mockSendDE(String(docNumber), cdc || '');
-    const kudeUrl = cdc ? buildKudeUrl(cdc) : null;
-    emailParams.kudeUrl = kudeUrl;
+    finalKudeUrl = cdc ? buildKudeUrl(cdc) : null;
 
     await supabaseAdmin
       .from('invoices')
@@ -1198,12 +1477,12 @@ export async function generateInvoice(
         sifen_status: 'demo',
         sifen_response_code: sifenResponse.responseCode,
         sifen_response_message: sifenResponse.responseMessage,
-        kude_url: kudeUrl,
+        kude_url: finalKudeUrl,
       })
       .eq('id', invoice.id);
 
     await logInvoiceEvent(storeId, invoice.id, 'approved', { mode: 'demo', response: sifenResponse });
-    void dispatchInvoiceEmail(emailParams);
+    finalStatus = 'demo';
   } else {
     try {
       const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
@@ -1215,24 +1494,24 @@ export async function generateInvoice(
         privateKeyPem,
       });
       sifenResponse = sifen;
+      finalXmlSigned = xmlFinal;
 
       await logInvoiceEvent(storeId, invoice.id, 'signed', { cdc });
 
-      const newStatus = sifenResponse.success ? 'approved' : 'rejected';
-      const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
-      if (sifenResponse.success) emailParams.kudeUrl = kudeUrl;
+      finalStatus = sifenResponse.success ? 'approved' : 'rejected';
+      finalKudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
 
       await supabaseAdmin
         .from('invoices')
         .update({
           xml_signed: xmlFinal,
-          sifen_status: newStatus,
+          sifen_status: finalStatus,
           sifen_response_code: sifenResponse.responseCode,
           sifen_response_message: sifenResponse.responseMessage,
           sent_to_sifen_at: new Date().toISOString(),
           ...(sifenResponse.success && {
             approved_at: new Date().toISOString(),
-            kude_url: kudeUrl,
+            kude_url: finalKudeUrl,
           }),
         })
         .eq('id', invoice.id);
@@ -1241,8 +1520,6 @@ export async function generateInvoice(
         response_code: sifenResponse.responseCode,
         response_message: sifenResponse.responseMessage,
       });
-
-      if (sifenResponse.success) void dispatchInvoiceEmail(emailParams);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
       logger.error(`[Invoicing] SIFEN send failed: ${message}`);
@@ -1259,8 +1536,84 @@ export async function generateInvoice(
         responseCode: 'SEND_ERROR',
         responseMessage: message,
       };
+      finalStatus = 'rejected';
     }
   }
+
+  // Build KUDE input only when the invoice is actually deliverable (demo or
+  // approved). For rejected invoices we skip the PDF entirely.
+  let kudeInputForEmail: KudeInput | null = null;
+  if ((finalStatus === 'approved' || finalStatus === 'demo') && cdc) {
+    const customerAddress = (order.address as string | null)
+      || (order.customers?.address as string | null)
+      || null;
+    // Build post-override items for KUDE: bundle/variation product names
+    // are preserved unless the store opts into generic descriptions.
+    type KudeItemInput = {
+      codigo: string;
+      descripcion: string;
+      cantidad: number;
+      precioUnitario: number;
+      ivaRate: 0 | 5 | 10;
+    };
+    const kudeItems: KudeItemInput[] = applyGenericDescription<KudeItemInput>(
+      lineItems.map((item: any, index: number) => ({
+        codigo: item.sku || String(index + 1),
+        descripcion: item.product_name || 'Producto',
+        cantidad: item.quantity || 1,
+        precioUnitario: item.unit_price || 0,
+        ivaRate: 10,
+      })),
+      ctx.link,
+    );
+
+    const qrUrl = buildQrUrlForInvoice(finalXmlSigned, cdc, ctx.identity.sifen_environment, ctx.identity);
+    kudeInputForEmail = buildKudeInput({
+      ctx,
+      invoiceId: invoice.id,
+      tipoDocumento: 1,
+      documentNumber: docNumber as number,
+      cdc,
+      fechaEmision: new Date().toISOString(),
+      environment: ctx.identity.sifen_environment,
+      qrUrl,
+      customerName: (order.customer_name as string) || order.customers?.name || 'Sin nombre',
+      customerRuc: order.customer_ruc as string,
+      customerRucDv: (order.customer_ruc_dv ?? null) as number | null,
+      customerEmail: (order.customers?.email as string) || null,
+      customerAddress,
+      items: kudeItems,
+      totals: { subtotal, iva10, iva5: 0, ivaExento: 0, total },
+      condicionVenta: order.payment_method === 'cod' ? 'Contado' : 'Credito',
+      moneda: 'PYG',
+    });
+  }
+
+  // Customer email: hard gate inside dispatchInvoiceEmail.
+  void dispatchInvoiceEmail({
+    invoiceId: invoice.id,
+    storeId,
+    storeName,
+    customerEmail: (order.customers?.email as string | null) || null,
+    customerName: (order.customer_name as string) || order.customers?.name || null,
+    documentNumber: docNumber as number,
+    invoiceDate: new Date().toISOString(),
+    lineItems: lineItems as Array<{
+      product_name: string | null;
+      quantity: number;
+      unit_price: number;
+    }>,
+    subtotal,
+    iva10,
+    total,
+    kudeUrl: finalKudeUrl,
+    isDemo,
+    sifenStatus: finalStatus,
+    sifenResponseCode: sifenResponse.responseCode ?? null,
+    sifenResponseMessage: sifenResponse.responseMessage ?? null,
+    orderId,
+    kudeInput: kudeInputForEmail,
+  });
 
   await supabaseAdmin
     .from('orders')
@@ -1269,14 +1622,14 @@ export async function generateInvoice(
     .eq('store_id', storeId);
 
   logger.info(
-    `[Invoicing] Invoice ${invoice.id} created for order ${orderId} (status: ${isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected'})`,
+    `[Invoicing] Invoice ${invoice.id} created for order ${orderId} (status: ${finalStatus})`,
   );
 
   return {
     invoice_id: invoice.id,
     cdc,
     document_number: docNumber,
-    status: isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected',
+    status: finalStatus,
     response: sifenResponse,
   };
 }
@@ -1467,32 +1820,14 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     source: 'manual',
   });
 
-  const emailParams = {
-    invoiceId: invoice.id,
-    storeId,
-    storeName,
-    customerEmail: input.customerEmail || null,
-    customerName: input.customerName,
-    documentNumber: docNumber as number,
-    invoiceDate: new Date().toISOString(),
-    lineItems: input.items.map((item) => ({
-      product_name: item.descripcion,
-      quantity: item.cantidad,
-      unit_price: item.precioUnitario,
-    })),
-    subtotal,
-    iva10,
-    total,
-    kudeUrl: null as string | null,
-    isDemo,
-  };
-
   let sifenResponse: SifenResponse;
+  let finalStatus: string = isDemo ? 'demo' : 'pending';
+  let finalXmlSigned: string | null = null;
+  let finalKudeUrl: string | null = null;
 
   if (isDemo) {
     sifenResponse = sifenDemo.mockSendDE(String(docNumber), cdc || '');
-    const kudeUrl = cdc ? buildKudeUrl(cdc) : null;
-    emailParams.kudeUrl = kudeUrl;
+    finalKudeUrl = cdc ? buildKudeUrl(cdc) : null;
 
     await supabaseAdmin
       .from('invoices')
@@ -1500,12 +1835,12 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
         sifen_status: 'demo',
         sifen_response_code: sifenResponse.responseCode,
         sifen_response_message: sifenResponse.responseMessage,
-        kude_url: kudeUrl,
+        kude_url: finalKudeUrl,
       })
       .eq('id', invoice.id);
 
     await logInvoiceEvent(storeId, invoice.id, 'approved', { mode: 'demo', response: sifenResponse });
-    void dispatchInvoiceEmail(emailParams);
+    finalStatus = 'demo';
   } else {
     try {
       const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
@@ -1517,24 +1852,24 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
         privateKeyPem,
       });
       sifenResponse = sifen;
+      finalXmlSigned = xmlFinal;
 
       await logInvoiceEvent(storeId, invoice.id, 'signed', { cdc });
 
-      const newStatus = sifenResponse.success ? 'approved' : 'rejected';
-      const kudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
-      if (sifenResponse.success) emailParams.kudeUrl = kudeUrl;
+      finalStatus = sifenResponse.success ? 'approved' : 'rejected';
+      finalKudeUrl = sifenResponse.success && cdc ? buildKudeUrl(cdc) : null;
 
       await supabaseAdmin
         .from('invoices')
         .update({
           xml_signed: xmlFinal,
-          sifen_status: newStatus,
+          sifen_status: finalStatus,
           sifen_response_code: sifenResponse.responseCode,
           sifen_response_message: sifenResponse.responseMessage,
           sent_to_sifen_at: new Date().toISOString(),
           ...(sifenResponse.success && {
             approved_at: new Date().toISOString(),
-            kude_url: kudeUrl,
+            kude_url: finalKudeUrl,
           }),
         })
         .eq('id', invoice.id);
@@ -1543,8 +1878,6 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
         response_code: sifenResponse.responseCode,
         response_message: sifenResponse.responseMessage,
       });
-
-      if (sifenResponse.success) void dispatchInvoiceEmail(emailParams);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown SIFEN error';
       logger.error(`[Invoicing] Manual SIFEN send failed: ${message}`);
@@ -1561,8 +1894,75 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
         responseCode: 'SEND_ERROR',
         responseMessage: message,
       };
+      finalStatus = 'rejected';
     }
   }
+
+  // Build KUDE input only when deliverable. Apply generic-description override.
+  let kudeInputForEmail: KudeInput | null = null;
+  if ((finalStatus === 'approved' || finalStatus === 'demo') && cdc) {
+    type KudeItemInput = {
+      codigo: string;
+      descripcion: string;
+      cantidad: number;
+      precioUnitario: number;
+      ivaRate: 0 | 5 | 10;
+    };
+    const kudeItems: KudeItemInput[] = applyGenericDescription<KudeItemInput>(
+      input.items.map((item, idx) => ({
+        codigo: String(idx + 1),
+        descripcion: item.descripcion,
+        cantidad: item.cantidad,
+        precioUnitario: item.precioUnitario,
+        ivaRate: item.ivaRate,
+      })),
+      ctx.link,
+    );
+    const qrUrl = buildQrUrlForInvoice(finalXmlSigned, cdc, ctx.identity.sifen_environment, ctx.identity);
+    kudeInputForEmail = buildKudeInput({
+      ctx,
+      invoiceId: invoice.id,
+      tipoDocumento: input.tipoDocumento as KudeInput['tipoDocumento'],
+      documentNumber: docNumber as number,
+      cdc,
+      fechaEmision: new Date().toISOString(),
+      environment: ctx.identity.sifen_environment,
+      qrUrl,
+      customerName: input.customerName,
+      customerRuc: input.customerRuc || null,
+      customerRucDv: input.customerRucDv ?? null,
+      customerEmail: input.customerEmail || null,
+      customerAddress: null,
+      items: kudeItems,
+      totals: { subtotal, iva10, iva5, ivaExento, total },
+      moneda: 'PYG',
+    });
+  }
+
+  void dispatchInvoiceEmail({
+    invoiceId: invoice.id,
+    storeId,
+    storeName,
+    customerEmail: input.customerEmail || null,
+    customerName: input.customerName,
+    documentNumber: docNumber as number,
+    invoiceDate: new Date().toISOString(),
+    lineItems: input.items.map((item) => ({
+      product_name: item.descripcion,
+      quantity: item.cantidad,
+      unit_price: item.precioUnitario,
+    })),
+    subtotal,
+    iva10,
+    total,
+    kudeUrl: finalKudeUrl,
+    isDemo,
+    sifenStatus: finalStatus,
+    sifenResponseCode: sifenResponse.responseCode ?? null,
+    sifenResponseMessage: sifenResponse.responseMessage ?? null,
+    orderId: null,
+    kudeInput: kudeInputForEmail,
+  });
 
   logger.info(
     `[Invoicing] Manual invoice ${invoice.id} created (status: ${isDemo ? 'demo' : sifenResponse.success ? 'approved' : 'rejected'})`,
@@ -1829,15 +2229,67 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       invoice.order_id
         ? supabaseAdmin
             .from('orders')
-            .select('order_line_items(product_name, quantity, unit_price)')
+            .select('order_line_items(product_name, sku, quantity, unit_price)')
             .eq('id', invoice.order_id)
             .single()
         : Promise.resolve({ data: null }),
     ]);
 
     const storeName = storeResult.data?.name || 'Tienda';
-    const lineItems: Array<{ product_name: string | null; quantity: number; unit_price: number }> =
+    const lineItems: Array<{ product_name: string | null; sku?: string | null; quantity: number; unit_price: number }> =
       (orderResult.data as any)?.order_line_items || [];
+
+    // Build KUDE input. Apply generic-description override.
+    let kudeInputForEmail: KudeInput | null = null;
+    if (invoice.cdc) {
+      type KudeItemInput = {
+        codigo: string;
+        descripcion: string;
+        cantidad: number;
+        precioUnitario: number;
+        ivaRate: 0 | 5 | 10;
+      };
+      const fallbackItems: KudeItemInput[] = lineItems.length > 0
+        ? lineItems.map((li, idx) => ({
+            codigo: li.sku || String(idx + 1),
+            descripcion: li.product_name || 'Producto',
+            cantidad: li.quantity || 1,
+            precioUnitario: li.unit_price || 0,
+            ivaRate: 10 as const,
+          }))
+        : [{
+            codigo: '001',
+            descripcion: ctx.link.default_generic_description || 'Productos varios',
+            cantidad: 1,
+            precioUnitario: invoice.total as number,
+            ivaRate: 10 as const,
+          }];
+      const kudeItems = applyGenericDescription<KudeItemInput>(fallbackItems, ctx.link);
+      const qrUrl = buildQrUrlForInvoice(xmlFinal as string, invoice.cdc as string, env, ctx.identity);
+      kudeInputForEmail = buildKudeInput({
+        ctx,
+        invoiceId,
+        tipoDocumento: invoice.tipo_documento as KudeInput['tipoDocumento'],
+        documentNumber: invoice.document_number as number,
+        cdc: invoice.cdc as string,
+        fechaEmision: new Date().toISOString(),
+        environment: env,
+        qrUrl,
+        customerName: (invoice.customer_name as string) || 'Cliente',
+        customerRuc: (invoice.customer_ruc as string | null) ?? null,
+        customerRucDv: (invoice.customer_ruc_dv as number | null) ?? null,
+        customerEmail: (invoice.customer_email as string | null) ?? null,
+        customerAddress: (invoice.customer_address as string | null) ?? null,
+        items: kudeItems,
+        totals: {
+          subtotal: invoice.subtotal as number,
+          iva10: invoice.iva_10 as number,
+          iva5: invoice.iva_5 as number,
+          ivaExento: invoice.iva_exento as number,
+          total: invoice.total as number,
+        },
+      });
+    }
 
     void dispatchInvoiceEmail({
       invoiceId,
@@ -1853,6 +2305,11 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
       total: invoice.total as number,
       kudeUrl,
       isDemo: false,
+      sifenStatus: newStatus,
+      sifenResponseCode: response.responseCode ?? null,
+      sifenResponseMessage: response.responseMessage ?? null,
+      orderId: invoice.order_id as string | null,
+      kudeInput: kudeInputForEmail,
     });
   }
 
@@ -1880,28 +2337,257 @@ export async function downloadXML(storeId: string, invoiceId: string) {
 }
 
 // ================================================================
+// Auto-emit on delivery
+// ================================================================
+//
+// Fire-and-forget helper called from the delivery-confirm flows. Gated by:
+//   1. Store country must be PY (SIFEN is Paraguay-only)
+//   2. Order must have a customer_ruc
+//   3. Fiscal context must exist (store linked to an identity)
+//   4. Link must have setup_completed = true (cert uploaded, timbrado set)
+//   5. Link must have auto_emit_invoice_on_delivery = true (owner opt-in)
+//
+// Any gate that fails short-circuits silently (logged at INFO). Real errors
+// (SIFEN reject, network) flow through generateInvoice() which surfaces
+// them via owner_alerts.
+export async function tryAutoEmitOnDelivery(
+  storeId: string,
+  orderId: string,
+): Promise<void> {
+  try {
+    const { data: store } = await supabaseAdmin
+      .from('stores')
+      .select('country')
+      .eq('id', storeId)
+      .single();
+    if (store?.country !== 'PY') return;
+
+    const { data: order } = await supabaseAdmin
+      .from('orders')
+      .select('customer_ruc, invoice_id')
+      .eq('id', orderId)
+      .single();
+    if (!order?.customer_ruc) return;
+    if (order.invoice_id) {
+      logger.info(`[AutoInvoice] Order ${orderId} already has invoice ${order.invoice_id}, skipping`);
+      return;
+    }
+
+    const ctx = await getFiscalContext(storeId);
+    if (!ctx) return;
+    if (!ctx.link.setup_completed) return;
+    if (!ctx.link.auto_emit_invoice_on_delivery) return;
+
+    logger.info(`[AutoInvoice] Triggering for order ${orderId}, store ${storeId}`);
+    await generateInvoice(storeId, orderId);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    logger.error(`[AutoInvoice] Failed for order ${orderId}: ${message}`);
+  }
+}
+
+// ================================================================
+// KUDE PDF download
+// ================================================================
+//
+// HARD CONTRACT (per CEO directive): KUDE PDF only renders for invoices
+// in a deliverable state (sifen_status === 'approved' or 'demo'). Anything
+// else (pending, rejected, error) returns null and the route layer maps
+// that to 404. The KUDE represents a CDC authorized by SIFEN; rendering
+// one for a rejected/pending invoice would let a customer believe a non
+// existent fiscal document was issued.
+export async function downloadKude(
+  storeId: string,
+  invoiceId: string,
+): Promise<{ pdf: Buffer; filename: string } | null> {
+  const { data: invoice, error } = await supabaseAdmin
+    .from('invoices')
+    .select(
+      'id, order_id, cdc, document_number, tipo_documento, customer_ruc, customer_ruc_dv, customer_name, customer_email, customer_address, subtotal, iva_5, iva_10, iva_exento, total, currency, sifen_status, xml_signed, xml_generated, created_at',
+    )
+    .eq('id', invoiceId)
+    .eq('store_id', storeId)
+    .single();
+
+  if (error || !invoice) throw new Error('Invoice not found');
+
+  const status = invoice.sifen_status as string;
+  if (status !== 'approved' && status !== 'demo') return null;
+  if (!invoice.cdc) return null;
+
+  const ctx = await getFiscalContext(storeId);
+  if (!ctx) throw new Error('Fiscal context not found for store');
+
+  // Try to read line items from the order_line_items table; fall back to
+  // a single row built from invoice totals if the order has been deleted.
+  let items: Array<{
+    codigo: string;
+    descripcion: string;
+    cantidad: number;
+    precioUnitario: number;
+    ivaRate: 0 | 5 | 10;
+  }> = [];
+
+  if (invoice.order_id) {
+    const { data: lineItems } = await supabaseAdmin
+      .from('order_line_items')
+      .select('product_name, sku, quantity, unit_price')
+      .eq('order_id', invoice.order_id);
+
+    if (lineItems && lineItems.length > 0) {
+      items = lineItems.map((li: any, idx: number) => ({
+        codigo: li.sku || String(idx + 1),
+        descripcion: li.product_name || 'Producto',
+        cantidad: li.quantity || 1,
+        precioUnitario: li.unit_price || 0,
+        ivaRate: 10 as const,
+      }));
+    }
+  }
+
+  if (items.length === 0) {
+    items = [{
+      codigo: '001',
+      descripcion: ctx.link.default_generic_description || 'Productos varios',
+      cantidad: 1,
+      precioUnitario: invoice.total as number,
+      ivaRate: 10,
+    }];
+  }
+
+  const itemsForKude = applyGenericDescription(items, ctx.link);
+  const env = ctx.identity.sifen_environment;
+  const qrUrl = buildQrUrlForInvoice(
+    invoice.xml_signed as string | null,
+    invoice.cdc as string,
+    env,
+    ctx.identity,
+  );
+
+  const kudeInput = buildKudeInput({
+    ctx,
+    invoiceId: invoice.id,
+    tipoDocumento: invoice.tipo_documento as KudeInput['tipoDocumento'],
+    documentNumber: invoice.document_number as number,
+    cdc: invoice.cdc as string,
+    fechaEmision: invoice.created_at as string,
+    environment: env,
+    qrUrl,
+    customerName: (invoice.customer_name as string) || 'Cliente',
+    customerRuc: (invoice.customer_ruc as string | null) ?? null,
+    customerRucDv: (invoice.customer_ruc_dv as number | null) ?? null,
+    customerEmail: (invoice.customer_email as string | null) ?? null,
+    customerAddress: (invoice.customer_address as string | null) ?? null,
+    items: itemsForKude,
+    totals: {
+      subtotal: invoice.subtotal as number,
+      iva10: invoice.iva_10 as number,
+      iva5: invoice.iva_5 as number,
+      ivaExento: invoice.iva_exento as number,
+      total: invoice.total as number,
+    },
+  });
+
+  const pdf = await generateKudePdf(kudeInput);
+  const filename = `Factura-${String(invoice.document_number).padStart(7, '0')}.pdf`;
+
+  return { pdf, filename };
+}
+
+// ================================================================
 // Helper: Event Logging
 // ================================================================
 
+/**
+ * Append an invoice_events row. All invoice lifecycle writes go through this
+ * helper so we keep a full audit trail (generated, signed, approved,
+ * rejected, cancelled, error, email_sent, email_skipped, email_failed,
+ * kude_generated, owner_alerted).
+ *
+ * NEVER throws: event logging failures are logged at ERROR level but must
+ * not break the invoicing flow. The backing INSERT is awaited (previously
+ * this used `.then()` which left the promise dangling and obscured real
+ * errors in production).
+ *
+ * When `invoiceId` is null the event is dropped (no usable key). Use this
+ * for pre-insert failures where we have no row to attach to.
+ */
 async function logInvoiceEvent(
   storeId: string,
   invoiceId: string | null,
   eventType: string,
-  details: Record<string, any>,
+  details: Record<string, unknown>,
   createdBy?: string,
-) {
+): Promise<void> {
   if (!invoiceId) return;
 
-  await supabaseAdmin
-    .from('invoice_events')
-    .insert({
-      invoice_id: invoiceId,
-      store_id: storeId,
-      event_type: eventType,
-      details,
-      created_by: createdBy || null,
-    })
-    .then(({ error }) => {
-      if (error) logger.error(`[Invoicing] Failed to log event:`, error.message);
+  try {
+    const { error } = await supabaseAdmin
+      .from('invoice_events')
+      .insert({
+        invoice_id: invoiceId,
+        store_id: storeId,
+        event_type: eventType,
+        details,
+        created_by: createdBy || null,
+      });
+
+    if (error) {
+      logger.error(
+        `[Invoicing] invoice_events insert failed (${eventType}, invoice=${invoiceId}): ${error.message}`,
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    logger.error(
+      `[Invoicing] invoice_events insert threw (${eventType}, invoice=${invoiceId}): ${message}`,
+    );
+  }
+}
+
+// ================================================================
+// Helper: Owner Alerts (server-side alert channel)
+// ================================================================
+
+/**
+ * Persist an owner-facing alert. Used when a SIFEN dispatch fails, the
+ * auto-emit path rejects, or email delivery silently blocks. Surfaces in
+ * the UI via the owner alerts feed and should NEVER reach the customer.
+ *
+ * NEVER throws. If the backing INSERT fails the error is logged but the
+ * caller flow continues (alerts are diagnostics, not blocking).
+ */
+async function emitOwnerAlert(params: {
+  storeId: string;
+  alertType: string;
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  message: string;
+  invoiceId?: string | null;
+  orderId?: string | null;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.from('owner_alerts').insert({
+      store_id: params.storeId,
+      alert_type: params.alertType,
+      severity: params.severity ?? 'high',
+      title: params.title,
+      message: params.message,
+      invoice_id: params.invoiceId ?? null,
+      order_id: params.orderId ?? null,
+      metadata: params.metadata ?? {},
     });
+
+    if (error) {
+      logger.error(
+        `[Invoicing] owner_alerts insert failed (${params.alertType}, store=${params.storeId}): ${error.message}`,
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    logger.error(
+      `[Invoicing] owner_alerts insert threw (${params.alertType}, store=${params.storeId}): ${message}`,
+    );
+  }
 }
