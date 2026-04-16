@@ -193,94 +193,97 @@ function renderHeader(doc: PDFKit.PDFDocument, input: KudeInput): void {
   const leftX = doc.page.margins.left;
   const topY = doc.page.margins.top;
 
-  // Left block: emitter data
+  // Column geometry: strict split, 55% left / 38% right with a 7% gutter.
+  const leftWidth = pageWidth * 0.55;
+  const rightWidth = pageWidth * 0.38;
+  const rightX = leftX + pageWidth - rightWidth;
+
+  // --- LEFT COLUMN: emitter identity ---
+  let ly = topY;
+
   doc
     .font('Helvetica-Bold')
-    .fontSize(13)
-    .fillColor('#000000')
-    .text(emitter.nombreFantasia || emitter.razonSocial, leftX, topY, { width: pageWidth * 0.55 });
+    .fontSize(14)
+    .fillColor('#0F172A')
+    .text(emitter.nombreFantasia || emitter.razonSocial, leftX, ly, { width: leftWidth });
+  ly = doc.y + 4;
 
-  doc.moveDown(0.2);
-
-  doc
-    .font('Helvetica')
-    .fontSize(9)
-    .fillColor('#333333')
-    .text(`Razon Social: ${emitter.razonSocial}`, { width: pageWidth * 0.55 });
-
-  doc.text(`RUC: ${emitter.ruc}-${emitter.rucDv}`);
-
-  if (emitter.direccion) {
-    const line = [emitter.direccion, emitter.ciudadDescripcion].filter(Boolean).join(', ');
-    doc.text(line);
+  const emitterLines: string[] = [];
+  if (emitter.nombreFantasia && emitter.nombreFantasia !== emitter.razonSocial) {
+    emitterLines.push(`Razon Social: ${emitter.razonSocial}`);
   }
-  if (emitter.telefono) doc.text(`Tel: ${emitter.telefono}`);
-  if (emitter.email) doc.text(`Email: ${emitter.email}`);
-  if (emitter.actividadEconomica) doc.text(`Actividad: ${emitter.actividadEconomica}`);
+  emitterLines.push(`RUC: ${emitter.ruc}-${emitter.rucDv}`);
+  const domicilio = [emitter.direccion, emitter.ciudadDescripcion].filter(Boolean).join(', ');
+  if (domicilio) emitterLines.push(domicilio);
+  if (emitter.telefono) emitterLines.push(`Tel: ${emitter.telefono}`);
+  if (emitter.email) emitterLines.push(emitter.email);
+  if (emitter.actividadEconomica) emitterLines.push(`Actividad: ${emitter.actividadEconomica}`);
 
-  // Right block: document identification
-  const rightX = leftX + pageWidth * 0.6;
-  const rightWidth = pageWidth * 0.4;
+  doc.font('Helvetica').fontSize(9).fillColor('#334155');
+  for (const line of emitterLines) {
+    doc.text(line, leftX, ly, { width: leftWidth });
+    ly = doc.y + 1;
+  }
+
+  // --- RIGHT COLUMN: timbrado + document identification ---
+  // Fixed-height box with deterministic line placement. No overlap possible.
+  const boxPadX = 10;
+  const boxPadY = 10;
+  const lineGap = 12;
+  const boxHeight = boxPadY + lineGap * 4 + 8;
 
   doc
     .save()
-    .rect(rightX, topY, rightWidth, 86)
-    .strokeColor('#000000')
+    .roundedRect(rightX, topY, rightWidth, boxHeight, 4)
+    .strokeColor('#CBD5E1')
     .lineWidth(0.8)
     .stroke()
     .restore();
 
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(10)
-    .fillColor('#000000')
-    .text('Timbrado N.', rightX + 6, topY + 6, { width: rightWidth - 12 });
+  let ry = topY + boxPadY;
 
-  doc
-    .font('Helvetica')
-    .fontSize(10)
-    .text(emitter.timbrado, rightX + 6, topY + 20, { width: rightWidth - 12 });
+  const kv = (label: string, value: string) => {
+    doc
+      .font('Helvetica')
+      .fontSize(8)
+      .fillColor('#64748B')
+      .text(label.toUpperCase(), rightX + boxPadX, ry, { width: rightWidth - boxPadX * 2 });
+    ry += 10;
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(10)
+      .fillColor('#0F172A')
+      .text(value, rightX + boxPadX, ry, { width: rightWidth - boxPadX * 2 });
+    ry += 14;
+  };
 
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(10)
-    .text('Inicio de Vigencia', rightX + 6, topY + 36, { width: rightWidth - 12 });
+  kv('Timbrado', emitter.timbrado);
+  if (emitter.timbradoInicio) kv('Inicio de Vigencia', emitter.timbradoInicio);
 
-  doc
-    .font('Helvetica')
-    .fontSize(10)
-    .text(emitter.timbradoInicio || '-', rightX + 6, topY + 50, { width: rightWidth - 12 });
-
+  // Doc type title sits below the timbrado box
+  const titleY = topY + boxHeight + 10;
   doc
     .font('Helvetica-Bold')
     .fontSize(12)
-    .text(TIPO_DOC_LABELS[input.tipoDocumento], rightX + 6, topY + 66, { width: rightWidth - 12, align: 'center' });
+    .fillColor('#0F172A')
+    .text(TIPO_DOC_LABELS[input.tipoDocumento], rightX, titleY, {
+      width: rightWidth,
+      align: 'right',
+    });
 
-  // Below the right box: document number
   const docNumberFormatted = String(input.documentNumber).padStart(7, '0');
   const serie = `${emitter.establecimientoCodigo}-${emitter.puntoExpedicion}-${docNumberFormatted}`;
 
   doc
     .font('Helvetica-Bold')
-    .fontSize(14)
-    .fillColor('#000000')
-    .text(serie, rightX, topY + 92, { width: rightWidth, align: 'center' });
+    .fontSize(16)
+    .fillColor('#0F172A')
+    .text(serie, rightX, titleY + 16, { width: rightWidth, align: 'right' });
 
-  // Environment badge for non-prod
-  if (input.environment !== 'prod') {
-    const badgeColor = input.environment === 'demo' ? '#8B5CF6' : '#EAB308';
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(9)
-      .fillColor(badgeColor)
-      .text(`[${input.environment.toUpperCase()}]`, rightX, topY + 112, {
-        width: rightWidth,
-        align: 'center',
-      });
-  }
-
-  // Move cursor below header block
-  doc.y = topY + 140;
+  // Compute the floor of both columns and advance cursor past the taller one.
+  const rightFloor = titleY + 16 + 22;
+  const leftFloor = ly;
+  doc.y = Math.max(leftFloor, rightFloor) + 10;
   doc.x = leftX;
   doc.fillColor('#000000');
 }
@@ -291,41 +294,59 @@ function renderReceiver(doc: PDFKit.PDFDocument, input: KudeInput): void {
   const leftX = doc.page.margins.left;
   const startY = doc.y;
 
+  const padX = 12;
+  const padY = 10;
+
+  // Build lines first so we can size the box to fit.
+  const lines: Array<{ label: string; value: string }> = [];
+  lines.push({ label: 'Nombre / Razon Social', value: receiver.nombre });
+
+  if (receiver.ruc && receiver.rucDv !== null && receiver.rucDv !== undefined) {
+    lines.push({ label: 'RUC', value: `${receiver.ruc}-${receiver.rucDv}` });
+  } else if (receiver.documentoNumero) {
+    const tipo = receiver.documentoTipo || 'CI';
+    lines.push({ label: tipo, value: receiver.documentoNumero });
+  }
+  if (receiver.email) lines.push({ label: 'Email', value: receiver.email });
+  if (receiver.direccion) lines.push({ label: 'Direccion', value: receiver.direccion });
+
+  const headerH = 16;
+  const rowH = 14;
+  const boxHeight = padY + headerH + lines.length * rowH + padY;
+
   doc
     .save()
-    .rect(leftX, startY, pageWidth, 64)
-    .strokeColor('#000000')
+    .roundedRect(leftX, startY, pageWidth, boxHeight, 4)
+    .strokeColor('#CBD5E1')
     .lineWidth(0.8)
     .stroke()
     .restore();
 
   doc
     .font('Helvetica-Bold')
-    .fontSize(9)
-    .fillColor('#333333')
-    .text('DATOS DEL COMPRADOR', leftX + 6, startY + 6);
+    .fontSize(8)
+    .fillColor('#64748B')
+    .text('DATOS DEL COMPRADOR', leftX + padX, startY + padY, {
+      width: pageWidth - padX * 2,
+      characterSpacing: 0.5,
+    });
 
-  doc.moveDown(0.2);
-  doc.font('Helvetica').fontSize(9).fillColor('#000000');
-  doc.text(`Nombre / Razon Social: ${receiver.nombre}`, leftX + 6, doc.y);
-
-  const docLine: string[] = [];
-  if (receiver.ruc && receiver.rucDv !== null && receiver.rucDv !== undefined) {
-    docLine.push(`RUC: ${receiver.ruc}-${receiver.rucDv}`);
-  } else if (receiver.documentoNumero) {
-    const tipo = receiver.documentoTipo || 'CI';
-    docLine.push(`${tipo}: ${receiver.documentoNumero}`);
-  } else {
-    docLine.push('Documento: sin identificar');
-  }
-  if (receiver.email) docLine.push(`Email: ${receiver.email}`);
-  doc.text(docLine.join('    '), leftX + 6, doc.y);
-
-  if (receiver.direccion) {
-    doc.text(`Direccion: ${receiver.direccion}`, leftX + 6, doc.y);
+  let ry = startY + padY + headerH;
+  for (const { label, value } of lines) {
+    doc
+      .font('Helvetica')
+      .fontSize(8)
+      .fillColor('#64748B')
+      .text(`${label}:`, leftX + padX, ry, { width: 140, continued: false });
+    doc
+      .font('Helvetica')
+      .fontSize(9)
+      .fillColor('#0F172A')
+      .text(value, leftX + padX + 140, ry, { width: pageWidth - padX * 2 - 140 });
+    ry += rowH;
   }
 
-  doc.y = startY + 72;
+  doc.y = startY + boxHeight + 12;
   doc.x = leftX;
 }
 
@@ -469,16 +490,26 @@ function renderFooter(
 ): void {
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const leftX = doc.page.margins.left;
-  const footerHeight = 120;
+  const footerHeight = 140;
   const bottomY = doc.page.height - doc.page.margins.bottom - footerHeight;
 
   // Anchor footer to the bottom of the current page.
   doc.y = Math.max(doc.y, bottomY);
   const startY = doc.y;
 
-  const qrSize = 90;
+  // Thin separator line above the footer.
+  doc
+    .save()
+    .moveTo(leftX, startY)
+    .lineTo(leftX + pageWidth, startY)
+    .strokeColor('#E2E8F0')
+    .lineWidth(0.6)
+    .stroke()
+    .restore();
+
+  const qrSize = 96;
   const qrX = leftX;
-  const qrY = startY + 4;
+  const qrY = startY + 14;
 
   try {
     doc.image(qrImageBuffer, qrX, qrY, { width: qrSize, height: qrSize });
@@ -487,59 +518,70 @@ function renderFooter(
     logger.error(`[KUDE] Embedding QR image failed: ${msg}`);
   }
 
-  const textX = qrX + qrSize + 12;
-  const textWidth = pageWidth - qrSize - 12;
+  // Right column: metadata in label/value rows, same pattern as receiver.
+  const metaX = qrX + qrSize + 18;
+  const metaWidth = pageWidth - qrSize - 18;
+  let my = qrY;
+
+  const metaRow = (label: string, value: string, mono = false) => {
+    doc
+      .font('Helvetica')
+      .fontSize(8)
+      .fillColor('#64748B')
+      .text(label.toUpperCase(), metaX, my, { width: metaWidth, characterSpacing: 0.4 });
+    my += 10;
+    doc
+      .font(mono ? 'Courier' : 'Helvetica-Bold')
+      .fontSize(mono ? 10 : 10)
+      .fillColor('#0F172A')
+      .text(value, metaX, my, { width: metaWidth });
+    my += mono ? 16 : 14;
+    my += 4;
+  };
+
+  metaRow('CDC (Codigo de Control)', input.cdc, true);
+  metaRow('Fecha de Emision', formatDate(input.fechaEmision));
+  metaRow('Condicion de Venta', input.condicionVenta || 'Contado');
+
+  // Legend centered below both columns.
+  const legendY = startY + footerHeight - 28;
+  doc
+    .font('Helvetica-Oblique')
+    .fontSize(8)
+    .fillColor('#64748B')
+    .text(
+      'Consulte la validez de este documento en ekuatia.set.gov.py/consultas con el CDC.',
+      leftX,
+      legendY,
+      { width: pageWidth, align: 'center' },
+    );
+
+  // Brand line: "Generado por Ordefy" with Ordefy clickable to ordefy.io.
+  const brandY = legendY + 12;
+  const prefix = 'Generado por ';
+  const brand = 'Ordefy';
+  const suffix = ' · Documento electronico aprobado por la DNIT.';
+
+  doc.font('Helvetica-Oblique').fontSize(8);
+  const prefixWidth = doc.widthOfString(prefix);
+  const brandWidth = doc.widthOfString(brand);
+  const suffixWidth = doc.widthOfString(suffix);
+  const totalWidth = prefixWidth + brandWidth + suffixWidth;
+  const startX = leftX + (pageWidth - totalWidth) / 2;
 
   doc
+    .fillColor('#64748B')
+    .text(prefix, startX, brandY, { lineBreak: false });
+
+  doc
+    .fillColor('#0F172A')
     .font('Helvetica-Bold')
-    .fontSize(9)
-    .fillColor('#000000')
-    .text('CDC (Codigo de Control)', textX, qrY, { width: textWidth });
-
-  doc
-    .font('Courier')
-    .fontSize(10)
-    .text(input.cdc, textX, qrY + 12, { width: textWidth });
-
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(9)
-    .text('Fecha de Emision', textX, qrY + 34, { width: textWidth });
-
-  doc
-    .font('Helvetica')
-    .fontSize(9)
-    .text(formatDate(input.fechaEmision), textX, qrY + 46, { width: textWidth });
-
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(9)
-    .text('Condicion de Venta', textX, qrY + 60, { width: textWidth });
-
-  doc
-    .font('Helvetica')
-    .fontSize(9)
-    .text(input.condicionVenta || 'Contado', textX, qrY + 72, { width: textWidth });
+    .fontSize(8)
+    .text(brand, startX + prefixWidth, brandY, { lineBreak: false, link: 'https://ordefy.io' });
 
   doc
     .font('Helvetica-Oblique')
     .fontSize(8)
-    .fillColor('#555555')
-    .text(
-      'Consulte la validez de este documento en https://ekuatia.set.gov.py/consultas/ con el CDC.',
-      leftX,
-      qrY + qrSize + 8,
-      { width: pageWidth, align: 'center' },
-    );
-
-  doc
-    .font('Helvetica-Oblique')
-    .fontSize(7)
-    .fillColor('#777777')
-    .text(
-      'KUDE generado por Ordefy. Documento electronico aprobado por la DNIT.',
-      leftX,
-      qrY + qrSize + 22,
-      { width: pageWidth, align: 'center' },
-    );
+    .fillColor('#64748B')
+    .text(suffix, startX + prefixWidth + brandWidth, brandY, { lineBreak: false });
 }
