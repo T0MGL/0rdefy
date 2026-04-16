@@ -23,11 +23,17 @@ import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger';
 
 // Logo is bundled with the service and read once at module load. Keeps
 // cold-start cheap (no filesystem hit per render) and removes any runtime
 // dependency on public/ being shipped alongside the API container.
+//
+// __dirname is not available under ESM (Railway runs via tsx/ESM loader),
+// so we derive it from import.meta.url.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const LOGO_PATH = path.join(__dirname, 'ordefy-logo.png');
 const LOGO_BUFFER: Buffer | null = (() => {
   try {
