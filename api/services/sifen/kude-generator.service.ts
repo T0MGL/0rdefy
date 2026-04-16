@@ -26,24 +26,25 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger';
 
-// Logo is bundled with the service and read once at module load. Keeps
-// cold-start cheap (no filesystem hit per render) and removes any runtime
-// dependency on public/ being shipped alongside the API container.
+// Brand mark: we embed the Ordefy favicon (square icon, no wordmark).
+// The wordmark version looked crowded in the corner; a small square mark
+// reads much cleaner at invoice scale (Anthropic / Stripe pattern).
 //
 // __dirname is not available under ESM (Railway runs via tsx/ESM loader),
 // so we derive it from import.meta.url.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const LOGO_PATH = path.join(__dirname, 'ordefy-logo.png');
-const LOGO_BUFFER: Buffer | null = (() => {
+const FAVICON_PATH = path.join(__dirname, 'ordefy-favicon.png');
+const FAVICON_BUFFER: Buffer | null = (() => {
   try {
-    return fs.readFileSync(LOGO_PATH);
+    return fs.readFileSync(FAVICON_PATH);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(`[KUDE] Ordefy logo not found at ${LOGO_PATH}: ${msg}`);
+    logger.warn(`[KUDE] Ordefy favicon not found at ${FAVICON_PATH}: ${msg}`);
     return null;
   }
 })();
+const FAVICON_ASPECT = 1088 / 960; // real pixel dims of the bundled PNG
 
 // ================================================================
 // Types
@@ -220,22 +221,22 @@ function renderHeader(doc: PDFKit.PDFDocument, input: KudeInput): void {
   const rightWidth = pageWidth * 0.38;
   const rightX = leftX + pageWidth - rightWidth;
 
-  // --- TOP-RIGHT: Ordefy wordmark (Anthropic-style corner mark) ---
+  // --- TOP-RIGHT: Ordefy favicon (square mark, Anthropic-style) ---
   // Sits above the timbrado box, right-aligned. Clickable to ordefy.io.
   let timbradoTopY = topY;
-  if (LOGO_BUFFER) {
-    const logoWidth = 72;
-    const logoHeight = logoWidth / (1920 / 544);
-    const logoX = leftX + pageWidth - logoWidth;
-    const logoY = topY;
+  if (FAVICON_BUFFER) {
+    const iconHeight = 24;
+    const iconWidth = iconHeight * FAVICON_ASPECT;
+    const iconX = leftX + pageWidth - iconWidth;
+    const iconY = topY;
     try {
-      doc.image(LOGO_BUFFER, logoX, logoY, { width: logoWidth });
-      doc.link(logoX, logoY, logoWidth, logoHeight, 'https://ordefy.io');
+      doc.image(FAVICON_BUFFER, iconX, iconY, { height: iconHeight });
+      doc.link(iconX, iconY, iconWidth, iconHeight, 'https://ordefy.io');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error(`[KUDE] Embedding Ordefy wordmark failed: ${msg}`);
+      logger.error(`[KUDE] Embedding Ordefy favicon failed: ${msg}`);
     }
-    timbradoTopY = topY + logoHeight + 10;
+    timbradoTopY = topY + iconHeight + 10;
   }
 
   // --- LEFT COLUMN: emitter identity ---
