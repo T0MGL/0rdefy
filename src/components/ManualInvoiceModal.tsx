@@ -6,6 +6,7 @@ import * as z from 'zod';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -271,6 +272,9 @@ export function ManualInvoiceModal({ open, onOpenChange, onSuccess }: Props) {
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nueva Factura</DialogTitle>
+          <DialogDescription>
+            Emiti una factura electronica manualmente, sin necesidad de un pedido asociado.
+          </DialogDescription>
         </DialogHeader>
 
         <AnimatePresence mode="wait">

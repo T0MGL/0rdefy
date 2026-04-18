@@ -111,6 +111,26 @@ export interface InvoiceStats {
   total_facturado: number;
 }
 
+/**
+ * Aggregate readiness returned alongside the config. Tells the UI exactly
+ * which block(s) are missing so it can show targeted messaging instead of
+ * a generic "setup required".
+ */
+export interface FiscalReadiness {
+  ready: boolean;
+  missing: Array<
+    'identity' | 'representante_legal' | 'actividad_principal' | 'certificado' | 'setup_completed'
+  >;
+  has_identity: boolean;
+  has_link: boolean;
+  has_representante_legal: boolean;
+  has_principal_activity: boolean;
+  has_certificate: boolean;
+  cert_required: boolean;
+  setup_completed: boolean;
+  sifen_environment: 'demo' | 'test' | 'prod';
+}
+
 export interface ManualInvoiceItem {
   descripcion: string;
   cantidad: number;
@@ -149,7 +169,11 @@ export interface ManualInvoiceResult {
 export const invoicingService = {
   // -- Fiscal Config --
 
-  async getConfig(): Promise<{ data: FiscalConfig | null; setup_required?: boolean }> {
+  async getConfig(): Promise<{
+    data: FiscalConfig | null;
+    setup_required?: boolean;
+    readiness?: FiscalReadiness;
+  }> {
     const res = await fetch(`${API_BASE_URL}/config`, { headers: getAuthHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

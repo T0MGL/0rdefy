@@ -2,9 +2,30 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, FileText, CheckCircle2, XCircle, Settings2, Plus } from 'lucide-react';
-import { invoicingService, InvoiceStats, FiscalConfig } from '@/services/invoicing.service';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Loader2,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  Settings2,
+  Plus,
+  AlertTriangle,
+} from 'lucide-react';
+import {
+  invoicingService,
+  InvoiceStats,
+  FiscalConfig,
+  FiscalReadiness,
+} from '@/services/invoicing.service';
 import { InvoicingSetupWizard } from '@/components/InvoicingSetupWizard';
+import { InvoicingSettingsEditor } from '@/components/InvoicingSettingsEditor';
 import { InvoiceHistoryTable } from '@/components/InvoiceHistoryTable';
 import { ManualInvoiceModal } from '@/components/ManualInvoiceModal';
 import { formatCurrency } from '@/utils/currency';
@@ -15,15 +36,17 @@ import { ComingSoonPlaceholder } from '@/components/ComingSoonPlaceholder';
 const ENV_LABELS: Record<string, { label: string; color: string }> = {
   demo: { label: 'Demo', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' },
   test: { label: 'Test', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' },
-  prod: { label: 'Producción', color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' },
+  prod: { label: 'Produccion', color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' },
 };
 
 export default function Invoicing() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<FiscalConfig | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
+  const [readiness, setReadiness] = useState<FiscalReadiness | null>(null);
   const [stats, setStats] = useState<InvoiceStats | null>(null);
-  const [showSetup, setShowSetup] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [showSettingsEditor, setShowSettingsEditor] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [invoiceTableKey, setInvoiceTableKey] = useState(0);
@@ -33,7 +56,9 @@ export default function Invoicing() {
 
   useEffect(() => {
     isMountedRef.current = true;
-    return () => { isMountedRef.current = false; };
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const loadData = async () => {
@@ -42,32 +67,34 @@ export default function Invoicing() {
     try {
       const configResult = await invoicingService.getConfig();
       if (!isMountedRef.current) return;
-      if (configResult.setup_required) {
-        setSetupRequired(true);
-        // Keep config data if partially set up (for re-editing)
-        setConfig(configResult.data as FiscalConfig || null);
-      } else if (!configResult.data) {
-        setSetupRequired(true);
+      if (!configResult.data) {
+        // No identity at all: fresh store, needs the full wizard.
         setConfig(null);
-      } else {
-        setConfig(configResult.data as FiscalConfig);
-        setSetupRequired(false);
-
-        // Load stats
-        const statsResult = await invoicingService.getStats();
-        if (!isMountedRef.current) return;
-        setStats(statsResult);
+        setSetupRequired(true);
+        setReadiness(configResult.readiness ?? null);
+        return;
       }
+      setConfig(configResult.data as FiscalConfig);
+      setSetupRequired(Boolean(configResult.setup_required));
+      setReadiness(configResult.readiness ?? null);
+
+      // Stats still make sense even if setup is incomplete (invoices may
+      // exist from prior attempts).
+      const statsResult = await invoicingService.getStats().catch(() => null);
+      if (!isMountedRef.current) return;
+      if (statsResult) setStats(statsResult);
     } catch (err: any) {
       if (!isMountedRef.current) return;
-      // If 403 (country not supported), show a message
       if (err.message?.includes('solo disponible')) {
         setSetupRequired(false);
         setConfig(null);
       } else {
-        // Network/server error: show error, don't show setup wizard
-        setLoadError(err.message || 'Error al cargar configuración');
-        toast({ title: 'Error', description: err.message || 'Error al cargar configuración', variant: 'destructive' });
+        setLoadError(err.message || 'Error al cargar configuracion');
+        toast({
+          title: 'Error',
+          description: err.message || 'Error al cargar configuracion',
+          variant: 'destructive',
+        });
       }
     } finally {
       if (isMountedRef.current) setLoading(false);
@@ -104,11 +131,10 @@ export default function Invoicing() {
     );
   }
 
-  // Show error state if loading failed (don't masquerade as setup required)
-  if (loadError && !setupRequired) {
+  if (loadError) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Facturación Electrónica</h1>
+        <h1 className="text-2xl font-bold">Facturacion Electronica</h1>
         <Card>
           <CardContent className="py-8 text-center">
             <XCircle className="mx-auto text-red-500 mb-3" size={32} />
@@ -122,45 +148,110 @@ export default function Invoicing() {
     );
   }
 
-  // Show setup wizard if config not completed
-  if (setupRequired || showSetup) {
+  // Fresh store, no identity at all: full wizard.
+  if (!config || showWizard) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Facturación Electrónica</h1>
-            <p className="text-muted-foreground">Configurá tu facturación electrónica para SIFEN</p>
+            <h1 className="text-2xl font-bold">Facturacion Electronica</h1>
+            <p className="text-muted-foreground">Configura tu facturacion electronica para SIFEN</p>
           </div>
-          {!setupRequired && (
-            <Button variant="outline" onClick={() => setShowSetup(false)}>Volver</Button>
+          {config && (
+            <Button variant="outline" onClick={() => setShowWizard(false)}>
+              Volver
+            </Button>
           )}
         </div>
-        <InvoicingSetupWizard onComplete={() => { setShowSetup(false); loadData(); }} />
+        <InvoicingSetupWizard
+          onComplete={() => {
+            setShowWizard(false);
+            loadData();
+          }}
+        />
       </div>
     );
   }
 
-  const envInfo = ENV_LABELS[config?.sifen_environment || 'demo'];
+  const envInfo = ENV_LABELS[config.sifen_environment || 'demo'];
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">Facturación Electrónica</h1>
+          <h1 className="text-2xl font-bold">Facturacion Electronica</h1>
           <Badge className={envInfo.color}>{envInfo.label}</Badge>
+          {setupRequired && (
+            <Badge variant="destructive" className="gap-1">
+              <AlertTriangle size={12} /> Configuracion incompleta
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setShowManualModal(true)}>
+          <Button
+            size="sm"
+            onClick={() => setShowManualModal(true)}
+            disabled={setupRequired}
+            title={setupRequired ? 'Completa la configuracion para emitir' : undefined}
+          >
             <Plus size={14} className="mr-2" />
             Nueva Factura
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowSetup(true)}>
+          <Button variant="outline" size="sm" onClick={() => setShowSettingsEditor(true)}>
             <Settings2 size={14} className="mr-2" />
-            Configuración
+            Configuracion
           </Button>
         </div>
       </div>
+
+      {/* Incomplete-setup banner */}
+      {setupRequired && (
+        <Card className="border-amber-300 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/15">
+          <CardContent className="py-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle
+                size={18}
+                className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"
+              />
+              <div className="flex-1 space-y-1.5">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  Completa la configuracion fiscal antes de emitir
+                </p>
+                {readiness && readiness.missing.length > 0 ? (
+                  <ul className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed space-y-0.5 list-disc pl-4">
+                    {readiness.missing.includes('representante_legal') && (
+                      <li>Datos del representante legal (nombre, tipo y numero de documento).</li>
+                    )}
+                    {readiness.missing.includes('actividad_principal') && (
+                      <li>Actividad economica principal.</li>
+                    )}
+                    {readiness.missing.includes('certificado') && (
+                      <li>Certificado digital (.p12) requerido para el ambiente actual.</li>
+                    )}
+                    {readiness.missing.includes('setup_completed') &&
+                      !readiness.missing.includes('certificado') && (
+                        <li>Confirmacion final del vinculo con la tienda.</li>
+                      )}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                    Faltan datos obligatorios para habilitar la emision a SIFEN.
+                  </p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowSettingsEditor(true)}
+                className="border-amber-400 text-amber-900 hover:bg-amber-100 dark:text-amber-200 dark:border-amber-700 dark:hover:bg-amber-900/40"
+              >
+                Completar configuracion
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <ManualInvoiceModal
         open={showManualModal}
@@ -171,23 +262,49 @@ export default function Invoicing() {
         }}
       />
 
+      {/* Settings editor dialog */}
+      <Dialog open={showSettingsEditor} onOpenChange={setShowSettingsEditor}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Configuracion fiscal</DialogTitle>
+            <DialogDescription>
+              Edita los datos de la identidad fiscal, el establecimiento, el ambiente SIFEN
+              y el certificado digital asociados a esta tienda.
+            </DialogDescription>
+          </DialogHeader>
+          {showSettingsEditor && (
+            <InvoicingSettingsEditor
+              onSaved={() => {
+                setShowSettingsEditor(false);
+                loadData();
+              }}
+              onCancel={() => setShowSettingsEditor(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Config summary */}
-      {config && (
-        <Card>
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-6">
-                <span><strong>RUC:</strong> {config.ruc}-{config.ruc_dv}</span>
-                <span><strong>Razón Social:</strong> {config.razon_social}</span>
-                <span><strong>Timbrado:</strong> {config.timbrado}</span>
-              </div>
-              <span className="text-muted-foreground">
-                Est. {config.establecimiento_codigo}-{config.punto_expedicion}
+      <Card>
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-6">
+              <span>
+                <strong>RUC:</strong> {config.ruc}-{config.ruc_dv}
+              </span>
+              <span>
+                <strong>Razon Social:</strong> {config.razon_social}
+              </span>
+              <span>
+                <strong>Timbrado:</strong> {config.timbrado}
               </span>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <span className="text-muted-foreground">
+              Est. {config.establecimiento_codigo}-{config.punto_expedicion}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats cards */}
       {stats && (
