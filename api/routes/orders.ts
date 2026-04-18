@@ -1072,7 +1072,11 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     unit_price,
                     total_price,
                     image_url,
-                    is_upsell
+                    is_upsell,
+                    products:product_id (
+                        id,
+                        image_url
+                    )
                 ),
                 carriers!orders_courier_id_fkey (
                     id,

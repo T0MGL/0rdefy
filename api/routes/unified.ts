@@ -193,7 +193,7 @@ unifiedRouter.get('/orders', async (req: AuthRequest, res: Response) => {
                 deleted_at,
                 is_test,
                 stores (name),
-                order_line_items (id, product_name, quantity, image_url)
+                order_line_items (id, product_name, quantity, image_url, products:product_id (id, image_url))
             `, { count: 'exact' })
             .in('store_id', storeIds)
             .order('created_at', { ascending: false })

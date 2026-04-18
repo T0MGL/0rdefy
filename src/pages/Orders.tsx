@@ -55,7 +55,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { DeliveryAttemptsPanel } from '@/components/DeliveryAttemptsPanel';
-import { printBatchLabelsPDF } from '@/components/printing/printLabelPDF';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -177,8 +176,8 @@ const ProductThumbnails = memo(({ order }: { order: Order }) => {
     <TooltipProvider>
       <div className={`flex items-center gap-1 ${lineItems.length === 1 ? 'justify-center' : ''}`}>
         {visibleItems.map((item, index) => {
-          // Try image_url directly on line_item first (new), fallback to products relation (old)
-          const productImage = item.image_url || item.products?.image_url;
+          // Live product image is authoritative; fall back to stored snapshot
+          const productImage = item.products?.image_url || item.image_url;
           const productName = item.product_name;
           const quantity = item.quantity;
 
@@ -1684,6 +1683,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             }],
       }));
 
+      const { printBatchLabelsPDF } = await import('@/components/printing/printLabelPDF');
       const success = await printBatchLabelsPDF(labelsData);
 
       if (!success) {
