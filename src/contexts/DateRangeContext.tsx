@@ -129,7 +129,35 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
       const today = startOfLocalDay(todayIsoDate);
 
       if (selectedRange === 'custom' && customRange) {
-        return customRange;
+        // CRITICAL timezone fix: the DayPicker returns Date instances built
+        // from browser-local midnight of the clicked calendar cell
+        // (`new Date(year, month, day)`). If the browser timezone differs
+        // from the store timezone, reading those Dates in the store TZ can
+        // shift the day by ±1. We rebuild the range using the *visual* Y/M/D
+        // the user clicked (browser-local components), anchored to midnight
+        // and end-of-day in the store timezone. End result:
+        // `formatLocalDate(from, storeTimezone)` and
+        // `formatLocalDate(to, storeTimezone)` both return exactly the day
+        // the user selected, regardless of browser location.
+        const anchorLocalDay = (d: Date, endOfDay = false): Date => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          const iso = `${y}-${m}-${dd}`;
+          if (storeTimezone) {
+            return endOfDay
+              ? fromZonedTime(`${iso} 23:59:59.999`, storeTimezone)
+              : fromZonedTime(`${iso} 00:00:00.000`, storeTimezone);
+          }
+          const [yy, mm, ddd] = iso.split('-').map(Number);
+          return endOfDay
+            ? new Date(yy, (mm || 1) - 1, ddd || 1, 23, 59, 59, 999)
+            : new Date(yy, (mm || 1) - 1, ddd || 1, 0, 0, 0, 0);
+        };
+        return {
+          from: anchorLocalDay(customRange.from, false),
+          to: anchorLocalDay(customRange.to, true),
+        };
       }
 
       switch (selectedRange) {

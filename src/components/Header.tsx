@@ -7,7 +7,7 @@ import { useDateRange } from '@/contexts/DateRangeContext';
 import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { formatTimeAgo } from '@/utils/timeUtils';
 import { preserveShopifyParams, isShopifyEmbedded } from '@/utils/shopifyNavigation';
-import { Bell, ChevronDown, Calendar } from 'lucide-react';
+import { Bell, ChevronDown, ChevronLeft, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
 import { GlobalViewToggle } from './GlobalViewToggle';
@@ -338,15 +338,18 @@ export function Header() {
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0 bg-card border-border shadow-xl" align="end">
               {showCalendarView ? (
-                <div className="p-4 space-y-3">
-                  <div className="flex items-center gap-2">
+                <div className="w-[320px] p-4 space-y-4">
+                  <div className="flex items-center gap-3">
                     <button
                       onClick={() => setShowCalendarView(false)}
-                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="Volver a rangos predefinidos"
                     >
-                      ← Volver
+                      <ChevronLeft size={14} />
+                      Volver
                     </button>
-                    <p className="text-sm font-medium text-foreground">Rango personalizado</p>
+                    <div className="h-4 w-px bg-border" />
+                    <p className="text-sm font-semibold text-foreground">Rango personalizado</p>
                   </div>
                   <CalendarComponent
                     mode="range"
@@ -360,14 +363,58 @@ export function Header() {
                     defaultMonth={customSelection?.from}
                     disabled={(date) => date > new Date()}
                     initialFocus
-                    className="rounded-md border border-border bg-card"
+                    className="p-0"
+                    classNames={{
+                      months: "flex flex-col",
+                      month: "space-y-3",
+                      caption: "relative flex items-center justify-center pt-1 pb-1",
+                      caption_label: "sr-only",
+                      caption_dropdowns: "flex items-center gap-2",
+                      dropdown_month: "relative",
+                      dropdown_year: "relative",
+                      dropdown:
+                        "h-8 cursor-pointer rounded-md border border-border bg-card px-2 text-sm font-medium text-foreground hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors",
+                      vhidden: "hidden",
+                      nav: "absolute inset-x-0 flex items-center justify-between px-1",
+                      nav_button:
+                        "inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/40 transition-colors",
+                      nav_button_previous: "",
+                      nav_button_next: "",
+                      table: "w-full border-collapse",
+                      head_row: "flex",
+                      head_cell:
+                        "w-9 text-[0.7rem] font-medium uppercase tracking-wider text-muted-foreground",
+                      row: "flex w-full mt-1.5",
+                      cell: "relative h-9 w-9 p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-primary/15 first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md",
+                      day: "inline-flex h-9 w-9 items-center justify-center rounded-md p-0 text-sm font-normal text-foreground hover:bg-primary/15 hover:text-primary aria-selected:opacity-100 transition-colors",
+                      day_today: "border border-primary/50 font-semibold text-foreground",
+                      day_selected:
+                        "bg-primary text-primary-foreground font-semibold hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
+                      day_range_start: "rounded-l-md",
+                      day_range_end: "rounded-r-md",
+                      day_range_middle:
+                        "rounded-none bg-primary/15 text-foreground hover:bg-primary/25",
+                      day_outside: "text-muted-foreground/40 aria-selected:text-primary-foreground/70",
+                      day_disabled: "text-muted-foreground/30 cursor-not-allowed hover:bg-transparent hover:text-muted-foreground/30",
+                      day_hidden: "invisible",
+                    }}
                   />
-                  <div className="flex gap-2 pt-2 border-t border-border">
-                    <Button onClick={handleApplyCustomDates} disabled={!customSelection?.from} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
-                      Aplicar
-                    </Button>
-                    <Button onClick={handleResetDates} variant="outline" className="border-border hover:bg-muted">
+                  <div className="flex gap-2 pt-3 border-t border-border">
+                    <Button
+                      onClick={handleResetDates}
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    >
                       Limpiar
+                    </Button>
+                    <Button
+                      onClick={handleApplyCustomDates}
+                      disabled={!customSelection?.from}
+                      size="sm"
+                      className="h-9 flex-1 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 font-medium"
+                    >
+                      Aplicar rango
                     </Button>
                   </div>
                 </div>
