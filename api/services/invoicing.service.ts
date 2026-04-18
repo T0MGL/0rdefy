@@ -757,7 +757,36 @@ export async function createIdentity(
 }
 
 /**
+ * Assert that the given identity belongs to the given owner. Used by
+ * route-level authorization before any PATCH / upload call. Prevents a
+ * logged-in user from mutating another tenant's identity by guessing the
+ * UUID.
+ */
+export async function assertIdentityOwnedBy(
+  identityId: string,
+  ownerUserId: string,
+): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from('fiscal_identities')
+    .select('id, owner_user_id, is_active')
+    .eq('id', identityId)
+    .maybeSingle();
+
+  if (error) throw new Error(`Error verificando identidad fiscal: ${error.message}`);
+  if (!data) throw new Error('Identidad fiscal no encontrada.');
+  if (!data.is_active) throw new Error('Identidad fiscal inactiva.');
+  if (data.owner_user_id !== ownerUserId) {
+    throw new Error('No tenes permiso para modificar esta identidad fiscal.');
+  }
+}
+
+/**
  * Update an existing identity. Does not touch the certificate.
+ *
+ * Production guard: switching sifen_environment to 'test' or 'prod' is
+ * rejected unless a certificate is already uploaded. This stops a user
+ * from flipping the switch and then emitting against SIFEN without the
+ * .p12 configured.
  */
 export async function updateIdentity(
   identityId: string,
@@ -766,6 +795,22 @@ export async function updateIdentity(
   if (input.ruc && input.ruc_dv !== undefined) {
     if (!validateRucDV(input.ruc, input.ruc_dv)) {
       throw new Error('El digito verificador (DV) no coincide con el RUC.');
+    }
+  }
+
+  // Environment upgrade guard: require certificate before moving off demo.
+  if (input.sifen_environment && input.sifen_environment !== 'demo') {
+    const { data: current, error: currErr } = await supabaseAdmin
+      .from('fiscal_identities')
+      .select('cert_pem, encrypted_private_key')
+      .eq('id', identityId)
+      .maybeSingle();
+    if (currErr) throw new Error(`Error verificando certificado: ${currErr.message}`);
+    const hasCert = Boolean(current?.cert_pem && current?.encrypted_private_key);
+    if (!hasCert) {
+      throw new Error(
+        `No podes activar el ambiente "${input.sifen_environment}" sin un certificado digital (.p12). Subi el certificado primero.`,
+      );
     }
   }
 
@@ -1067,6 +1112,78 @@ export async function uploadCertificate(
 // ================================================================
 // Legacy-compatible facade: keeps /api/invoicing/config working
 // ================================================================
+
+/**
+ * Aggregate readiness check used by the Invoicing UI to decide whether
+ * the store can actually emit. This is separate from link.setup_completed
+ * (which only reflects "link created AND certificate uploaded or demo")
+ * because SIFEN also requires representante_legal and at least one
+ * activity to build the XML.
+ *
+ * Shape is stable for the client so it can show granular missing-field
+ * messaging. All booleans default to true when the context is missing so
+ * the caller can still distinguish "no identity linked" from "identity
+ * linked but incomplete".
+ */
+export interface FiscalReadiness {
+  ready: boolean;
+  missing: string[];
+  has_identity: boolean;
+  has_link: boolean;
+  has_representante_legal: boolean;
+  has_principal_activity: boolean;
+  has_certificate: boolean;
+  cert_required: boolean;
+  setup_completed: boolean;
+  sifen_environment: SifenEnv;
+}
+
+export async function getFiscalReadiness(storeId: string): Promise<FiscalReadiness> {
+  const ctx = await getFiscalContext(storeId);
+  if (!ctx) {
+    return {
+      ready: false,
+      missing: ['identity'],
+      has_identity: false,
+      has_link: false,
+      has_representante_legal: false,
+      has_principal_activity: false,
+      has_certificate: false,
+      cert_required: false,
+      setup_completed: false,
+      sifen_environment: 'demo' as SifenEnv,
+    };
+  }
+
+  const id = ctx.identity;
+  const hasRepresentanteLegal = Boolean(
+    id.representante_legal_nombre &&
+      id.representante_legal_documento_tipo &&
+      id.representante_legal_documento_numero,
+  );
+  const hasPrincipalActivity = (ctx.activities ?? []).some((a) => a.is_principal);
+  const hasCertificate = Boolean(id.has_certificate);
+  const certRequired = id.sifen_environment !== 'demo';
+
+  const missing: string[] = [];
+  if (!hasRepresentanteLegal) missing.push('representante_legal');
+  if (!hasPrincipalActivity) missing.push('actividad_principal');
+  if (certRequired && !hasCertificate) missing.push('certificado');
+  if (!ctx.link.setup_completed) missing.push('setup_completed');
+
+  return {
+    ready: missing.length === 0,
+    missing,
+    has_identity: true,
+    has_link: true,
+    has_representante_legal: hasRepresentanteLegal,
+    has_principal_activity: hasPrincipalActivity,
+    has_certificate: hasCertificate,
+    cert_required: certRequired,
+    setup_completed: ctx.link.setup_completed,
+    sifen_environment: id.sifen_environment,
+  };
+}
 
 /**
  * Legacy wrapper. Returns a flat shape that mirrors the old fiscal_config

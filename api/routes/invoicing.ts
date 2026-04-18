@@ -62,11 +62,22 @@ invoicingRouter.get('/config', async (req: PermissionRequest, res: Response) => 
     if (!config) {
       return res.json({ data: null, setup_required: true });
     }
-    // If config exists but setup not completed (test/prod without certificate), signal setup needed
-    if (!config.setup_completed) {
-      return res.json({ data: config, setup_required: true });
-    }
-    res.json({ data: config });
+
+    // Aggregate "ready to emit" check so the UI knows when to surface the
+    // completion banner. Covers:
+    //   - link.setup_completed (certificate uploaded OR demo-mode link)
+    //   - representante_legal fully populated (SIFEN XML requirement)
+    //   - at least one economic activity registered
+    // The front-end uses setup_required to gate the "Nueva Factura" button
+    // and render the amber completion banner.
+    const readiness = await invoicingService.getFiscalReadiness(req.storeId!);
+    const setupRequired = !readiness.ready;
+
+    res.json({
+      data: config,
+      setup_required: setupRequired,
+      readiness,
+    });
   } catch (err: any) {
     logger.error('[Invoicing] GET /config error:', err.message);
     res.status(500).json({ error: sanitizeErrorForClient(err) });

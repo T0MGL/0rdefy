@@ -168,6 +168,7 @@ fiscalRouter.post(
 
 // ================================================================
 // PATCH /identities/:id - update an existing identity
+// Authz: verify the identity belongs to the calling user before mutating.
 // ================================================================
 fiscalRouter.patch(
   '/identities/:id',
@@ -179,6 +180,7 @@ fiscalRouter.patch(
       if (!parsed.success) {
         return res.status(400).json({ error: 'Datos invalidos', details: parsed.error.flatten() });
       }
+      await invoicingService.assertIdentityOwnedBy(req.params.id, req.userId!);
       const identity = await invoicingService.updateIdentity(req.params.id, parsed.data as any);
       res.json({ data: identity, message: 'Identidad fiscal actualizada' });
     } catch (err: any) {
@@ -206,6 +208,7 @@ fiscalRouter.post(
         return res.status(400).json({ error: 'Contrasena del certificado requerida' });
       }
 
+      await invoicingService.assertIdentityOwnedBy(req.params.id, req.userId!);
       const result = await invoicingService.uploadCertificate(req.params.id, file.buffer, password);
       res.json({ data: result, message: 'Certificado cargado exitosamente' });
     } catch (err: any) {
@@ -228,6 +231,7 @@ fiscalRouter.post(
       if (!parsed.success) {
         return res.status(400).json({ error: 'Datos invalidos', details: parsed.error.flatten() });
       }
+      await invoicingService.assertIdentityOwnedBy(req.params.id, req.userId!);
       const activity = await invoicingService.addIdentityActivity(req.params.id, parsed.data);
       res.json({ data: activity, message: 'Actividad agregada' });
     } catch (err: any) {
@@ -252,6 +256,7 @@ fiscalRouter.patch(
       if (!parsed.success) {
         return res.status(400).json({ error: 'Datos invalidos', details: parsed.error.flatten() });
       }
+      await invoicingService.assertIdentityOwnedBy(req.params.id, req.userId!);
       const activity = await invoicingService.updateIdentityActivity(
         req.params.id,
         req.params.aid,
@@ -275,6 +280,7 @@ fiscalRouter.delete(
   requireRole(Role.OWNER),
   async (req: PermissionRequest, res: Response) => {
     try {
+      await invoicingService.assertIdentityOwnedBy(req.params.id, req.userId!);
       await invoicingService.deleteIdentityActivity(req.params.id, req.params.aid);
       res.json({ message: 'Actividad eliminada' });
     } catch (err: any) {
@@ -301,6 +307,7 @@ fiscalRouter.post(
       if (!parsed.success) {
         return res.status(400).json({ error: 'Datos invalidos', details: parsed.error.flatten() });
       }
+      await invoicingService.assertIdentityOwnedBy(parsed.data.identity_id, req.userId!);
       const link = await invoicingService.linkIdentityToStore(
         parsed.data.identity_id,
         req.params.storeId,
