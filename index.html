@@ -4,8 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="shopify-api-key" content="%VITE_SHOPIFY_API_KEY%" />
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
-    <title>Ordefy - Panel de Gestión de E-commerce</title>
+    <!--
+      App Bridge Next (cdn.shopify.com/shopifycloud/app-bridge.js) is loaded
+      lazily by ShopifyAppBridgeProvider only when the app is embedded in a
+      Shopify admin iframe (?shop= / ?host= in the URL). Loading it globally
+      produced a "missing required configuration fields: shop" console
+      warning on every standalone route (facturacion, orders, etc).
+    -->
+    <title>Ordefy - Panel de Gestion de E-commerce</title>
     <meta name="description" content="Plataforma profesional de gestión de e-commerce. Gestiona pedidos, productos, inventario y estadísticas en un solo lugar. Desarrollado por Bright Idea." />
     <meta name="author" content="Bright Idea" />
     <meta name="theme-color" content="hsl(240, 10%, 8%)" />
