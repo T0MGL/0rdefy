@@ -104,22 +104,10 @@ export function ReconciliationSummary({
 
       {/* Financial Summary - Clear breakdown */}
       <div className="space-y-2 mb-6 font-mono text-sm">
-        {/* Section: INGRESOS */}
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-          Ingresos
-        </div>
-        <div className="flex items-center justify-between py-1">
-          <span className="text-muted-foreground">Entregados ({totalDelivered})</span>
-          <span className="text-green-600">+{formatCurrency(totalCodExpected)}</span>
-        </div>
-        <div className="flex items-center justify-between py-1">
-          <span className="text-muted-foreground">Fallidos ({totalNotDelivered})</span>
-          <span className="text-muted-foreground">0 Gs</span>
-        </div>
-
-        <div className="border-t my-3" />
-
         {/* Section: COD */}
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+          Cobros COD
+        </div>
         <div className="flex items-center justify-between py-1">
           <span className="text-muted-foreground">COD Esperado</span>
           <span>{formatCurrency(totalCodExpected)}</span>

@@ -22,9 +22,6 @@ import {
 import {
   isCodPayment,
   normalizePaymentMethod,
-  getPaymentTypeLabel,
-  getAmountToCollect,
-  validateAmountCollected
 } from '../utils/payment';
 import { isValidUUID } from '../utils/sanitize';
 import { logger } from '../utils/logger';
@@ -759,9 +756,11 @@ export async function exportDispatchCSV(
   ];
 
   const rows = session.orders.map(order => {
-    // Use centralized utilities for payment type determination
+    // Use the authoritative is_cod flag from dispatch_session_orders.
+    // Do NOT re-derive from payment_method alone: it ignores prepaid_method
+    // and financial_status that were already evaluated at dispatch time.
     const paymentType = order.is_cod ? 'COD' : 'PREPAGO';
-    const amountToCollect = getAmountToCollect(order.payment_method, order.total_price);
+    const amountToCollect = order.is_cod ? order.total_price : 0;
 
     return [
       order.order_number,
@@ -3200,6 +3199,7 @@ async function getPendingReconciliationFallback(storeId: string): Promise<Delive
       delivered_at,
       courier_id,
       total_price,
+      cod_amount,
       payment_method,
       prepaid_method
     `)
@@ -3233,11 +3233,17 @@ async function getPendingReconciliationFallback(storeId: string): Promise<Delive
     // This handles the case where customer paid via transfer/QR before delivery
     const isCod = !order.prepaid_method && isCodPayment(order.payment_method);
 
+    // cod_amount is the actual cash the courier collects from the customer.
+    // 0 is SEMANTIC (paid online via Shopify), not missing data.
+    // Only fall back to total_price when cod_amount is null/undefined (pre-migration 019 orders).
+    // Matches migration 159 fix and DB view v_pending_reconciliation logic.
+    const codValue = isCod ? (order.cod_amount ?? order.total_price ?? 0) : 0;
+
     if (groupMap.has(groupKey)) {
       const group = groupMap.get(groupKey)!;
       group.total_orders++;
       if (isCod) {
-        group.total_cod += order.total_price || 0;
+        group.total_cod += codValue;
       } else {
         group.total_prepaid++;
       }
@@ -3248,7 +3254,7 @@ async function getPendingReconciliationFallback(storeId: string): Promise<Delive
         carrier_name: carrier?.name || 'Sin courier',
         failed_attempt_fee_percent: carrier?.failed_attempt_fee_percent ?? 50,
         total_orders: 1,
-        total_cod: isCod ? (order.total_price || 0) : 0,
+        total_cod: codValue,
         total_prepaid: isCod ? 0 : 1,
       });
     }

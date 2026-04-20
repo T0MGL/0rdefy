@@ -467,9 +467,12 @@ carrierSettlementsRouter.get('/preview/calculate', async (req: AuthRequest, res:
                 customer_first_name,
                 customer_last_name,
                 total_price,
+                amount_collected,
                 shipping_cost,
                 delivery_zone,
-                delivered_at
+                delivered_at,
+                payment_method,
+                prepaid_method
             `)
             .eq('store_id', req.storeId)
             .eq('courier_id', carrier_id)
@@ -483,9 +486,10 @@ carrierSettlementsRouter.get('/preview/calculate', async (req: AuthRequest, res:
             throw ordersError;
         }
 
-        // Calculate totals
+        // Calculate totals using actual collected amounts (respects discrepancies)
+        // Uses COALESCE(amount_collected, total_price) to match migration 132 logic
         const total_orders = orders?.length || 0;
-        const total_cod = orders?.reduce((sum, o) => sum + Number(o.total_price || 0), 0) || 0;
+        const total_cod = orders?.reduce((sum, o) => sum + Number(o.amount_collected ?? o.total_price ?? 0), 0) || 0;
         const total_shipping = orders?.reduce((sum, o) => sum + Number(o.shipping_cost || 0), 0) || 0;
         const net_amount = total_cod - total_shipping;
 
