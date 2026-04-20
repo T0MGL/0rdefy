@@ -1,6 +1,3 @@
-import ExcelJS from 'exceljs';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 export type ExportFormat = 'csv' | 'excel' | 'pdf';
 
@@ -53,6 +50,7 @@ class ExportService {
    */
   private async exportToExcel<T>(options: ExportOptions<T>): Promise<void> {
     const { filename, columns, data, title } = options;
+    const { default: ExcelJS } = await import('exceljs');
 
     // Create workbook and worksheet
     const workbook = new ExcelJS.Workbook();
@@ -103,8 +101,12 @@ class ExportService {
   /**
    * Export data to PDF format
    */
-  private exportToPDF<T>(options: ExportOptions<T>): void {
+  private async exportToPDF<T>(options: ExportOptions<T>): Promise<void> {
     const { filename, columns, data, title, orientation = 'landscape' } = options;
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
 
     // Create PDF document
     const doc = new jsPDF({
@@ -197,7 +199,7 @@ class ExportService {
           await this.exportToExcel(options);
           break;
         case 'pdf':
-          this.exportToPDF(options);
+          await this.exportToPDF(options);
           break;
         default:
           throw new Error(`Unsupported export format: ${options.format}`);

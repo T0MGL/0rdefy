@@ -4,7 +4,7 @@
  * Triggers browser print dialog directly using hidden iframe
  */
 
-import { jsPDF } from 'jspdf';
+import type { jsPDF as JsPDFType } from 'jspdf';
 import QRCode from 'qrcode';
 import { getCurrencySymbol } from '@/utils/currency';
 
@@ -55,6 +55,7 @@ function stripEmojis(text: string): string {
  * Generates a single 4x6 shipping label as PDF
  */
 export async function generateLabelPDF(data: LabelData): Promise<Blob> {
+  const { jsPDF } = await import('jspdf');
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'in',
@@ -142,7 +143,7 @@ export async function generateLabelPDF(data: LabelData): Promise<Blob> {
  * Core label drawing function - used by both single and batch
  */
 function drawLabel(
-  pdf: jsPDF,
+  pdf: JsPDFType,
   data: LabelData,
   qrDataUrl: string,
   isCOD: boolean,
@@ -427,6 +428,7 @@ function drawLabel(
  * Generates a multi-page PDF with multiple labels
  */
 export async function generateBatchLabelsPDF(labels: LabelData[]): Promise<Blob> {
+  const { jsPDF } = await import('jspdf');
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'in',

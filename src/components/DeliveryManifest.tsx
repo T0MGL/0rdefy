@@ -4,8 +4,6 @@
  * Includes signature sections for legal proof of delivery handoff
  */
 
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { ReadyToShipOrder } from '@/services/shipping.service';
 import { getOrderDisplayId } from '@/utils/orderDisplay';
 import { formatCurrency } from '@/utils/currency';
@@ -26,7 +24,12 @@ export class DeliveryManifestGenerator {
   /**
    * Generate and download delivery manifest PDF
    */
-  static generate(data: DeliveryManifestData): void {
+  static async generate(data: DeliveryManifestData): Promise<void> {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
+
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',

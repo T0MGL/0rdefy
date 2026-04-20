@@ -20,7 +20,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import * as shippingService from '@/services/shipping.service';
 import { exportDispatchExcel } from '@/services/shipping.service';
-import { DeliveryManifestGenerator } from '@/components/DeliveryManifest';
 import { formatCurrency } from '@/utils/currency';
 import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 import { logger } from '@/utils/logger';
@@ -127,7 +126,7 @@ export default function Shipping() {
     setDispatchDialogOpen(true);
   }
 
-  function handleGenerateManifest() {
+  async function handleGenerateManifest() {
     if (selectedOrders.size === 0) {
       toast({
         title: 'Error',
@@ -145,7 +144,8 @@ export default function Shipping() {
     // Get store info from context
     const storeName = currentStore?.name || 'Mi Tienda';
 
-    DeliveryManifestGenerator.generate({
+    const { DeliveryManifestGenerator } = await import('@/components/DeliveryManifest');
+    await DeliveryManifestGenerator.generate({
       orders: selectedOrdersList,
       carrierName,
       dispatchDate: new Date(),
