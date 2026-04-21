@@ -219,6 +219,38 @@ fiscalRouter.post(
 );
 
 // ================================================================
+// POST /identities/:id/csc - store DNIT-issued CSC pair (prod only)
+// ================================================================
+const cscSchema = z.object({
+  csc_id: z.string().min(1).max(4),
+  csc: z.string().length(32),
+});
+
+fiscalRouter.post(
+  '/identities/:id/csc',
+  validateUUIDParam('id'),
+  requireRole(Role.OWNER),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      const parsed = cscSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Datos invalidos', details: parsed.error.flatten() });
+      }
+      await invoicingService.assertIdentityOwnedBy(req.params.id, req.userId!);
+      const result = await invoicingService.setIdentityCsc(
+        req.params.id,
+        parsed.data.csc_id,
+        parsed.data.csc,
+      );
+      res.json({ data: result, message: 'CSC guardado' });
+    } catch (err: any) {
+      logger.error('BACKEND', `[Fiscal] POST /identities/:id/csc error: ${err.message}`);
+      res.status(400).json({ error: sanitizeErrorForClient(err) });
+    }
+  },
+);
+
+// ================================================================
 // POST /identities/:id/activities - add activity
 // ================================================================
 fiscalRouter.post(

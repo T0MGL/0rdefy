@@ -520,6 +520,21 @@ export const fiscalService = {
     return json.data;
   },
 
+  async setIdentityCsc(
+    identityId: string,
+    cscId: string,
+    csc: string,
+  ): Promise<{ identity_id: string; csc_id: string }> {
+    const json = await fiscalFetch<{ data: { identity_id: string; csc_id: string } }>(
+      `/identities/${identityId}/csc`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ csc_id: cscId, csc }),
+      },
+    );
+    return json.data;
+  },
+
   async addActivity(identityId: string, input: FiscalActivityInput): Promise<FiscalActivity> {
     const json = await fiscalFetch<{ data: FiscalActivity }>(`/identities/${identityId}/activities`, {
       method: 'POST',

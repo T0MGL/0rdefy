@@ -436,14 +436,32 @@ async function signInjectSend(params: {
   identity: FiscalIdentityRow;
   certPem: string;
   privateKeyPem: string;
+  csc: string | null;
 }): Promise<{ xmlSigned: string; xmlFinal: string; sifen: SifenResponse }> {
   const env = params.identity.sifen_environment as 'test' | 'prod';
   const mtls: SifenMtls = { certPem: params.certPem, privateKeyPem: params.privateKeyPem };
 
   const xmlSigned = await signXML(params.xmlGenerated, params.privateKeyPem, params.certPem);
 
-  const idCSC = params.identity.csc_id || SIFEN_TEST_ID_CSC;
-  const csc = SIFEN_TEST_CSC; // identity.csc is encrypted when present; stub uses test CSC
+  // SIFEN accepts only its well-known CSC pair in the test environment,
+  // and REJECTS any other CSC there. In production the per-contribuyente
+  // CSC (issued by DNIT in Marangatu, 32 hex) is required; the test
+  // value would trigger a 0160 / QR mismatch when SIFEN recomputes
+  // the digest. Demo never hits SIFEN so any CSC is fine.
+  let idCSC: string;
+  let csc: string;
+  if (env === 'prod') {
+    if (!params.identity.csc_id || !params.csc) {
+      throw new Error(
+        'CSC no configurado. DNIT emite el CSC (32 hex) y el idCSC en Marangatu al habilitarte como Facturador Electronico. Cargalos en Configuracion Fiscal antes de emitir en produccion.',
+      );
+    }
+    idCSC = params.identity.csc_id;
+    csc = params.csc;
+  } else {
+    idCSC = SIFEN_TEST_ID_CSC;
+    csc = SIFEN_TEST_CSC;
+  }
   const xmlFinal = await injectQR(xmlSigned, env, idCSC, csc);
 
   const sifen = await sifenClient.sendDE(String(params.docNumber), xmlFinal, env, mtls);
@@ -685,10 +703,10 @@ export async function getFiscalContext(storeId: string): Promise<FiscalContext |
  */
 async function loadCertificateMaterial(
   identityId: string,
-): Promise<{ certPem: string; privateKeyPem: string }> {
+): Promise<{ certPem: string; privateKeyPem: string; csc: string | null }> {
   const { data, error } = await supabaseAdmin
     .from('fiscal_identities')
-    .select('cert_pem, encrypted_private_key')
+    .select('cert_pem, encrypted_private_key, csc')
     .eq('id', identityId)
     .eq('is_active', true)
     .single();
@@ -701,6 +719,7 @@ async function loadCertificateMaterial(
   return {
     certPem: data.cert_pem as string,
     privateKeyPem: decrypt(data.encrypted_private_key as string),
+    csc: data.csc ? decrypt(data.csc as string) : null,
   };
 }
 
@@ -1109,6 +1128,51 @@ export async function uploadCertificate(
   return { identity_id: identityId, has_certificate: true };
 }
 
+/**
+ * Store the DNIT-issued CSC pair for the given identity. The CSC is a
+ * 32-hex secret used to sign the QR digest that goes into every DE.
+ * DNIT delivers it once via Marangatu when the contribuyente is
+ * habilitado as Facturador Electronico; there is no recovery flow, so
+ * merchants must keep the plaintext value themselves. We store the
+ * ciphertext (AES-256-GCM) so a DB leak does not expose signing
+ * material.
+ *
+ * idCSC is NOT a secret; it is a short numeric identifier DNIT assigns
+ * to each CSC the contribuyente generates (usually starts at "0001").
+ */
+export async function setIdentityCsc(
+  identityId: string,
+  idCsc: string,
+  cscPlain: string,
+): Promise<{ identity_id: string; csc_id: string }> {
+  const trimmedId = idCsc.trim();
+  const trimmedCsc = cscPlain.trim();
+
+  if (!/^[0-9]{1,4}$/.test(trimmedId)) {
+    throw new Error('idCSC debe ser numerico de 1 a 4 digitos (tal como lo entrega DNIT).');
+  }
+  if (!/^[a-fA-F0-9]{32}$/.test(trimmedCsc)) {
+    throw new Error(
+      'CSC debe ser una cadena hex de 32 caracteres. Copialo exactamente como lo recibiste de DNIT.',
+    );
+  }
+
+  const encryptedCsc = encrypt(trimmedCsc);
+
+  const { error } = await supabaseAdmin
+    .from('fiscal_identities')
+    .update({
+      csc_id: trimmedId,
+      csc: encryptedCsc,
+    })
+    .eq('id', identityId)
+    .eq('is_active', true);
+
+  if (error) throw new Error(`Error guardando CSC: ${error.message}`);
+
+  return { identity_id: identityId, csc_id: trimmedId };
+}
+
 // ================================================================
 // Legacy-compatible facade: keeps /api/invoicing/config working
 // ================================================================
@@ -1134,6 +1198,8 @@ export interface FiscalReadiness {
   has_principal_activity: boolean;
   has_certificate: boolean;
   cert_required: boolean;
+  has_csc: boolean;
+  csc_required: boolean;
   setup_completed: boolean;
   sifen_environment: SifenEnv;
 }
@@ -1150,6 +1216,8 @@ export async function getFiscalReadiness(storeId: string): Promise<FiscalReadine
       has_principal_activity: false,
       has_certificate: false,
       cert_required: false,
+      has_csc: false,
+      csc_required: false,
       setup_completed: false,
       sifen_environment: 'demo' as SifenEnv,
     };
@@ -1164,11 +1232,25 @@ export async function getFiscalReadiness(storeId: string): Promise<FiscalReadine
   const hasPrincipalActivity = (ctx.activities ?? []).some((a) => a.is_principal);
   const hasCertificate = Boolean(id.has_certificate);
   const certRequired = id.sifen_environment !== 'demo';
+  // CSC is needed only in prod. Test uses the well-known DNIT test CSC
+  // baked into the backend; demo never hits SIFEN.
+  const cscRequired = id.sifen_environment === 'prod';
+  // `has_csc` isn't exposed by the get_fiscal_context_for_store RPC (csc
+  // ciphertext is a secret, not for the client context). Do a targeted
+  // lookup here so the readiness badge can tell the merchant whether
+  // they still need to load their production CSC.
+  const { data: cscRow } = await supabaseAdmin
+    .from('fiscal_identities')
+    .select('csc')
+    .eq('id', id.id)
+    .single();
+  const hasCsc = Boolean(id.csc_id && cscRow?.csc);
 
   const missing: string[] = [];
   if (!hasRepresentanteLegal) missing.push('representante_legal');
   if (!hasPrincipalActivity) missing.push('actividad_principal');
   if (certRequired && !hasCertificate) missing.push('certificado');
+  if (cscRequired && !hasCsc) missing.push('csc');
   if (!ctx.link.setup_completed) missing.push('setup_completed');
 
   return {
@@ -1180,6 +1262,8 @@ export async function getFiscalReadiness(storeId: string): Promise<FiscalReadine
     has_principal_activity: hasPrincipalActivity,
     has_certificate: hasCertificate,
     cert_required: certRequired,
+    has_csc: hasCsc,
+    csc_required: cscRequired,
     setup_completed: ctx.link.setup_completed,
     sifen_environment: id.sifen_environment,
   };
@@ -1602,13 +1686,14 @@ export async function generateInvoice(
     finalStatus = 'demo';
   } else {
     try {
-      const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
+      const { certPem, privateKeyPem, csc } = await loadCertificateMaterial(ctx.identity.id);
       const { xmlFinal, sifen } = await signInjectSend({
         xmlGenerated,
         docNumber,
         identity: ctx.identity,
         certPem,
         privateKeyPem,
+        csc,
       });
       sifenResponse = sifen;
       finalXmlSigned = xmlFinal;
@@ -1960,13 +2045,14 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     finalStatus = 'demo';
   } else {
     try {
-      const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
+      const { certPem, privateKeyPem, csc } = await loadCertificateMaterial(ctx.identity.id);
       const { xmlFinal, sifen } = await signInjectSend({
         xmlGenerated,
         docNumber,
         identity: ctx.identity,
         certPem,
         privateKeyPem,
+        csc,
       });
       sifenResponse = sifen;
       finalXmlSigned = xmlFinal;
@@ -2222,6 +2308,7 @@ export async function cancelInvoice(storeId: string, invoiceId: string, motivo: 
     if (!ctx.identity.has_certificate) {
       throw new Error('Certificado digital no configurado. Cancelacion requiere mTLS.');
     }
+    // SIFEN event (cancellation) is a mTLS call that does not need CSC/QR.
     const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
     const mtls: SifenMtls = { certPem, privateKeyPem };
 
@@ -2294,19 +2381,21 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
   const xmlToSend = invoice.xml_signed || invoice.xml_generated;
   if (!xmlToSend) throw new Error('No XML available for retry');
 
-  const { certPem, privateKeyPem } = await loadCertificateMaterial(ctx.identity.id);
+  const { certPem, privateKeyPem, csc } = await loadCertificateMaterial(ctx.identity.id);
   const env = ctx.identity.sifen_environment as 'test' | 'prod';
   const mtls: SifenMtls = { certPem, privateKeyPem };
 
   let xmlFinal = invoice.xml_signed;
   if (!xmlFinal && invoice.xml_generated) {
+    if (env === 'prod' && (!ctx.identity.csc_id || !csc)) {
+      throw new Error(
+        'CSC no configurado. Cargalo en Configuracion Fiscal antes de reintentar en produccion.',
+      );
+    }
+    const effectiveIdCsc = env === 'prod' ? (ctx.identity.csc_id as string) : SIFEN_TEST_ID_CSC;
+    const effectiveCsc = env === 'prod' ? (csc as string) : SIFEN_TEST_CSC;
     const xmlSigned = await signXML(invoice.xml_generated, privateKeyPem, certPem);
-    xmlFinal = await injectQR(
-      xmlSigned,
-      env,
-      ctx.identity.csc_id || SIFEN_TEST_ID_CSC,
-      SIFEN_TEST_CSC,
-    );
+    xmlFinal = await injectQR(xmlSigned, env, effectiveIdCsc, effectiveCsc);
     await supabaseAdmin.from('invoices').update({ xml_signed: xmlFinal }).eq('id', invoiceId);
   }
 

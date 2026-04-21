@@ -32,6 +32,9 @@ import {
   X,
   FileKey2,
   AlertTriangle,
+  KeyRound,
+  ChevronDown,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -135,6 +138,17 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
   const [certPassword, setCertPassword] = useState('');
   const [hasCertificate, setHasCertificate] = useState(false);
 
+  // CSC state. idCSC is a short numeric identifier DNIT assigns
+  // (e.g. "0001") and is safe to display. The CSC itself is a 32-hex
+  // secret and is write-only; we never round-trip it through the API,
+  // only confirm whether one is stored via ctx.identity.csc_id.
+  const [cscIdInput, setCscIdInput] = useState('');
+  const [cscInput, setCscInput] = useState('');
+  const [savingCsc, setSavingCsc] = useState(false);
+  const [hasCsc, setHasCsc] = useState(false);
+
+  const [guideOpen, setGuideOpen] = useState(false);
+
   const identityForm = useForm<IdentityForm>({
     resolver: zodResolver(identitySchema),
     defaultValues: {
@@ -185,6 +199,9 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       }
       setCtx(data);
       setHasCertificate(Boolean((data.identity as any).has_certificate));
+      setHasCsc(Boolean(data.identity.csc_id));
+      setCscIdInput(data.identity.csc_id ?? '');
+      setCscInput('');
 
       identityForm.reset({
         razon_social: data.identity.razon_social ?? '',
@@ -375,6 +392,50 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
       });
     } finally {
       if (isMountedRef.current) setUploadingCert(false);
+    }
+  };
+
+  const handleSaveCsc = async () => {
+    if (!ctx) return;
+    const cscIdTrimmed = cscIdInput.trim();
+    const cscTrimmed = cscInput.trim();
+    if (!/^[0-9]{1,4}$/.test(cscIdTrimmed)) {
+      toast({
+        title: 'idCSC invalido',
+        description: 'Debe ser numerico de 1 a 4 digitos (como aparece en Marangatu).',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!/^[a-fA-F0-9]{32}$/.test(cscTrimmed)) {
+      toast({
+        title: 'CSC invalido',
+        description: 'Debe ser una cadena hex de 32 caracteres. Copialo exactamente como lo recibiste.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingCsc(true);
+    try {
+      await fiscalService.setIdentityCsc(ctx.identity.id, cscIdTrimmed, cscTrimmed);
+      if (!isMountedRef.current) return;
+      toast({
+        title: 'CSC guardado',
+        description: 'El codigo quedo encriptado en el servidor.',
+      });
+      setCscInput('');
+      setHasCsc(true);
+      await hydrate();
+    } catch (err: any) {
+      if (!isMountedRef.current) return;
+      toast({
+        title: 'Error guardando CSC',
+        description: err.message ?? 'No se pudo guardar el CSC.',
+        variant: 'destructive',
+      });
+    } finally {
+      if (isMountedRef.current) setSavingCsc(false);
     }
   };
 
@@ -808,6 +869,183 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
                   Subir certificado
                 </Button>
               </div>
+            </div>
+          )}
+        </section>
+
+        <Separator />
+
+        {/* Section 7: CSC (Codigo de Seguridad del Contribuyente) */}
+        <section className="space-y-4">
+          <header className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <KeyRound size={14} className="text-muted-foreground" />
+                Codigo de Seguridad del Contribuyente (CSC)
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Par idCSC + CSC que emite DNIT en Marangatu. Requerido para produccion.
+              </p>
+            </div>
+            {hasCsc ? (
+              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 gap-1">
+                <CheckCircle2 size={12} /> Cargado
+              </Badge>
+            ) : selectedEnv === 'prod' ? (
+              <Badge variant="destructive" className="gap-1">
+                <AlertTriangle size={12} /> Requerido
+              </Badge>
+            ) : (
+              <Badge variant="outline">Opcional en test</Badge>
+            )}
+          </header>
+
+          <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/15 px-3 py-2.5">
+            <Shield size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+              El CSC se guarda encriptado (AES-256-GCM) y nunca se devuelve al navegador.
+              Si lo perdes, tenes que generar uno nuevo en Marangatu y cargarlo aca.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-[120px_1fr] gap-4">
+            <div>
+              <Label>idCSC</Label>
+              <Input
+                placeholder="0001"
+                maxLength={4}
+                value={cscIdInput}
+                onChange={(e) => setCscIdInput(e.target.value.replace(/[^0-9]/g, ''))}
+              />
+            </div>
+            <div>
+              <Label>CSC (32 caracteres hex)</Label>
+              <Input
+                type="password"
+                placeholder={hasCsc ? '•••••••• (ya cargado, reemplaza si es necesario)' : 'ej: 10EC2a7DCB4075ef3a19470f42B80e16'}
+                value={cscInput}
+                onChange={(e) => setCscInput(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              onClick={handleSaveCsc}
+              disabled={savingCsc || !cscIdInput.trim() || !cscInput.trim()}
+            >
+              {savingCsc && <Loader2 className="animate-spin mr-2" size={14} />}
+              {hasCsc ? 'Reemplazar CSC' : 'Guardar CSC'}
+            </Button>
+          </div>
+        </section>
+
+        <Separator />
+
+        {/* Guia expandible: proceso DNIT */}
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setGuideOpen((v) => !v)}
+            className="w-full flex items-center justify-between text-left group"
+            aria-expanded={guideOpen}
+          >
+            <div>
+              <h3 className="text-sm font-semibold">
+                Como habilitarme como Facturador Electronico en DNIT
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Proceso paso a paso para Paraguay. Abrir para ver.
+              </p>
+            </div>
+            <ChevronDown
+              size={16}
+              className={`text-muted-foreground transition-transform ${guideOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {guideOpen && (
+            <div className="rounded-md border bg-muted/30 p-4 text-sm space-y-4 leading-relaxed">
+              <ol className="list-decimal pl-5 space-y-3">
+                <li>
+                  <strong>Certificado digital.</strong> Comprar un .p12 a un prestador
+                  habilitado (Confirma, DocuSign PY, etc.). Costo ~USD 60 por 1-2 anios.
+                  Subilo arriba en "Certificado digital".
+                </li>
+                <li>
+                  <strong>Solicitud de habilitacion.</strong> En{' '}
+                  <a
+                    href="https://marangatu.set.gov.py"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline inline-flex items-center gap-0.5"
+                  >
+                    Marangatu <ExternalLink size={10} />
+                  </a>
+                  , entrar a "Solicitudes > Facturador Electronico" y enviar el
+                  Formulario 364 declarando sistema, actividad economica y domicilio.
+                  El resultado inicial es "Aceptado" = habilitado para ambiente de
+                  Test (no produccion todavia).
+                </li>
+                <li>
+                  <strong>Timbrado electronico.</strong> Una vez aceptado, en Marangatu
+                  "Solicitud Documento Electronico" registras los tipos (Factura,
+                  Nota de Credito, Nota de Debito) por establecimiento. DNIT emite un
+                  timbrado nuevo de 8 digitos especifico para DE. Cargalo arriba
+                  en "Numero de timbrado".
+                </li>
+                <li>
+                  <strong>CSC.</strong> En Marangatu generas un idCSC (numerico corto)
+                  + CSC (32 hex). Te lo muestran una sola vez, guardalo. Cargalo en
+                  la seccion CSC de arriba. Sin esto, SIFEN rechaza las facturas en
+                  produccion con codigo 1264.
+                </li>
+                <li>
+                  <strong>Set de pruebas.</strong> Poner el ambiente en "Pruebas SET",
+                  emitir los casos obligatorios (factura, NC, auto-facturacion,
+                  remision, etc.) desde Ordefy. SIFEN-test les da CDC y los aprueba.
+                </li>
+                <li>
+                  <strong>Declaracion de cumplimiento.</strong> Firmar en Marangatu
+                  la declaracion de que completaste el set. Tu RUC pasa de "Pruebas"
+                  a "Habilitado Produccion".
+                </li>
+                <li>
+                  <strong>Cambiar ambiente a Produccion.</strong> Volver aqui, cambiar
+                  a "Produccion". A partir de ese momento, toda factura sale al SIFEN
+                  real con validez fiscal.
+                </li>
+              </ol>
+
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/10 px-3 py-2">
+                <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  Los codigos CSC no tienen recuperacion. DNIT te los muestra una sola
+                  vez. Si los perdes, generas otro par en Marangatu (idCSC cambia).
+                </p>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Referencias oficiales:{' '}
+                <a
+                  href="https://ekuatia.set.gov.py"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline inline-flex items-center gap-0.5"
+                >
+                  ekuatia.set.gov.py <ExternalLink size={10} />
+                </a>
+                {' · '}
+                <a
+                  href="https://marangatu.set.gov.py"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline inline-flex items-center gap-0.5"
+                >
+                  Marangatu <ExternalLink size={10} />
+                </a>
+              </p>
             </div>
           )}
         </section>
