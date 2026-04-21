@@ -41,7 +41,7 @@ import {
   assertReadyToEmit,
   assertInvoicingCountry,
 } from '../utils/fiscal-guards';
-import { getStoreTimezone, getTodayInTimezone } from '../utils/dateUtils';
+import { getStoreTimezone, getTodayInTimezone, getNowInTimezone } from '../utils/dateUtils';
 
 // ================================================================
 // Types (exported for guards + routes)
@@ -1545,7 +1545,12 @@ export async function generateInvoice(
     storeTimezone: storeTz,
   });
 
-  const today = getTodayInTimezone(storeTz);
+  // Use the actual current local time in the store's timezone for both
+  // dFeEmiDE and dFecFirma. Hardcoding "T12:00:00" broke whenever the
+  // emission happened before local noon (XML looked future-dated vs the
+  // SIFEN server clock, triggering code 1004 "firma digital adelantada").
+  const nowLocal = getNowInTimezone(storeTz);
+  const today = nowLocal.slice(0, 10);
   const numeroStr = String(docNumber).padStart(7, '0');
   const estab = ctx.link.establecimiento_codigo || '001';
   const punto = ctx.link.punto_expedicion || '001';
@@ -1555,7 +1560,7 @@ export async function generateInvoice(
     establecimiento: estab,
     punto,
     numero: numeroStr,
-    fecha: today + 'T12:00:00',
+    fecha: nowLocal,
     codigoSeguridadAleatorio: generateCodigoSeguridad(),
     tipoEmision: 1,
     tipoTransaccion: 1,
@@ -1898,7 +1903,12 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     activityCode: input.activityCode,
     storeTimezone: storeTz,
   });
-  const today = getTodayInTimezone(storeTz);
+  // Use the actual current local time in the store's timezone for both
+  // dFeEmiDE and dFecFirma. Hardcoding "T12:00:00" broke whenever the
+  // emission happened before local noon (XML looked future-dated vs the
+  // SIFEN server clock, triggering code 1004 "firma digital adelantada").
+  const nowLocal = getNowInTimezone(storeTz);
+  const today = nowLocal.slice(0, 10);
   const numeroStr = String(docNumber).padStart(7, '0');
   const estab = ctx.link.establecimiento_codigo || '001';
   const punto = ctx.link.punto_expedicion || '001';
@@ -1933,7 +1943,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     establecimiento: estab,
     punto,
     numero: numeroStr,
-    fecha: today + 'T12:00:00',
+    fecha: nowLocal,
     codigoSeguridadAleatorio: generateCodigoSeguridad(),
     tipoEmision: 1,
     tipoTransaccion: 2,

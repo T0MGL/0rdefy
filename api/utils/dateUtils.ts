@@ -40,6 +40,35 @@ export function getTodayInTimezone(timezone: string = DEFAULT_TIMEZONE): string 
 }
 
 /**
+ * Current local datetime formatted as YYYY-MM-DDTHH:mm:ss in the given IANA
+ * timezone (no offset suffix, no millis). This is the shape SIFEN expects
+ * on dFeEmiDE / dFecFirma per MT V150: local wall-clock time of the emitter.
+ *
+ * Sending a UTC timestamp instead of local will trip code 1004
+ * ("La fecha y hora de la firma digital es adelantada") whenever the
+ * UTC offset pushes it into the future relative to SIFEN's own clock.
+ */
+export function getNowInTimezone(timezone: string = DEFAULT_TIMEZONE): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const pick = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+    return `${pick('year')}-${pick('month')}-${pick('day')}T${pick('hour')}:${pick('minute')}:${pick('second')}`;
+  } catch (error) {
+    logger.error('BACKEND', `Invalid timezone: ${timezone}. Falling back to UTC.`, error);
+    return new Date().toISOString().replace(/\.\d{3}Z$/, '');
+  }
+}
+
+/**
  * Format an instant (Date or ISO string) as YYYY-MM-DD in the given timezone.
  * This is the correct replacement for `new Date(x).toISOString().split('T')[0]`
  * when `x` is a UTC timestamp and you want the calendar date in the store's TZ.
