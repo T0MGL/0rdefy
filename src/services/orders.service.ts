@@ -7,9 +7,9 @@ cleanBaseURL = cleanBaseURL.replace(/(\/api\/?)+$/i, '');
 cleanBaseURL = cleanBaseURL.replace(/\/+$/, '');
 const API_BASE_URL = `${cleanBaseURL}/api`;
 
-const getHeaders = () => {
+const getHeaders = (overrideStoreId?: string) => {
   const token = localStorage.getItem('auth_token');
-  const storeId = localStorage.getItem('current_store_id');
+  const storeId = overrideStoreId || localStorage.getItem('current_store_id');
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };
@@ -288,6 +288,8 @@ export const ordersService = {
 
       if (data.shipping_city !== undefined) backendData.shipping_city = data.shipping_city;
       if (data.shipping_city_normalized !== undefined) backendData.shipping_city_normalized = data.shipping_city_normalized;
+      if (data.shipping_cost !== undefined) backendData.shipping_cost = data.shipping_cost;
+      if (data.delivery_zone !== undefined) backendData.delivery_zone = data.delivery_zone;
       if (data.is_pickup !== undefined) backendData.is_pickup = data.is_pickup;
       if (data.google_maps_link !== undefined) backendData.google_maps_link = data.google_maps_link;
 
@@ -452,11 +454,11 @@ export const ordersService = {
     }
   },
 
-  confirm: async (id: string): Promise<Order | undefined> => {
+  confirm: async (id: string, storeId?: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
         method: 'PATCH',
-        headers: getHeaders(),
+        headers: getHeaders(storeId),
         body: JSON.stringify({
           sleeves_status: 'confirmed',
           confirmed_by: 'manual',
@@ -500,11 +502,11 @@ export const ordersService = {
   },
 
   // Mark order as contacted (WhatsApp message sent, waiting for customer response)
-  contact: async (id: string): Promise<Order | undefined> => {
+  contact: async (id: string, storeId?: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
         method: 'PATCH',
-        headers: getHeaders(),
+        headers: getHeaders(storeId),
         body: JSON.stringify({
           sleeves_status: 'contacted',
           confirmed_by: 'manual',
@@ -545,11 +547,11 @@ export const ordersService = {
     }
   },
 
-  reject: async (id: string, reason?: string): Promise<Order | undefined> => {
+  reject: async (id: string, reason?: string, storeId?: string): Promise<Order | undefined> => {
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
         method: 'PATCH',
-        headers: getHeaders(),
+        headers: getHeaders(storeId),
         body: JSON.stringify({
           sleeves_status: 'rejected',
           rejection_reason: reason || 'Rechazado manualmente',
@@ -590,10 +592,10 @@ export const ordersService = {
     }
   },
 
-  updateStatus: async (id: string, status: Order['status']): Promise<Order | undefined> => {
+  updateStatus: async (id: string, status: Order['status'], storeId?: string): Promise<Order | undefined> => {
     const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
       method: 'PATCH',
-      headers: getHeaders(),
+      headers: getHeaders(storeId),
       body: JSON.stringify({
         sleeves_status: status,
       }),

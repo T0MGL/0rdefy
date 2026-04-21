@@ -73,6 +73,7 @@ export interface DashboardOverview {
 
 export interface Order {
   id: string;
+  store_id?: string; // Owning store; required when patching from views that may swap stores
   shopify_order_id?: string; // ID de Shopify (ej: "5678901234")
   shopify_order_number?: string; // Número de orden de Shopify (ej: "1001")
   shopify_order_name?: string; // Nombre de orden de Shopify (ej: "#1001")

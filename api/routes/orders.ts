@@ -1012,6 +1012,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             .from('orders')
             .select(`
                 id,
+                store_id,
                 shopify_order_id,
                 shopify_order_name,
                 shopify_order_number,
@@ -1257,6 +1258,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
 
             return {
                 id: order.id,
+                store_id: order.store_id,
                 shopify_order_id: order.shopify_order_id,
                 shopify_order_number: order.shopify_order_number,
                 shopify_order_name: order.shopify_order_name,

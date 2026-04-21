@@ -523,15 +523,31 @@ export default function Shipping() {
             )}
 
             <div>
-              <p className="text-sm font-medium mb-2">Pedidos seleccionados:</p>
-              <div className="flex flex-wrap gap-2">
+              <p className="text-sm font-medium mb-2">
+                Pedidos seleccionados ({selectedOrders.size}):
+              </p>
+              <div className="max-h-56 overflow-y-auto rounded-md border bg-muted/30 divide-y">
                 {Array.from(selectedOrders).map(orderId => {
                   const order = orders.find(o => o.id === orderId);
-                  return order ? (
-                    <Badge key={orderId} variant="secondary">
-                      {order.order_number}
-                    </Badge>
-                  ) : null;
+                  if (!order) return null;
+                  return (
+                    <div
+                      key={orderId}
+                      className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">
+                          {order.customer_name || 'Cliente'}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {order.customer_phone || 'Sin telefono'}
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="font-mono shrink-0">
+                        {order.order_number}
+                      </Badge>
+                    </div>
+                  );
                 })}
               </div>
             </div>

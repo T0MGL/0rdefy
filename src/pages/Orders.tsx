@@ -8,6 +8,7 @@ import { OrderForm } from '@/components/forms/OrderForm';
 import { ExportButton } from '@/components/ExportButton';
 import { OrderConfirmationDialog } from '@/components/OrderConfirmationDialog';
 import { CarrierAssignmentDialog } from '@/components/CarrierAssignmentDialog';
+import { CarrierQuickChangePopover, isCarrierQuickChangeEligible } from '@/components/orders/CarrierQuickChangePopover';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
@@ -23,7 +24,7 @@ import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, Module, Permission } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useHighlight } from '@/hooks/useHighlight';
 import * as warehouseService from '@/services/warehouse.service';
@@ -241,7 +242,8 @@ export default function Orders() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { currentStore, user } = useAuth();
+  const { currentStore, user, permissions } = useAuth();
+  const canEditOrders = permissions.hasPermission(Module.ORDERS, Permission.EDIT);
   const invoicingAvailability = useInvoicingAvailability();
   const { hasFeature } = useSubscription();
   const userRole = currentStore?.role?.toLowerCase() || 'viewer'; // Role is on store, not user
@@ -692,7 +694,7 @@ export default function Orders() {
     if (!originalOrder) return;
 
     try {
-      const updatedOrder = await ordersService.confirm(orderId);
+      const updatedOrder = await ordersService.confirm(orderId, originalOrder.store_id);
       if (updatedOrder) {
         // Update with server response (no flickering - smooth transition)
         setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
@@ -734,7 +736,7 @@ export default function Orders() {
     if (!originalOrder) return;
 
     try {
-      const updatedOrder = await ordersService.reject(orderId, 'Rechazado manualmente');
+      const updatedOrder = await ordersService.reject(orderId, 'Rechazado manualmente', originalOrder.store_id);
       if (updatedOrder) {
         // Update with server response
         setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
@@ -787,7 +789,7 @@ export default function Orders() {
     if (!shouldProceed || !originalOrder) return;
 
     try {
-      const updatedOrder = await ordersService.contact(orderId);
+      const updatedOrder = await ordersService.contact(orderId, originalOrder.store_id);
       if (updatedOrder) {
         // Update with server response (no flickering - smooth transition)
         setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
@@ -920,7 +922,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     const capturedOriginal: Order = originalOrder;
 
     try {
-      const updatedOrder = await ordersService.updateStatus(orderId, newStatus);
+      const updatedOrder = await ordersService.updateStatus(orderId, newStatus, capturedOriginal.store_id);
       if (updatedOrder) {
         // Merge with existing order so UI metadata (e.g. thumbnails) is not lost
         // when backend returns a partial payload on status updates.
@@ -1098,6 +1100,15 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   const handleEditOrder = useCallback((order: Order) => {
     setOrderToEdit(order);
     setEditDialogOpen(true);
+  }, []);
+
+  const handleQuickCarrierChange = useCallback((updatedOrder: Order) => {
+    setOrders(prev => prev.map(o => (o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o)));
+  }, []);
+
+  const handleRequestFullAssign = useCallback((order: Order) => {
+    setOrderToAssignCarrier(order);
+    setCarrierAssignmentDialogOpen(true);
   }, []);
 
   const handleUpdateOrder = useCallback(async (data: OrderFormData) => {
@@ -1506,7 +1517,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       // Plans with warehouse feature use dispatch sessions to control the in_transit transition
       if (!hasWarehouseFeature) {
         // Free plan: simplified flow, print = mark as in transit
-        const transitOrder = await ordersService.updateStatus(orderId, 'in_transit');
+        const transitOrder = await ordersService.updateStatus(orderId, 'in_transit', updatedOrder?.store_id);
         if (transitOrder) {
           setOrders(prev => prev.map(o => o.id === orderId ? transitOrder : o));
           toast({
@@ -2507,18 +2518,20 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                           <p className="text-sm font-medium flex items-center gap-1.5 max-w-[220px]">
                             <span className="truncate">{order.customer}</span>
                             {order.has_internal_notes && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <StickyNote
-                                    size={14}
-                                    className="text-amber-500 flex-shrink-0 cursor-help"
-                                  />
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-xs">
-                                  <p className="font-medium text-xs mb-1">Nota interna:</p>
-                                  <p className="text-xs whitespace-pre-wrap">{order.internal_notes?.substring(0, 150)}{order.internal_notes && order.internal_notes.length > 150 ? '...' : ''}</p>
-                                </TooltipContent>
-                              </Tooltip>
+                              <TooltipProvider delayDuration={150}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <StickyNote
+                                      size={14}
+                                      className="text-amber-500 flex-shrink-0 cursor-help"
+                                    />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs">
+                                    <p className="font-medium text-xs mb-1">Nota interna:</p>
+                                    <p className="text-xs whitespace-pre-wrap">{order.internal_notes?.substring(0, 300)}{order.internal_notes && order.internal_notes.length > 300 ? '...' : ''}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             )}
                           </p>
                           <button
@@ -2573,6 +2586,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             <AlertTriangle size={12} />
                             Necesita repartidor
                           </span>
+                        ) : canEditOrders && isCarrierQuickChangeEligible(order) ? (
+                          <CarrierQuickChangePopover
+                            order={order}
+                            onChanged={handleQuickCarrierChange}
+                            onRequestFullAssign={handleRequestFullAssign}
+                          />
                         ) : (
                           getCarrierName(order.carrier)
                         )}

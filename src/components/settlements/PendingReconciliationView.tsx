@@ -704,6 +704,21 @@ export function PendingReconciliationView() {
   // Can proceed to confirm
   const canProceed = stats.missingReasons === 0 && totalAmountCollected !== null && totalAmountCollected >= 0;
 
+  // Reason the confirm button is blocked (shown to user to avoid the
+  // "boton deshabilitado sin explicacion" trap).
+  const blockingReason = (() => {
+    if (stats.missingReasons > 0) {
+      return `Falta indicar el motivo en ${stats.missingReasons} pedido${stats.missingReasons === 1 ? '' : 's'} no entregado${stats.missingReasons === 1 ? '' : 's'}.`;
+    }
+    if (totalAmountCollected === null) {
+      return 'Ingresa el monto total cobrado por el courier.';
+    }
+    if (totalAmountCollected < 0) {
+      return 'El monto cobrado no puede ser negativo.';
+    }
+    return null;
+  })();
+
   // Render selection view
   const renderSelection = () => (
     <div className="space-y-6">
@@ -1206,26 +1221,35 @@ export function PendingReconciliationView() {
         )}
 
         {/* Actions */}
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={handleBack}>
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleProcessReconciliation}
-            disabled={!canProceed || processing}
-          >
-            {processing ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Procesando...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Confirmar Conciliacion
-              </>
-            )}
-          </Button>
+        <div className="flex flex-col items-end gap-2">
+          {blockingReason && (
+            <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>{blockingReason}</span>
+            </div>
+          )}
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={handleBack}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleProcessReconciliation}
+              disabled={!canProceed || processing}
+              title={blockingReason ?? undefined}
+            >
+              {processing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Confirmar Conciliacion
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     );
