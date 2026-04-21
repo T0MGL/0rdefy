@@ -652,7 +652,9 @@ export class ExternalWebhookService {
 
         // Payment
         payment_method: payload.payment_method === 'cash_on_delivery' ? 'cash_on_delivery' : payload.payment_method,
+        payment_gateway: payload.payment_method === 'cash_on_delivery' ? 'cash_on_delivery' : 'manual',
         financial_status: payload.payment_method === 'online' ? 'paid' : 'pending',
+        payment_status: payload.payment_method === 'online' ? 'collected' : 'pending',
         cod_amount: payload.payment_method === 'cash_on_delivery' ? payload.totals.total : 0,
 
         // Status

@@ -2425,47 +2425,81 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                               Test
                             </Badge>
                           )}
-                          {order.payment_gateway && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="outline"
-                                  className={`text-xs px-1.5 py-0 cursor-help ${order.payment_gateway === 'cash_on_delivery'
-                                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800'
-                                    : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800'
-                                    }`}
-                                >
-                                  {order.payment_gateway === 'shopify_payments' ? '💳' :
-                                    order.payment_gateway === 'manual' ? '📝' :
-                                      order.payment_gateway === 'cash_on_delivery' ? '💵' :
-                                        order.payment_gateway === 'paypal' ? 'PP' :
-                                          order.payment_gateway === 'mercadopago' ? 'MP' :
-                                            '💰'}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <div className="space-y-1">
-                                  <p className="font-medium">
-                                    {order.payment_gateway === 'shopify_payments' ? 'Pago con Tarjeta (Shopify Payments)' :
-                                      order.payment_gateway === 'manual' ? 'Pago Manual' :
-                                        order.payment_gateway === 'cash_on_delivery' ? 'Pago Contra Entrega (COD)' :
-                                          order.payment_gateway === 'paypal' ? 'PayPal' :
-                                            order.payment_gateway === 'mercadopago' ? 'Mercado Pago' :
-                                              order.payment_gateway}
-                                  </p>
-                                  {order.financial_status && (
-                                    <p className="text-xs text-muted-foreground">
-                                      Estado: {order.financial_status === 'paid' ? 'Pagado' :
-                                        order.financial_status === 'pending' ? 'Pendiente' :
-                                          order.financial_status === 'authorized' ? 'Autorizado' :
-                                            order.financial_status === 'refunded' ? 'Reembolsado' :
-                                              order.financial_status}
-                                    </p>
-                                  )}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
+                          {(() => {
+                            const gateway = (order.payment_gateway || '').toLowerCase();
+                            const method = (order.payment_method || '').toLowerCase();
+                            const financial = (order.financial_status || '').toLowerCase();
+                            const paymentStatus = (order.payment_status || '').toLowerCase();
+                            const codAmount = Number(order.cod_amount ?? 0);
+
+                            const isCOD =
+                              gateway === 'cash_on_delivery' ||
+                              ['cash_on_delivery', 'cash', 'efectivo', 'cod'].includes(method) ||
+                              (codAmount > 0 && financial !== 'paid');
+
+                            const isPaid = financial === 'paid' || financial === 'authorized' || paymentStatus === 'collected';
+
+                            if (!gateway && !method && !financial && !paymentStatus && !isCOD) return null;
+
+                            let icon = '💰';
+                            let label = 'Pago';
+                            if (isCOD && isPaid) {
+                              icon = '✅';
+                              label = 'COD Cobrado';
+                            } else if (isCOD) {
+                              icon = '💵';
+                              label = 'Pago Contra Entrega (COD)';
+                            } else if (gateway === 'shopify_payments') {
+                              icon = '💳';
+                              label = 'Pago con Tarjeta (Shopify Payments)';
+                            } else if (gateway === 'paypal') {
+                              icon = 'PP';
+                              label = 'PayPal';
+                            } else if (gateway === 'mercadopago') {
+                              icon = 'MP';
+                              label = 'Mercado Pago';
+                            } else if (isPaid) {
+                              icon = '💳';
+                              label = 'Pagado';
+                            } else if (gateway === 'manual') {
+                              icon = '📝';
+                              label = 'Pago Manual';
+                            } else if (financial === 'pending' || method === 'online') {
+                              icon = '⏳';
+                              label = 'Pendiente de pago';
+                            }
+
+                            const colorClass = isCOD && !isPaid
+                              ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800'
+                              : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800';
+
+                            return (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-xs px-1.5 py-0 cursor-help ${colorClass}`}
+                                  >
+                                    {icon}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <div className="space-y-1">
+                                    <p className="font-medium">{label}</p>
+                                    {financial && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Estado: {financial === 'paid' ? 'Pagado' :
+                                          financial === 'pending' ? 'Pendiente' :
+                                            financial === 'authorized' ? 'Autorizado' :
+                                              financial === 'refunded' ? 'Reembolsado' :
+                                                financial}
+                                      </p>
+                                    )}
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          })()}
                         </div>
                       </td>
                       <td className="py-4 px-6">
