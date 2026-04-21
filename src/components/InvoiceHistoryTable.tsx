@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { invoicingService, Invoice } from '@/services/invoicing.service';
-import { Loader2, Download, RefreshCw, Eye, ChevronLeft, ChevronRight, FileText, FileCode } from 'lucide-react';
+import { Loader2, Download, RefreshCw, Eye, ChevronLeft, ChevronRight, FileText, FileCode, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/utils/currency';
 
 const STATUS_BADGES: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -184,9 +184,24 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
                       {formatCurrency(inv.total, 'PYG')}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <Badge variant={statusInfo.variant}>
-                        {statusInfo.label}
-                      </Badge>
+                      <div className="flex flex-col items-center gap-1">
+                        <Badge variant={statusInfo.variant}>
+                          {statusInfo.label}
+                        </Badge>
+                        {inv.sifen_status === 'rejected' && (inv.sifen_response_code || inv.sifen_response_message) && (
+                          <div
+                            className="flex items-start gap-1 text-[11px] leading-tight text-destructive max-w-[220px] text-left"
+                            title={inv.sifen_response_message ?? undefined}
+                          >
+                            <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                            <span className="truncate">
+                              {inv.sifen_response_code && <span className="font-mono">{inv.sifen_response_code}</span>}
+                              {inv.sifen_response_code && inv.sifen_response_message && ': '}
+                              {inv.sifen_response_message}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
