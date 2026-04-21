@@ -983,7 +983,7 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
                   >
                     Marangatu <ExternalLink size={10} />
                   </a>
-                  , entrar a "Solicitudes > Facturador Electronico" y enviar el
+                  , entrar a "Solicitudes {'>'} Facturador Electronico" y enviar el
                   Formulario 364 declarando sistema, actividad economica y domicilio.
                   El resultado inicial es "Aceptado" = habilitado para ambiente de
                   Test (no produccion todavia).
