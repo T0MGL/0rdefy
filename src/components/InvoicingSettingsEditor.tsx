@@ -202,6 +202,20 @@ export function InvoicingSettingsEditor({ onSaved, onCancel }: Props) {
         domicilio_fiscal_ciudad: data.identity.domicilio_fiscal_ciudad ?? undefined,
       });
 
+      // SIFEN requires representante_legal_{nombre, documento_tipo, documento_numero}
+      // and tipo_contribuyente to be non-null. When any of them is NULL in the DB
+      // the form above hydrates with a visible default, but react-hook-form does
+      // not mark those fields dirty, so a plain "Guardar" skips them and the DB
+      // stays NULL, leaving the fiscal readiness badge stuck on "incompleta".
+      // Force-dirty the defaults so the next save persists them without requiring
+      // the user to manually touch the control.
+      if (data.identity.tipo_contribuyente == null) {
+        identityForm.setValue('tipo_contribuyente', 2, { shouldDirty: true });
+      }
+      if (data.identity.representante_legal_documento_tipo == null) {
+        identityForm.setValue('representante_legal_documento_tipo', 1, { shouldDirty: true });
+      }
+
       storeForm.reset({
         timbrado: data.link.timbrado ?? '',
         timbrado_fecha_inicio: data.link.timbrado_fecha_inicio ?? '',
