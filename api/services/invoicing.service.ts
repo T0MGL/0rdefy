@@ -1891,6 +1891,14 @@ export interface ManualInvoiceInput {
   customerEmail?: string;
   items: ManualInvoiceItem[];
   activityCode?: string;
+  // Required for Nota de Credito (5) and Nota de Debito (6). The referenced
+  // CDC identifies the Factura Electronica being credited/debited; SIFEN's
+  // gCamDEAsoc block cannot be built without it.
+  referenciaCdc?: string;
+  // Motivo code per SIFEN MT V150:
+  //   NC (tipoDoc=5): 1=Devolucion, 2=Descuento, 3=Bonificacion, 4=Credito incobrable, 5=Recupero de costo, 6=Recupero de gasto, 7=Ajuste de precio
+  //   ND (tipoDoc=6): 1=Interes por mora, 2=Recupero de gasto, 3=Recupero de costo, 4=Ajuste de precio
+  motivoCredito?: number;
 }
 
 export async function generateManualInvoice(storeId: string, input: ManualInvoiceInput) {
@@ -1980,7 +1988,19 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     };
   });
 
-  const data = {
+  const isNCorND = input.tipoDocumento === 5 || input.tipoDocumento === 6;
+  if (isNCorND && !input.referenciaCdc) {
+    throw new Error(
+      'Nota de Credito / Debito requiere el CDC de la factura electronica original en referenciaCdc.',
+    );
+  }
+  if (isNCorND && input.motivoCredito === undefined) {
+    throw new Error(
+      'Nota de Credito / Debito requiere un motivo (codigo numerico SIFEN: NC 1-7, ND 1-4).',
+    );
+  }
+
+  const data: Record<string, unknown> = {
     tipoDocumento: input.tipoDocumento,
     establecimiento: estab,
     punto,
@@ -2014,13 +2034,24 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       email: input.customerEmail || undefined,
     },
     usuario: buildUsuarioBlock(ctx),
-    factura: { presencia: 1 },
-    condicion: {
-      tipo: 1,
-      entregas: [{ tipo: 1, monto: String(total), moneda: 'PYG' }],
-    },
+    // `factura` and `condicion` are specific to tipoDocumento=1 (FE).
+    // NC/ND build gCamNCDE from notaCreditoDebito and MUST NOT include
+    // the gCamFE / gCamCond blocks or xmlgen complains.
+    factura: input.tipoDocumento === 1 ? { presencia: 1 } : undefined,
+    condicion:
+      input.tipoDocumento === 1
+        ? { tipo: 1, entregas: [{ tipo: 1, monto: String(total), moneda: 'PYG' }] }
+        : undefined,
     items: xmlItemsForGen,
   };
+
+  if (isNCorND) {
+    data.notaCreditoDebito = { motivo: input.motivoCredito };
+    data.documentoAsociado = {
+      formato: 1, // Electronico
+      cdc: input.referenciaCdc,
+    };
+  }
 
   let xmlGenerated: string;
   let cdc: string | undefined;
