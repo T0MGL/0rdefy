@@ -1585,31 +1585,36 @@ export async function generateInvoice(
     tipoTransaccion: 1,
     tipoImpuesto: 1,
     moneda: 'PYG',
-    cliente: {
-      contribuyente: true,
-      ruc:
-        order.customer_ruc_dv !== undefined && order.customer_ruc_dv !== null
-          ? `${order.customer_ruc}-${order.customer_ruc_dv}`
-          : order.customer_ruc,
-      dvRuc: order.customer_ruc_dv,
-      tipoOperacion: 1,
-      razonSocial: order.customer_name || order.customers?.name || 'Sin nombre',
-      nombreFantasia: order.customer_name || order.customers?.name || 'Sin nombre',
-      tipoContribuyente: 1,
-      documentoTipo: 1,
-      documentoNumero: String(order.customer_ruc || '0'),
-      direccion: order.customer_address || order.customers?.address || order.address || 'Asuncion',
-      numeroCasa: '0',
-      departamento: ASUNCION_DEFAULTS.departamento,
-      departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
-      distrito: ASUNCION_DEFAULTS.distrito,
-      distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
-      ciudad: ASUNCION_DEFAULTS.ciudad,
-      ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
-      pais: 'PRY',
-      paisDescripcion: 'Paraguay',
-      email: order.customers?.email || undefined,
-    },
+    cliente: (() => {
+      // Same rule as generateManualInvoice: RUC only when we have both
+      // number and dv; otherwise a bare document goes in documentoNumero.
+      const orderHasRuc =
+        !!order.customer_ruc &&
+        order.customer_ruc_dv !== undefined &&
+        order.customer_ruc_dv !== null;
+      return {
+        contribuyente: orderHasRuc,
+        ruc: orderHasRuc ? `${order.customer_ruc}-${order.customer_ruc_dv}` : undefined,
+        dvRuc: orderHasRuc ? order.customer_ruc_dv : undefined,
+        tipoOperacion: orderHasRuc ? 1 : 2,
+        razonSocial: order.customer_name || order.customers?.name || 'Sin nombre',
+        nombreFantasia: order.customer_name || order.customers?.name || 'Sin nombre',
+        tipoContribuyente: 1,
+        documentoTipo: orderHasRuc ? undefined : 1,
+        documentoNumero: orderHasRuc ? undefined : String(order.customer_ruc || '0'),
+        direccion: order.customer_address || order.customers?.address || order.address || 'Asuncion',
+        numeroCasa: '0',
+        departamento: ASUNCION_DEFAULTS.departamento,
+        departamentoDescripcion: ASUNCION_DEFAULTS.departamentoDescripcion,
+        distrito: ASUNCION_DEFAULTS.distrito,
+        distritoDescripcion: ASUNCION_DEFAULTS.distritoDescripcion,
+        ciudad: ASUNCION_DEFAULTS.ciudad,
+        ciudadDescripcion: ASUNCION_DEFAULTS.ciudadDescripcion,
+        pais: 'PRY',
+        paisDescripcion: 'Paraguay',
+        email: order.customers?.email || undefined,
+      };
+    })(),
     usuario: buildUsuarioBlock(ctx),
     factura: { presencia: 1 },
     condicion: {
@@ -1933,14 +1938,24 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
   const estab = ctx.link.establecimiento_codigo || '001';
   const punto = ctx.link.punto_expedicion || '001';
 
-  const hasRuc = !!input.customerRuc;
-  const clienteRucFormatted =
-    hasRuc && input.customerRucDv !== undefined
-      ? `${input.customerRuc}-${input.customerRucDv}`
-      : input.customerRuc || undefined;
+  // A client is a RUC-holder (contribuyente) ONLY when both the RUC number
+  // and its dígito verificador come in. Anything else is a cedula and has
+  // to go in documentoTipo/documentoNumero, not in the ruc field (xmlgen
+  // rejects a bare 7-digit cedula in ruc with "DV debe ser numerico").
+  const hasRuc =
+    !!input.customerRuc &&
+    input.customerRucDv !== undefined &&
+    input.customerRucDv !== null;
+  const clienteRucFormatted = hasRuc
+    ? `${input.customerRuc}-${input.customerRucDv}`
+    : undefined;
 
   const xmlItemsForGen = input.items.map((item, index) => {
+    // SIFEN ivaTipo: 1=Gravado, 2=Exonerado, 3=Exento, 4=Gravado parcial.
+    // ivaProporcion is the % of the line that's affected; for exento (3)
+    // and exonerado (2) xmlgen rejects anything other than 0.
     const ivaTipo = item.ivaRate === 0 ? 3 : 1;
+    const ivaProporcion = ivaTipo === 1 ? 100 : 0;
     return {
       codigo: String(index + 1),
       descripcion: item.descripcion,
@@ -1954,6 +1969,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
       ivaTipo,
       ivaBase: 100,
       iva: item.ivaRate,
+      ivaProporcion,
       propina: 0,
     };
   });
