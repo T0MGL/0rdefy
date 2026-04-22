@@ -1648,7 +1648,13 @@ export async function generateInvoice(
     const xmlgenLib = await getXmlgen();
     const result = await xmlgenLib.generateXMLDE(params, data);
     xmlGenerated = typeof result === 'string' ? result : result.xml || result;
-    const cdcMatch = xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/);
+    // xmlgen v1.0.280 emits the CDC as an attribute on <rDE Id="..."> rather
+    // than as a child element. Accept both shapes (and <dCDC>) to survive
+    // minor version bumps without losing the CDC on approved invoices.
+    const cdcMatch =
+      xmlGenerated.match(/\bId="([0-9]{44})"/) ||
+      xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/) ||
+      xmlGenerated.match(/<dCDC>([0-9]{44})<\/dCDC>/);
     cdc = cdcMatch ? cdcMatch[1] : undefined;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'unknown error';
@@ -2023,7 +2029,13 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
     const xmlgenLib = await getXmlgen();
     const result = await xmlgenLib.generateXMLDE(params, data);
     xmlGenerated = typeof result === 'string' ? result : result.xml || result;
-    const cdcMatch = xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/);
+    // xmlgen v1.0.280 emits the CDC as an attribute on <rDE Id="..."> rather
+    // than as a child element. Accept both shapes (and <dCDC>) to survive
+    // minor version bumps without losing the CDC on approved invoices.
+    const cdcMatch =
+      xmlGenerated.match(/\bId="([0-9]{44})"/) ||
+      xmlGenerated.match(/<Id>([0-9]{44})<\/Id>/) ||
+      xmlGenerated.match(/<dCDC>([0-9]{44})<\/dCDC>/);
     cdc = cdcMatch ? cdcMatch[1] : undefined;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'unknown error';
