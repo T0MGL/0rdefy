@@ -430,6 +430,23 @@ function buildQrUrlForInvoice(
 // SIFEN pipeline (shared by generate / manual / retry)
 // ================================================================
 
+/**
+ * xmlgen writes dFecFirma using `new Date()` with the Node process's
+ * local time (getHours / getMinutes etc). On Railway the process runs
+ * in UTC, so dFecFirma lands ~3 hours ahead of Paraguay wall-clock and
+ * SIFEN answers 1004 "fecha y hora de la firma digital es adelantada".
+ *
+ * We can't change TZ at the process level without affecting other
+ * systems. Patching the generated XML right before we hand it to the
+ * signer fixes the one field that matters; since the signature is
+ * computed over the final XML string, the fix is guaranteed to survive
+ * the enveloped-signature pass.
+ */
+function rewriteFecFirmaToLocalTz(xml: string, tz: string): string {
+  const local = getNowInTimezone(tz);
+  return xml.replace(/<dFecFirma>[^<]*<\/dFecFirma>/, `<dFecFirma>${local}</dFecFirma>`);
+}
+
 async function signInjectSend(params: {
   xmlGenerated: string;
   docNumber: number;
@@ -437,11 +454,13 @@ async function signInjectSend(params: {
   certPem: string;
   privateKeyPem: string;
   csc: string | null;
+  storeTimezone: string;
 }): Promise<{ xmlSigned: string; xmlFinal: string; sifen: SifenResponse }> {
   const env = params.identity.sifen_environment as 'test' | 'prod';
   const mtls: SifenMtls = { certPem: params.certPem, privateKeyPem: params.privateKeyPem };
 
-  const xmlSigned = await signXML(params.xmlGenerated, params.privateKeyPem, params.certPem);
+  const xmlWithLocalFirma = rewriteFecFirmaToLocalTz(params.xmlGenerated, params.storeTimezone);
+  const xmlSigned = await signXML(xmlWithLocalFirma, params.privateKeyPem, params.certPem);
 
   // SIFEN accepts only its well-known CSC pair in the test environment,
   // and REJECTS any other CSC there. In production the per-contribuyente
@@ -1699,6 +1718,7 @@ export async function generateInvoice(
         certPem,
         privateKeyPem,
         csc,
+        storeTimezone: storeTz,
       });
       sifenResponse = sifen;
       finalXmlSigned = xmlFinal;
@@ -2063,6 +2083,7 @@ export async function generateManualInvoice(storeId: string, input: ManualInvoic
         certPem,
         privateKeyPem,
         csc,
+        storeTimezone: storeTz,
       });
       sifenResponse = sifen;
       finalXmlSigned = xmlFinal;
@@ -2404,7 +2425,9 @@ export async function retryInvoice(storeId: string, invoiceId: string) {
     }
     const effectiveIdCsc = env === 'prod' ? (ctx.identity.csc_id as string) : SIFEN_TEST_ID_CSC;
     const effectiveCsc = env === 'prod' ? (csc as string) : SIFEN_TEST_CSC;
-    const xmlSigned = await signXML(invoice.xml_generated, privateKeyPem, certPem);
+    const storeTz = await getStoreTimezone(supabaseAdmin, storeId);
+    const xmlWithLocalFirma = rewriteFecFirmaToLocalTz(invoice.xml_generated, storeTz);
+    const xmlSigned = await signXML(xmlWithLocalFirma, privateKeyPem, certPem);
     xmlFinal = await injectQR(xmlSigned, env, effectiveIdCsc, effectiveCsc);
     await supabaseAdmin.from('invoices').update({ xml_signed: xmlFinal }).eq('id', invoiceId);
   }
