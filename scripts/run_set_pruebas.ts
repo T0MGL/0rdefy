@@ -117,10 +117,8 @@ async function main() {
   console.log('  idCSC:', ctx.identity.csc_id);
   console.log('========================================');
 
-  if (ctx.identity.sifen_environment !== 'test') {
-    throw new Error(
-      `Store ambiente = ${ctx.identity.sifen_environment}. Set de pruebas requires ambiente=test.`,
-    );
+  if (ctx.identity.sifen_environment === 'demo') {
+    throw new Error('Demo environment does not hit SIFEN. Switch to test or prod.');
   }
 
   const results: Array<{ name: string; ok: boolean; cdc?: string; code?: string; msg?: string }> = [];
