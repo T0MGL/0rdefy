@@ -129,6 +129,32 @@ function validateEnvironment() {
         logger.warn('ENV', 'WARNING: JWT_SECRET should be at least 32 characters');
     }
 
+    // Logging config defaults and prod-safety checks
+    const logLevel = process.env.LOG_LEVEL ?? 'info';
+    const enableQueryLogging = process.env.ENABLE_QUERY_LOGGING ?? 'false';
+
+    if (!process.env.LOG_LEVEL) {
+        logger.warn('ENV', 'LOG_LEVEL not set, defaulting to "info"');
+    }
+    if (!process.env.ENABLE_QUERY_LOGGING) {
+        logger.warn('ENV', 'ENABLE_QUERY_LOGGING not set, defaulting to "false"');
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+        if (logLevel === 'debug') {
+            logger.error('ENV', 'SECURITY: LOG_LEVEL=debug in production — this will leak sensitive data. Set LOG_LEVEL=info in Railway.');
+        }
+        if (enableQueryLogging === 'true') {
+            logger.error('ENV', 'PERFORMANCE: ENABLE_QUERY_LOGGING=true in production — this will degrade throughput. Set ENABLE_QUERY_LOGGING=false in Railway.');
+        }
+
+        const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL ?? '';
+        const n8nNewOrderUrl = process.env.N8N_WEBHOOK_URL_NEWORDER ?? '';
+        if (n8nWebhookUrl.includes('localhost') || n8nNewOrderUrl.includes('localhost')) {
+            logger.error('ENV', 'MISCONFIGURATION: N8N_WEBHOOK_URL is pointing to localhost in production. Webhooks will silently fail. Set N8N_WEBHOOK_URL=https://n8n.thebrightidea.ai/webhook in Railway.');
+        }
+    }
+
     logger.info('ENV', 'Environment validation passed');
 }
 

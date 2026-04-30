@@ -114,19 +114,34 @@ const priceIdToPlan: Record<string, PlanType> = {
   // Professional
   'price_1SlGWI8jew17tEHtmMXcP9zG': 'professional',
   'price_1SlGbk8jew17tEHtKaxvPuBc': 'professional',
-  // TODO: Verify the correct plan for price_1T8Dy0A7nachsTLZUqlarBde before going live.
-  // This price ID was found in Stripe webhooks but not in the dashboard config above.
-  // Confirm via Stripe dashboard: Dashboard > Products > find this price and match to plan.
-  // Temporarily mapping to 'starter' to unblock webhook processing — update if incorrect.
+  // UNVERIFIED: price_1T8Dy0A7nachsTLZUqlarBde arrived in a live webhook but does not
+  // match any price in the dashboard config above. Mapped to 'starter' as a safe fallback
+  // to keep webhook processing unblocked. The getPlanFromPriceId function logs an ERROR
+  // when this ID is encountered so it is visible in Railway/Sentry immediately.
+  // ACTION: Go to Stripe Dashboard > Products, find this price ID, and update this mapping.
   'price_1T8Dy0A7nachsTLZUqlarBde': 'starter',
 };
 
+const UNVERIFIED_PRICE_IDS = new Set(['price_1T8Dy0A7nachsTLZUqlarBde']);
+
 /**
- * SECURITY: Get plan from Stripe price ID
- * This is the ONLY trusted source for determining what plan a user paid for
+ * SECURITY: Get plan from Stripe price ID.
+ * This is the ONLY trusted source for determining what plan a user paid for.
+ * Logs an ERROR for any unrecognized price ID so it surfaces in Railway and Sentry.
  */
 export function getPlanFromPriceId(priceId: string): PlanType | null {
-  return priceIdToPlan[priceId] || null;
+  const plan = priceIdToPlan[priceId];
+
+  if (!plan) {
+    logger.error('STRIPE', `UNKNOWN_PRICE_ID: "${priceId}" is not in the priceIdToPlan mapping. Update stripe.service.ts and verify in Stripe Dashboard > Products.`);
+    return null;
+  }
+
+  if (UNVERIFIED_PRICE_IDS.has(priceId)) {
+    logger.error('STRIPE', `UNVERIFIED_PRICE_ID: "${priceId}" is mapped to "${plan}" but has not been confirmed against the Stripe Dashboard. Verify and remove from UNVERIFIED_PRICE_IDS once confirmed.`);
+  }
+
+  return plan;
 }
 
 /**

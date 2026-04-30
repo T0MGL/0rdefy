@@ -21,7 +21,8 @@ import {
   CarrierReplicationTarget,
   CarrierReplicationResult,
 } from '@/services/carriers.service';
-import { Plus, Package, TrendingUp, Clock, Star, Search } from 'lucide-react';
+import { Plus, Package, TrendingUp, Clock, Star, Search, Map, MapPin, ChevronRight } from 'lucide-react';
+import { carrierZonesService, CarrierZone } from '@/services/carrier-zones.service';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
 import apiClient from '@/services/api.client';
@@ -208,6 +209,9 @@ export default function Carriers() {
   const [zonesDialogOpen, setZonesDialogOpen] = useState(false);
   const [zonesCarrier, setZonesCarrier] = useState<{ id: string; name: string } | null>(null);
   const [replicationTargets, setReplicationTargets] = useState<CarrierReplicationTarget[]>([]);
+  const [coverageMapOpen, setCoverageMapOpen] = useState(false);
+  const [coverageByCarrier, setCoverageByCarrier] = useState<Map<string, { name: string; zones: CarrierZone[] }>>(new Map());
+  const [coverageLoading, setCoverageLoading] = useState(false);
 
   // Refs for memory leak prevention
   const isMountedRef = useRef(true);
@@ -329,6 +333,29 @@ export default function Carriers() {
     setZonesCarrier({ id: carrier.id, name: carrier.name || carrier.carrier_name || '' });
     setZonesDialogOpen(true);
   };
+
+  const handleOpenCoverageMap = useCallback(async () => {
+    setCoverageMapOpen(true);
+    if (coverageByCarrier.size > 0) return;
+    setCoverageLoading(true);
+    try {
+      const map = new Map<string, { name: string; zones: CarrierZone[] }>();
+      await Promise.all(
+        carriers.map(async (carrier) => {
+          const response = await carrierZonesService.getZonesByCarrier(carrier.id);
+          map.set(carrier.id, {
+            name: carrier.name || carrier.carrier_name || carrier.id,
+            zones: response.zones,
+          });
+        }),
+      );
+      setCoverageByCarrier(map);
+    } catch (error) {
+      logger.error('Error loading coverage map:', error);
+    } finally {
+      setCoverageLoading(false);
+    }
+  }, [carriers, coverageByCarrier]);
 
   const describeReplicationResult = useCallback(
     (result: CarrierReplicationResult): { title: string; description: string; variant?: 'destructive' } => {
@@ -509,6 +536,14 @@ export default function Carriers() {
           <Button
             variant="outline"
             className="gap-2"
+            onClick={handleOpenCoverageMap}
+          >
+            <Map size={16} />
+            Cobertura
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
             onClick={() => navigate('/courier-performance')}
           >
             Ver Rendimiento
@@ -623,6 +658,84 @@ export default function Carriers() {
           carrierName={zonesCarrier.name}
         />
       )}
+
+      {/* Coverage Map Dialog */}
+      <Dialog open={coverageMapOpen} onOpenChange={setCoverageMapOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Map size={18} />
+              Mapa de cobertura
+            </DialogTitle>
+          </DialogHeader>
+
+          {coverageLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                Cargando zonas...
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {carriers.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  No hay repartidores registrados.
+                </p>
+              ) : (
+                carriers.map((carrier) => {
+                  const entry = coverageByCarrier.get(carrier.id);
+                  const zones = entry?.zones ?? [];
+                  const name = carrier.name || carrier.carrier_name || carrier.id;
+                  return (
+                    <div
+                      key={carrier.id}
+                      className="rounded-lg border bg-card p-4 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-sm">{name}</span>
+                          {!carrier.is_active && (
+                            <Badge variant="secondary" className="text-xs">Inactivo</Badge>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setCoverageMapOpen(false);
+                            setZonesCarrier({ id: carrier.id, name });
+                            setZonesDialogOpen(true);
+                          }}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          Editar zonas
+                          <ChevronRight size={12} />
+                        </button>
+                      </div>
+
+                      {zones.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Sin zonas configuradas</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {zones.map((zone) => (
+                            <Badge
+                              key={zone.id}
+                              variant="outline"
+                              className="text-xs font-normal gap-1"
+                            >
+                              <MapPin size={10} className="text-muted-foreground" />
+                              {zone.zone_name}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
