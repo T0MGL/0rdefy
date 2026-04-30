@@ -26,6 +26,7 @@ import type {
   InvoiceEmailTemplateData,
   GenericEmailTemplateData,
 } from './email-templates';
+import { renderMilestoneEmail, type MilestoneEmailData } from './email-jsx-templates';
 
 let resendClient: Resend | null = null;
 
@@ -164,6 +165,25 @@ export async function sendInvoiceEmail(
 
 export async function sendGenericEmail(to: string, data: GenericEmailTemplateData): Promise<SendResult> {
   return send(to, genericTemplate(data), 'generic');
+}
+
+/**
+ * Founder-signed milestone email (react-email rendered).
+ *
+ * The "From" header is overridden to display "Gastón de Ordefy" so the email
+ * lands as personal in the inbox, not as a transactional notification. The
+ * underlying mailbox (and SPF/DKIM) is the same ops sender. Override the
+ * full address by setting MILESTONE_FROM_EMAIL in env.
+ */
+export async function sendMilestoneEmail(
+  to: string,
+  data: MilestoneEmailData,
+): Promise<SendResult> {
+  const rendered = await renderMilestoneEmail(data);
+  const fromOverride =
+    process.env.MILESTONE_FROM_EMAIL ||
+    'Gastón de Ordefy <noreply@ops.ordefy.io>';
+  return send(to, rendered, 'milestone', fromOverride);
 }
 
 export function isConfigured(): boolean {

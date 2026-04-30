@@ -2627,6 +2627,14 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             import('../services/invoicing.service')
                 .then(({ tryAutoEmitOnDelivery }) => tryAutoEmitOnDelivery(req.storeId!, id))
                 .catch((err) => { logger.error('API', '[AutoInvoice] Helper import failed:', err); });
+
+            // Fire-and-forget milestone detector. Counts delivered orders and,
+            // if the new total hits a milestone (1, 10, 50, 100, ...), creates
+            // a share card and sends the founder-signed retention email.
+            // Idempotent (UNIQUE constraint on founder_emails_sent).
+            import('../services/milestone-detector.service')
+                .then(({ checkAndSendMilestone }) => checkAndSendMilestone(req.storeId!, id))
+                .catch((err) => { logger.error('API', '[Milestone] Helper import failed:', err); });
         }
 
         if (sleeves_status === 'cancelled' || sleeves_status === 'rejected') {

@@ -56,6 +56,7 @@ import uploadRouter from './routes/upload';
 import onboardingRouter from './routes/onboarding';
 import { invoicingRouter } from './routes/invoicing';
 import { fiscalRouter } from './routes/fiscal';
+import { wrappedRouter } from './routes/wrapped';
 import { supabaseAdmin } from './db/connection';
 import { requestLoggerMiddleware, logger } from './utils/logger';
 import { registerCleanup, setupShutdownHandlers } from './utils/shutdown';
@@ -79,6 +80,7 @@ const REQUIRED_ENV_VARS = [
     'SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'JWT_SECRET',
+    'SUPABASE_JWT_SECRET',
 ] as const;
 
 const OPTIONAL_ENV_VARS = [
@@ -721,6 +723,11 @@ app.use('/api/invoicing', invoicingRouter);
 
 // Fiscal routes (identity / activities / store link - Paraguay only)
 app.use('/api/fiscal', fiscalRouter);
+
+// Wrapped (milestone share) routes — public, token-addressed.
+// Mounted at root because it serves /og/wrapped/*.png, /wrapped/:token (SSR
+// shell with OG meta), and /api/public/wrapped/:token (JSON).
+app.use(wrappedRouter);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

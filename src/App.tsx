@@ -1,6 +1,7 @@
 import { useEffect, lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
+import { ConfirmHost } from "@/components/ui/confirm";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
@@ -74,6 +75,7 @@ const OnboardingPlan = lazy(() => import("./pages/OnboardingPlan"));
 const Invoicing = lazy(() => import("./pages/Invoicing"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const Wrapped = lazy(() => import("./pages/Wrapped"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Optimized QueryClient configuration for production cost control
@@ -112,7 +114,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => (
     <div className="flex-1 flex flex-col min-w-0">
       <Header />
       {/* Main content - Add bottom padding on mobile for bottom nav */}
-      <main id="main-content" className="flex-1 p-4 sm:p-6 pb-24 lg:pb-6 overflow-auto" tabIndex={-1}>
+      <main id="main-content" className="flex-1 p-4 sm:p-6 pb-[calc(env(safe-area-inset-bottom)+6rem)] lg:pb-6 overflow-auto" tabIndex={-1}>
         <Suspense fallback={<PageSkeleton />}>
           {children}
         </Suspense>
@@ -163,6 +165,7 @@ const App = () => {
             <ShopifyAppBridgeProvider>
               <Toaster />
               <Sonner />
+              <ConfirmHost />
               <BrowserRouter>
                 <AuthProvider>
                   <SubscriptionProvider>
@@ -192,6 +195,7 @@ const App = () => {
                             <Route path="/delivery/:token" element={<Suspense fallback={<div className="hidden" />}><Delivery /></Suspense>} />
                             <Route path="/shopify-oauth-callback" element={<Suspense fallback={<div className="hidden" />}><ShopifyOAuthCallback /></Suspense>} />
                             <Route path="/r/:code" element={<Suspense fallback={<div className="hidden" />}><Referral /></Suspense>} />
+                            <Route path="/wrapped/:token" element={<Suspense fallback={<div className="hidden" />}><Wrapped /></Suspense>} />
                             <Route path="/onboarding/plan" element={<PrivateRoute><Suspense fallback={<div className="hidden" />}><OnboardingPlan /></Suspense></PrivateRoute>} />
 
                             {/* Protected routes with layout and permission checks */}
