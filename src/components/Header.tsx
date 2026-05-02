@@ -25,6 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { NotificationsPanel } from './notifications/NotificationsPanel';
 import {
   Popover,
   PopoverContent,
@@ -152,30 +153,65 @@ export function Header() {
     }
   }, [hasSmartAlerts, hasAnalyticsAccess]);
 
-  // Load data on mount and every 5 minutes with proper cleanup
+  // Load data on mount and every 30 minutes with proper cleanup. Polling is
+  // gated by tab visibility: a backgrounded tab does not hit the API. When
+  // the user returns to a tab that has been hidden longer than the interval,
+  // a single catch-up fetch runs immediately. This is cosmetic header data
+  // (notification badge, alert counters), not order-critical state, so a
+  // 30-minute cadence is intentional.
   useEffect(() => {
-    // Create abort controller for this effect lifecycle
+    if (typeof document === 'undefined') return;
+
+    const POLL_INTERVAL_MS = 30 * 60 * 1000;
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    // Initial load
-    loadData(abortController.signal);
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let lastFetchAt = 0;
 
-    // Refresh data every 5 minutes (optimized from 30 seconds)
-    const interval = setInterval(() => {
-      // Only start new request if not aborted
-      if (!abortController.signal.aborted) {
-        loadData(abortController.signal);
+    const safeLoad = () => {
+      if (abortController.signal.aborted) return;
+      if (document.visibilityState !== 'visible') return;
+      lastFetchAt = Date.now();
+      loadData(abortController.signal);
+    };
+
+    const startInterval = () => {
+      if (interval !== null) return;
+      interval = setInterval(safeLoad, POLL_INTERVAL_MS);
+    };
+
+    const stopInterval = () => {
+      if (interval === null) return;
+      clearInterval(interval);
+      interval = null;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Catch-up if the tab was hidden longer than the polling window.
+        if (Date.now() - lastFetchAt >= POLL_INTERVAL_MS) {
+          safeLoad();
+        }
+        startInterval();
+      } else {
+        stopInterval();
       }
-    }, 300000);
+    };
+
+    if (document.visibilityState === 'visible') {
+      safeLoad();
+      startInterval();
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      // Abort any in-flight requests
       abortController.abort();
       abortControllerRef.current = null;
-      clearInterval(interval);
+      stopInterval();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [loadData]); // Now properly tracks loadData changes
+  }, [loadData]);
 
   // Only generate alerts if user has smart_alerts feature
   const alerts = useMemo(() => (hasSmartAlerts && overview)
@@ -438,8 +474,15 @@ export function Header() {
           </Popover>
 
           {/* Notifications */}
-          <DropdownMenu open={notifOpen} onOpenChange={handleNotificationOpen}>
-            <DropdownMenuTrigger asChild>
+          <NotificationsPanel
+            open={notifOpen}
+            onOpenChange={handleNotificationOpen}
+            notifications={notifications}
+            unreadCount={unreadCount}
+            hasSmartAlerts={hasSmartAlerts}
+            onClickNotification={handleNotificationClick}
+            onMarkAllRead={handleMarkAllRead}
+            trigger={
               <Button
                 variant="ghost"
                 size="icon"
@@ -449,8 +492,7 @@ export function Header() {
                 <Bell size={20} className="text-muted-foreground" />
                 {(unreadCount > 0 || criticalAlerts > 0) && (
                   <Badge className={cn(
-                    "absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] border-2 border-card",
-                    // Red for urgent, orange for others
+                    "absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] border-2 border-card tabular-nums",
                     notifications.some(n => !n.read && n.category === 'urgent') || criticalAlerts > 0
                       ? "bg-red-600"
                       : "bg-orange-500"
@@ -459,88 +501,8 @@ export function Header() {
                   </Badge>
                 )}
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[340px] max-w-[calc(100vw-24px)]">
-              <div className="flex items-center justify-between px-3 py-2">
-                <DropdownMenuLabel className="p-0">Notificaciones</DropdownMenuLabel>
-                {unreadCount > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleMarkAllRead();
-                    }}
-                  >
-                    Marcar todo leído
-                  </Button>
-                )}
-              </div>
-              <DropdownMenuSeparator />
-              <div className="max-h-[400px] overflow-y-auto">
-                {!hasSmartAlerts ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">
-                    <p className="font-medium mb-2">Alertas Inteligentes</p>
-                    <p>Disponible en plan Growth</p>
-                  </div>
-                ) : notifications.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">
-                    <Bell size={32} className="mx-auto mb-3 opacity-30" />
-                    <p>Todo en orden</p>
-                    <p className="text-xs mt-1">No hay notificaciones pendientes</p>
-                  </div>
-                ) : (
-                  notifications.map((notif) => (
-                    <DropdownMenuItem
-                      key={notif.id}
-                      className={cn(
-                        "cursor-pointer flex-col items-start p-3 gap-1.5 focus:bg-muted/50",
-                        !notif.read && notif.category === 'urgent' && "bg-red-50 dark:bg-red-950/20",
-                        !notif.read && notif.category === 'action_required' && "bg-orange-50 dark:bg-orange-950/20",
-                        !notif.read && notif.category === 'informational' && "bg-blue-50 dark:bg-blue-950/20",
-                        notif.read && "opacity-70"
-                      )}
-                      onClick={() => handleNotificationClick(notif)}
-                    >
-                      <div className="flex items-start justify-between w-full gap-2">
-                        <div className="flex items-start gap-2 flex-1">
-                          {/* Category indicator */}
-                          <div className={cn(
-                            "h-2 w-2 rounded-full mt-1.5 flex-shrink-0",
-                            notif.category === 'urgent' && "bg-red-500",
-                            notif.category === 'action_required' && "bg-orange-500",
-                            notif.category === 'informational' && "bg-blue-500"
-                          )} />
-                          <div className="flex-1">
-                            <p className={cn(
-                              "text-sm leading-tight",
-                              !notif.read ? "font-semibold" : "font-normal"
-                            )}>
-                              {notif.message}
-                            </p>
-                            {/* Action label as subtle CTA */}
-                            {notif.actionLabel && !notif.read && (
-                              <p className="text-xs text-primary mt-1 font-medium">
-                                {notif.actionLabel} →
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        {!notif.read && (
-                          <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0 mt-1" />
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground ml-4">
-                        {formatTimeAgo(notif.metadata?.timeReference || notif.timestamp)}
-                      </p>
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            }
+          />
 
           {/* User Menu */}
           <DropdownMenu>
