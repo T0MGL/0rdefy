@@ -250,7 +250,7 @@ export function MobileBottomNav() {
                       <Icon size={22} className="text-muted-foreground" />
                       <Lock size={10} className="absolute -top-1 -right-1 text-muted-foreground" />
                     </div>
-                    <span className="text-[10px] mt-1 text-muted-foreground truncate max-w-[60px]">
+                    <span className="text-[11px] mt-1 text-muted-foreground truncate max-w-[60px]">
                       {item.label}
                     </span>
                   </button>
@@ -293,7 +293,7 @@ export function MobileBottomNav() {
                   </motion.div>
                   <span
                     className={cn(
-                      'text-[10px] mt-1 truncate max-w-[60px] transition-colors duration-200',
+                      'text-[11px] mt-1 truncate max-w-[60px] transition-colors duration-200',
                       isActive ? 'text-primary font-medium' : 'text-muted-foreground'
                     )}
                   >
@@ -340,7 +340,7 @@ export function MobileBottomNav() {
                 </motion.div>
                 <span
                   className={cn(
-                    'text-[10px] mt-1 transition-colors duration-200',
+                    'text-[11px] mt-1 transition-colors duration-200',
                     isMoreActive || sheetOpen ? 'text-primary font-medium' : 'text-muted-foreground'
                   )}
                 >

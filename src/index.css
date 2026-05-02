@@ -128,6 +128,39 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* iOS bounce kept on body, but interactive elements opt out below */
+    -webkit-tap-highlight-color: transparent;
+    /* Disable iOS text size auto-adjust on rotation */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Kill 300ms tap delay on touch devices for buttons, links, and tappable items.
+     This is the single biggest perceived-speed win on mobile. */
+  button,
+  a,
+  [role="button"],
+  [role="link"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  label,
+  summary,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="submit"],
+  input[type="button"],
+  input[type="reset"] {
+    touch-action: manipulation;
+  }
+
+  /* Form controls: explicit base font-size to prevent iOS Safari zoom-on-focus.
+     iOS auto-zooms when input font-size < 16px. Setting 16px on mobile, scaling down on lg+. */
+  @media (max-width: 1023px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
   }
 }
 
@@ -203,6 +236,79 @@ All colors MUST be HSL.
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /* ================================================================
+     MOBILE UX UTILITIES
+     ================================================================ */
+
+  /* Safe-area aware bottom padding for fixed elements above the bottom nav.
+     Use on sticky CTAs, floating action bars, etc. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pb-safe-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 4rem);
+  }
+  .bottom-safe {
+    bottom: env(safe-area-inset-bottom);
+  }
+  .bottom-safe-nav {
+    bottom: calc(env(safe-area-inset-bottom) + 4rem);
+  }
+
+  /* Min touch target = 44x44 (Apple HIG / WCAG 2.5.5) */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Horizontal-scroll fade indicator: signals more content off-screen.
+     Apply on a wrapper with overflow-x-auto. */
+  .scroll-fade-x {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 16px,
+      black calc(100% - 16px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 16px,
+      black calc(100% - 16px),
+      transparent 100%
+    );
+  }
+
+  /* Hide on mobile-only / show on mobile-only (semantic helpers). */
+  .mobile-only {
+    @apply lg:hidden;
+  }
+  .desktop-only {
+    @apply hidden lg:block;
+  }
+
+  /* Sticky footer inside a Dialog/Sheet body. Drop in last child of scroll
+     container to keep CTA always visible. */
+  .sticky-footer {
+    position: sticky;
+    bottom: 0;
+    background: hsl(var(--card));
+    border-top: 1px solid hsl(var(--border));
+    padding: 0.75rem 1rem;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    z-index: 10;
+  }
+}
+
+/* Improve default focus-visible for keyboard users; mobile users see nothing. */
+@layer base {
+  :where(button, a, [role="button"], [role="link"], input, select, textarea):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: var(--radius);
   }
 }
 
