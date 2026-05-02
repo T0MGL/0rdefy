@@ -184,6 +184,7 @@ export function QRCodeDisplay({ qrCodeUrl, deliveryLink, orderNumber }: QRCodeDi
                 size="icon"
                 onClick={copyLink}
                 title="Copiar link"
+                aria-label="Copiar link de seguimiento"
               >
                 <Copy className="h-4 w-4" />
               </Button>
@@ -192,6 +193,7 @@ export function QRCodeDisplay({ qrCodeUrl, deliveryLink, orderNumber }: QRCodeDi
                 size="icon"
                 onClick={openLink}
                 title="Abrir en nueva pestaña"
+                aria-label="Abrir link en nueva pestaña"
               >
                 <ExternalLink className="h-4 w-4" />
               </Button>

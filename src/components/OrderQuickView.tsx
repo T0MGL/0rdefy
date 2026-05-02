@@ -3,6 +3,7 @@ import { logger } from '@/utils/logger';
 import { formatCurrency } from '@/utils/currency';
 import { ordersService } from '@/services/orders.service';
 import { useToast } from '@/hooks/use-toast';
+import { confirm } from '@/components/ui/confirm';
 import {
   Sheet,
   SheetContent,
@@ -109,28 +110,37 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
   const hasUnsavedNotes = isEditingNotes && notesValue !== (order?.internal_notes || '');
 
   // Handle panel close - prevent if saving or confirm if unsaved changes
-  const handleOpenChange = useCallback((newOpen: boolean) => {
-    if (!newOpen) {
-      // Prevent close while saving
-      if (isSavingNotes) {
-        toast({
-          title: 'Guardando...',
-          description: 'Espera a que se guarde la nota antes de cerrar',
-          variant: 'default',
-        });
-        return;
+  const handleOpenChange = useCallback(
+    async (newOpen: boolean) => {
+      if (!newOpen) {
+        // Prevent close while saving
+        if (isSavingNotes) {
+          toast({
+            title: 'Guardando...',
+            description: 'Espera a que se guarde la nota antes de cerrar',
+            variant: 'default',
+          });
+          return;
+        }
+        // Warn if unsaved changes
+        if (hasUnsavedNotes) {
+          const ok = await confirm({
+            title: 'Descartar cambios?',
+            description: 'Tenes notas sin guardar. Si cerras ahora se pierden.',
+            confirmText: 'Descartar',
+            cancelText: 'Seguir editando',
+            variant: 'warning',
+          });
+          if (!ok) return;
+          // Reset notes to original value
+          setNotesValue(order?.internal_notes || '');
+          setIsEditingNotes(false);
+        }
       }
-      // Warn if unsaved changes
-      if (hasUnsavedNotes) {
-        const confirm = window.confirm('Tienes cambios sin guardar en las notas. ¿Deseas cerrar sin guardar?');
-        if (!confirm) return;
-        // Reset notes to original value
-        setNotesValue(order?.internal_notes || '');
-        setIsEditingNotes(false);
-      }
-    }
-    onOpenChange(newOpen);
-  }, [isSavingNotes, hasUnsavedNotes, order?.internal_notes, onOpenChange, toast]);
+      onOpenChange(newOpen);
+    },
+    [isSavingNotes, hasUnsavedNotes, order?.internal_notes, onOpenChange, toast],
+  );
 
   const handleSaveStatus = async () => {
     if (!order || !onStatusUpdate || currentStatus === order.status) return;

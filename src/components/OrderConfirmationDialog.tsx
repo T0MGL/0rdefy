@@ -647,6 +647,11 @@ export function OrderConfirmationDialog({
   const handleConfirm = async () => {
     if (!order) return;
 
+    // Haptic feedback on critical action (mobile only). No-op elsewhere.
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate?.(10);
+    }
+
     // Skip carrier validation when using separate confirmation flow
     // Confirmadores only confirm the sale, admin assigns carrier later
     if (!useSeparateConfirmationFlow) {
@@ -887,8 +892,8 @@ export function OrderConfirmationDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[900px] max-h-[90vh] p-0 flex flex-col gap-0 overflow-hidden">
+        <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b border-border">
           <DialogTitle>
             {isConfirmed ? '✅ Pedido Confirmado' : 'Confirmar Pedido'}
           </DialogTitle>
@@ -902,7 +907,7 @@ export function OrderConfirmationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-4 space-y-4">
           {isConfirmed && confirmedOrder ? (
             // Success state - Show shipping label with upsell toggle
             <>
@@ -1734,11 +1739,12 @@ export function OrderConfirmationDialog({
                 disabled={loading}
               />
 
-              <DialogFooter>
+              <DialogFooter className="sticky bottom-0 -mx-6 px-6 -mb-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] bg-background/95 backdrop-blur border-t border-border z-10 sm:static sm:mx-0 sm:px-0 sm:mb-0 sm:py-0 sm:bg-transparent sm:backdrop-blur-0 sm:border-0">
                 <Button
                   variant="outline"
                   onClick={handleClose}
                   disabled={loading}
+                  className="touch-target"
                 >
                   Cancelar
                 </Button>
@@ -1750,6 +1756,7 @@ export function OrderConfirmationDialog({
                     (!useCoverageSystem && !selectedZone)
                   ))}
                   className={cn(
+                    'touch-target',
                     isPickup && "bg-emerald-600 hover:bg-emerald-700",
                     useSeparateConfirmationFlow && "bg-blue-600 hover:bg-blue-700"
                   )}

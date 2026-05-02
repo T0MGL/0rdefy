@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   Package,
   Check,
@@ -395,6 +395,12 @@ export function PackingByProduct({
   const [cancelDialog, setCancelDialog] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
+
   const productGroups = useMemo(() => buildProductGroups(orders), [orders]);
 
   const progress = useMemo(() => {
@@ -439,27 +445,32 @@ export function PackingByProduct({
     setGroupPackingKey(group.key);
     try {
       for (const entry of group.orders) {
+        if (!isMountedRef.current) return;
         const remaining = entry.quantityNeeded - entry.quantityPacked;
         for (let i = 0; i < remaining; i++) {
+          if (!isMountedRef.current) return;
           await onPackItem(entry.orderId, group.productId, group.variantId);
         }
       }
+      if (!isMountedRef.current) return;
       toast({
         title: `${group.productName} empacado`,
         description: `Todas las unidades asignadas`,
         duration: 2000,
       });
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error packing group:', error);
       toast({ title: 'Error al empacar grupo', variant: 'destructive' });
     } finally {
-      setGroupPackingKey(null);
+      if (isMountedRef.current) setGroupPackingKey(null);
     }
   }, [onPackItem, toast]);
 
   const handlePrintGroupLabels = useCallback(async (group: ProductGroup) => {
     const printable = group.orders.filter(o => o.orderIsComplete && o.hasToken && !o.isPrinted);
     for (const entry of printable) {
+      if (!isMountedRef.current) return;
       setPrintingId(entry.orderId);
       try {
         await onPrintLabel(entry.order);
@@ -467,7 +478,7 @@ export function PackingByProduct({
         logger.error('Error printing label:', error);
       }
     }
-    setPrintingId(null);
+    if (isMountedRef.current) setPrintingId(null);
   }, [onPrintLabel]);
 
   const handlePrintOne = useCallback(async (order: OrderForPacking) => {

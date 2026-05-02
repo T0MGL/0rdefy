@@ -135,6 +135,7 @@ export interface ConfirmedOrder {
   created_at: string;
   carrier_name?: string;
   total_items: number;
+  product_thumbnails?: string[];
 }
 
 // ============================================================================

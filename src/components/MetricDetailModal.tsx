@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { logger } from '@/utils/logger';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogBody,
+} from '@/components/ui/responsive-dialog';
 import {
   BarChart,
   Bar,
@@ -16,6 +17,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { carriersService } from '@/services/carriers.service';
@@ -93,10 +95,10 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
     if (isLoading) {
       return (
         <div className="space-y-4">
-          <div className="h-48 bg-muted animate-pulse rounded" />
+          <Skeleton className="h-48 w-full rounded-lg" />
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-12 bg-muted animate-pulse rounded" />
+              <Skeleton key={i} className="h-14 w-full rounded-lg" />
             ))}
           </div>
         </div>
@@ -115,8 +117,27 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
                 <Bar dataKey="orders" fill="hsl(84, 81%, 63%)" />
               </BarChart>
             </ResponsiveContainer>
-            
-            <div className="max-h-64 overflow-y-auto">
+
+            {/* Mobile: cards. Desktop: table. No horizontal scroll on mobile. */}
+            <div className="space-y-2 lg:hidden">
+              {orders.slice(0, 10).map(o => (
+                <div
+                  key={o.id}
+                  className="flex items-center justify-between rounded-xl border border-border/40 bg-card p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-mono text-[13px] font-semibold truncate">
+                      {o.id.substring(0, 10)}
+                    </p>
+                    <p className="text-[15px] truncate">{o.customer}</p>
+                  </div>
+                  <span className="text-[15px] font-semibold tabular-nums shrink-0">
+                    {formatCurrency(o.total ?? 0)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="hidden lg:block max-h-64 overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 sticky top-0">
                   <tr>
@@ -130,7 +151,9 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
                     <tr key={o.id} className="border-b">
                       <td className="p-2 font-mono">{o.id}</td>
                       <td className="p-2">{o.customer}</td>
-                      <td className="text-right p-2">{formatCurrency(o.total ?? 0)}</td>
+                      <td className="text-right p-2 tabular-nums">
+                        {formatCurrency(o.total ?? 0)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -138,7 +161,7 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
             </div>
           </div>
         );
-        
+
       case 'delivery':
         return (
           <div className="space-y-4">
@@ -156,20 +179,26 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
             </ResponsiveContainer>
           </div>
         );
-        
+
       case 'margin':
         return (
           <div className="space-y-4">
-            <div className="grid gap-2 max-h-96 overflow-y-auto">
+            <div className="grid gap-2 max-h-[60vh] overflow-y-auto">
               {products.sort((a, b) => b.profitability - a.profitability).map(p => (
-                <div key={p.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="font-medium text-sm">{p.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between p-3 bg-muted/30 rounded-xl"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-[15px] truncate">{p.name}</p>
+                    <p className="text-[13px] text-muted-foreground tabular-nums">
                       Ventas: {p.sales}
                     </p>
                   </div>
-                  <Badge variant={p.profitability > 40 ? 'default' : 'secondary'}>
+                  <Badge
+                    variant={p.profitability > 40 ? 'default' : 'secondary'}
+                    className="tabular-nums shrink-0"
+                  >
                     {p.profitability}%
                   </Badge>
                 </div>
@@ -177,12 +206,12 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
             </div>
           </div>
         );
-        
+
       default:
-        return <p className="text-muted-foreground">Detalles no disponibles</p>;
+        return <p className="text-muted-foreground text-[15px]">Detalles no disponibles</p>;
     }
   };
-  
+
   const getTitle = () => {
     switch (metric) {
       case 'orders': return 'Detalle de Pedidos';
@@ -191,15 +220,15 @@ export function MetricDetailModal({ metric, open, onOpenChange }: MetricDetailMo
       default: return 'Detalles';
     }
   };
-  
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{getTitle()}</DialogTitle>
-        </DialogHeader>
-        {renderContent()}
-      </DialogContent>
-    </Dialog>
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+      <ResponsiveDialogContent desktopMaxWidth="max-w-3xl">
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>{getTitle()}</ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
+        <ResponsiveDialogBody>{renderContent()}</ResponsiveDialogBody>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }
