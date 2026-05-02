@@ -35,7 +35,7 @@ if (fs.existsSync(rootEnvPath)) {
 }
 
 import { renderShareCard } from '../services/share-card-renderer';
-import { renderMilestoneEmail, type MilestoneEmailData } from '../services/email-jsx-templates';
+import { type MilestoneEmailData } from '../services/email-jsx-templates';
 import { sendMilestoneEmail } from '../services/email.service';
 
 interface Args {
@@ -78,9 +78,21 @@ function buildMockData(milestoneValue: number): MilestoneEmailData {
     bestDay: '8 de abril',
     bestDayCount: 7,
     marginAccumulated: '8.420.000 Gs',
+    daysElapsed: 47,
     shareUrl: 'https://app.ordefy.io/wrapped/preview',
     currency: 'PYG',
   };
+}
+
+// Realistic timeline for the canonical example (Mar 14 → Apr 30, 47 days).
+function buildMockChartPoints(): Array<{ label: string; value: number }> {
+  return [
+    { label: '14 mar', value: 1 },
+    { label: '28 mar', value: 18 },
+    { label: '8 abr', value: 45 },
+    { label: '20 abr', value: 78 },
+    { label: '30 abr', value: 100 },
+  ];
 }
 
 async function main() {
@@ -143,8 +155,8 @@ async function main() {
     }
   }
 
-  // 2. Render the share-card PNG to /tmp
-  console.log('Rendering share-card PNG (story 1080x1920)...');
+  // 2. Render the social share-card PNG to /tmp (for preview only)
+  console.log('Rendering social share-card PNG (story 1080x1920)...');
   let imagePath: string | null = null;
   try {
     const png = await renderShareCard(
@@ -168,15 +180,7 @@ async function main() {
     console.warn('Share-card render failed (non-fatal):', (err as Error).message);
   }
 
-  // 3. Render email to confirm HTML works before sending
-  console.log('Rendering email HTML...');
-  const rendered = await renderMilestoneEmail(data);
-  const previewHtmlPath = `/tmp/milestone-email-preview-${data.milestoneValue}.html`;
-  fs.writeFileSync(previewHtmlPath, rendered.html);
-  console.log('  -> wrote', previewHtmlPath, `(${rendered.html.length} chars)`);
-  console.log('  subject:', rendered.subject);
-
-  // 4. Send the email
+  // 3. Send the email — sendMilestoneEmail handles hero+chart upload to Supabase
   if (!process.env.RESEND_API_KEY) {
     console.error('FATAL: RESEND_API_KEY not set. Cannot send real email.');
     console.error('       Set it in .env or export it before running.');
@@ -184,7 +188,11 @@ async function main() {
   }
 
   console.log('Sending email via Resend to', args.to, '...');
-  const result = await sendMilestoneEmail(args.to, data);
+  console.log('  (this uploads hero+chart PNGs to Supabase storage first)');
+  const result = await sendMilestoneEmail(args.to, data, {
+    chartPoints: buildMockChartPoints(),
+    storeId: args.storeId,
+  });
 
   if (!result.success) {
     console.error('SEND FAILED:', result.error);
@@ -195,10 +203,9 @@ async function main() {
   console.log('========================================');
   console.log('SENT');
   console.log('========================================');
-  console.log('message_id   :', result.messageId);
-  console.log('share_url    :', data.shareUrl);
-  console.log('image_preview:', imagePath ?? '(skipped)');
-  console.log('email_preview:', previewHtmlPath);
+  console.log('message_id        :', result.messageId);
+  console.log('share_url         :', data.shareUrl);
+  console.log('social_card_local :', imagePath ?? '(skipped)');
   console.log('========================================');
 }
 

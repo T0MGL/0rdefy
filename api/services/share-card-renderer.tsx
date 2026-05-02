@@ -327,3 +327,362 @@ export async function renderShareCard(
   const png = resvg.render();
   return png.asPng();
 }
+
+/* ================================================================
+ * MILESTONE EMAIL HERO (hero embedded INSIDE the email)
+ * ================================================================
+ * Different aspect ratio than social share cards. Wide and short, fits
+ * inside the 560px email container at full width without cropping.
+ */
+
+interface EmailHeroProps {
+  milestoneValue: number;
+  subtitle: string;
+}
+
+/**
+ * GENERIC milestone hero. No personalized data here on purpose: the same
+ * "100 ÓRDENES" PNG is reused across every store that hits that milestone.
+ * Cached once per (milestoneValue, subtitle) pair.
+ */
+function EmailHero({ milestoneValue, subtitle }: EmailHeroProps) {
+  const number = milestoneValue.toLocaleString('en-US');
+  const numberSize =
+    number.length >= 5 ? 220 : number.length === 4 ? 280 : 360;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: 1120,
+        height: 520,
+        backgroundColor: COLORS.bg,
+        padding: '64px 72px',
+        position: 'relative',
+        fontFamily: 'Inter',
+      }}
+    >
+      {/* Top brand strip */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          color: COLORS.textSecondary,
+          fontSize: 22,
+          letterSpacing: 3,
+          textTransform: 'uppercase',
+          fontWeight: 700,
+        }}
+      >
+        <div
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: 12,
+            backgroundColor: COLORS.primary,
+            display: 'flex',
+          }}
+        />
+        <div>HITO ALCANZADO</div>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex' }} />
+
+      {/* Big number */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 28,
+          color: COLORS.primary,
+          fontWeight: 900,
+          lineHeight: 0.9,
+          letterSpacing: -6,
+        }}
+      >
+        <div style={{ display: 'flex', fontSize: numberSize }}>{number}</div>
+        <div
+          style={{
+            display: 'flex',
+            color: COLORS.text,
+            fontSize: 52,
+            fontWeight: 800,
+            letterSpacing: -1,
+          }}
+        >
+          {subtitle}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex' }} />
+
+      {/* Footer wordmark only — no personalization */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'flex-end',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            color: COLORS.primary,
+            fontSize: 26,
+            fontWeight: 800,
+            letterSpacing: 1,
+          }}
+        >
+          ordefy.io
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export async function renderEmailHero(args: {
+  milestoneValue: number;
+  subtitle?: string;
+}): Promise<Buffer> {
+  await loadFonts();
+  const subtitle = args.subtitle ?? 'ÓRDENES';
+
+  // Render at 1120px for retina sharpness, then downscale to 560px on output.
+  // 560px native = exactly the email container width, keeps file size small
+  // (~15 KB) so the MIME message stays well under Gmail's 102 KB clip line.
+  const svg = await satori(
+    <EmailHero milestoneValue={args.milestoneValue} subtitle={subtitle} />,
+    {
+      width: 1120,
+      height: 520,
+      fonts: [
+        { name: 'Inter', data: interRegularBuffer!, weight: 400, style: 'normal' },
+        { name: 'Inter', data: interBoldBuffer!, weight: 700, style: 'normal' },
+        { name: 'Inter', data: interBlackBuffer!, weight: 900, style: 'normal' },
+      ],
+    },
+  );
+
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: 'width', value: 560 },
+    background: COLORS.bg,
+  });
+  return resvg.render().asPng();
+}
+
+/* ================================================================
+ * MILESTONE LINE CHART (orders over time)
+ * ================================================================
+ * Embedded inline in the email body. Shows acumulated orders progression.
+ * Pure SVG paths via Satori (no recharts dep needed).
+ */
+
+interface ChartProps {
+  points: Array<{ label: string; value: number }>;
+  width: number;
+  height: number;
+  highlightLastPoint?: boolean;
+}
+
+function LineChart({ points, width, height, highlightLastPoint = true }: ChartProps) {
+  const padTop = 80;
+  const padBottom = 90;
+  const padLeft = 60;
+  const padRight = 60;
+  const innerW = width - padLeft - padRight;
+  const innerH = height - padTop - padBottom;
+
+  const maxVal = Math.max(...points.map((p) => p.value), 1);
+  const stepX = points.length > 1 ? innerW / (points.length - 1) : innerW;
+
+  const coords = points.map((p, i) => ({
+    x: padLeft + i * stepX,
+    y: padTop + innerH - (p.value / maxVal) * innerH,
+    label: p.label,
+    value: p.value,
+  }));
+
+  const last = coords[coords.length - 1];
+
+  // Build SVG children flat (no fragments, no defs, no gradients).
+  // Satori SVG support is limited but reliable for primitive elements.
+  const svgChildren: React.ReactNode[] = [];
+
+  // Gridlines
+  [0.25, 0.5, 0.75].forEach((frac, i) => {
+    const y = padTop + innerH * frac;
+    svgChildren.push(
+      <line
+        key={`grid-${i}`}
+        x1={padLeft}
+        x2={width - padRight}
+        y1={y}
+        y2={y}
+        stroke="#1f1f26"
+        strokeWidth={1}
+      />,
+    );
+  });
+
+  // Line segments (one <line> per pair of consecutive points)
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i];
+    const b = coords[i + 1];
+    svgChildren.push(
+      <line
+        key={`seg-${i}`}
+        x1={a.x}
+        y1={a.y}
+        x2={b.x}
+        y2={b.y}
+        stroke="#b0e636"
+        strokeWidth={5}
+        strokeLinecap="round"
+      />,
+    );
+  }
+
+  // Regular dots
+  coords.forEach((c, i) => {
+    if (i === coords.length - 1 && highlightLastPoint) return;
+    svgChildren.push(
+      <circle
+        key={`dot-${i}`}
+        cx={c.x}
+        cy={c.y}
+        r={6}
+        fill={COLORS.bg}
+        stroke="#b0e636"
+        strokeWidth={3}
+      />,
+    );
+  });
+
+  // Last-point highlight (bigger filled lime dot)
+  if (highlightLastPoint && last) {
+    svgChildren.push(
+      <circle
+        key="last-glow"
+        cx={last.x}
+        cy={last.y}
+        r={18}
+        fill="#b0e636"
+        fillOpacity={0.18}
+      />,
+    );
+    svgChildren.push(
+      <circle
+        key="last-dot"
+        cx={last.x}
+        cy={last.y}
+        r={9}
+        fill="#b0e636"
+      />,
+    );
+  }
+
+  // Text overlays (final tag + x-axis labels) rendered as absolutely
+  // positioned divs because Satori does NOT support <text> inside <svg>.
+  const labelW = 140;
+  const overlays: React.ReactNode[] = [];
+
+  if (last) {
+    overlays.push(
+      <div
+        key="final-tag"
+        style={{
+          position: 'absolute',
+          top: last.y - 60,
+          left: last.x - labelW / 2,
+          width: labelW,
+          textAlign: 'center',
+          color: COLORS.primary,
+          fontSize: 32,
+          fontWeight: 800,
+          letterSpacing: -0.5,
+          display: 'flex',
+          justifyContent: 'center',
+        }}
+      >
+        {last.value.toLocaleString('en-US')}
+      </div>,
+    );
+  }
+
+  coords.forEach((c, i) => {
+    overlays.push(
+      <div
+        key={`lbl-${i}`}
+        style={{
+          position: 'absolute',
+          top: height - 60,
+          left: c.x - labelW / 2,
+          width: labelW,
+          textAlign: 'center',
+          color: COLORS.textMuted,
+          fontSize: 22,
+          fontWeight: 500,
+          letterSpacing: 0.3,
+          display: 'flex',
+          justifyContent: 'center',
+        }}
+      >
+        {c.label}
+      </div>,
+    );
+  });
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        width,
+        height,
+        backgroundColor: COLORS.bg,
+        position: 'relative',
+        fontFamily: 'Inter',
+      }}
+    >
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {svgChildren}
+      </svg>
+      {overlays}
+    </div>
+  );
+}
+
+export async function renderOrdersChart(
+  points: Array<{ label: string; value: number }>,
+): Promise<Buffer> {
+  await loadFonts();
+
+  const width = 1120;
+  const height = 480;
+
+  const svg = await satori(
+    <LineChart points={points} width={width} height={height} />,
+    {
+      width,
+      height,
+      fonts: [
+        { name: 'Inter', data: interRegularBuffer!, weight: 400, style: 'normal' },
+        { name: 'Inter', data: interBoldBuffer!, weight: 500, style: 'normal' },
+        { name: 'Inter', data: interBoldBuffer!, weight: 700, style: 'normal' },
+      ],
+    },
+  );
+
+  // Downscale to 560px on output for email-friendly size (~5-8 KB).
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: 'width', value: 560 },
+    background: COLORS.bg,
+  });
+  return resvg.render().asPng();
+}
