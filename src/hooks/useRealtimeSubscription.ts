@@ -88,62 +88,60 @@ export function useRealtimeSubscription({
       return;
     }
 
-    // Verify Supabase has a valid auth session before subscribing.
-    // The app uses custom JWT auth (Express-signed), not Supabase Auth.
-    // Without a Supabase-signed JWT the Realtime server rejects the connection.
-    let cancelled = false;
-    supabase.auth.getSession().then(({ data }) => {
-      if (cancelled) return;
-      if (!data.session) {
-        logger.warn(`[Realtime] No Supabase session. Subscription to ${table} skipped (custom JWT auth).`);
-        return;
+    // The app authenticates via custom JWT (Express). AuthContext mints a
+    // second token signed with SUPABASE_JWT_SECRET on login and pushes it
+    // into the Realtime client via supabase.realtime.setAuth(...).
+    // This guard is the last-line defensive check; the actual token is
+    // already attached to the WebSocket handshake by the time we get here.
+    const supabaseToken = localStorage.getItem('supabase_token');
+    if (!supabaseToken) {
+      logger.warn(`[Realtime] No supabase_token found. Subscription to ${table} skipped.`);
+      return;
+    }
+
+    const channelName = `realtime:${table}:${event}:${storeId || 'global'}`;
+
+    logger.log(`[Realtime] Subscribing to ${table} (${event}) for store ${storeId}`);
+
+    let channel = supabase.channel(channelName);
+
+    // Build filter string
+    let filterString = '';
+    if (filterByStore && storeId) {
+      filterString = `store_id=eq.${storeId}`;
+    }
+    if (filter) {
+      const additionalFilter = `${filter.column}=eq.${filter.value}`;
+      filterString = filterString ? `${filterString},${additionalFilter}` : additionalFilter;
+    }
+
+    channel = channel.on(
+      'postgres_changes',
+      {
+        event,
+        schema: 'public',
+        table,
+        filter: filterString || undefined,
+      },
+      (payload) => {
+        logger.log(`[Realtime] ${table} ${payload.eventType}:`, payload);
+        callbackRef.current(payload);
       }
+    );
 
-      const channelName = `realtime:${table}:${event}:${storeId || 'global'}`;
-
-      logger.log(`[Realtime] Subscribing to ${table} (${event}) for store ${storeId}`);
-
-      let channel = supabase.channel(channelName);
-
-      // Build filter string
-      let filterString = '';
-      if (filterByStore && storeId) {
-        filterString = `store_id=eq.${storeId}`;
+    channel.subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        logger.log(`[Realtime] Subscribed to ${table} (${event})`);
+      } else if (status === 'CLOSED') {
+        logger.log(`[Realtime] Subscription to ${table} closed`);
+      } else if (status === 'CHANNEL_ERROR') {
+        logger.warn(`[Realtime] Subscription to ${table} failed:`, err ?? 'no details');
       }
-      if (filter) {
-        const additionalFilter = `${filter.column}=eq.${filter.value}`;
-        filterString = filterString ? `${filterString},${additionalFilter}` : additionalFilter;
-      }
-
-      channel = channel.on(
-        'postgres_changes',
-        {
-          event,
-          schema: 'public',
-          table,
-          filter: filterString || undefined,
-        },
-        (payload) => {
-          logger.log(`[Realtime] ${table} ${payload.eventType}:`, payload);
-          callbackRef.current(payload);
-        }
-      );
-
-      channel.subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          logger.log(`[Realtime] Subscribed to ${table} (${event})`);
-        } else if (status === 'CLOSED') {
-          logger.log(`[Realtime] Subscription to ${table} closed`);
-        } else if (status === 'CHANNEL_ERROR') {
-          logger.warn(`[Realtime] Subscription to ${table} failed:`, err ?? 'no details');
-        }
-      });
-
-      channelRef.current = channel;
     });
 
+    channelRef.current = channel;
+
     return () => {
-      cancelled = true;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;

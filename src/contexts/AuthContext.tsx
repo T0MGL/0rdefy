@@ -3,6 +3,26 @@ import { useQueryClient } from '@tanstack/react-query';
 import axios, { CancelTokenSource } from 'axios';
 import { safeJsonParse } from '@/lib/utils';
 import { logger } from '@/utils/logger';
+import { supabase } from '@/lib/supabase';
+
+// Bridges the custom Express JWT to Supabase Realtime. The backend mints a
+// second token signed with SUPABASE_JWT_SECRET on login/register/profile-update.
+// We persist it so the Realtime client can authenticate WebSocket handshakes
+// and the RLS-aware filters resolve auth.uid() correctly.
+const SUPABASE_TOKEN_STORAGE_KEY = 'supabase_token';
+
+function applySupabaseRealtimeToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(SUPABASE_TOKEN_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(SUPABASE_TOKEN_STORAGE_KEY);
+  }
+  try {
+    supabase.realtime.setAuth(token);
+  } catch (err) {
+    logger.warn('⚠️ [AUTH] Failed to set Supabase realtime auth token:', err);
+  }
+}
 
 // ================================================================
 // Permission System Types and Constants
@@ -292,6 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('user');
     localStorage.removeItem('current_store_id');
     localStorage.removeItem('onboarding_completed');
+    applySupabaseRealtimeToken(null);
 
     setUser(null);
     setStores([]);
@@ -306,6 +327,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem('auth_token');
     const savedUser = localStorage.getItem('user');
     const savedStoreId = localStorage.getItem('current_store_id');
+    const savedSupabaseToken = localStorage.getItem(SUPABASE_TOKEN_STORAGE_KEY);
 
     if (token && savedUser) {
       // Use safeJsonParse to prevent crashes from corrupted localStorage data
@@ -313,6 +335,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (parsedUser) {
         logger.log('✅ [AUTH] Found existing session:', parsedUser.email);
+
+        // Re-arm Supabase Realtime auth so WebSocket subscriptions work on
+        // page reloads. If the token is missing the user must re-login to
+        // mint a fresh one (older sessions predating this bridge).
+        if (savedSupabaseToken) {
+          applySupabaseRealtimeToken(savedSupabaseToken);
+        }
 
         setUser(parsedUser);
         setStores(parsedUser.stores || []);
@@ -329,6 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logger.error('❌ [AUTH] Failed to parse saved user data - clearing session');
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user');
+        applySupabaseRealtimeToken(null);
       }
     } else {
       logger.log('⚠️ [AUTH] No existing session found');
@@ -379,6 +409,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user', JSON.stringify(userData));
+        applySupabaseRealtimeToken(response.data.supabaseToken ?? null);
 
         // Save onboarding completion status based on server response
         if (response.data.onboardingCompleted) {
@@ -461,6 +492,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user', JSON.stringify(userData));
+        applySupabaseRealtimeToken(response.data.supabaseToken ?? null);
 
         // DON'T set onboarding_completed here - user needs to complete onboarding first!
         // The onboarding will be set after the user completes the onboarding form
@@ -617,6 +649,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Update localStorage
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user', JSON.stringify(userData));
+        if (response.data.supabaseToken) {
+          applySupabaseRealtimeToken(response.data.supabaseToken);
+        }
 
         // Update state
         setUser(userData);
