@@ -38,3 +38,10 @@ api/.env.*.local
 dist-api/
 health-reports/
 .vercel
+
+# TS incremental build cache
+*.tsbuildinfo
+
+# Local scratch logs
+.tmp_logs.txt
+.tmp_*.txt
