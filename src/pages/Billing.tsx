@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
+import { StatGridSkeleton, ListRowsSkeleton } from '@/components/ui/skeleton-matched';
 import {
   Dialog,
   DialogContent,
@@ -253,8 +254,9 @@ ${link}`;
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="space-y-6" aria-busy="true">
+        <StatGridSkeleton count={4} />
+        <ListRowsSkeleton count={3} />
       </div>
     );
   }

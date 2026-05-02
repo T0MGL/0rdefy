@@ -69,7 +69,15 @@ export default function WarehouseNew() {
   // Packing state
   const [packingData, setPackingData] = useState<PackingListResponse | null>(null);
   const [currentOrderIndex, setCurrentOrderIndex] = useState(0);
-  const [packingMode, setPackingMode] = useState<'by-order' | 'by-product'>('by-order');
+  const [packingMode, setPackingMode] = useState<'by-order' | 'by-product'>(() => {
+    if (typeof window === 'undefined') return 'by-order';
+    const saved = localStorage.getItem('neonflow_packing_mode');
+    return saved === 'by-product' ? 'by-product' : 'by-order';
+  });
+  const updatePackingMode = useCallback((mode: 'by-order' | 'by-product') => {
+    setPackingMode(mode);
+    try { localStorage.setItem('neonflow_packing_mode', mode); } catch { /* quota / private mode */ }
+  }, []);
 
   // Loading states
   const [loading, setLoading] = useState(false);
@@ -722,7 +730,7 @@ export default function WarehouseNew() {
               <span className="text-sm text-muted-foreground mr-2">Modo empaque:</span>
               <div className="flex rounded-md border overflow-hidden">
                 <button
-                  onClick={() => setPackingMode('by-order')}
+                  onClick={() => updatePackingMode('by-order')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
                     packingMode === 'by-order'
                       ? 'bg-primary text-primary-foreground'
@@ -733,7 +741,7 @@ export default function WarehouseNew() {
                   Por pedido
                 </button>
                 <button
-                  onClick={() => setPackingMode('by-product')}
+                  onClick={() => updatePackingMode('by-product')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors border-l ${
                     packingMode === 'by-product'
                       ? 'bg-primary text-primary-foreground'

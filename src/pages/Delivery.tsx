@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { IncidentRetryChecklist } from '@/components/IncidentRetryChecklist';
+import { confirm as confirmDialog } from '@/components/ui/confirm';
 import {
   CheckCircle,
   XCircle,
@@ -635,7 +636,14 @@ export default function Delivery() {
                 className="w-full h-12 border-destructive/50 text-destructive hover:bg-destructive/10"
                 size="lg"
                 onClick={async () => {
-                  if (confirm('¿Estás seguro de que deseas cancelar este pedido?')) {
+                  const ok = await confirmDialog({
+                    title: 'Cancelar pedido?',
+                    description: 'El pedido se marcara como cancelado y no podra ser entregado.',
+                    confirmText: 'Cancelar pedido',
+                    cancelText: 'Volver',
+                    variant: 'destructive',
+                  });
+                  if (ok) {
                     try {
                       const authToken = localStorage.getItem('auth_token');
                       const response = await fetch(

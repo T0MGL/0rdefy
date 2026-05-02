@@ -2060,7 +2060,7 @@ export default function Settlements() {
         />
 
         {/* Floating Action Bar */}
-        <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50">
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 max-w-[calc(100vw-1rem)]">
           <Card className="px-6 py-4 shadow-xl border-primary/20 bg-card/95 backdrop-blur-sm">
             <div className="flex items-center gap-6">
               {/* Stats */}
