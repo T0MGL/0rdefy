@@ -2216,86 +2216,112 @@ analyticsRouter.get('/notification-data', async (req: AuthRequest, res: Response
     try {
         const storeId = req.storeId;
 
-        // 1. Get minimal order data (only fields needed for notifications)
-        // Only fetch orders from last 7 days to reduce query size
+        // The notification engine consumes four arrays to build counts and
+        // deep-link metadata. Each query is intentionally narrow so the wire
+        // payload stays in the low double-digit kilobytes even for busy stores.
+        //
+        // Orders: only records that can produce an alert in the last 7 days
+        // (pending + awaiting_carrier + tomorrow's confirmed/ready_to_ship).
+        // The shape only carries the columns the engine reads. Hard-capped
+        // at 100 rows so a single noisy store does not balloon the response.
+        //
+        // Products: low/out-of-stock only (stock <= threshold). The engine
+        // partitions this into out-of-stock and warning buckets locally.
+        //
+        // Ads + carriers: lightweight, both already small per store.
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-        const { data: orders, error: ordersError } = await supabaseAdmin
-            .from('orders')
-            .select('id, sleeves_status, created_at, customer_first_name, customer_last_name')
-            .eq('store_id', storeId)
-            .gte('created_at', sevenDaysAgo.toISOString())
-            .order('created_at', { ascending: false });
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+        const dayAfterTomorrow = new Date(tomorrow);
+        dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
 
-        if (ordersError) {
-            logger.error('SERVER', '[GET /api/analytics/notification-data] Orders error:', ordersError);
-            throw ordersError;
+        const ALERT_STATUSES = ['pending', 'awaiting_carrier', 'confirmed', 'ready_to_ship'];
+        const STOCK_ALERT_THRESHOLD = 10;
+        const ORDERS_LIMIT = 100;
+        const PRODUCTS_LIMIT = 100;
+
+        const [ordersRes, productsRes, adsRes, carriersRes] = await Promise.all([
+            supabaseAdmin
+                .from('orders')
+                .select('id, sleeves_status, created_at, customer_first_name, customer_last_name, delivery_preferences')
+                .eq('store_id', storeId)
+                .in('sleeves_status', ALERT_STATUSES)
+                .gte('created_at', sevenDaysAgo.toISOString())
+                .order('created_at', { ascending: false })
+                .limit(ORDERS_LIMIT),
+            supabaseAdmin
+                .from('products')
+                .select('id, name, stock')
+                .eq('store_id', storeId)
+                .eq('is_active', true)
+                .lte('stock', STOCK_ALERT_THRESHOLD)
+                .order('stock', { ascending: true })
+                .limit(PRODUCTS_LIMIT),
+            supabaseAdmin
+                .from('campaigns')
+                .select('id, status, campaign_name, investment')
+                .eq('store_id', storeId)
+                .in('status', ['active', 'scheduled']),
+            supabaseAdmin
+                .from('carriers')
+                .select('id, name')
+                .eq('store_id', storeId)
+                .eq('is_active', true),
+        ]);
+
+        if (ordersRes.error) {
+            logger.error('SERVER', '[GET /api/analytics/notification-data] Orders error:', ordersRes.error);
+            throw ordersRes.error;
+        }
+        if (productsRes.error) {
+            logger.error('SERVER', '[GET /api/analytics/notification-data] Products error:', productsRes.error);
+            throw productsRes.error;
+        }
+        if (adsRes.error) {
+            logger.error('SERVER', '[GET /api/analytics/notification-data] Ads error:', adsRes.error);
+            throw adsRes.error;
+        }
+        if (carriersRes.error) {
+            logger.error('SERVER', '[GET /api/analytics/notification-data] Carriers error:', carriersRes.error);
+            throw carriersRes.error;
         }
 
-        // 2. Get minimal product data (only stock for low stock alerts)
-        // Limit to 500 - notification engine only needs to check stock levels
-        const { data: products, error: productsError } = await supabaseAdmin
-            .from('products')
-            .select('id, name, stock, is_active')
-            .eq('store_id', storeId)
-            .eq('is_active', true)
-            .limit(500);
+        const transformedOrders = (ordersRes.data || []).map(o => {
+            const prefs = o.delivery_preferences as { not_before_date?: string } | null;
+            return {
+                id: o.id,
+                status: o.sleeves_status,
+                date: o.created_at,
+                customer: `${o.customer_first_name || ''} ${o.customer_last_name || ''}`.trim() || 'Cliente',
+                delivery_date: prefs?.not_before_date,
+            };
+        });
 
-        if (productsError) {
-            logger.error('SERVER', '[GET /api/analytics/notification-data] Products error:', productsError);
-            throw productsError;
-        }
-
-        // 3. Get minimal ads data (only for active campaign tracking)
-        const { data: ads, error: adsError } = await supabaseAdmin
-            .from('campaigns')
-            .select('id, status, campaign_name, investment')
-            .eq('store_id', storeId)
-            .in('status', ['active', 'scheduled']);
-
-        if (adsError) {
-            logger.error('SERVER', '[GET /api/analytics/notification-data] Ads error:', adsError);
-            throw adsError;
-        }
-
-        // 4. Get carrier data (minimal)
-        const { data: carriers, error: carriersError } = await supabaseAdmin
-            .from('carriers')
-            .select('id, name, is_active')
-            .eq('store_id', storeId)
-            .eq('is_active', true);
-
-        if (carriersError) {
-            logger.error('SERVER', '[GET /api/analytics/notification-data] Carriers error:', carriersError);
-            throw carriersError;
-        }
-
-        // Transform to frontend format (minimal)
-        const transformedOrders = (orders || []).map(o => ({
-            id: o.id,
-            status: o.sleeves_status,
-            date: o.created_at,
-            customer: `${o.customer_first_name || ''} ${o.customer_last_name || ''}`.trim() || 'Cliente',
-        }));
-
-        const transformedProducts = (products || []).map(p => ({
+        const transformedProducts = (productsRes.data || []).map(p => ({
             id: p.id,
             name: p.name,
             stock: p.stock,
         }));
 
-        const transformedAds = (ads || []).map(a => ({
+        const transformedAds = (adsRes.data || []).map(a => ({
             id: a.id,
             status: a.status,
             name: a.campaign_name,
             investment: a.investment,
         }));
 
-        const transformedCarriers = (carriers || []).map(c => ({
+        const transformedCarriers = (carriersRes.data || []).map(c => ({
             id: c.id,
             name: c.name,
         }));
+
+        // Cache for the polling window. The header refreshes every 30 minutes;
+        // letting the browser reuse the response inside that window protects
+        // against accidental double-fetches (tab focus storms, mount loops).
+        res.set('Cache-Control', 'private, max-age=60');
 
         res.json({
             success: true,

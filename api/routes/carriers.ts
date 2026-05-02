@@ -68,6 +68,10 @@ carriersRouter.get('/', async (req: AuthRequest, res: Response) => {
             throw error;
         }
 
+        // Carriers list is essentially a slow-moving catalog. A 60-second
+        // private cache absorbs the chatter from dropdowns and dialogs that
+        // hit this endpoint repeatedly during a single user session.
+        res.set('Cache-Control', 'private, max-age=60');
         res.json({
             data: data || [],
             pagination: {

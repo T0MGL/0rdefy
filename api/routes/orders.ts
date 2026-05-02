@@ -1073,11 +1073,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
                     unit_price,
                     total_price,
                     image_url,
-                    is_upsell,
-                    products:product_id (
-                        id,
-                        image_url
-                    )
+                    is_upsell
                 ),
                 carriers!orders_courier_id_fkey (
                     id,
@@ -1088,7 +1084,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             .order('created_at', { ascending: false })
             .range(
                 Math.max(0, safeNumber(offset, 0)),
-                Math.max(0, safeNumber(offset, 0)) + Math.min(500, Math.max(1, safeNumber(limit, 50))) - 1
+                Math.max(0, safeNumber(offset, 0)) + Math.min(100, Math.max(1, safeNumber(limit, 25))) - 1
             );
 
         // Filter test orders (show by default unless show_test=false)
@@ -1325,7 +1321,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         }) || [];
 
         const safeOffset = Math.max(0, safeNumber(offset, 0));
-        const safeLimit = Math.min(500, Math.max(1, safeNumber(limit, 50)));
+        const safeLimit = Math.min(100, Math.max(1, safeNumber(limit, 25)));
         res.json({
             data: transformedData,
             pagination: {
