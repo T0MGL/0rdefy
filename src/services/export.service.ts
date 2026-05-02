@@ -6,6 +6,12 @@ export interface ExportColumn<T = any> {
   key: keyof T | string;
   width?: number;
   format?: (value: any, row?: T) => string;
+  /** PDF: return a URL to make the cell clickable (blue + underlined). */
+  pdfLink?: (value: any, row?: T) => string | null | undefined;
+  /** PDF: override displayed text, e.g. "Abrir en Maps" instead of the raw URL. */
+  pdfDisplay?: (value: any, row?: T) => string;
+  /** PDF: when there is no link, render pdfDisplay text in muted gray italic. */
+  pdfPlaceholderStyle?: 'muted';
 }
 
 export interface ExportOptions<T = any> {
@@ -125,11 +131,29 @@ class ExportService {
     // Prepare table headers
     const headers = columns.map(col => col.header);
 
-    // Prepare table data
-    const rows = data.map(item =>
-      columns.map(col => {
+    // Per-cell link/placeholder metadata, consumed by the autotable hooks to
+    // restyle text and draw link annotations without re-invoking column callbacks.
+    const cellMeta = new Map<string, { link?: string; placeholder?: boolean }>();
+
+    const rows = data.map((item, rowIdx) =>
+      columns.map((col, colIdx) => {
         const value = this.getNestedValue(item, col.key as string);
-        return col.format ? col.format(value, item) : this.formatValue(value);
+        const link = col.pdfLink ? col.pdfLink(value, item) : null;
+        let display: string;
+        if (col.pdfDisplay) {
+          display = col.pdfDisplay(value, item);
+        } else if (col.format) {
+          display = col.format(value, item);
+        } else {
+          display = this.formatValue(value);
+        }
+
+        if (link) {
+          cellMeta.set(`${rowIdx}:${colIdx}`, { link });
+        } else if (col.pdfDisplay && col.pdfPlaceholderStyle === 'muted') {
+          cellMeta.set(`${rowIdx}:${colIdx}`, { placeholder: true });
+        }
+        return display;
       })
     );
 
@@ -153,6 +177,32 @@ class ExportService {
         fillColor: [245, 245, 245],
       },
       margin: { top: 14, right: 14, bottom: 14, left: 14 },
+      didParseCell: (hookData: any) => {
+        if (hookData.section !== 'body') return;
+        const meta = cellMeta.get(`${hookData.row.index}:${hookData.column.index}`);
+        if (!meta) return;
+        if (meta.link) {
+          hookData.cell.styles.textColor = [37, 99, 235]; // blue-600
+          hookData.cell.styles.fontStyle = 'bold';
+        } else if (meta.placeholder) {
+          hookData.cell.styles.textColor = [120, 120, 120];
+          hookData.cell.styles.fontStyle = 'italic';
+        }
+      },
+      didDrawCell: (hookData: any) => {
+        if (hookData.section !== 'body') return;
+        const meta = cellMeta.get(`${hookData.row.index}:${hookData.column.index}`);
+        if (!meta?.link) return;
+        const { x, y, width, height } = hookData.cell;
+        doc.link(x, y, width, height, { url: meta.link });
+        // Manual underline because jspdf has no underline text style.
+        // Tracks the global cellPadding above; update both together.
+        const cellPadding = 2;
+        const underlineY = y + height - cellPadding + 0.4;
+        doc.setDrawColor(37, 99, 235);
+        doc.setLineWidth(0.2);
+        doc.line(x + cellPadding, underlineY, x + width - cellPadding, underlineY);
+      },
     });
 
     // Add footer with date and page numbers

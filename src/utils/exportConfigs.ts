@@ -2,6 +2,25 @@ import { ExportColumn } from '@/services/export.service';
 import { formatCurrency } from '@/utils/currency';
 
 /**
+ * wa.me requires a full international number (country code + subscriber).
+ * Local-format phones (e.g. PY 0981...) produce broken links inside WhatsApp,
+ * so reject anything below a credible international length.
+ */
+function buildWhatsAppLink(phone: unknown): string | null {
+  if (phone === null || phone === undefined) return null;
+  const digits = String(phone).replace(/\D+/g, '');
+  if (digits.length < 11) return null;
+  return `https://wa.me/${digits}`;
+}
+
+function normalizeMapsLink(value: unknown): string | null {
+  if (!value) return null;
+  const url = String(value).trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  return url;
+}
+
+/**
  * Export configuration for Orders
  */
 export const ordersExportColumns: ExportColumn[] = [
@@ -18,9 +37,24 @@ export const ordersExportColumns: ExportColumn[] = [
     }
   },
   { header: 'Cliente', key: 'customer', width: 20 },
-  { header: 'Teléfono', key: 'phone', width: 15 },
-  { header: 'Dirección', key: 'address', width: 30 },
-  { header: 'Producto', key: 'product', width: 25 },
+  {
+    header: 'Teléfono',
+    key: 'phone',
+    width: 18,
+    pdfLink: buildWhatsAppLink,
+  },
+  { header: 'Dirección', key: 'address', width: 28 },
+  {
+    header: 'Ubicación',
+    key: 'google_maps_link',
+    width: 22,
+    format: (value) => normalizeMapsLink(value) || '',
+    pdfLink: normalizeMapsLink,
+    pdfDisplay: (value) =>
+      normalizeMapsLink(value) ? 'Abrir en Maps' : 'Solicitar Ubicación',
+    pdfPlaceholderStyle: 'muted',
+  },
+  { header: 'Producto', key: 'product', width: 22 },
   {
     header: 'Cantidad',
     key: 'quantity',
@@ -36,7 +70,7 @@ export const ordersExportColumns: ExportColumn[] = [
   {
     header: 'Ciudad',
     key: 'shipping_city',
-    width: 20,
+    width: 18,
     format: (value, row: any) => {
       if (value) return value;
       const zone = row?.delivery_zone;
@@ -47,13 +81,7 @@ export const ordersExportColumns: ExportColumn[] = [
       return String(zone).replace(/_/g, ' ');
     }
   },
-  { header: 'Transportadora', key: 'carrier', width: 20 },
-  {
-    header: 'Confirmado WhatsApp',
-    key: 'confirmedByWhatsApp',
-    width: 15,
-    format: (value) => value ? 'Sí' : 'No'
-  },
+  { header: 'Transportadora', key: 'carrier', width: 18 },
   {
     header: 'Método de Pago',
     key: 'payment_method',
@@ -76,7 +104,7 @@ export const ordersExportColumns: ExportColumn[] = [
   {
     header: 'Fecha',
     key: 'date',
-    width: 20,
+    width: 18,
     format: (value) => {
       if (!value) return '';
       const date = new Date(value);
