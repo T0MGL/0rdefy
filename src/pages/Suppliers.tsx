@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CardSkeleton } from '@/components/skeletons/CardSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ExportButton } from '@/components/ExportButton';
+import { SupplierMobileList } from '@/components/suppliers/SupplierMobileList';
 import { suppliersService } from '@/services/suppliers.service';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { onboardingService } from '@/services/onboarding.service';
@@ -306,8 +307,17 @@ export default function Suppliers() {
         </div>
       </div>
 
-      {/* Suppliers Table */}
-      <Card className="overflow-hidden">
+      {/* Suppliers - mobile card list */}
+      <div className="lg:hidden">
+        <SupplierMobileList
+          suppliers={suppliers}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+      </div>
+
+      {/* Suppliers Table - desktop only */}
+      <Card className="overflow-hidden hidden lg:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-muted/50">
