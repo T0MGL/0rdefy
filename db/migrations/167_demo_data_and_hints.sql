@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration 166: Demo Data Flag + Onboarding Hints + Multi-Tenant Guard
+-- Migration 167: Demo Data Flag + Onboarding Hints + Multi-Tenant Guard
 -- ============================================================================
 --
 -- PURPOSE
@@ -68,7 +68,7 @@ BEGIN;
 DO $$
 BEGIN
   RAISE NOTICE '============================================================';
-  RAISE NOTICE ' Migration 166: Demo data flag + onboarding hints + guard';
+  RAISE NOTICE ' Migration 167: Demo data flag + onboarding hints + guard';
   RAISE NOTICE '============================================================';
 END $$;
 
@@ -295,7 +295,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION get_store_usage(UUID) IS
   'Returns current plan limits and usage counts for a store. Updated in '
-  'migration 166 to exclude is_demo=TRUE rows from orders and products '
+  'migration 167 to exclude is_demo=TRUE rows from orders and products '
   'counts (decision 1: demo data never consumes plan quota). Signature '
   'unchanged from migration 056.';
 
@@ -334,14 +334,14 @@ DECLARE
     v_restore_result RECORD;
     v_found_product_id UUID;
     v_has_variant_functions BOOLEAN;
-    v_is_demo BOOLEAN;                    -- ADDED in migration 166
+    v_is_demo BOOLEAN;                    -- ADDED in migration 167
 BEGIN
     -- Only process if sleeves_status actually changed
     IF (TG_OP = 'UPDATE' AND OLD.sleeves_status IS NOT DISTINCT FROM NEW.sleeves_status) THEN
         RETURN NEW;
     END IF;
 
-    -- ADDED in migration 166: capture is_demo for inventory_movements tagging
+    -- ADDED in migration 167: capture is_demo for inventory_movements tagging
     v_is_demo := COALESCE(NEW.is_demo, FALSE);
 
     -- Check if variant functions exist (backward compatibility)
@@ -660,7 +660,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION update_product_stock_on_order_status() IS
-  'UPDATED in migration 166 (Option B for demo orders): now propagates '
+  'UPDATED in migration 167 (Option B for demo orders): now propagates '
   'orders.is_demo into inventory_movements.is_demo for every stock change '
   '(decrement, cancel, revert). Demo orders DO decrement stock so the seeded '
   'demo product runs out realistically; the is_demo tag lets finance/audit '
