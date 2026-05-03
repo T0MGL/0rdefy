@@ -201,6 +201,11 @@ interface Store {
   role: string;
   timezone?: string;
   separate_confirmation_flow?: boolean;
+  // Migration 168. Defaults TRUE on the backend; we keep it optional in TS so
+  // a stale cached `user` payload (pre-deploy) is still type-safe. Consumers
+  // must read it as `currentStore?.auto_assign_cheapest_carrier !== false` to
+  // preserve the auto-pick default.
+  auto_assign_cheapest_carrier?: boolean;
 }
 
 interface User {

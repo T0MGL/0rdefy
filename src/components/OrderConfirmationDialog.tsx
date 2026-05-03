@@ -79,6 +79,11 @@ export function OrderConfirmationDialog({
 }: OrderConfirmationDialogProps) {
   const { toast } = useToast();
   const { currentStore } = useAuth();
+  // Migration 168: per-store preference. Default-on via `!== false` so a
+  // stale cached store object (no field) preserves the historical auto-pick
+  // behavior. When false, the carrier list still renders, but we never
+  // pre-select on the user's behalf, the operator must click a row.
+  const autoAssignCarrier = currentStore?.auto_assign_cheapest_carrier !== false;
   const { hasFeature } = useSubscription();
 
   // Separate Confirmation Flow Detection
@@ -397,14 +402,19 @@ export function OrderConfirmationDialog({
             // If pre-selected carrier not found, fall through to auto-select
           }
 
-          // If carrier is already selected (pre-filled from order), keep it
-          // Otherwise auto-select cheapest carrier with coverage
+          // If carrier is already selected (pre-filled from order), keep it.
+          // Otherwise auto-select cheapest carrier with coverage, ONLY when
+          // the per-store auto-assign preference is on (migration 168).
           if (!courierId) {
-            const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
-            if (cheapest) {
-              setCourierId(cheapest.carrier_id);
-              setShippingCost(cheapest.rate || 0);
+            if (autoAssignCarrier) {
+              const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+              if (cheapest) {
+                setCourierId(cheapest.carrier_id);
+                setShippingCost(cheapest.rate || 0);
+              }
             }
+            // Auto-assign OFF: leave carrier unselected. The list renders
+            // with rates, the operator picks manually.
           } else {
             // Verify the pre-selected carrier has coverage, update rate if found
             const preselectedCarrier = sorted.find((c: CarrierWithCoverage) => c.carrier_id === courierId);
@@ -412,11 +422,18 @@ export function OrderConfirmationDialog({
               // Keep the carrier, update rate from coverage data
               setShippingCost(preselectedCarrier.rate || 0);
             } else if (preselectedCarrier && !preselectedCarrier.has_coverage) {
-              // Pre-selected carrier doesn't have coverage - auto-select cheapest
-              const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
-              if (cheapest) {
-                setCourierId(cheapest.carrier_id);
-                setShippingCost(cheapest.rate || 0);
+              // Pre-selected carrier doesn't have coverage. Fall back to the
+              // cheapest only if auto-assign is on, otherwise clear so the
+              // operator is forced to pick a covered carrier.
+              if (autoAssignCarrier) {
+                const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+                if (cheapest) {
+                  setCourierId(cheapest.carrier_id);
+                  setShippingCost(cheapest.rate || 0);
+                }
+              } else {
+                setCourierId('');
+                setShippingCost(0);
               }
             }
           }

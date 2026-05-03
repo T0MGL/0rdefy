@@ -511,7 +511,7 @@ export function GlobalSearch() {
                             ad: '/ads',
                             customer: '/customers',
                           };
-                          handleSelect(() => navigate(routes[item.type], { state: { highlightId: item.id } }));
+                          handleSelect(() => navigate(`${routes[item.type]}?highlight=${item.id}`));
                         }
                       }}
                       className="flex items-center justify-between"
@@ -549,7 +549,7 @@ export function GlobalSearch() {
                             ad: '/ads',
                             customer: '/customers',
                           };
-                          handleSelect(() => navigate(routes[search.type], { state: { highlightId: search.id } }));
+                          handleSelect(() => navigate(`${routes[search.type]}?highlight=${search.id}`));
                         }
                       }}
                     >
@@ -577,7 +577,7 @@ export function GlobalSearch() {
                         key={`order-${order.id}`}
                         value={searchableValue}
                         onSelect={() => handleSelect(
-                          () => navigate('/orders', { state: { highlightId: order.id } }),
+                          () => navigate(`/orders?highlight=${order.id}`),
                           { id: order.id, type: 'order', label: `Pedido ${displayId} - ${order.customer}` }
                         )}
                         className="flex items-center justify-between group"
@@ -617,7 +617,7 @@ export function GlobalSearch() {
                         key={`product-${product.id}`}
                         value={searchableValue}
                         onSelect={() => handleSelect(
-                          () => navigate('/products', { state: { highlightId: product.id } }),
+                          () => navigate(`/products?highlight=${product.id}`),
                           { id: product.id, type: 'product', label: `Producto ${product.name}` }
                         )}
                         className="flex items-center justify-between group"
@@ -663,7 +663,7 @@ export function GlobalSearch() {
                         key={`customer-${customer.id}`}
                         value={searchableValue}
                         onSelect={() => handleSelect(
-                          () => navigate('/customers', { state: { highlightId: customer.id } }),
+                          () => navigate(`/customers?highlight=${customer.id}`),
                           { id: customer.id, type: 'customer', label: `Cliente ${fullName}` }
                         )}
                         className="flex items-center justify-between group"
@@ -706,7 +706,7 @@ export function GlobalSearch() {
                         key={`ad-${ad.id}`}
                         value={searchableValue}
                         onSelect={() => handleSelect(
-                          () => navigate('/ads', { state: { highlightId: ad.id } }),
+                          () => navigate(`/ads?highlight=${ad.id}`),
                           { id: ad.id, type: 'ad', label: `Campaña ${ad.campaign_name || ad.platform}` }
                         )}
                         className="flex items-center justify-between group"

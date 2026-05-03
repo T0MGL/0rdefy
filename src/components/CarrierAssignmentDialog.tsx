@@ -23,6 +23,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { useCarriers } from '@/hooks/useCarriers';
 import { Loader2, Check, ChevronsUpDown, MapPin, Truck, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -62,6 +63,10 @@ export function CarrierAssignmentDialog({
   onAssigned,
 }: CarrierAssignmentDialogProps) {
   const { toast } = useToast();
+  const { currentStore } = useAuth();
+  // Migration 168: per-store toggle. Default-on semantic via `!== false`,
+  // so a stale cached store (no field) keeps the historical auto-pick.
+  const autoAssignCarrier = currentStore?.auto_assign_cheapest_carrier !== false;
   const { carriers, isLoading: loadingCarriers, isError: carriersError, refetch: refetchCarriers } = useCarriers({ activeOnly: true });
 
   const isMountedRef = useRef(true);
@@ -179,11 +184,16 @@ export function CarrierAssignmentDialog({
           });
           setCarriersWithCoverage(sorted);
 
-          // Auto-select cheapest carrier with coverage
-          const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
-          if (cheapest) {
-            setCourierId(cheapest.carrier_id);
-            setShippingCost(cheapest.rate || 0);
+          // Auto-select cheapest carrier with coverage. Gated by the
+          // per-store preference (migration 168). When OFF, we still render
+          // the list with rates, but do NOT preselect, the operator must
+          // click manually before assigning.
+          if (autoAssignCarrier) {
+            const cheapest = sorted.find((c: CarrierWithCoverage) => c.has_coverage);
+            if (cheapest) {
+              setCourierId(cheapest.carrier_id);
+              setShippingCost(cheapest.rate || 0);
+            }
           }
         } else {
           setCarriersWithCoverage([]);
@@ -201,6 +211,7 @@ export function CarrierAssignmentDialog({
     return () => {
       controller.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- autoAssignCarrier intentionally excluded; we only re-fetch on city change. Toggling the preference does not re-fetch, but the next city change will honor it.
   }, [selectedCity]);
 
   // Reset state when dialog opens

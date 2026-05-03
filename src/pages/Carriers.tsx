@@ -21,7 +21,7 @@ import {
   CarrierReplicationTarget,
   CarrierReplicationResult,
 } from '@/services/carriers.service';
-import { Plus, Package, TrendingUp, Clock, Star, Search, Map, MapPin, ChevronRight } from 'lucide-react';
+import { Plus, Package, TrendingUp, Clock, Star, Search, Map as MapIcon, MapPin, ChevronRight } from 'lucide-react';
 import { carrierZonesService, CarrierZone } from '@/services/carrier-zones.service';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
@@ -538,7 +538,7 @@ export default function Carriers() {
             className="gap-2"
             onClick={handleOpenCoverageMap}
           >
-            <Map size={16} />
+            <MapIcon size={16} />
             Cobertura
           </Button>
           <Button
@@ -664,7 +664,7 @@ export default function Carriers() {
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Map size={18} />
+              <MapIcon size={18} />
               Mapa de cobertura
             </DialogTitle>
           </DialogHeader>

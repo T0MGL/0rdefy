@@ -431,7 +431,8 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
                     country,
                     currency,
                     timezone,
-                    separate_confirmation_flow
+                    separate_confirmation_flow,
+                    auto_assign_cheapest_carrier
                 )
             `)
             .eq('user_id', user.id)
@@ -448,6 +449,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
             currency: us.stores.currency,
             timezone: us.stores.timezone,
             separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
+            auto_assign_cheapest_carrier: us.stores.auto_assign_cheapest_carrier ?? true,
             role: us.role
         })) || [];
 
@@ -802,7 +804,8 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
                     country,
                     currency,
                     timezone,
-                    separate_confirmation_flow
+                    separate_confirmation_flow,
+                    auto_assign_cheapest_carrier
                 )
             `)
             .eq('user_id', req.userId)
@@ -815,6 +818,7 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
             currency: us.stores.currency,
             timezone: us.stores.timezone,
             separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
+            auto_assign_cheapest_carrier: us.stores.auto_assign_cheapest_carrier ?? true,
             role: us.role
         })) || [];
 
@@ -1329,6 +1333,7 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
                     currency,
                     timezone,
                     separate_confirmation_flow,
+                    auto_assign_cheapest_carrier,
                     tax_rate,
                     admin_fee
                 )
@@ -1352,6 +1357,7 @@ authRouter.get('/stores', verifyToken, async (req: AuthRequest, res: Response) =
             currency: us.stores.currency,
             timezone: us.stores.timezone,
             separate_confirmation_flow: us.stores.separate_confirmation_flow ?? false,
+            auto_assign_cheapest_carrier: us.stores.auto_assign_cheapest_carrier ?? true,
             tax_rate: us.stores.tax_rate,
             admin_fee: us.stores.admin_fee,
             role: us.role
@@ -1531,11 +1537,15 @@ authRouter.put('/stores/:storeId/currency', verifyToken, async (req: AuthRequest
 authRouter.put('/stores/:storeId/preferences', verifyToken, async (req: AuthRequest, res: Response) => {
     try {
         const { storeId } = req.params;
-        const { separate_confirmation_flow } = req.body;
+        const { separate_confirmation_flow, auto_assign_cheapest_carrier } = req.body;
 
-        log.info('Store preferences update request', { storeId, separate_confirmation_flow });
+        log.info('Store preferences update request', {
+            storeId,
+            separate_confirmation_flow,
+            auto_assign_cheapest_carrier
+        });
 
-        // Validate input type
+        // Validate input types
         if (separate_confirmation_flow !== undefined && typeof separate_confirmation_flow !== 'boolean') {
             log.warn('Invalid separate_confirmation_flow type');
             return res.status(400).json({
@@ -1545,7 +1555,25 @@ authRouter.put('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
             });
         }
 
-        // Verify user has access to this store AND is owner
+        if (auto_assign_cheapest_carrier !== undefined && typeof auto_assign_cheapest_carrier !== 'boolean') {
+            log.warn('Invalid auto_assign_cheapest_carrier type');
+            return res.status(400).json({
+                success: false,
+                error: 'auto_assign_cheapest_carrier debe ser booleano',
+                code: 'INVALID_TYPE'
+            });
+        }
+
+        // At least one preference must be present
+        if (separate_confirmation_flow === undefined && auto_assign_cheapest_carrier === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: 'Debe enviar al menos una preferencia para actualizar',
+                code: 'NO_FIELDS'
+            });
+        }
+
+        // Verify user has access to this store
         const { data: userStore, error: accessError } = await supabaseAdmin
             .from('user_stores')
             .select('role')
@@ -1562,13 +1590,24 @@ authRouter.put('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
             });
         }
 
-        // Only owners can change workflow preferences
-        if (userStore.role !== 'owner') {
-            log.security('Non-owner tried to update preferences', { userId: req.userId, storeId, role: userStore.role });
+        // Workflow change (separate_confirmation_flow) is owner-only because it
+        // changes who-does-what across the team. UX preferences like
+        // auto_assign_cheapest_carrier are owner+admin (Module.SETTINGS edit).
+        if (separate_confirmation_flow !== undefined && userStore.role !== 'owner') {
+            log.security('Non-owner tried to update workflow preference', { userId: req.userId, storeId, role: userStore.role });
             return res.status(403).json({
                 success: false,
-                error: 'Solo el dueño puede cambiar las preferencias de flujo de trabajo',
+                error: 'Solo el dueño puede cambiar el flujo de confirmación',
                 code: 'OWNER_ONLY'
+            });
+        }
+
+        if (auto_assign_cheapest_carrier !== undefined && !['owner', 'admin'].includes(userStore.role)) {
+            log.security('Non-admin tried to update auto-assign preference', { userId: req.userId, storeId, role: userStore.role });
+            return res.status(403).json({
+                success: false,
+                error: 'Solo el dueño o administrador puede cambiar esta preferencia',
+                code: 'ADMIN_OR_OWNER_ONLY'
             });
         }
 
@@ -1593,15 +1632,23 @@ authRouter.put('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
             }
         }
 
-        // Update store preference
+        // Build update payload from only the fields the caller sent so
+        // partial updates don't accidentally reset other preferences.
+        const updatePayload: Record<string, any> = {
+            updated_at: new Date().toISOString()
+        };
+        if (separate_confirmation_flow !== undefined) {
+            updatePayload.separate_confirmation_flow = separate_confirmation_flow;
+        }
+        if (auto_assign_cheapest_carrier !== undefined) {
+            updatePayload.auto_assign_cheapest_carrier = auto_assign_cheapest_carrier;
+        }
+
         const { data: updatedStore, error: updateError } = await supabaseAdmin
             .from('stores')
-            .update({
-                separate_confirmation_flow: separate_confirmation_flow ?? false,
-                updated_at: new Date().toISOString()
-            })
+            .update(updatePayload)
             .eq('id', storeId)
-            .select('id, name, separate_confirmation_flow')
+            .select('id, name, separate_confirmation_flow, auto_assign_cheapest_carrier')
             .single();
 
         if (updateError) {
@@ -1613,12 +1660,17 @@ authRouter.put('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
             });
         }
 
-        log.info('Store preferences updated', { storeId, separate_confirmation_flow: updatedStore.separate_confirmation_flow });
+        log.info('Store preferences updated', {
+            storeId,
+            separate_confirmation_flow: updatedStore.separate_confirmation_flow,
+            auto_assign_cheapest_carrier: updatedStore.auto_assign_cheapest_carrier
+        });
 
         res.json({
             success: true,
             data: {
-                separate_confirmation_flow: updatedStore.separate_confirmation_flow
+                separate_confirmation_flow: updatedStore.separate_confirmation_flow,
+                auto_assign_cheapest_carrier: updatedStore.auto_assign_cheapest_carrier
             }
         });
     } catch (error: any) {
@@ -1659,7 +1711,7 @@ authRouter.get('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
         // Get store preferences
         const { data: store, error: storeError } = await supabaseAdmin
             .from('stores')
-            .select('id, name, separate_confirmation_flow')
+            .select('id, name, separate_confirmation_flow, auto_assign_cheapest_carrier')
             .eq('id', storeId)
             .single();
 
@@ -1675,6 +1727,9 @@ authRouter.get('/stores/:storeId/preferences', verifyToken, async (req: AuthRequ
             success: true,
             data: {
                 separate_confirmation_flow: store.separate_confirmation_flow ?? false,
+                // Default TRUE matches the column default in migration 168, so
+                // a stale cached client (no migration) keeps current behavior.
+                auto_assign_cheapest_carrier: store.auto_assign_cheapest_carrier ?? true,
                 // Include user's role for this store (important for separate confirmation flow detection)
                 user_role: userStore.role
             }

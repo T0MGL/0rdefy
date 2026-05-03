@@ -13,7 +13,7 @@ import { useAuth, Role } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { preserveShopifyParams, isShopifyEmbedded } from '@/utils/shopifyNavigation';
-import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users, Loader2 } from 'lucide-react';
+import { User, Mail, Phone, Building, Upload, CreditCard, Bell, Palette, Shield, AlertCircle, Eye, EyeOff, LogOut, Store, Trash2, CheckCircle, Monitor, Smartphone, Tablet, MapPin, Clock, X, Activity, Globe, Users, Loader2, Truck } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { logger } from '@/utils/logger';
 import {
@@ -157,17 +157,29 @@ export default function Settings() {
   const [separateConfirmationFlow, setSeparateConfirmationFlow] = useState(currentStore?.separate_confirmation_flow || false);
   const [updatingSeparateFlow, setUpdatingSeparateFlow] = useState(false);
 
+  // Auto-assign cheapest carrier preference (migration 168). Default ON, and
+  // we read `!== false` so an undefined/legacy cached value still defaults to
+  // the historical auto-pick behavior.
+  const [autoAssignCarrier, setAutoAssignCarrier] = useState(
+    currentStore?.auto_assign_cheapest_carrier !== false
+  );
+  const [updatingAutoAssignCarrier, setUpdatingAutoAssignCarrier] = useState(false);
+
   // Update timezone, currency, and separate flow when currentStore changes
   useEffect(() => {
     if (currentStore) {
       setStoreTimezone(currentStore.timezone || 'America/Asuncion');
       setStoreCurrency(currentStore.currency || 'PYG');
       setSeparateConfirmationFlow(currentStore.separate_confirmation_flow || false);
+      setAutoAssignCarrier(currentStore.auto_assign_cheapest_carrier !== false);
     }
   }, [currentStore]);
 
   // Check if user is owner (only owners can access billing/subscription)
   const isOwner = permissions.currentRole === Role.OWNER;
+  // Owner OR admin can change the auto-assign carrier preference (matches
+  // backend Module.SETTINGS edit role gate).
+  const canEditCarrierAutoAssign = isOwner || permissions.currentRole === Role.ADMIN;
   // Billing is managed on app.ordefy.io, not inside the Shopify Admin embed.
   const isShopifyContext = isShopifyEmbedded();
 
@@ -459,6 +471,56 @@ export default function Settings() {
       });
     } finally {
       setUpdatingSeparateFlow(false);
+    }
+  };
+
+  const handleAutoAssignCarrierChange = async (enabled: boolean) => {
+    if (!currentStore?.id) return;
+
+    // Optimistic UI: flip immediately, roll back on error.
+    const previous = autoAssignCarrier;
+    setAutoAssignCarrier(enabled);
+    setUpdatingAutoAssignCarrier(true);
+
+    try {
+      await apiClient.put(`/auth/stores/${currentStore.id}/preferences`, {
+        auto_assign_cheapest_carrier: enabled
+      });
+
+      // Mirror into localStorage so a hard reload before the next /me call
+      // still reflects the new preference.
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        const userData = JSON.parse(savedUser);
+        userData.stores = (userData.stores || []).map((s: any) =>
+          s.id === currentStore.id ? { ...s, auto_assign_cheapest_carrier: enabled } : s
+        );
+        localStorage.setItem('user', JSON.stringify(userData));
+      }
+
+      toast({
+        title: enabled
+          ? 'Asignación automática activada'
+          : 'Asignación automática desactivada',
+        description: enabled
+          ? 'Al ingresar la ciudad del pedido se seleccionará automáticamente el courier más económico con cobertura.'
+          : 'Verás los couriers con sus tarifas, pero deberás elegir uno manualmente en cada pedido.',
+      });
+    } catch (error: any) {
+      logger.error('Error updating auto-assign carrier preference:', error);
+      // Roll back optimistic update.
+      setAutoAssignCarrier(previous);
+
+      const errorMessage =
+        error?.response?.data?.error || 'No se pudo actualizar la preferencia';
+
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingAutoAssignCarrier(false);
     }
   };
 
@@ -987,6 +1049,58 @@ export default function Settings() {
               </div>
             </div>
           </Card>
+
+          {/* Carrier Auto-Assignment - owner + admin (Module.SETTINGS edit) */}
+          {canEditCarrierAutoAssign && (
+            <Card className="p-6 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-950/20 dark:to-transparent">
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                <Truck size={20} />
+                Asignación de Courier
+              </h2>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between py-4">
+                  <div className="space-y-1.5 flex-1 mr-4">
+                    <Label
+                      htmlFor="auto-assign-carrier"
+                      className="text-base font-medium cursor-pointer"
+                    >
+                      Asignar automáticamente el courier con mejor precio según cobertura
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Cuando esté activado, al ingresar la ciudad del pedido se seleccionará
+                      automáticamente el courier más económico que cubra esa zona. Podés
+                      desactivarlo si preferís elegir manualmente cada vez.
+                    </p>
+                  </div>
+                  <Switch
+                    id="auto-assign-carrier"
+                    checked={autoAssignCarrier}
+                    onCheckedChange={handleAutoAssignCarrierChange}
+                    disabled={updatingAutoAssignCarrier}
+                  />
+                </div>
+
+                {!autoAssignCarrier && (
+                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-4 border border-blue-200 dark:border-blue-800">
+                    <div className="flex gap-2">
+                      <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-medium text-blue-800 dark:text-blue-300">
+                          Selección manual activa
+                        </p>
+                        <p className="text-blue-700 dark:text-blue-400 mt-1">
+                          La lista de couriers con sus tarifas seguirá apareciendo al confirmar
+                          un pedido, pero ninguno quedará preseleccionado. El operador deberá
+                          elegir uno antes de confirmar.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
 
           {/* Workflow Preferences - Only visible for plans with multiple users */}
           {hasTeamManagement && isOwner && (

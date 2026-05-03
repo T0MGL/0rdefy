@@ -1607,6 +1607,20 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
   // Selection handlers (select all non-deleted orders for bulk actions)
   const selectableOrders = useMemo(() => filteredOrders.filter(o => !o.deleted_at), [filteredOrders]);
 
+  // Sum of total_price (Gs.) for currently selected orders. Only re-runs when
+  // selection or visible orders change. Uses order.total (canonical) with
+  // total_price fallback for parity with order rows in this page.
+  const selectedTotal = useMemo(() => {
+    if (selectedOrderIds.size === 0) return 0;
+    let sum = 0;
+    for (const order of orders) {
+      if (selectedOrderIds.has(order.id)) {
+        sum += Number(order.total ?? order.total_price ?? 0) || 0;
+      }
+    }
+    return sum;
+  }, [orders, selectedOrderIds]);
+
   const handleToggleSelectAll = useCallback(() => {
     if (selectedOrderIds.size === selectableOrders.length && selectableOrders.length > 0) {
       setSelectedOrderIds(new Set());
@@ -2276,7 +2290,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
         </div>
 
         {/* Order Counter */}
-        <div className="flex items-center gap-2 pt-2 border-t">
+        <div className="flex items-center gap-2 flex-wrap pt-2 border-t">
           <Package2 className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm text-muted-foreground">
             Total de pedidos:
@@ -2285,6 +2299,15 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             {filteredOrders.length}
             {pagination.total > orders.length && ` de ${pagination.total}`}
           </Badge>
+          {selectedOrderIds.size > 0 && (
+            <span className="text-sm text-emerald-500 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+              <span className="text-muted-foreground/60">·</span>
+              Seleccionados: {selectedOrderIds.size}
+              <span className="text-emerald-600 dark:text-emerald-300 font-semibold tabular-nums">
+                ({formatCurrency(selectedTotal)})
+              </span>
+            </span>
+          )}
         </div>
 
         {/* P4: Active Filter Summary Bar */}
@@ -3316,10 +3339,10 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             ));
           }
 
-          // Refresh orders list after confirmation to get full updated data
+          // Refresh respecting active filters/date range. A bare getAll()
+          // would drop the status/carrier/search filter the user has set.
           try {
-            const response = await ordersService.getAll();
-            setOrders(response.data || []);
+            await refetch();
           } catch (error) {
             logger.error('Error refreshing orders:', error);
             // Keep optimistic update even if refresh fails
@@ -3342,10 +3365,10 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             ));
           }
 
-          // Refresh orders list after assignment to get full updated data
+          // Refresh respecting active filters/date range. A bare getAll()
+          // would drop the status/carrier/search filter the user has set.
           try {
-            const response = await ordersService.getAll();
-            setOrders(response.data || []);
+            await refetch();
           } catch (error) {
             logger.error('Error refreshing orders:', error);
           }
