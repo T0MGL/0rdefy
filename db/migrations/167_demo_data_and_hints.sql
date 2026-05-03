@@ -92,7 +92,7 @@ ALTER TABLE products
   ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_products_real_only
   ON products (store_id, created_at DESC)
-  WHERE is_demo = FALSE AND deleted_at IS NULL;
+  WHERE is_demo = FALSE AND is_active = TRUE;
 COMMENT ON COLUMN products.is_demo IS
   'TRUE for products seeded during onboarding demo. Excluded from plan '
   'usage, Shopify bidirectional sync, and product listings shown as "real".';
@@ -277,7 +277,7 @@ BEGIN
     FROM stores s
     LEFT JOIN orders o ON o.store_id = s.id
     LEFT JOIN products p ON p.store_id = s.id
-      AND (p.deleted_at IS NULL)
+      AND (p.is_active = TRUE)
     LEFT JOIN user_stores us ON us.store_id = s.id AND us.is_active = true
     WHERE s.id = p_store_id
   )
