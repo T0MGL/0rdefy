@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { ArrowLeft, Package, Loader2 } from 'lucide-react';
+import { ArrowLeft, Package, Loader2, LayoutList, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +21,7 @@ import {
   OrderSelector,
   PickingList,
   PackingOneByOne,
+  PackingByProduct,
   SessionSummary,
   ActiveSessions,
 } from '@/components/warehouse';
@@ -68,6 +69,15 @@ export default function WarehouseNew() {
   // Packing state
   const [packingData, setPackingData] = useState<PackingListResponse | null>(null);
   const [currentOrderIndex, setCurrentOrderIndex] = useState(0);
+  const [packingMode, setPackingMode] = useState<'by-order' | 'by-product'>(() => {
+    if (typeof window === 'undefined') return 'by-order';
+    const saved = localStorage.getItem('neonflow_packing_mode');
+    return saved === 'by-product' ? 'by-product' : 'by-order';
+  });
+  const updatePackingMode = useCallback((mode: 'by-order' | 'by-product') => {
+    setPackingMode(mode);
+    try { localStorage.setItem('neonflow_packing_mode', mode); } catch { /* quota / private mode */ }
+  }, []);
 
   // Loading states
   const [loading, setLoading] = useState(false);
@@ -714,20 +724,68 @@ export default function WarehouseNew() {
 
         {/* Packing Step */}
         {currentStep === 'packing' && session && packingData && (
-          <PackingOneByOne
-            packingData={packingData}
-            currentOrderIndex={currentOrderIndex}
-            onPackItem={handlePackItem}
-            onPackAllItems={handlePackAllItems}
-            onAutoPackSession={handleAutoPackSession}
-            onPrintLabel={handlePrintLabel}
-            onNextOrder={() => setCurrentOrderIndex(i => Math.min(i + 1, packingData.orders.length - 1))}
-            onPreviousOrder={() => setCurrentOrderIndex(i => Math.max(i - 1, 0))}
-            onGoToOrder={setCurrentOrderIndex}
-            onCompleteSession={handleCompleteSession}
-            onCancelSession={handleCancelSession}
-            loading={actionLoading}
-          />
+          <div className="h-full flex flex-col">
+            {/* Mode toggle */}
+            <div className="bg-card border-b px-4 py-2 flex items-center gap-2 shrink-0">
+              <span className="text-sm text-muted-foreground mr-2">Modo empaque:</span>
+              <div className="flex rounded-md border overflow-hidden">
+                <button
+                  onClick={() => updatePackingMode('by-order')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+                    packingMode === 'by-order'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  <LayoutList className="h-3.5 w-3.5" />
+                  Por pedido
+                </button>
+                <button
+                  onClick={() => updatePackingMode('by-product')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors border-l ${
+                    packingMode === 'by-product'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  Por producto
+                </button>
+              </div>
+            </div>
+
+            {packingMode === 'by-order' ? (
+              <PackingOneByOne
+                packingData={packingData}
+                currentOrderIndex={currentOrderIndex}
+                onPackItem={handlePackItem}
+                onPackAllItems={handlePackAllItems}
+                onAutoPackSession={handleAutoPackSession}
+                onPrintLabel={handlePrintLabel}
+                onNextOrder={() => setCurrentOrderIndex(i => Math.min(i + 1, packingData.orders.length - 1))}
+                onPreviousOrder={() => setCurrentOrderIndex(i => Math.max(i - 1, 0))}
+                onGoToOrder={setCurrentOrderIndex}
+                onCompleteSession={handleCompleteSession}
+                onCancelSession={handleCancelSession}
+                loading={actionLoading}
+              />
+            ) : (
+              <PackingByProduct
+                packingData={packingData}
+                currentOrderIndex={currentOrderIndex}
+                onPackItem={handlePackItem}
+                onPackAllItems={handlePackAllItems}
+                onAutoPackSession={handleAutoPackSession}
+                onPrintLabel={handlePrintLabel}
+                onNextOrder={() => setCurrentOrderIndex(i => Math.min(i + 1, packingData.orders.length - 1))}
+                onPreviousOrder={() => setCurrentOrderIndex(i => Math.max(i - 1, 0))}
+                onGoToOrder={setCurrentOrderIndex}
+                onCompleteSession={handleCompleteSession}
+                onCancelSession={handleCancelSession}
+                loading={actionLoading}
+              />
+            )}
+          </div>
         )}
 
         {/* Verification Step */}

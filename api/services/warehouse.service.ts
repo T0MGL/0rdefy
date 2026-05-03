@@ -1973,10 +1973,48 @@ export async function getConfirmedOrders(storeId: string) {
 
     if (error) throw error;
 
+    const orders = data || [];
+
+    // Collect all order IDs to batch-fetch normalized line items (Shopify orders)
+    const orderIds = orders.map((o: any) => o.id);
+
+    // Single batch query for image_url across all confirmed orders — no N+1
+    const lineItemsWithImages = orderIds.length > 0
+      ? await batchedSelect<{ order_id: string; image_url: string | null }>(
+          'order_line_items',
+          'order_id, image_url',
+          'order_id',
+          orderIds
+        )
+      : [];
+
+    // Group thumbnails by order_id, deduplicate, keep non-null only
+    const thumbnailsByOrder = new Map<string, string[]>();
+    for (const row of lineItemsWithImages) {
+      if (!row.image_url) continue;
+      const list = thumbnailsByOrder.get(row.order_id) ?? [];
+      if (!list.includes(row.image_url)) list.push(row.image_url);
+      thumbnailsByOrder.set(row.order_id, list);
+    }
+
     // Calculate total_items from JSONB line_items and format customer name
-    const ordersWithCounts = (data || []).map((order: any) => {
-      // Validate that id is a UUID (not a Shopify ID)
-      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(order.id);
+    const ordersWithCounts = orders.map((order: any) => {
+      // For orders without normalized line_items, fall back to products table images
+      // via the JSONB line_items product_id array (handled client-side via thumbnails)
+      const normalizedThumbnails = thumbnailsByOrder.get(order.id) ?? [];
+
+      // Fallback: extract image_url from JSONB line_items when no normalized rows exist
+      let thumbnails = normalizedThumbnails;
+      if (thumbnails.length === 0 && Array.isArray(order.line_items)) {
+        const seen = new Set<string>();
+        for (const item of order.line_items) {
+          const url = item.image_url as string | undefined;
+          if (url && !seen.has(url)) {
+            seen.add(url);
+            thumbnails = [...thumbnails, url];
+          }
+        }
+      }
 
       return {
         id: order.id,
@@ -1987,7 +2025,8 @@ export async function getConfirmedOrders(storeId: string) {
         carrier_name: order.carriers?.name || 'Sin transportadora',
         total_items: Array.isArray(order.line_items)
           ? order.line_items.reduce((sum: number, item: any) => sum + (parseInt(item.quantity, 10) || 0), 0)
-          : 0
+          : 0,
+        product_thumbnails: thumbnails,
       };
     });
 

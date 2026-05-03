@@ -14,6 +14,7 @@ import { onboardingService } from '@/services/onboarding.service';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { OrderListSkeleton } from '@/components/ui/skeleton-matched';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -362,9 +363,7 @@ export default function Shipping() {
       {/* Orders List */}
       {
         loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </div>
+          <OrderListSkeleton count={6} />
         ) : orders.length === 0 ? (
           <Card className="p-12">
             <div className="text-center">

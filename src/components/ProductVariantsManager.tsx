@@ -3,13 +3,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogDescription,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogBody,
+} from '@/components/ui/responsive-dialog';
 import {
   Table,
   TableBody,
@@ -380,18 +381,19 @@ export function ProductVariantsManager({
 
   return (
     <TooltipProvider>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+        <ResponsiveDialogContent desktopMaxWidth="max-w-4xl">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              Gestionar Producto - {productName}
-            </DialogTitle>
-            <DialogDescription>
+              <span className="truncate">Gestionar Producto - {productName}</span>
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
               Configura packs (cantidades con descuento) y variantes (tallas, colores) para este producto.
-            </DialogDescription>
-          </DialogHeader>
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
 
+          <ResponsiveDialogBody>
           <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setShowAddForm(false); }} className="flex-1 flex flex-col">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="bundles" className="flex items-center gap-2">
@@ -405,7 +407,7 @@ export function ProductVariantsManager({
             </TabsList>
 
             {/* BUNDLES TAB */}
-            <TabsContent value="bundles" className="flex-1 overflow-y-auto space-y-4 mt-4">
+            <TabsContent value="bundles" className="space-y-4 mt-4">
               {/* Stock Summary Card for Bundles */}
               <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
                 <div className="flex items-start gap-4">
@@ -633,7 +635,7 @@ export function ProductVariantsManager({
             </TabsContent>
 
             {/* VARIATIONS TAB */}
-            <TabsContent value="variations" className="flex-1 overflow-y-auto space-y-4 mt-4">
+            <TabsContent value="variations" className="space-y-4 mt-4">
               {/* Variation Info Card */}
               <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-200 dark:border-emerald-800">
                 <div className="flex items-start gap-4">
@@ -860,14 +862,15 @@ export function ProductVariantsManager({
               )}
             </TabsContent>
           </Tabs>
+          </ResponsiveDialogBody>
 
-          <DialogFooter className="border-t pt-4">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <ResponsiveDialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="touch-target">
               Cerrar
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     </TooltipProvider>
   );
 }

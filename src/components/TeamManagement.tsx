@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { isShopifyEmbedded } from '@/utils/shopifyNavigation';
+import { confirm } from '@/components/ui/confirm';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -412,6 +413,7 @@ El link expira en 7 dias.`;
                         variant={copiedUrl ? "default" : "outline"}
                         size="icon"
                         className={copiedUrl ? "bg-green-600 hover:bg-green-700" : ""}
+                        aria-label={copiedUrl ? 'Link copiado' : 'Copiar link de invitacion'}
                       >
                         {copiedUrl ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                       </Button>
@@ -528,10 +530,14 @@ El link expira en 7 dias.`;
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            if (window.confirm(`¿Remover a ${member.name} del equipo?`)) {
-                              removeMember.mutate(member.id);
-                            }
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: `Remover a ${member.name}?`,
+                              description: 'Perdera acceso a la cuenta. Podes volver a invitarlo cuando quieras.',
+                              confirmText: 'Remover',
+                              variant: 'destructive',
+                            });
+                            if (ok) removeMember.mutate(member.id);
                           }}
                           disabled={removeMember.isPending}
                           aria-label={`Remover a ${member.name} del equipo`}

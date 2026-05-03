@@ -1196,51 +1196,21 @@ export default function Settlements() {
           {/* TAB: CONCILIACIONES */}
           {/* ============================================================ */}
           <TabsContent value="conciliaciones" className="space-y-6 mt-6">
-            {/* View Toggle - New delivery-based view vs legacy dispatch-based */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Button
-                  variant={useDeliveryBasedView ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setUseDeliveryBasedView(true)}
-                  className="gap-2"
-                >
-                  <Calendar className="h-4 w-4" />
-                  Por fecha de entrega
-                </Button>
-                <Button
-                  variant={!useDeliveryBasedView ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setUseDeliveryBasedView(false)}
-                  className="gap-2"
-                >
-                  <Truck className="h-4 w-4" />
-                  Por sesion de despacho
-                </Button>
-              </div>
-              {!useDeliveryBasedView && (
-                <div className="flex items-center gap-3">
-                  <Button variant="outline" onClick={loadGroups} disabled={loading}>
-                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                    Actualizar
-                  </Button>
-                  <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Importar CSV
-                  </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv"
-                    onChange={handleImportCSV}
-                    className="hidden"
-                  />
-                </div>
-              )}
+            {/* What is reconciliation - shown once, self-dismissing */}
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-1">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <Truck className="h-4 w-4 text-primary" />
+                Como funciona la conciliacion
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Cada vez que un repartidor completa su ruta, registra aqui que pedidos se entregaron y cuanto cobro.
+                Esto cierra la cuenta del dia: Ordefy sabe que COD recibio el repartidor y cuanto te debe.
+                Los repartidores no necesitan escanear QR para que aparezcan aqui.
+              </p>
             </div>
 
-            {/* NEW: Delivery-based reconciliation view */}
-            {useDeliveryBasedView ? (
+            {/* Delivery-based reconciliation view (primary and only path) */}
+            {true ? (
               <PendingReconciliationView />
             ) : (
               <>
@@ -2090,7 +2060,7 @@ export default function Settlements() {
         />
 
         {/* Floating Action Bar */}
-        <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50">
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 max-w-[calc(100vw-1rem)]">
           <Card className="px-6 py-4 shadow-xl border-primary/20 bg-card/95 backdrop-blur-sm">
             <div className="flex items-center gap-6">
               {/* Stats */}

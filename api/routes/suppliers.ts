@@ -89,6 +89,9 @@ suppliersRouter.get('/', async (req: AuthRequest, res: Response) => {
             products_supplied: productCountsBySupplier[supplier.id] || 0
         }));
 
+        // Suppliers are a slow-moving catalog. A short private cache absorbs
+        // dropdown/dialog repetition without staling out user-driven edits.
+        res.set('Cache-Control', 'private, max-age=60');
         res.json({
             data: suppliersWithCounts || [],
             pagination: {

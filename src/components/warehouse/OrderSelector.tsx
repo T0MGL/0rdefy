@@ -3,7 +3,7 @@
  * Improved order cards for the selection phase with order numbers as protagonists
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Package, User, MapPin, Phone, Search, CheckSquare, Square, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,79 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import type { ConfirmedOrder } from '@/services/warehouse.service';
+
+// ============================================================================
+// PRODUCT THUMBNAIL STACK
+// ============================================================================
+
+const THUMBNAIL_VISIBLE = 3;
+
+interface ThumbnailStackProps {
+  thumbnails: string[];
+}
+
+function ThumbnailStack({ thumbnails }: ThumbnailStackProps) {
+  const [broken, setBroken] = useState<Set<number>>(new Set());
+
+  const handleError = useCallback((idx: number) => {
+    setBroken(prev => {
+      const next = new Set(prev);
+      next.add(idx);
+      return next;
+    });
+  }, []);
+
+  const visible = thumbnails.slice(0, THUMBNAIL_VISIBLE);
+  const overflow = thumbnails.length - THUMBNAIL_VISIBLE;
+
+  return (
+    <div className="flex items-center mb-3">
+      <div className="flex">
+        {visible.map((src, idx) => (
+          <div
+            key={`${src}-${idx}`}
+            className={cn(
+              'w-8 h-8 rounded-full border-2 border-card bg-muted shrink-0 flex items-center justify-center',
+              idx > 0 && '-ml-2',
+              !broken.has(idx) && 'overflow-hidden'
+            )}
+            style={{ zIndex: THUMBNAIL_VISIBLE - idx }}
+          >
+            {broken.has(idx) ? (
+              <Package className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <img
+                src={src}
+                alt=""
+                className="w-full h-full object-cover"
+                onError={() => handleError(idx)}
+              />
+            )}
+          </div>
+        ))}
+        {overflow > 0 && (
+          <div
+            className="w-8 h-8 rounded-full border-2 border-card bg-muted flex items-center justify-center shrink-0 -ml-2"
+            style={{ zIndex: 0 }}
+          >
+            <span className="text-[10px] font-semibold text-muted-foreground">+{overflow}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Fallback stack shown when there are no thumbnails at all
+function PackageFallback() {
+  return (
+    <div className="flex items-center mb-3">
+      <div className="w-8 h-8 rounded-full border-2 border-card bg-muted flex items-center justify-center">
+        <Package className="h-4 w-4 text-muted-foreground" />
+      </div>
+    </div>
+  );
+}
 
 interface OrderSelectorProps {
   orders: ConfirmedOrder[];
@@ -151,6 +224,13 @@ export function OrderSelector({
                   )}
                 </div>
 
+                {/* Product Thumbnails */}
+                {order.product_thumbnails && order.product_thumbnails.length > 0 ? (
+                  <ThumbnailStack thumbnails={order.product_thumbnails} />
+                ) : (
+                  <PackageFallback />
+                )}
+
                 {/* Customer Info */}
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2 text-muted-foreground">
@@ -194,7 +274,7 @@ export function OrderSelector({
 
       {/* Floating Action Bar */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50">
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 max-w-[calc(100vw-1rem)]">
           <Card className="px-6 py-4 shadow-xl border-primary/20 bg-card/95 backdrop-blur-sm">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">

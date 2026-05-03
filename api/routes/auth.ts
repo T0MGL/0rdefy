@@ -139,6 +139,30 @@ const JWT_AUDIENCE = 'ordefy-app';
 const TOKEN_EXPIRY = '7d';
 const SALT_ROUNDS = 10;
 
+// Supabase Realtime auth bridge.
+// We sign a second token with Supabase's JWT secret so the browser can
+// authenticate against Realtime. RLS policies resolve auth.uid() from the
+// "sub" claim and match it against user_stores.user_id.
+const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
+if (!SUPABASE_JWT_SECRET) {
+    throw new Error('FATAL: SUPABASE_JWT_SECRET environment variable is required');
+}
+const SUPABASE_TOKEN_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days, matches TOKEN_EXPIRY
+
+function signSupabaseRealtimeToken(user: { id: string; email: string }): string {
+    return jwt.sign(
+        {
+            sub: user.id,
+            email: user.email,
+            role: 'authenticated',
+            aud: 'authenticated',
+            exp: Math.floor(Date.now() / 1000) + SUPABASE_TOKEN_EXPIRY_SECONDS,
+        },
+        SUPABASE_JWT_SECRET!,
+        { algorithm: 'HS256' }
+    );
+}
+
 authRouter.post('/register', registerRateLimiter, async (req: Request, res: Response) => {
     try {
         const parsed = RegisterSchema.safeParse(req.body);
@@ -262,11 +286,14 @@ authRouter.post('/register', registerRateLimiter, async (req: Request, res: Resp
             audience: JWT_AUDIENCE
         });
 
+        const supabaseToken = signSupabaseRealtimeToken({ id: newUser.id, email: newUser.email });
+
         log.info('Registration completed', { userId: newUser.id });
 
         res.status(201).json({
             success: true,
             token,
+            supabaseToken,
             user: {
                 id: newUser.id,
                 email: newUser.email,
@@ -463,6 +490,8 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
             audience: JWT_AUDIENCE
         });
 
+        const supabaseToken = signSupabaseRealtimeToken({ id: user.id, email: user.email });
+
         // Get IP and User Agent for security tracking
         const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || 'unknown';
         const userAgent = req.headers['user-agent'] || 'unknown';
@@ -491,6 +520,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
         res.json({
             success: true,
             token,
+            supabaseToken,
             user: {
                 id: user.id,
                 email: user.email,
@@ -799,9 +829,14 @@ const handleProfileUpdate = async (req: AuthRequest, res: Response) => {
             audience: JWT_AUDIENCE
         });
 
+        const supabaseToken = updatedUser?.id && updatedUser?.email
+            ? signSupabaseRealtimeToken({ id: updatedUser.id, email: updatedUser.email })
+            : undefined;
+
         res.json({
             success: true,
             token,
+            supabaseToken,
             user: {
                 id: updatedUser?.id,
                 email: updatedUser?.email,

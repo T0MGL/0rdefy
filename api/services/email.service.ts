@@ -26,6 +26,7 @@ import type {
   InvoiceEmailTemplateData,
   GenericEmailTemplateData,
 } from './email-templates';
+import { renderMilestoneEmail, type MilestoneEmailData } from './email-jsx-templates';
 
 let resendClient: Resend | null = null;
 
@@ -53,6 +54,8 @@ export interface EmailAttachment {
   filename: string;
   content: Buffer;
   contentType?: string;
+  /** When set, the attachment is embedded inline and referenced via cid:contentId in HTML */
+  contentId?: string;
 }
 
 async function send(
@@ -78,11 +81,21 @@ async function send(
     };
 
     if (attachments && attachments.length > 0) {
-      payload.attachments = attachments.map((att) => ({
-        filename: att.filename,
-        content: att.content,
-        contentType: att.contentType || 'application/pdf',
-      }));
+      payload.attachments = attachments.map((att) => {
+        const a: Record<string, unknown> = {
+          filename: att.filename,
+          content: att.content,
+          contentType: att.contentType || 'application/pdf',
+        };
+        // Resend inline-image format: when content_id is set, the asset is
+        // available in HTML as <img src="cid:<id>" />. Both camelCase and
+        // snake_case keys are sent for SDK compatibility.
+        if (att.contentId) {
+          a.content_id = att.contentId;
+          a.contentId = att.contentId;
+        }
+        return a;
+      });
     }
 
     const { data: result, error } = await client.emails.send(
@@ -164,6 +177,96 @@ export async function sendInvoiceEmail(
 
 export async function sendGenericEmail(to: string, data: GenericEmailTemplateData): Promise<SendResult> {
   return send(to, genericTemplate(data), 'generic');
+}
+
+/**
+ * Founder-signed milestone email (react-email rendered).
+ *
+ * The "From" header is overridden to display "Gastón de Ordefy" so the email
+ * lands as personal in the inbox, not as a transactional notification. The
+ * underlying mailbox (and SPF/DKIM) is the same ops sender. Override the
+ * full address by setting MILESTONE_FROM_EMAIL in env.
+ *
+ * Image strategy: Satori renders are downscaled to 560px native (matches the
+ * email container width). At that size each PNG is ~10-15 KB, total MIME
+ * message stays well under Gmail's 102 KB clip threshold even with two
+ * inline images attached via CID.
+ *
+ * Optional `chartPoints` controls the chart data. If omitted, falls back to
+ * a synthetic curve (test/preview only).
+ */
+export async function sendMilestoneEmail(
+  to: string,
+  data: MilestoneEmailData,
+  opts?: { chartPoints?: Array<{ label: string; value: number }>; storeId?: string },
+): Promise<SendResult> {
+  const { renderEmailHero, renderOrdersChart } = await import('./share-card-renderer');
+
+  const heroSubtitle = data.milestoneValue === 1 ? 'PRIMERA' : 'ÓRDENES';
+  const points = opts?.chartPoints ?? buildSyntheticChartPoints(data.milestoneValue);
+
+  const [heroPng, chartPng] = await Promise.all([
+    renderEmailHero({
+      milestoneValue: data.milestoneValue,
+      subtitle: heroSubtitle,
+    }),
+    renderOrdersChart(points),
+  ]);
+
+  const heroCid = 'milestone-hero';
+  const chartCid = 'milestone-chart';
+
+  const enrichedData: MilestoneEmailData = {
+    ...data,
+    heroImageUrl: `cid:${heroCid}`,
+    chartImageUrl: `cid:${chartCid}`,
+  };
+  const rendered = await renderMilestoneEmail(enrichedData);
+
+  const fromOverride =
+    process.env.MILESTONE_FROM_EMAIL ||
+    'Gastón de Ordefy <noreply@ops.ordefy.io>';
+
+  // Branded Spanish filenames (visible if Gmail can't render inline)
+  const heroFilename = `ordefy-${data.milestoneValue}-ordenes.png`;
+  const chartFilename = `ordefy-progreso.png`;
+
+  return send(to, rendered, 'milestone', fromOverride, [
+    {
+      filename: heroFilename,
+      content: heroPng,
+      contentType: 'image/png',
+      contentId: heroCid,
+    },
+    {
+      filename: chartFilename,
+      content: chartPng,
+      contentType: 'image/png',
+      contentId: chartCid,
+    },
+  ]);
+}
+
+function buildSyntheticChartPoints(
+  milestoneValue: number,
+): Array<{ label: string; value: number }> {
+  // Cumulative growth curve, slightly accelerating, ending at milestoneValue.
+  // Used when no real data is available (test script / preview).
+  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul'];
+  const n = Math.min(7, Math.max(4, Math.ceil(milestoneValue / 30)));
+  const result: Array<{ label: string; value: number }> = [];
+  for (let i = 0; i < n; i++) {
+    // Easing curve so the line accelerates toward the end
+    const t = i / (n - 1);
+    const eased = Math.pow(t, 1.6);
+    result.push({
+      label: months[i] ?? `M${i + 1}`,
+      value: Math.round(eased * milestoneValue),
+    });
+  }
+  // Make sure last point lands exactly on milestoneValue
+  result[result.length - 1].value = milestoneValue;
+  return result;
 }
 
 export function isConfigured(): boolean {

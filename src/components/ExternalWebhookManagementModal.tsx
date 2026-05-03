@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/utils/logger';
+import { confirm } from '@/components/ui/confirm';
 import {
   Webhook,
   Copy,
@@ -337,9 +338,13 @@ export function ExternalWebhookManagementModal({
   };
 
   const handleDisable = async () => {
-    if (!confirm('Desactivar este webhook? No podras recibir mas pedidos externos.')) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Desactivar webhook?',
+      description: 'Si lo desactivas no podras recibir mas pedidos externos hasta que lo vuelvas a habilitar.',
+      confirmText: 'Desactivar',
+      variant: 'warning',
+    });
+    if (!ok) return;
 
     setIsDisabling(true);
     try {

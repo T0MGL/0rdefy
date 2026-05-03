@@ -206,20 +206,20 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
                         {onViewInvoice && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onViewInvoice(inv.id)} title="Ver detalle">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onViewInvoice(inv.id)} title="Ver detalle" aria-label={`Ver detalle de factura ${inv.document_number}`}>
                             <Eye size={14} />
                           </Button>
                         )}
                         {(inv.sifen_status === 'approved' || inv.sifen_status === 'demo') && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadPDF(inv.id, inv.document_number)} title="Descargar PDF (KUDE)">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadPDF(inv.id, inv.document_number)} title="Descargar PDF (KUDE)" aria-label={`Descargar PDF KUDE de factura ${inv.document_number}`}>
                             <FileText size={14} />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadXML(inv.id, inv.cdc)} title="Descargar XML firmado">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownloadXML(inv.id, inv.cdc)} title="Descargar XML firmado" aria-label={`Descargar XML firmado de factura ${inv.document_number}`}>
                           <FileCode size={14} />
                         </Button>
                         {inv.sifen_status === 'rejected' && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-600" onClick={() => handleRetry(inv.id)} disabled={retryingId === inv.id} title="Reintentar envío">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-orange-600" onClick={() => handleRetry(inv.id)} disabled={retryingId === inv.id} title="Reintentar envío" aria-label={`Reintentar envío de factura ${inv.document_number}`}>
                             {retryingId === inv.id ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                           </Button>
                         )}
@@ -240,10 +240,10 @@ export function InvoiceHistoryTable({ onViewInvoice }: Props) {
             Página {page + 1} de {totalPages}
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(p => p - 1)} aria-label="Pagina anterior">
               <ChevronLeft size={14} />
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} aria-label="Pagina siguiente">
               <ChevronRight size={14} />
             </Button>
           </div>

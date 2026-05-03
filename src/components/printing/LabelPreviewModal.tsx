@@ -1,9 +1,13 @@
 import { useRef, useEffect, useState } from 'react';
 import { logger } from '@/utils/logger';
 import {
-  Dialog,
-  DialogContent,
-} from '@/components/ui/dialog';
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogBody,
+  ResponsiveDialogFooter,
+} from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Printer, Copy, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -211,31 +215,46 @@ export function LabelPreviewModal({ open, onOpenChange, data, onPrinted }: Label
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden bg-white dark:bg-gray-950">
-          {/* Actions bar at top */}
-          <div className="flex items-center justify-between p-3 border-b">
-            <span className="font-semibold text-sm">Etiqueta de Envío</span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleCopyLink} className="gap-1.5 h-8" type="button">
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                {copied ? 'Copiado' : 'Copiar Link'}
-              </Button>
-              <Button size="sm" onClick={handlePrint} className="gap-1.5 h-8" type="button">
-                <Printer size={14} />
-                Imprimir
-              </Button>
-            </div>
-          </div>
+      <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+        <ResponsiveDialogContent
+          desktopMaxWidth="max-w-md"
+          className="bg-white dark:bg-gray-950"
+        >
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>Etiqueta de Envío</ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
 
-          {/* Label preview - fills the modal */}
-          <div className="flex justify-center p-3 bg-gray-50 dark:bg-gray-900">
-            <div style={{ transform: 'scale(0.55)', transformOrigin: 'top center', height: '330px' }}>
-              <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
+          <ResponsiveDialogBody className="bg-gray-50 dark:bg-gray-900">
+            <div className="flex justify-center pt-1">
+              <div style={{ transform: 'scale(0.55)', transformOrigin: 'top center', height: '330px' }}>
+                <LabelContent data={data} qrCodeUrl={qrCodeUrl} showCOD={showCOD} isPaidByShopify={isPaidByShopify} />
+              </div>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </ResponsiveDialogBody>
+
+          <ResponsiveDialogFooter className="!flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={handleCopyLink}
+              className="flex-1 h-12 gap-1.5"
+              type="button"
+              aria-label={copied ? 'Link copiado al portapapeles' : 'Copiar link de seguimiento'}
+            >
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+              {copied ? 'Copiado' : 'Copiar Link'}
+            </Button>
+            <Button
+              onClick={handlePrint}
+              className="flex-1 h-12 gap-1.5"
+              type="button"
+              aria-label="Imprimir etiqueta"
+            >
+              <Printer size={16} />
+              Imprimir
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
 
       {/* Hidden container for iframe printing (never visible, only used to clone HTML) */}
       <div

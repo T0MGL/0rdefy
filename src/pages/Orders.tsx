@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrderQuickView } from '@/components/OrderQuickView';
+import { OrderMobileList } from '@/components/orders/OrderMobileList';
 import { OrdersCalendar } from '@/components/OrdersCalendar';
 import { OrderForm } from '@/components/forms/OrderForm';
 import { ExportButton } from '@/components/ExportButton';
@@ -22,6 +23,7 @@ import { useCarriers } from '@/hooks/useCarriers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useSmartPolling } from '@/hooks/useSmartPolling';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useDateRange } from '@/contexts/DateRangeContext';
 import { useAuth, Module, Permission } from '@/contexts/AuthContext';
@@ -254,10 +256,11 @@ export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Pagination state
+  // Pagination state. Limit kept tight by default to keep payloads small;
+  // the user can pull more pages with handleLoadMore.
   const [pagination, setPagination] = useState({
     total: 0,
-    limit: 50,
+    limit: 25,
     offset: 0,
     hasMore: false
   });
@@ -410,6 +413,14 @@ export default function Orders() {
     toastRef.current = toast;
   }, [toast]);
 
+  // Audio notification on new orders. Stored in a ref so handleRealtimeEvent
+  // can stay with empty deps without recreating the channel on every render.
+  const playNewOrderSound = useNotificationSound();
+  const playNewOrderSoundRef = useRef(playNewOrderSound);
+  useEffect(() => {
+    playNewOrderSoundRef.current = playNewOrderSound;
+  }, [playNewOrderSound]);
+
   const paginationLimitRef = useRef(pagination.limit);
   useEffect(() => {
     paginationLimitRef.current = pagination.limit;
@@ -459,67 +470,179 @@ export default function Orders() {
     fetchOnMount: true,
   });
 
-  // Realtime subscription: live order updates via Supabase WebSocket
+  // Map raw Postgres row (snake_case, sleeves_status) onto the camelCase Order
+  // shape used by the table. Only the columns that change from the WAL payload
+  // are merged. Anything else (line_items, carrier name, customer string) is
+  // kept from the prior in-memory row, so a single status update does not
+  // require a refetch.
+  const mergeRealtimeRow = useCallback((prev: Order, row: Record<string, unknown>): Order => {
+    const sleevesStatus = (row.sleeves_status ?? prev.status) as Order['status'];
+    const courierId = (row.courier_id ?? prev.carrier_id) as Order['carrier_id'];
+    const customerFirst = (row.customer_first_name ?? '') as string;
+    const customerLast = (row.customer_last_name ?? '') as string;
+    const customer = `${customerFirst} ${customerLast}`.trim() || prev.customer;
+
+    return {
+      ...prev,
+      status: sleevesStatus,
+      payment_status: (row.payment_status ?? prev.payment_status) as Order['payment_status'],
+      carrier_id: courierId,
+      customer,
+      phone: (row.customer_phone ?? prev.phone) as string,
+      address: (row.customer_address ?? prev.address) as string,
+      total: (row.total_price ?? prev.total) as number,
+      total_price: (row.total_price ?? prev.total_price) as number,
+      confirmedByWhatsApp:
+        sleevesStatus === 'confirmed' || sleevesStatus === 'shipped' || sleevesStatus === 'delivered',
+      confirmationTimestamp: (row.confirmed_at ?? prev.confirmationTimestamp) as string | undefined,
+      confirmationMethod: (row.confirmation_method ?? prev.confirmationMethod) as Order['confirmationMethod'],
+      rejectionReason: (row.rejection_reason ?? prev.rejectionReason) as string | undefined,
+      printed: (row.printed ?? prev.printed) as boolean,
+      printed_at: (row.printed_at ?? prev.printed_at) as string | undefined,
+      printed_by: (row.printed_by ?? prev.printed_by) as string | undefined,
+      deleted_at: (row.deleted_at ?? prev.deleted_at) as string | undefined,
+      deleted_by: (row.deleted_by ?? prev.deleted_by) as string | undefined,
+      deletion_type: (row.deletion_type ?? prev.deletion_type) as Order['deletion_type'],
+      cod_amount: (row.cod_amount ?? prev.cod_amount) as number | undefined,
+      amount_collected: (row.amount_collected ?? prev.amount_collected) as number | undefined,
+      has_amount_discrepancy: (row.has_amount_discrepancy ?? prev.has_amount_discrepancy) as boolean | undefined,
+      financial_status: (row.financial_status ?? prev.financial_status) as Order['financial_status'],
+      payment_method: (row.payment_method ?? prev.payment_method) as Order['payment_method'],
+      shipping_city: (row.shipping_city ?? prev.shipping_city) as string | undefined,
+      shipping_city_normalized: (row.shipping_city_normalized ?? prev.shipping_city_normalized) as string | undefined,
+      shipping_cost: (row.shipping_cost ?? prev.shipping_cost) as number | undefined,
+      delivery_zone: (row.delivery_zone ?? prev.delivery_zone) as string | undefined,
+      internal_notes: (row.internal_notes ?? prev.internal_notes) as string | undefined,
+      has_internal_notes: !!(row.internal_notes ?? prev.internal_notes),
+      delivery_notes: (row.delivery_notes ?? prev.delivery_notes) as string | undefined,
+      delivery_preferences: (row.delivery_preferences ?? prev.delivery_preferences) as Order['delivery_preferences'],
+      is_pickup: (row.is_pickup ?? prev.is_pickup) as boolean,
+      invoice_id: (row.invoice_id ?? prev.invoice_id) as string | undefined,
+    };
+  }, []);
+
+  // Realtime subscription: live order updates via Supabase WebSocket.
+  // The Postgres WAL payload already contains the new row, so an UPDATE is
+  // applied directly to local state without an extra HTTP round-trip. INSERTs
+  // for orders that are not yet in memory still require one fetch to hydrate
+  // nested data (line_items, carrier name); inserts that came from the local
+  // POST response are merged in place.
   const handleRealtimeEvent = useCallback(async (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => {
     const eventType = payload.eventType;
     const record = payload.new;
     const oldRecord = payload.old;
 
     if (eventType === 'DELETE') {
-      const deletedId = oldRecord?.id;
+      const deletedId = oldRecord?.id as string | undefined;
       if (deletedId) {
         setOrders(prev => prev.filter(o => o.id !== deletedId));
       }
       return;
     }
 
-    const changedId = record?.id;
+    const changedId = record?.id as string | undefined;
     if (!changedId) return;
 
-    try {
-      const freshOrder = await ordersService.getById(changedId);
-      if (!freshOrder) return;
+    const filters = serverFiltersRef.current;
+    const newSleevesStatus = record.sleeves_status as string | undefined;
+    const newCourierId = record.courier_id as string | undefined;
+    const matchesStatusFilter = !filters.status || newSleevesStatus === filters.status;
+    const matchesCarrierFilter = !filters.carrier_id || newCourierId === filters.carrier_id;
 
-      // Check if order matches active filters before adding/updating in the list
-      const filters = serverFiltersRef.current;
-      const matchesStatusFilter = !filters.status || freshOrder.status === filters.status;
-      const matchesCarrierFilter = !filters.carrier_id || freshOrder.carrier_id === filters.carrier_id;
-
-      if (eventType === 'INSERT') {
-        if (!matchesStatusFilter || !matchesCarrierFilter) return;
-
-        setOrders(prev => {
-          if (prev.some(o => o.id === changedId)) {
-            return prev.map(o => o.id === changedId ? freshOrder : o);
-          }
-          return [freshOrder, ...prev];
-        });
-
-        if (!filters.status && !filters.carrier_id && !filters.search) {
-          toastRef.current({
-            title: 'Nuevo Pedido',
-            description: `${freshOrder.customer} - ${freshOrder.total?.toLocaleString()} Gs`,
-          });
+    if (eventType === 'UPDATE') {
+      // Pure delta: no network call. If the order is on screen, merge in
+      // place. If filters were toggled and the row no longer matches, drop
+      // it. Rows that are not on screen (paginated out) are ignored; the
+      // 5-minute safety poll picks them up if needed.
+      setOrders(prev => {
+        if (!prev.some(o => o.id === changedId)) return prev;
+        if (!matchesStatusFilter || !matchesCarrierFilter) {
+          return prev.filter(o => o.id !== changedId);
         }
-      } else if (eventType === 'UPDATE') {
-        setOrders(prev => {
-          const existsInList = prev.some(o => o.id === changedId);
-          if (!existsInList) return prev;
-
-          if (!matchesStatusFilter || !matchesCarrierFilter) {
-            return prev.filter(o => o.id !== changedId);
-          }
-          return prev.map(o => o.id === changedId ? freshOrder : o);
-        });
-      }
-    } catch (err) {
-      logger.error('[Realtime] Failed to fetch order after event:', err);
+        return prev.map(o => o.id === changedId ? mergeRealtimeRow(o, record) : o);
+      });
+      return;
     }
-  }, []);
+
+    if (eventType !== 'INSERT') return;
+    if (!matchesStatusFilter || !matchesCarrierFilter) return;
+
+    // INSERT: if the order is already in memory (local POST response beat the
+    // realtime echo), merge. Otherwise fetch once to hydrate nested data.
+    let alreadyKnown = false;
+    setOrders(prev => {
+      if (prev.some(o => o.id === changedId)) {
+        alreadyKnown = true;
+        return prev.map(o => o.id === changedId ? mergeRealtimeRow(o, record) : o);
+      }
+      return prev;
+    });
+
+    if (alreadyKnown) return;
+
+    let freshOrder: Order | undefined;
+    try {
+      freshOrder = await ordersService.getById(changedId);
+    } catch (err) {
+      logger.error('[Realtime] Failed to hydrate inserted order:', err);
+      return;
+    }
+    if (!freshOrder) return;
+
+    let appendedNewOrder = false;
+    setOrders(prev => {
+      if (prev.some(o => o.id === changedId)) {
+        return prev.map(o => o.id === changedId ? (freshOrder as Order) : o);
+      }
+      appendedNewOrder = true;
+      return [freshOrder as Order, ...prev];
+    });
+
+    if (!appendedNewOrder) return;
+
+    playNewOrderSoundRef.current();
+
+    if (!filters.status && !filters.carrier_id && !filters.search) {
+      toastRef.current({
+        title: 'Nuevo Pedido',
+        description: `${freshOrder.customer} - ${freshOrder.total?.toLocaleString()} Gs`,
+      });
+    }
+
+    if (
+      typeof window !== 'undefined'
+      && 'Notification' in window
+      && Notification.permission === 'granted'
+      && document.visibilityState === 'hidden'
+    ) {
+      try {
+        const orderNumber = freshOrder.shopify_order_name
+          || (freshOrder.shopify_order_number ? `#${freshOrder.shopify_order_number}` : `#${String(freshOrder.id).slice(-4)}`);
+        const total = typeof freshOrder.total === 'number' ? freshOrder.total.toLocaleString() : '';
+        new Notification(`Nueva orden ${orderNumber}`, {
+          body: `${freshOrder.customer || 'Cliente'} - ${total} Gs`,
+          tag: `order-${freshOrder.id}`,
+          icon: '/favicon.png',
+        });
+      } catch (notifyErr) {
+        logger.warn('[Realtime] Failed to dispatch OS notification:', notifyErr);
+      }
+    }
+  }, [mergeRealtimeRow]);
+
+  // Subscribe to UPDATE and INSERT separately. DELETE is rare for orders
+  // (soft-deletes show up as UPDATEs to deleted_at) and we deliberately do
+  // not subscribe to '*' so the WebSocket only carries the events we use.
+  useRealtimeSubscription({
+    table: 'orders',
+    event: 'UPDATE',
+    callback: handleRealtimeEvent,
+    filterByStore: true,
+  });
 
   useRealtimeSubscription({
     table: 'orders',
-    event: '*',
+    event: 'INSERT',
     callback: handleRealtimeEvent,
     filterByStore: true,
   });
@@ -2285,7 +2408,42 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
             </div>
           </Card>
         ) : (
-          <Card className="overflow-hidden" data-tour-target="orders-table">
+          <>
+          {/* Mobile: card list (no horizontal scroll). Below lg breakpoint. */}
+          <div className="lg:hidden" data-tour-target="orders-table">
+            <OrderMobileList
+              orders={filteredOrders}
+              selectedOrderIds={selectedOrderIds}
+              onToggleSelect={handleToggleSelect}
+              onOpenOrder={(order) => {
+                setSelectedOrder(order);
+                setIsQuickViewOpen(true);
+              }}
+              isHighlighted={isHighlighted}
+            />
+            {pagination.hasMore && (
+              <div className="flex justify-center py-4">
+                <Button
+                  variant="outline"
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="min-w-[200px] touch-target"
+                >
+                  {isLoadingMore ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Cargando...
+                    </>
+                  ) : (
+                    <>Cargar mas ({Math.max(0, pagination.total - orders.length)} restantes)</>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Desktop: original wide table */}
+          <Card className="overflow-hidden hidden lg:block">
             <div className="overflow-x-auto">
               <table className="w-full table-fixed">
                 <colgroup>
@@ -3047,6 +3205,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
               </div>
             )}
           </Card>
+          </>
         )
       }
 

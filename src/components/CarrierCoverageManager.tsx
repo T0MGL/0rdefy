@@ -23,6 +23,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
+import { confirm } from '@/components/ui/confirm';
 import {
   MapPin,
   Loader2,
@@ -768,9 +769,15 @@ export function CarrierCoverageManager({
   return (
     <Dialog
       open={open}
-      onOpenChange={(isOpen) => {
+      onOpenChange={async (isOpen) => {
         if (!isOpen && hasUnsavedChanges) {
-          const confirmed = window.confirm('Tienes cambios sin guardar. Descartar?');
+          const confirmed = await confirm({
+            title: 'Descartar cambios?',
+            description: 'Tenes cambios sin guardar en la cobertura. Si cerras ahora se pierden.',
+            confirmText: 'Descartar',
+            cancelText: 'Seguir editando',
+            variant: 'warning',
+          });
           if (!confirmed) return;
         }
         if (!isOpen) {

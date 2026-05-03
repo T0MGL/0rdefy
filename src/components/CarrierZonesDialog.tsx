@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { carrierZonesService, CarrierZone } from '@/services/carrier-zones.service';
 import { formatCurrency } from '@/utils/currency';
 import { Plus, Pencil, Trash2, MapPin, Loader2 } from 'lucide-react';
+import { confirm } from '@/components/ui/confirm';
 
 interface CarrierZonesDialogProps {
   open: boolean;
@@ -132,7 +133,13 @@ export function CarrierZonesDialog({ open, onOpenChange, carrierId, carrierName 
   };
 
   const handleDelete = async (zoneId: string) => {
-    if (!confirm('¿Estás seguro de eliminar esta zona?')) return;
+    const ok = await confirm({
+      title: 'Eliminar zona?',
+      description: 'Esta accion no se puede deshacer.',
+      confirmText: 'Eliminar',
+      variant: 'destructive',
+    });
+    if (!ok) return;
 
     try {
       await carrierZonesService.deleteZone(zoneId);

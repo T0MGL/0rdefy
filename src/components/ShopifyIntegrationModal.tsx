@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import {
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogDescription,
+  ResponsiveDialogBody,
+} from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -8,6 +15,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useSubscription, FEATURE_MIN_PLAN } from '@/contexts/SubscriptionContext';
 import { config } from '@/config';
 import { logger } from '@/utils/logger';
+import { confirm } from '@/components/ui/confirm';
 
 interface ShopifyIntegration {
   id: string;
@@ -168,12 +176,14 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
   const handleDisconnect = async () => {
     if (!integration) return;
 
-    const confirmed = window.confirm(
-      '¿Estás seguro de que deseas desconectar tu tienda de Shopify?\n\n' +
-      'Los datos ya importados se conservarán en Ordefy.\n\n' +
-      'Ordefy intentará revocar automáticamente el acceso API y limpiar webhooks.\n\n' +
-      'IMPORTANTE: Shopify no permite desinstalar la app por API, así que también debes desinstalarla manualmente desde tu panel de Shopify (Settings → Apps → Develop apps → Ordefy Integration → Uninstall).'
-    );
+    const confirmed = await confirm({
+      title: 'Desconectar tienda de Shopify?',
+      description:
+        'Los datos ya importados quedan en Ordefy. Vamos a revocar el acceso API y limpiar los webhooks. Importante: Shopify no permite desinstalar la app por API, asi que tambien tenes que desinstalarla manualmente desde Shopify (Settings, Apps, Develop apps, Ordefy Integration, Uninstall).',
+      confirmText: 'Desconectar',
+      cancelText: 'Volver',
+      variant: 'destructive',
+    });
 
     if (!confirmed) return;
 
@@ -224,53 +234,56 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
 
   if (isLoading) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md">
-          <DialogHeader className="hidden">
-            <DialogTitle>Cargando</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col items-center justify-center py-8">
-            <RefreshCw className="h-8 w-8 animate-spin text-primary mb-4" />
-            <DialogDescription>Cargando configuración...</DialogDescription>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+        <ResponsiveDialogContent desktopMaxWidth="max-w-md">
+          <ResponsiveDialogHeader className="hidden">
+            <ResponsiveDialogTitle>Cargando</ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+          <ResponsiveDialogBody>
+            <div className="flex flex-col items-center justify-center py-8">
+              <RefreshCw className="h-8 w-8 animate-spin text-primary mb-4" />
+              <ResponsiveDialogDescription>Cargando configuración...</ResponsiveDialogDescription>
+            </div>
+          </ResponsiveDialogBody>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     );
   }
 
   if (!integration) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>No hay integración configurada</DialogTitle>
-            <DialogDescription>
+      <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+        <ResponsiveDialogContent desktopMaxWidth="max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>No hay integración configurada</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
               No se encontró ninguna integración de Shopify. Por favor, conecta tu tienda primero.
-            </DialogDescription>
-          </DialogHeader>
-        </DialogContent>
-      </Dialog>
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <ResponsiveDialogBody />
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+      <ResponsiveDialogContent desktopMaxWidth="max-w-lg">
+        <ResponsiveDialogHeader>
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
               <Store className="h-5 w-5 text-primary" />
             </div>
-            <div>
-              <DialogTitle className="text-xl">Gestionar integración de Shopify</DialogTitle>
-              <DialogDescription>
+            <div className="min-w-0">
+              <ResponsiveDialogTitle className="text-xl">Gestionar integración de Shopify</ResponsiveDialogTitle>
+              <ResponsiveDialogDescription>
                 Sincroniza tus datos y administra la conexión
-              </DialogDescription>
+              </ResponsiveDialogDescription>
             </div>
           </div>
-        </DialogHeader>
+        </ResponsiveDialogHeader>
 
-        <div className="space-y-6 py-4">
+        <ResponsiveDialogBody className="space-y-6 py-4">
           {/* Store Information */}
           <div className="p-4 bg-muted/30 rounded-lg space-y-2">
             <div className="flex items-center justify-between">
@@ -396,8 +409,8 @@ export function ShopifyIntegrationModal({ open, onOpenChange, onSuccess, onDisco
               Esto desconectará la integración con tu tienda. Los datos ya importados se conservarán en Ordefy.
             </p>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveDialogBody>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }

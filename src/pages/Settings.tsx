@@ -32,6 +32,7 @@ import apiClient from '@/services/api.client';
 import { TeamManagement } from '@/components/TeamManagement';
 import BillingPage from '@/pages/Billing';
 import { uploadAvatar, validateImageFile } from '@/services/upload.service';
+import { ListRowsSkeleton } from '@/components/ui/skeleton-matched';
 
 // Common timezones for Latin America
 const TIMEZONES = [
@@ -142,6 +143,13 @@ export default function Settings() {
     emailNotifications: true,
     orderAlerts: true,
     marketingEmails: false,
+  });
+
+  // Notification sound preference (persisted in localStorage, read by useNotificationSound).
+  // Default to enabled. The toggle writes 'on' or 'off' so the hook can no-op when muted.
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem('notification_sound') !== 'off';
   });
 
   const [storeTimezone, setStoreTimezone] = useState(currentStore?.timezone || 'America/Asuncion');
@@ -867,6 +875,33 @@ export default function Settings() {
 
               <div className="flex items-center justify-between py-4 border-b">
                 <div className="space-y-0.5">
+                  <Label htmlFor="notification-sound" className="text-base font-medium cursor-pointer">
+                    Sonido de nuevas órdenes
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Reproduce un tono breve cuando llega una orden nueva en tiempo real
+                  </p>
+                </div>
+                <Switch
+                  id="notification-sound"
+                  checked={notificationSoundEnabled}
+                  onCheckedChange={(checked) => {
+                    setNotificationSoundEnabled(checked);
+                    if (typeof window !== 'undefined') {
+                      window.localStorage.setItem('notification_sound', checked ? 'on' : 'off');
+                    }
+                    toast({
+                      title: checked ? 'Sonido activado' : 'Sonido silenciado',
+                      description: checked
+                        ? 'Vas a escuchar un tono breve al recibir órdenes nuevas.'
+                        : 'Las nuevas órdenes seguirán llegando, pero sin sonido.',
+                    });
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between py-4 border-b">
+                <div className="space-y-0.5">
                   <Label htmlFor="marketing" className="text-base font-medium cursor-pointer">
                     Emails de marketing
                   </Label>
@@ -1128,9 +1163,7 @@ export default function Settings() {
                   Gestiona los dispositivos desde los que has iniciado sesión
                 </p>
                 {loadingSessions ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                  </div>
+                  <ListRowsSkeleton count={3} />
                 ) : sessions.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4">No hay sesiones activas</p>
                 ) : (
@@ -1200,9 +1233,7 @@ export default function Settings() {
                   Historial de acciones importantes en tu cuenta
                 </p>
                 {loadingActivity ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                  </div>
+                  <ListRowsSkeleton count={4} />
                 ) : activityLog.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4">No hay actividad registrada</p>
                 ) : (

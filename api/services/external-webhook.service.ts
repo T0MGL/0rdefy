@@ -424,6 +424,11 @@ export class ExternalWebhookService {
   /**
    * Generates all plausible phone format variations for flexible matching.
    * Paraguay numbers: +595981123456 = 595981123456 = 0981123456
+   *
+   * Also handles the double-prefix bug (+5950XXXXXXXXX instead of +595XXXXXXXXX)
+   * that affected early Solenne orders. Both directions are covered:
+   * - correct incoming number finds malformed stored records
+   * - malformed incoming number finds correctly stored records
    */
   private getPhoneVariants(phone: string): string[] {
     const digits = phone.replace(/[^\d]/g, '');
@@ -432,37 +437,49 @@ export class ExternalWebhookService {
     const variants = new Set<string>();
 
     // Always include the raw normalized forms
-    variants.add(digits);                     // 595983912902
-    variants.add('+' + digits);               // +595983912902
+    variants.add(digits);
+    variants.add('+' + digits);
 
     // Paraguay country code: 595
     if (digits.startsWith('595')) {
-      const local = digits.slice(3);          // 983912902
-      variants.add('0' + local);              // 0983912902
-      variants.add(local);                    // 983912902
-      variants.add('+595' + local);           // +595983912902
-      variants.add('595' + local);            // 595983912902
-      // Spaced formats (legacy data from landing pages)
-      variants.add('+595 ' + local);          // +595 983912902
-      variants.add('+595 0' + local);         // +595 0983912902
+      const local = digits.slice(3);
+      // Normalize: if local starts with '0' this is the double-prefix bug (+5950XXXXXXXXX).
+      // canonicalLocal is the local number without the erroneous leading zero.
+      const isDoublePrefix = local.startsWith('0');
+      if (isDoublePrefix) {
+        logger.warn('BACKEND', '[PhoneVariants] Double-prefix pattern detected in lookup input (legacy Solenne format). Expanding variants to cover both +595XXXXXXXXX and +5950XXXXXXXXX forms.');
+      }
+      const canonicalLocal = isDoublePrefix ? local.slice(1) : local;
+      const localWithZero = '0' + canonicalLocal;
+
+      variants.add(canonicalLocal);                  // 981502037
+      variants.add(localWithZero);                   // 0981502037
+      variants.add('+595' + canonicalLocal);         // +595981502037 (correct E.164)
+      variants.add('595' + canonicalLocal);          // 595981502037
+      variants.add('+595' + localWithZero);          // +5950981502037 (malformed legacy)
+      variants.add('595' + localWithZero);           // 5950981502037
+      variants.add('+595 ' + canonicalLocal);        // +595 981502037
+      variants.add('+595 ' + localWithZero);         // +595 0981502037
     } else if (digits.startsWith('0')) {
-      const core = digits.slice(1);           // 983912902
-      variants.add('595' + core);             // 595983912902
-      variants.add('+595' + core);            // +595983912902
-      variants.add(core);                     // 983912902
-      variants.add(digits);                   // 0983912902
-      // Spaced formats (legacy data from landing pages)
-      variants.add('+595 ' + core);           // +595 983912902
-      variants.add('+595 0' + core);          // +595 0983912902
-      variants.add('+595 ' + digits);         // +595 0983912902
+      const core = digits.slice(1);                  // 981502037
+      variants.add('595' + core);                    // 595981502037
+      variants.add('+595' + core);                   // +595981502037
+      variants.add(core);                            // 981502037
+      variants.add(digits);                          // 0981502037
+      // Cover malformed stored format (+5950XXXXXXXXX)
+      variants.add('+595' + digits);                 // +5950981502037
+      variants.add('595' + digits);                  // 5950981502037
+      variants.add('+595 ' + core);                  // +595 981502037
+      variants.add('+595 ' + digits);                // +595 0981502037
     } else {
-      // Bare number without prefix (e.g. 983912902)
-      variants.add('0' + digits);             // 0983912902
-      variants.add('595' + digits);           // 595983912902
-      variants.add('+595' + digits);          // +595983912902
-      // Spaced formats (legacy data from landing pages)
-      variants.add('+595 ' + digits);         // +595 983912902
-      variants.add('+595 0' + digits);        // +595 0983912902
+      // Bare number without prefix (e.g. 981502037)
+      variants.add('0' + digits);                    // 0981502037
+      variants.add('595' + digits);                  // 595981502037
+      variants.add('+595' + digits);                 // +595981502037
+      variants.add('+595' + '0' + digits);           // +5950981502037 (malformed legacy)
+      variants.add('595' + '0' + digits);            // 5950981502037
+      variants.add('+595 ' + digits);                // +595 981502037
+      variants.add('+595 0' + digits);               // +595 0981502037
     }
 
     return Array.from(variants);

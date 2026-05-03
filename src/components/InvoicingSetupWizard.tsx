@@ -666,6 +666,7 @@ export function InvoicingSetupWizard({ onComplete }: Props) {
                         variant="ghost"
                         onClick={() => removeActivityRow(i)}
                         disabled={activitiesDraft.length === 1}
+                        aria-label="Eliminar actividad economica"
                       >
                         <Trash2 size={14} />
                       </Button>

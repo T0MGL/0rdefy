@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { confirm } from '@/components/ui/confirm';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { useSubscription } from '@/contexts/SubscriptionContext';
@@ -357,7 +358,14 @@ export default function Returns() {
   const handleCancelSession = async () => {
     if (!currentSession) return;
 
-    if (!confirm('¿Estás seguro de cancelar esta sesión?')) return;
+    const ok = await confirm({
+      title: 'Cancelar sesion de devolucion?',
+      description: 'Se descartan los items procesados de esta sesion. Esta accion no se puede deshacer.',
+      confirmText: 'Cancelar sesion',
+      cancelText: 'Volver',
+      variant: 'destructive',
+    });
+    if (!ok) return;
 
     setLoading(true);
     try {

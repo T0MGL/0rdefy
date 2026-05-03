@@ -138,7 +138,7 @@ function baseLayout({ preheader, content }: BaseLayoutOptions): string {
                 </tr>
                 <tr>
                   <td align="center" style="font-size: 11px; color: ${BRAND.textMuted}; line-height: 1.5; padding: 0 0 8px;">
-                    &copy; ${CURRENT_YEAR} Ordefy by Bright Idea. Todos los derechos reservados.
+                    &copy; ${CURRENT_YEAR} Ordefy. Todos los derechos reservados.
                   </td>
                 </tr>
               </table>
@@ -246,23 +246,23 @@ export interface WelcomeTemplateData {
 
 export function welcomeTemplate(data: WelcomeTemplateData): { html: string; text: string; subject: string } {
   const content = [
-    heading(`Bienvenido a Ordefy, ${data.userName}`),
-    subheading(`Tu tienda "${data.storeName}" esta lista para operar.`),
-    paragraph('Ordefy es la plataforma que centraliza pedidos, inventario, envios y facturacion para que puedas escalar tu e-commerce sin perder el control.'),
+    heading(`Te damos la bienvenida a Ordefy, ${data.userName}`),
+    subheading(`Tu tienda "${data.storeName}" está lista para operar.`),
+    paragraph('Ordefy es la plataforma que centraliza pedidos, inventario, envíos y facturación para que puedas escalar tu e-commerce sin perder el control.'),
     stepsList([
-      'Configura tu primera transportadora para habilitar envios',
-      'Agrega productos manualmente o conecta tu tienda Shopify',
-      'Crea tu primer pedido y genera una guia de envio',
+      'Configurá tu primera transportadora para habilitar envíos',
+      'Agregá productos manualmente o conectá tu tienda Shopify',
+      'Creá tu primer pedido y generá una guía de envío',
     ]),
     ctaButton('Ir a mi tienda', APP_URL),
     divider(),
-    smallText('Si necesitas ayuda en cualquier momento, responde a este correo o escribe a soporte@ordefy.io.'),
+    smallText('Si necesitás ayuda en cualquier momento, respondé a este correo o escribí a soporte@ordefy.io.'),
   ].join('');
 
   return {
-    subject: `Bienvenido a Ordefy, ${data.userName}`,
-    html: baseLayout({ preheader: `Tu tienda "${data.storeName}" esta lista. Empieza a gestionar pedidos hoy.`, content }),
-    text: `Bienvenido a Ordefy, ${data.userName}\n\nTu tienda "${data.storeName}" esta lista para operar.\n\nOrdefy centraliza pedidos, inventario, envios y facturacion para escalar tu e-commerce.\n\nPrimeros pasos:\n1. Configura tu primera transportadora\n2. Agrega productos o conecta Shopify\n3. Crea tu primer pedido\n\nIr a tu tienda: ${APP_URL}\n\nSoporte: soporte@ordefy.io\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    subject: `Te damos la bienvenida a Ordefy, ${data.userName}`,
+    html: baseLayout({ preheader: `Tu tienda "${data.storeName}" está lista. Empezá a gestionar pedidos hoy.`, content }),
+    text: `Te damos la bienvenida a Ordefy, ${data.userName}\n\nTu tienda "${data.storeName}" está lista para operar.\n\nOrdefy centraliza pedidos, inventario, envíos y facturación para escalar tu e-commerce.\n\nPrimeros pasos:\n1. Configurá tu primera transportadora\n2. Agregá productos o conectá Shopify\n3. Creá tu primer pedido\n\nIr a tu tienda: ${APP_URL}\n\nSoporte: soporte@ordefy.io\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -278,18 +278,18 @@ export interface EmailVerificationTemplateData {
 
 export function emailVerificationTemplate(data: EmailVerificationTemplateData): { html: string; text: string; subject: string } {
   const content = [
-    heading('Verifica tu correo electronico'),
-    subheading('Un paso mas para activar tu cuenta.'),
-    paragraph(`Hola ${data.userName}, confirma tu direccion de correo haciendo clic en el boton de abajo.`),
+    heading('Verificá tu correo electrónico'),
+    subheading('Un paso más para activar tu cuenta.'),
+    paragraph(`Hola ${data.userName}, confirmá tu dirección de correo haciendo clic en el botón de abajo.`),
     ctaButton('Verificar correo', data.verificationLink),
     divider(),
-    smallText(`Este enlace expira en ${data.expiresInMinutes} minutos. Si no creaste una cuenta en Ordefy, ignora este mensaje.`),
+    smallText(`Este enlace expira en ${data.expiresInMinutes} minutos. Si no creaste una cuenta en Ordefy, ignorá este mensaje.`),
   ].join('');
 
   return {
-    subject: 'Verifica tu correo en Ordefy',
-    html: baseLayout({ preheader: 'Confirma tu correo para activar tu cuenta en Ordefy.', content }),
-    text: `Verifica tu correo electronico\n\nHola ${data.userName}, confirma tu direccion de correo:\n${data.verificationLink}\n\nEste enlace expira en ${data.expiresInMinutes} minutos.\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    subject: 'Verificá tu correo en Ordefy',
+    html: baseLayout({ preheader: 'Confirmá tu correo para activar tu cuenta en Ordefy.', content }),
+    text: `Verificá tu correo electrónico\n\nHola ${data.userName}, confirmá tu dirección de correo:\n${data.verificationLink}\n\nEste enlace expira en ${data.expiresInMinutes} minutos.\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -305,18 +305,18 @@ export interface PasswordResetTemplateData {
 
 export function passwordResetTemplate(data: PasswordResetTemplateData): { html: string; text: string; subject: string } {
   const content = [
-    heading('Restablecer contrasena'),
-    subheading('Recibimos una solicitud para cambiar tu contrasena.'),
-    paragraph(`Hola ${data.userName}, haz clic en el boton para crear una nueva contrasena. Si no solicitaste este cambio, puedes ignorar este correo.`),
-    ctaButton('Restablecer contrasena', data.resetLink),
+    heading('Restablecer contraseña'),
+    subheading('Recibimos una solicitud para cambiar tu contraseña.'),
+    paragraph(`Hola ${data.userName}, hacé clic en el botón para crear una nueva contraseña. Si no solicitaste este cambio, podés ignorar este correo.`),
+    ctaButton('Restablecer contraseña', data.resetLink),
     divider(),
     smallText(`Este enlace expira en ${data.expiresInMinutes} minutos. Por seguridad, no compartas este enlace con nadie.`),
   ].join('');
 
   return {
-    subject: 'Restablecer contrasena en Ordefy',
-    html: baseLayout({ preheader: 'Solicitud de cambio de contrasena para tu cuenta Ordefy.', content }),
-    text: `Restablecer contrasena\n\nHola ${data.userName}, haz clic para crear una nueva contrasena:\n${data.resetLink}\n\nExpira en ${data.expiresInMinutes} minutos.\nSi no solicitaste esto, ignora este correo.\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    subject: 'Restablecer contraseña en Ordefy',
+    html: baseLayout({ preheader: 'Solicitud de cambio de contraseña para tu cuenta Ordefy.', content }),
+    text: `Restablecer contraseña\n\nHola ${data.userName}, hacé clic para crear una nueva contraseña:\n${data.resetLink}\n\nExpira en ${data.expiresInMinutes} minutos.\nSi no solicitaste esto, ignorá este correo.\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -337,7 +337,7 @@ export function collaboratorInviteTemplate(data: CollaboratorInviteTemplateData)
   const roleLabels: Record<string, string> = {
     owner: 'Propietario',
     admin: 'Administrador',
-    logistics: 'Logistica',
+    logistics: 'Logística',
     confirmador: 'Confirmador',
     contador: 'Contador',
     inventario: 'Inventario',
@@ -354,15 +354,15 @@ export function collaboratorInviteTemplate(data: CollaboratorInviteTemplateData)
       { label: 'Rol', value: roleLabel },
       { label: 'Invitado por', value: data.inviterName },
     ]),
-    ctaButton('Aceptar invitacion', data.inviteLink),
+    ctaButton('Aceptar invitación', data.inviteLink),
     divider(),
-    smallText(`Esta invitacion expira el ${expiresFormatted}. Si no esperabas esta invitacion, ignora este correo.`),
+    smallText(`Esta invitación expira el ${expiresFormatted}. Si no esperabas esta invitación, ignorá este correo.`),
   ].join('');
 
   return {
-    subject: `${data.inviterName} te invito a ${data.storeName} en Ordefy`,
-    html: baseLayout({ preheader: `Fuiste invitado como ${roleLabel} en "${data.storeName}". Acepta la invitacion.`, content }),
-    text: `Te invitaron al equipo\n\nHola ${data.inviteeName},\n\n${data.inviterName} te invito a colaborar en "${data.storeName}" como ${roleLabel}.\n\nAcepta aqui: ${data.inviteLink}\n\nExpira el ${expiresFormatted}.\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    subject: `${data.inviterName} te invitó a ${data.storeName} en Ordefy`,
+    html: baseLayout({ preheader: `Fuiste invitado como ${roleLabel} en "${data.storeName}". Aceptá la invitación.`, content }),
+    text: `Te invitaron al equipo\n\nHola ${data.inviteeName},\n\n${data.inviterName} te invitó a colaborar en "${data.storeName}" como ${roleLabel}.\n\nAceptá acá: ${data.inviteLink}\n\nExpira el ${expiresFormatted}.\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -379,24 +379,24 @@ export interface TrialStartTemplateData {
 
 export function trialStartTemplate(data: TrialStartTemplateData): { html: string; text: string; subject: string } {
   const content = [
-    heading('Tu periodo de prueba comenzo'),
-    subheading(`${data.trialDays} dias gratis del plan ${data.planName}.`),
-    paragraph(`Hola ${data.userName}, tu prueba gratuita del plan <strong>${data.planName}</strong> esta activa. Tienes acceso completo a todas las funcionalidades durante ${data.trialDays} dias.`),
+    heading('Tu período de prueba comenzó'),
+    subheading(`${data.trialDays} días gratis del plan ${data.planName}.`),
+    paragraph(`Hola ${data.userName}, tu prueba gratuita del plan <strong>${data.planName}</strong> está activa. Tenés acceso completo a todas las funcionalidades durante ${data.trialDays} días.`),
     infoTable([
       { label: 'Plan', value: data.planName },
-      { label: 'Duracion', value: `${data.trialDays} dias` },
+      { label: 'Duración', value: `${data.trialDays} días` },
       { label: 'Finaliza', value: data.trialEndsAt },
     ]),
-    paragraph('Aprovecha este periodo para configurar tu tienda, conectar integraciones y explorar todo lo que Ordefy ofrece.'),
+    paragraph('Aprovechá este período para configurar tu tienda, conectar integraciones y explorar todo lo que Ordefy ofrece.'),
     ctaButton('Explorar Ordefy', APP_URL),
     divider(),
-    smallText('No se realizara ningun cobro durante el periodo de prueba. Te avisaremos antes de que termine.'),
+    smallText('No se realizará ningún cobro durante el período de prueba. Te avisaremos antes de que termine.'),
   ].join('');
 
   return {
-    subject: `Tu prueba gratuita de ${data.trialDays} dias comenzo`,
-    html: baseLayout({ preheader: `Tienes ${data.trialDays} dias gratis del plan ${data.planName}. Explora todo lo que Ordefy ofrece.`, content }),
-    text: `Tu periodo de prueba comenzo\n\nHola ${data.userName}, tu prueba del plan ${data.planName} esta activa por ${data.trialDays} dias.\nFinaliza: ${data.trialEndsAt}\n\nExplorar: ${APP_URL}\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    subject: `Tu prueba gratuita de ${data.trialDays} días comenzó`,
+    html: baseLayout({ preheader: `Tenés ${data.trialDays} días gratis del plan ${data.planName}. Explorá todo lo que Ordefy ofrece.`, content }),
+    text: `Tu período de prueba comenzó\n\nHola ${data.userName}, tu prueba del plan ${data.planName} está activa por ${data.trialDays} días.\nFinaliza: ${data.trialEndsAt}\n\nExplorar: ${APP_URL}\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -412,23 +412,23 @@ export interface TrialEndingTemplateData {
 }
 
 export function trialEndingTemplate(data: TrialEndingTemplateData): { html: string; text: string; subject: string } {
-  const urgency = data.daysRemaining <= 1 ? 'Ultimo dia' : `${data.daysRemaining} dias restantes`;
+  const urgency = data.daysRemaining <= 1 ? 'Último día' : `${data.daysRemaining} días restantes`;
 
   const content = [
-    heading('Tu prueba esta por terminar'),
+    heading('Tu prueba está por terminar'),
     subheading(`${urgency} del plan ${data.planName}.`),
-    paragraph(`Hola ${data.userName}, tu periodo de prueba gratuito finaliza en <strong>${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}</strong>. Para seguir usando todas las funcionalidades, activa tu suscripcion.`),
-    paragraph('Al activar tu plan conservas toda tu configuracion, datos de pedidos, productos y equipo intactos.'),
+    paragraph(`Hola ${data.userName}, tu período de prueba gratuito finaliza en <strong>${data.daysRemaining} ${data.daysRemaining === 1 ? 'día' : 'días'}</strong>. Para seguir usando todas las funcionalidades, activá tu suscripción.`),
+    paragraph('Al activar tu plan conservás toda tu configuración, datos de pedidos, productos y equipo intactos.'),
     ctaButton('Activar plan', data.upgradeLink),
     secondaryButton('Comparar planes', `${APP_URL}/billing`),
     divider(),
-    smallText('Si decides no continuar, tu cuenta pasara al plan gratuito con funcionalidades limitadas. Tus datos se conservan.'),
+    smallText('Si decidís no continuar, tu cuenta pasará al plan gratuito con funcionalidades limitadas. Tus datos se conservan.'),
   ].join('');
 
   return {
-    subject: `Tu prueba gratuita termina en ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}`,
-    html: baseLayout({ preheader: `Quedan ${data.daysRemaining} dias de tu prueba del plan ${data.planName}. Activa tu suscripcion.`, content }),
-    text: `Tu prueba esta por terminar\n\nHola ${data.userName}, quedan ${data.daysRemaining} dias de tu prueba del plan ${data.planName}.\n\nActivar: ${data.upgradeLink}\nComparar planes: ${APP_URL}/billing\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    subject: `Tu prueba gratuita termina en ${data.daysRemaining} ${data.daysRemaining === 1 ? 'día' : 'días'}`,
+    html: baseLayout({ preheader: `Quedan ${data.daysRemaining} días de tu prueba del plan ${data.planName}. Activá tu suscripción.`, content }),
+    text: `Tu prueba está por terminar\n\nHola ${data.userName}, quedan ${data.daysRemaining} días de tu prueba del plan ${data.planName}.\n\nActivar: ${data.upgradeLink}\nComparar planes: ${APP_URL}/billing\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -448,24 +448,24 @@ export interface PlanUpgradeTemplateData {
 export function planUpgradeTemplate(data: PlanUpgradeTemplateData): { html: string; text: string; subject: string } {
   const content = [
     heading('Plan actualizado'),
-    subheading(`Cambiaste a ${data.newPlan}. Ya tienes acceso a todas las nuevas funcionalidades.`),
-    paragraph(`Hola ${data.userName}, tu suscripcion fue actualizada exitosamente.`),
+    subheading(`Cambiaste a ${data.newPlan}. Ya tenés acceso a todas las nuevas funcionalidades.`),
+    paragraph(`Hola ${data.userName}, tu suscripción fue actualizada exitosamente.`),
     infoTable([
       { label: 'Plan anterior', value: data.previousPlan },
       { label: 'Nuevo plan', value: `${data.newPlan} ${badge(data.newPlan)}` },
       { label: 'Monto', value: data.amount },
       { label: 'Ciclo', value: data.billingCycle },
-      { label: 'Proximo cobro', value: data.nextBillingDate },
+      { label: 'Próximo cobro', value: data.nextBillingDate },
     ]),
     ctaButton('Ir a mi tienda', APP_URL),
     divider(),
-    smallText('Puedes gestionar tu suscripcion en cualquier momento desde Configuracion > Facturacion.'),
+    smallText('Podés gestionar tu suscripción en cualquier momento desde Configuración > Facturación.'),
   ].join('');
 
   return {
     subject: `Plan actualizado a ${data.newPlan}`,
-    html: baseLayout({ preheader: `Tu plan fue actualizado a ${data.newPlan}. Accede a todas las nuevas funcionalidades.`, content }),
-    text: `Plan actualizado\n\nHola ${data.userName}, tu plan fue actualizado de ${data.previousPlan} a ${data.newPlan}.\nMonto: ${data.amount} (${data.billingCycle})\nProximo cobro: ${data.nextBillingDate}\n\n${APP_URL}\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    html: baseLayout({ preheader: `Tu plan fue actualizado a ${data.newPlan}. Accedé a todas las nuevas funcionalidades.`, content }),
+    text: `Plan actualizado\n\nHola ${data.userName}, tu plan fue actualizado de ${data.previousPlan} a ${data.newPlan}.\nMonto: ${data.amount} (${data.billingCycle})\nPróximo cobro: ${data.nextBillingDate}\n\n${APP_URL}\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -482,23 +482,23 @@ export interface PlanCancellationTemplateData {
 
 export function planCancellationTemplate(data: PlanCancellationTemplateData): { html: string; text: string; subject: string } {
   const content = [
-    heading('Suscripcion cancelada'),
-    subheading('Tu plan permanece activo hasta el final del periodo facturado.'),
-    paragraph(`Hola ${data.userName}, confirmamos la cancelacion de tu plan <strong>${data.currentPlan}</strong>.`),
+    heading('Suscripción cancelada'),
+    subheading('Tu plan permanece activo hasta el final del período facturado.'),
+    paragraph(`Hola ${data.userName}, confirmamos la cancelación de tu plan <strong>${data.currentPlan}</strong>.`),
     infoTable([
       { label: 'Plan', value: data.currentPlan },
       { label: 'Activo hasta', value: data.effectiveDate },
     ]),
-    paragraph('Tu cuenta y datos se mantienen disponibles. Puedes reactivar tu plan en cualquier momento desde la seccion de facturacion.'),
+    paragraph('Tu cuenta y datos se mantienen disponibles. Podés reactivar tu plan en cualquier momento desde la sección de facturación.'),
     ctaButton('Reactivar plan', `${APP_URL}/billing`),
     divider(),
-    smallText('Si tienes preguntas o comentarios, escribe a soporte@ordefy.io. Valoramos tu feedback.'),
+    smallText('Si tenés preguntas o comentarios, escribí a soporte@ordefy.io. Valoramos tu feedback.'),
   ].join('');
 
   return {
-    subject: 'Confirmacion de cancelacion de plan',
+    subject: 'Confirmación de cancelación de plan',
     html: baseLayout({ preheader: `Tu plan ${data.currentPlan} fue cancelado. Permanece activo hasta ${data.effectiveDate}.`, content }),
-    text: `Suscripcion cancelada\n\nHola ${data.userName}, tu plan ${data.currentPlan} fue cancelado.\nActivo hasta: ${data.effectiveDate}\n\nReactivar: ${APP_URL}/billing\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    text: `Suscripción cancelada\n\nHola ${data.userName}, tu plan ${data.currentPlan} fue cancelado.\nActivo hasta: ${data.effectiveDate}\n\nReactivar: ${APP_URL}/billing\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -540,7 +540,7 @@ export function orderConfirmationTemplate(data: OrderConfirmationTemplateData): 
       <td style="padding: 8px 0; font-size: 14px; color: ${BRAND.text}; text-align: right;">${data.subtotal}</td>
     </tr>
     <tr>
-      <td colspan="2" style="padding: 4px 0; font-size: 13px; color: ${BRAND.textSecondary}; text-align: right;">Envio</td>
+      <td colspan="2" style="padding: 4px 0; font-size: 13px; color: ${BRAND.textSecondary}; text-align: right;">Envío</td>
       <td style="padding: 4px 0; font-size: 14px; color: ${BRAND.text}; text-align: right;">${data.shipping}</td>
     </tr>
     <tr>
@@ -551,12 +551,12 @@ export function orderConfirmationTemplate(data: OrderConfirmationTemplateData): 
 
   const trackingSection = data.trackingUrl
     ? ctaButton('Rastrear pedido', data.trackingUrl)
-    : paragraph('Te notificaremos cuando tu pedido sea despachado con el numero de seguimiento.');
+    : paragraph('Te notificaremos cuando tu pedido sea despachado con el número de seguimiento.');
 
   const content = [
     heading(`Pedido #${data.orderNumber} confirmado`),
     subheading(`Gracias por tu compra en ${data.storeName}.`),
-    paragraph(`Hola ${data.customerName}, tu pedido fue recibido y esta siendo procesado.`),
+    paragraph(`Hola ${data.customerName}, tu pedido fue recibido y está siendo procesado.`),
     infoTable([
       { label: 'Pedido', value: `#${data.orderNumber}` },
       { label: 'Fecha', value: data.orderDate },
@@ -565,7 +565,7 @@ export function orderConfirmationTemplate(data: OrderConfirmationTemplateData): 
     itemsTable,
     trackingSection,
     divider(),
-    smallText(`Este correo fue enviado por ${data.storeName} a traves de Ordefy.`),
+    smallText(`Este correo fue enviado por ${data.storeName} a través de Ordefy.`),
   ].join('');
 
   const itemsText = data.items.map((i) => `  ${i.name} x${i.quantity}: ${i.price}`).join('\n');
@@ -573,7 +573,7 @@ export function orderConfirmationTemplate(data: OrderConfirmationTemplateData): 
   return {
     subject: `Pedido #${data.orderNumber} confirmado`,
     html: baseLayout({ preheader: `Tu pedido #${data.orderNumber} en ${data.storeName} fue confirmado. Total: ${data.total}`, content }),
-    text: `Pedido #${data.orderNumber} confirmado\n\nHola ${data.customerName}, tu pedido en ${data.storeName} fue recibido.\n\nProductos:\n${itemsText}\n\nSubtotal: ${data.subtotal}\nEnvio: ${data.shipping}\nTotal: ${data.total}\n\n${data.trackingUrl ? `Rastrear: ${data.trackingUrl}` : 'Te notificaremos cuando sea despachado.'}\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    text: `Pedido #${data.orderNumber} confirmado\n\nHola ${data.customerName}, tu pedido en ${data.storeName} fue recibido.\n\nProductos:\n${itemsText}\n\nSubtotal: ${data.subtotal}\nEnvío: ${data.shipping}\nTotal: ${data.total}\n\n${data.trackingUrl ? `Rastrear: ${data.trackingUrl}` : 'Te notificaremos cuando sea despachado.'}\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -607,7 +607,7 @@ export function invoiceEmailTemplate(data: InvoiceEmailTemplateData): { html: st
 
   const itemsTable = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 20px 0;">
     <tr>
-      <td style="padding: 8px 0; font-size: 11px; color: ${BRAND.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid ${BRAND.divider};">Descripcion</td>
+      <td style="padding: 8px 0; font-size: 11px; color: ${BRAND.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid ${BRAND.divider};">Descripción</td>
       <td style="padding: 8px 8px; font-size: 11px; color: ${BRAND.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; border-bottom: 1px solid ${BRAND.divider};">Cant.</td>
       <td style="padding: 8px 0; font-size: 11px; color: ${BRAND.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; text-align: right; border-bottom: 1px solid ${BRAND.divider};">P. Unitario</td>
     </tr>
@@ -623,19 +623,19 @@ export function invoiceEmailTemplate(data: InvoiceEmailTemplateData): { html: st
   </table>`;
 
   const kudeSection = data.kudeUrl
-    ? ctaButton('Ver factura electronica en DNIT', data.kudeUrl)
+    ? ctaButton('Ver factura electrónica en DNIT', data.kudeUrl)
     : '';
 
   const validationNote = data.isDemo
     ? 'Esta factura fue generada en modo demo y no tiene validez fiscal ante la DNIT.'
-    : 'Esta es tu factura electronica valida ante la DNIT. Puedes consultarla en el portal oficial usando el boton de arriba.';
+    : 'Esta es tu factura electrónica válida ante la DNIT. Podés consultarla en el portal oficial usando el botón de arriba.';
 
   const content = [
     heading(`Factura #${formattedNumber}`),
-    subheading(`Tu comprobante electronico de ${data.storeName}.`),
-    paragraph(`Hola ${data.customerName}, adjunto encontraras los detalles de tu factura electronica.`),
+    subheading(`Tu comprobante electrónico de ${data.storeName}.`),
+    paragraph(`Hola ${data.customerName}, adjunto encontrarás los detalles de tu factura electrónica.`),
     infoTable([
-      { label: 'Numero', value: `#${formattedNumber}` },
+      { label: 'Número', value: `#${formattedNumber}` },
       { label: 'Fecha', value: data.invoiceDate },
       { label: 'Emisor', value: data.storeName },
     ]),
@@ -648,9 +648,9 @@ export function invoiceEmailTemplate(data: InvoiceEmailTemplateData): { html: st
   const itemsText = data.items.map((i) => `  ${i.name} x${i.quantity}: ${i.unitPrice}`).join('\n');
 
   return {
-    subject: `Tu factura electronica #${formattedNumber} - ${data.storeName}`,
+    subject: `Tu factura electrónica #${formattedNumber} - ${data.storeName}`,
     html: baseLayout({ preheader: `Factura #${formattedNumber} de ${data.storeName}. Total: ${data.total}`, content }),
-    text: `Factura electronica #${formattedNumber}\n\nHola ${data.customerName},\n\nAdjunto los detalles de tu factura electronica de ${data.storeName}.\n\nFecha: ${data.invoiceDate}\n\nProductos:\n${itemsText}\n\nIVA 10%: ${data.iva10}\nTotal: ${data.total}\n\n${data.kudeUrl ? `Ver en DNIT: ${data.kudeUrl}\n\n` : ''}${validationNote}\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    text: `Factura electrónica #${formattedNumber}\n\nHola ${data.customerName},\n\nAdjunto los detalles de tu factura electrónica de ${data.storeName}.\n\nFecha: ${data.invoiceDate}\n\nProductos:\n${itemsText}\n\nIVA 10%: ${data.iva10}\nTotal: ${data.total}\n\n${data.kudeUrl ? `Ver en DNIT: ${data.kudeUrl}\n\n` : ''}${validationNote}\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
 
@@ -691,6 +691,6 @@ export function genericTemplate(data: GenericEmailTemplateData): { html: string;
   return {
     subject: data.title,
     html: baseLayout({ preheader: data.preheader || data.subtitle || data.title, content }),
-    text: `${data.title}\n\n${data.subtitle ? data.subtitle + '\n\n' : ''}${data.body}\n\n${data.ctaUrl ? `${data.ctaText}: ${data.ctaUrl}\n\n` : ''}${data.footerNote || ''}\n\n(c) ${CURRENT_YEAR} Ordefy by Bright Idea`,
+    text: `${data.title}\n\n${data.subtitle ? data.subtitle + '\n\n' : ''}${data.body}\n\n${data.ctaUrl ? `${data.ctaText}: ${data.ctaUrl}\n\n` : ''}${data.footerNote || ''}\n\n© ${CURRENT_YEAR} Ordefy`,
   };
 }
