@@ -164,14 +164,19 @@ productsRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
 
         // ✅ OPTIMIZED: Calculate sales using order_line_items table with direct filter
         // This replaces the N+1 query that fetched ALL orders with JSONB line_items
+        // Excludes only terminal-negative statuses (matches get_product_sales RPC, migration 171)
+        // Multiplies by units_per_pack so bundle sales count actual units sold
         const { data: salesData } = await supabaseAdmin
             .from('order_line_items')
-            .select('quantity, orders!inner(sleeves_status, store_id)')
+            .select('quantity, units_per_pack, orders!inner(sleeves_status, store_id)')
             .eq('product_id', data.id)
             .eq('orders.store_id', req.storeId)
-            .in('orders.sleeves_status', ['confirmed', 'shipped', 'delivered']);
+            .not('orders.sleeves_status', 'in', '(cancelled,rejected,returned)');
 
-        const sales = salesData?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
+        const sales = salesData?.reduce(
+            (sum, item: any) => sum + ((item.quantity || 0) * (item.units_per_pack || 1)),
+            0
+        ) || 0;
 
         // Transform data to match frontend Product interface
         const transformedData = {
