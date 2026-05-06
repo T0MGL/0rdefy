@@ -11,6 +11,7 @@ import { supabaseAdmin } from '../db/connection';
 import { verifyToken, extractStoreId } from '../middleware/auth';
 import { externalWebhookService, ExternalOrderPayload } from '../services/external-webhook.service';
 import { sanitizeSearchInput, isValidUUID, validateUUIDParam } from '../utils/sanitize';
+import { parseDiscountAmountInput } from '../utils/discount-validation';
 
 export const externalWebhooksRouter = Router();
 
@@ -625,6 +626,8 @@ externalWebhooksRouter.get('/orders/:storeId/lookup', async (req: Request, res: 
  * - shipping_city: Ciudad de entrega (opcional - si se envía sin courier_id, auto-selecciona el repartidor más barato)
  * - shipping_cost: Costo de envío (opcional - si se auto-selecciona carrier, se usa la tarifa del carrier)
  * - delivery_preferences: { not_before_date, preferred_time_slot, delivery_notes } (opcional)
+ * - discount_amount: number > 0 (opcional). Aplicado al confirmar (ej: descuento por pago anticipado por transferencia).
+ *                    Debe ser <= total_price actual de la orden, sino retorna 400.
  */
 externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res: Response) => {
   const startTime = Date.now();
@@ -670,7 +673,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
     // 3. Validate body - require either order_number or phone
     const { order_number, phone, courier_id, is_pickup, address, latitude, longitude,
             google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences,
-            payment_status } = req.body;
+            payment_status, discount_amount } = req.body;
 
     if (!order_number && !phone) {
       return res.status(400).json({
@@ -719,6 +722,18 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
       });
     }
 
+    // Validate discount_amount if provided.
+    // Upper-bound (<= order total) is enforced in the service after lookup.
+    const discountParse = parseDiscountAmountInput(discount_amount);
+    if (!discountParse.ok) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_discount_amount',
+        message: discountParse.message
+      });
+    }
+    const parsedDiscountAmount = discountParse.value;
+
     // Build identifier: order_number takes priority if both are provided
     const identifier: { order_number?: string; phone?: string } = {};
     if (order_number) {
@@ -731,7 +746,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
     const result = await externalWebhookService.confirmOrderViaApi(
       storeId,
       identifier,
-      { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences, payment_status },
+      { courier_id, is_pickup, address, latitude, longitude, google_maps_link, delivery_zone, shipping_city, shipping_cost, delivery_preferences, payment_status, discount_amount: parsedDiscountAmount },
       config
     );
 
@@ -753,6 +768,7 @@ externalWebhooksRouter.post('/orders/:storeId/confirm', async (req: Request, res
         : result.code === 'MULTIPLE_ORDERS' ? 409
         : result.code === 'CARRIER_NOT_FOUND' ? 404
         : result.code === 'MISSING_IDENTIFIER' ? 400
+        : result.code === 'DISCOUNT_EXCEEDS_TOTAL' ? 400
         : 500;
 
       const responseBody: any = {

@@ -1443,6 +1443,7 @@ export class ExternalWebhookService {
       shipping_cost?: number;
       delivery_preferences?: any;
       payment_status?: 'paid';
+      discount_amount?: number | null;
     },
     config: WebhookConfig
   ): Promise<{
@@ -1503,6 +1504,27 @@ export class ExternalWebhookService {
         order = foundOrder;
       } else {
         return { success: false, error: 'Either order_number or phone is required', code: 'MISSING_IDENTIFIER' };
+      }
+
+      // 2.4. Validate discount_amount against the order's current total_price.
+      // Endpoint already enforced positive numeric, here we enforce the upper bound.
+      const requestedDiscount = options.discount_amount;
+      if (requestedDiscount !== undefined && requestedDiscount !== null) {
+        const { data: orderTotalRow } = await supabaseAdmin
+          .from('orders')
+          .select('total_price')
+          .eq('id', order.id)
+          .eq('store_id', storeId)
+          .single();
+
+        const orderTotal = Number(orderTotalRow?.total_price ?? 0);
+        if (requestedDiscount > orderTotal) {
+          return {
+            success: false,
+            error: 'discount_amount cannot exceed order total',
+            code: 'DISCOUNT_EXCEEDS_TOTAL'
+          };
+        }
       }
 
       // 2.5. Auto-select cheapest carrier if city is provided but no courier_id
@@ -1576,6 +1598,31 @@ export class ExternalWebhookService {
           updatePayload.prepaid_at = now;
           updatePayload.cod_amount = 0;
         }
+
+        // Apply discount in path A (no carrier).
+        // The atomic RPC handles this for path B; here we replicate it for the direct-update path.
+        // Mirrors db/migrations/092_confirm_order_atomic_production_fix.sql STEP 7.
+        if (requestedDiscount !== undefined && requestedDiscount !== null && Number(requestedDiscount) > 0) {
+          const { data: pricingRow } = await supabaseAdmin
+            .from('orders')
+            .select('total_price, cod_amount, total_discounts')
+            .eq('id', order.id)
+            .single();
+
+          const currentTotal = Number(pricingRow?.total_price ?? 0);
+          const currentCod = Number(pricingRow?.cod_amount ?? 0);
+          const currentDiscounts = Number(pricingRow?.total_discounts ?? 0);
+          const effectiveDiscount = Math.min(Number(requestedDiscount), currentTotal);
+          const newTotal = Math.max(0, currentTotal - effectiveDiscount);
+
+          updatePayload.total_price = newTotal;
+          updatePayload.total_discounts = currentDiscounts + effectiveDiscount;
+          if (!markAsPaid) {
+            // COD path: reduce amount to collect by the discount.
+            updatePayload.cod_amount = Math.max(0, currentCod - effectiveDiscount);
+          }
+          // If markAsPaid, cod_amount was already set to 0 above.
+        }
         const { data: directResult, error: directError } = await supabaseAdmin
           .from('orders')
           .update(updatePayload)
@@ -1612,7 +1659,7 @@ export class ExternalWebhookService {
           p_shipping_cost: options.shipping_cost !== undefined ? Number(options.shipping_cost) : null,
           p_upsell_product_id: null,
           p_upsell_quantity: 1,
-          p_discount_amount: null,
+          p_discount_amount: requestedDiscount !== undefined && requestedDiscount !== null ? Number(requestedDiscount) : null,
           p_mark_as_prepaid: markAsPaid,
           p_prepaid_method: markAsPaid ? 'transferencia' : null
         });
