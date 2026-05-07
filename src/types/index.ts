@@ -22,15 +22,31 @@ export interface DashboardOverview {
   profitMargin: number; // Deprecated: use netMargin instead
   // Real cash metrics (only delivered orders)
   realRevenue?: number; // Ingreso real (solo pedidos entregados)
-  projectedRevenue?: number; // Ingreso proyectado (entregados + en tránsito ajustado por tasa de entrega)
   realProductCosts?: number; // Costo de productos reales (solo pedidos entregados)
   realCosts?: number; // Costos totales reales (solo pedidos entregados)
   realDeliveryCosts?: number; // Costos de envío reales (solo pedidos entregados)
+  realConfirmationCosts?: number; // Costos de confirmación reales (solo pedidos entregados)
   realGrossProfit?: number; // Beneficio bruto real (solo pedidos entregados)
   realGrossMargin?: number; // Margen bruto real (%) (solo pedidos entregados)
   realNetProfit?: number; // Beneficio neto real (solo pedidos entregados)
   realNetMargin?: number; // Margen neto real (%) (solo pedidos entregados)
   realProfitMargin?: number; // Deprecated: use realNetMargin instead
+  realTaxCollected?: number; // IVA recolectado real (solo pedidos entregados)
+  // Projected metrics (delivered + in-transit pipeline weighted by historical delivery rate)
+  projectedRevenue?: number; // Ingreso proyectado (entregados + en tránsito ajustado por tasa de entrega)
+  projectedProductCosts?: number; // Costo de productos proyectado
+  projectedDeliveryCosts?: number; // Costo de envío proyectado
+  projectedConfirmationCosts?: number; // Costo de confirmación proyectado
+  projectedCosts?: number; // Costos totales proyectados (productos + envío + confirmación + gasto publicitario)
+  projectedGrossProfit?: number; // Beneficio bruto proyectado
+  projectedGrossMargin?: number; // Margen bruto proyectado (%)
+  projectedNetProfit?: number; // Beneficio neto proyectado (entregados + en tránsito ponderado, después de todos los costos)
+  projectedNetMargin?: number; // Margen neto proyectado (%)
+  projectedTaxCollected?: number; // IVA proyectado
+  // Pipeline diagnostics
+  inTransitOrders?: number; // Cantidad de pedidos en tránsito (post-confirmación, pre-terminal)
+  inTransitGrossRevenue?: number; // Suma sin ponderar del valor de pedidos en tránsito
+  deliveryRateUsedForProjection?: number; // Tasa de entrega histórica (%) usada para ponderar la proyección
   // ROI and ROAS metrics
   roi: number; // ROI proyectado (todos los pedidos)
   roas: number; // ROAS proyectado (todos los pedidos)
@@ -57,11 +73,16 @@ export interface DashboardOverview {
     realCosts?: number | null;
     realDeliveryCosts?: number | null;
     realProductCosts?: number | null;
+    realConfirmationCosts?: number | null;
     realGrossProfit?: number | null;
     realGrossMargin?: number | null;
     realNetProfit?: number | null;
     realNetMargin?: number | null;
     realProfitMargin?: number | null;
+    projectedRevenue?: number | null;
+    projectedNetProfit?: number | null;
+    projectedNetMargin?: number | null;
+    projectedCosts?: number | null;
     roi: number | null;
     roas: number | null;
     deliveryRate: number | null;

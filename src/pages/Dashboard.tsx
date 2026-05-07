@@ -224,6 +224,14 @@ export default function Dashboard() {
     return calculateRevenueProjection(dashboardOverview);
   }, [dashboardOverview]);
 
+  // Suffix used in projected-card tooltips to surface the historical delivery
+  // rate the backend actually used. Empty string when the backend didn't return
+  // it (older payload), which keeps the tooltip readable.
+  const projectionRateSuffix = useMemo(() => {
+    const rate = dashboardOverview?.deliveryRateUsedForProjection;
+    return typeof rate === 'number' ? ` (${rate}%)` : '';
+  }, [dashboardOverview]);
+
   // Wait for auth to load before determining which dashboard to show
   if (authLoading) {
     return (
@@ -376,12 +384,12 @@ export default function Dashboard() {
         <h2 className="text-2xl font-bold mb-4 text-card-foreground">
           {isShowingGlobalView ? 'Resumen de Ventas (Todas las Tiendas)' : 'Resumen de Ventas'}
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
           <MetricCard
             title={
               <div className="flex items-center">
                 Facturación Bruta
-                <InfoTooltip content="Ingresos totales por ventas de pedidos entregados (incluye costos)." />
+                <InfoTooltip content="Ingresos reales: total de pedidos entregados más ingresos adicionales registrados (incluye costos, antes de descontar nada)." />
               </div>
             }
             value={formatCurrency(dashboardOverview.realRevenue ?? dashboardOverview.revenue)}
@@ -395,12 +403,18 @@ export default function Dashboard() {
             title={
               <div className="flex items-center">
                 Facturación Proyectada
-                <InfoTooltip content="Estimación de ingresos sumando pedidos entregados y en tránsito." />
+                <InfoTooltip
+                  content={`Entregados + valor de pedidos en tránsito ponderado por la tasa de entrega histórica del período${projectionRateSuffix}${
+                    typeof dashboardOverview.inTransitOrders === 'number'
+                      ? `. ${dashboardOverview.inTransitOrders} pedidos en pipeline activo.`
+                      : '.'
+                  }`}
+                />
               </div>
             }
             value={formatCurrency(dashboardOverview.projectedRevenue ?? dashboardOverview.realRevenue ?? dashboardOverview.revenue)}
-            change={undefined}
-            trend={undefined}
+            change={getChange('projectedRevenue')}
+            trend={getTrend('projectedRevenue')}
             icon={<Activity className="text-cyan-600" size={24} />}
             variant="secondary"
             subtitle="Entregados + en tránsito"
@@ -409,7 +423,7 @@ export default function Dashboard() {
             title={
               <div className="flex items-center">
                 Beneficio Neto Real
-                <InfoTooltip content="Ganancia real después de descontar costos de productos, envío y publicidad." />
+                <InfoTooltip content="Ganancia real después de descontar costos de productos, envío, confirmación y publicidad. Solo pedidos entregados." />
               </div>
             }
             value={formatCurrency(dashboardOverview.realNetProfit ?? dashboardOverview.netProfit)}
@@ -418,6 +432,22 @@ export default function Dashboard() {
             icon={<TrendingUp className="text-green-600" size={24} />}
             variant="accent"
             subtitle="Solo pedidos entregados"
+          />
+          <MetricCard
+            title={
+              <div className="flex items-center">
+                Beneficio Neto Proyectado
+                <InfoTooltip
+                  content={`Beneficio Neto Real + ganancia esperada de los pedidos en tránsito, ponderada por la tasa de entrega histórica${projectionRateSuffix}. Resta costos de productos, envío, confirmación y publicidad proyectados con la misma ponderación.`}
+                />
+              </div>
+            }
+            value={formatCurrency(dashboardOverview.projectedNetProfit ?? dashboardOverview.realNetProfit ?? dashboardOverview.netProfit)}
+            change={getChange('projectedNetProfit')}
+            trend={getTrend('projectedNetProfit')}
+            icon={<TrendingUp className="text-emerald-600" size={24} />}
+            variant="secondary"
+            subtitle="Entregados + en tránsito"
           />
           <MetricCard
             title={

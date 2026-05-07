@@ -16,6 +16,7 @@ import {
     formatDateInTimezone,
     startOfDayIso,
 } from '../utils/dateUtils';
+import { isDelivered, isDispatched, isInTransit } from '../utils/order-status';
 
 export const unifiedRouter = Router();
 
@@ -498,49 +499,57 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
 
             // Real Revenue (only delivered)
             const realRevenue = ordersList
-                .filter(o => o.sleeves_status === 'delivered')
+                .filter(o => isDelivered(o.sleeves_status))
                 .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
-            // Projected Revenue
-            const shippedRevenue = ordersList
-                .filter(o => o.sleeves_status === 'shipped')
+            // Projected Revenue: delivered + in-transit weighted by historical delivery rate
+            const inTransitOrdersList = ordersList.filter(o => isInTransit(o.sleeves_status));
+            const inTransitGrossRevenue = inTransitOrdersList
                 .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
-            const shippedOrDelivered = ordersList.filter(o =>
-                o.sleeves_status === 'shipped' || o.sleeves_status === 'delivered'
-            ).length;
-            const deliveredCount = ordersList.filter(o => o.sleeves_status === 'delivered').length;
-            const deliveryRateDecimal = shippedOrDelivered > 0 && deliveredCount > 0
-                ? (deliveredCount / shippedOrDelivered)
+            const deliveredCount = ordersList.filter(o => isDelivered(o.sleeves_status)).length;
+            const inTransitCount = inTransitOrdersList.length;
+            const deliveryRateDenominator = deliveredCount + inTransitCount;
+            const deliveryRateDecimal = deliveryRateDenominator > 0 && deliveredCount > 0
+                ? (deliveredCount / deliveryRateDenominator)
                 : 0.85;
 
-            const projectedRevenue = realRevenue + (shippedRevenue * deliveryRateDecimal);
+            const projectedRevenue = realRevenue + (inTransitGrossRevenue * deliveryRateDecimal);
 
             // Delivery costs
             let deliveryCosts = 0;
             let realDeliveryCosts = 0;
+            let inTransitDeliveryCosts = 0;
             for (const order of ordersList) {
                 const sc = Number(order.shipping_cost) || 0;
                 deliveryCosts += sc;
-                if (order.sleeves_status === 'delivered') {
+                if (isDelivered(order.sleeves_status)) {
                     realDeliveryCosts += sc;
+                } else if (isInTransit(order.sleeves_status)) {
+                    inTransitDeliveryCosts += sc;
                 }
             }
+            const projectedDeliveryCosts = realDeliveryCosts + (inTransitDeliveryCosts * deliveryRateDecimal);
 
             // Confirmation costs (per store)
             const confirmedOrders = ordersList.filter(o =>
                 !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
             );
-            const realConfirmedOrders = ordersList.filter(o => o.sleeves_status === 'delivered');
+            const realConfirmedOrders = ordersList.filter(o => isDelivered(o.sleeves_status));
 
             let confirmationCosts = 0;
             let realConfirmationCosts = 0;
+            let inTransitConfirmationCosts = 0;
             for (const order of confirmedOrders) {
                 confirmationCosts += confirmationFeeMap.get(order.store_id) || 0;
             }
             for (const order of realConfirmedOrders) {
                 realConfirmationCosts += confirmationFeeMap.get(order.store_id) || 0;
             }
+            for (const order of inTransitOrdersList) {
+                inTransitConfirmationCosts += confirmationFeeMap.get(order.store_id) || 0;
+            }
+            const projectedConfirmationCosts = realConfirmationCosts + (inTransitConfirmationCosts * deliveryRateDecimal);
 
             // Tax collected
             const taxCollectedValue = avgTaxRate > 0 ? (rev - (rev / (1 + avgTaxRate / 100))) : 0;
@@ -573,6 +582,7 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
 
             let productCosts = 0;
             let realProductCosts = 0;
+            let inTransitProductCosts = 0;
             for (const order of ordersList) {
                 if (order.line_items && Array.isArray(order.line_items)) {
                     let orderCost = 0;
@@ -582,26 +592,34 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
                         orderCost += itemCost;
                         productCosts += itemCost;
                     }
-                    if (order.sleeves_status === 'delivered') {
+                    if (isDelivered(order.sleeves_status)) {
                         realProductCosts += orderCost;
+                    } else if (isInTransit(order.sleeves_status)) {
+                        inTransitProductCosts += orderCost;
                     }
                 }
             }
+            const projectedProductCosts = realProductCosts + (inTransitProductCosts * deliveryRateDecimal);
 
             // Total costs
             const totalCosts = productCosts + deliveryCosts + confirmationCosts + gastoPublicitario;
             const realTotalCosts = realProductCosts + realDeliveryCosts + realConfirmationCosts + gastoPublicitario;
+            const projectedTotalCosts = projectedProductCosts + projectedDeliveryCosts + projectedConfirmationCosts + gastoPublicitario;
 
             // Margins
             const grossProfit = rev - productCosts;
             const realGrossProfit = realRevenue - realProductCosts;
+            const projectedGrossProfit = projectedRevenue - projectedProductCosts;
             const grossMargin = rev > 0 ? ((grossProfit / rev) * 100) : 0;
             const realGrossMargin = realRevenue > 0 ? ((realGrossProfit / realRevenue) * 100) : 0;
+            const projectedGrossMargin = projectedRevenue > 0 ? ((projectedGrossProfit / projectedRevenue) * 100) : 0;
 
             const netProfit = rev - totalCosts;
             const realNetProfit = realRevenue - realTotalCosts;
+            const projectedNetProfit = projectedRevenue - projectedTotalCosts;
             const netMargin = rev > 0 ? ((netProfit / rev) * 100) : 0;
             const realNetMargin = realRevenue > 0 ? ((realNetProfit / realRevenue) * 100) : 0;
+            const projectedNetMargin = projectedRevenue > 0 ? ((projectedNetProfit / projectedRevenue) * 100) : 0;
 
             // ROI & ROAS
             const roi = totalCosts > 0 ? (((rev - totalCosts) / totalCosts) * 100) : 0;
@@ -610,11 +628,7 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
             const realRoas = gastoPublicitario > 0 ? (realRevenue / gastoPublicitario) : 0;
 
             // Delivery rate
-            const dispatched = ordersList.filter(o => {
-                const s = o.sleeves_status;
-                return ['ready_to_ship', 'shipped', 'delivered', 'returned', 'delivery_failed'].includes(s) ||
-                    (s === 'cancelled' && o.shipped_at);
-            }).length;
+            const dispatched = ordersList.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
             const deliveryRate = dispatched > 0 ? ((deliveredCount / dispatched) * 100) : 0;
 
             return {
@@ -624,27 +638,38 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
                 projectedRevenue,
                 productCosts,
                 realProductCosts,
+                projectedProductCosts,
                 deliveryCosts,
                 realDeliveryCosts,
+                projectedDeliveryCosts,
                 confirmationCosts,
                 realConfirmationCosts,
+                projectedConfirmationCosts,
                 gasto_publicitario: gastoPublicitario,
                 costs: totalCosts,
                 realCosts: realTotalCosts,
+                projectedCosts: projectedTotalCosts,
                 grossProfit,
                 grossMargin,
                 realGrossProfit,
                 realGrossMargin,
+                projectedGrossProfit,
+                projectedGrossMargin,
                 netProfit,
                 netMargin,
                 realNetProfit,
                 realNetMargin,
+                projectedNetProfit,
+                projectedNetMargin,
                 roi,
                 roas,
                 realRoi,
                 realRoas,
                 deliveryRate,
                 taxCollected: taxCollectedValue,
+                inTransitOrders: inTransitCount,
+                inTransitGrossRevenue,
+                deliveryRateUsedForProjection: deliveryRateDecimal,
             };
         };
 
@@ -692,6 +717,10 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
             realGrossMargin: calculateChange(currentMetrics.realGrossMargin, previousMetrics.realGrossMargin),
             realNetProfit: calculateChange(currentMetrics.realNetProfit, previousMetrics.realNetProfit),
             realNetMargin: calculateChange(currentMetrics.realNetMargin, previousMetrics.realNetMargin),
+            projectedRevenue: calculateChange(currentMetrics.projectedRevenue, previousMetrics.projectedRevenue),
+            projectedNetProfit: calculateChange(currentMetrics.projectedNetProfit, previousMetrics.projectedNetProfit),
+            projectedNetMargin: calculateChange(currentMetrics.projectedNetMargin, previousMetrics.projectedNetMargin),
+            projectedCosts: calculateChange(currentMetrics.projectedCosts, previousMetrics.projectedCosts),
             roi: calculateChange(currentMetrics.roi, previousMetrics.roi),
             roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             realRoi: calculateChange(currentMetrics.realRoi, previousMetrics.realRoi),
@@ -720,7 +749,6 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
                 netMargin: parseFloat(currentMetrics.netMargin.toFixed(1)),
                 profitMargin: parseFloat(currentMetrics.netMargin.toFixed(1)),
                 realRevenue: Math.round(currentMetrics.realRevenue),
-                projectedRevenue: Math.round(currentMetrics.projectedRevenue),
                 realProductCosts: Math.round(currentMetrics.realProductCosts),
                 realDeliveryCosts: Math.round(currentMetrics.realDeliveryCosts),
                 realConfirmationCosts: Math.round(currentMetrics.realConfirmationCosts),
@@ -730,6 +758,19 @@ unifiedRouter.get('/analytics/overview', async (req: AuthRequest, res: Response)
                 realNetProfit: Math.round(currentMetrics.realNetProfit),
                 realNetMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)),
                 realProfitMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)),
+                // Projected metrics (delivered + in-transit weighted by historical delivery rate)
+                projectedRevenue: Math.round(currentMetrics.projectedRevenue),
+                projectedProductCosts: Math.round(currentMetrics.projectedProductCosts),
+                projectedDeliveryCosts: Math.round(currentMetrics.projectedDeliveryCosts),
+                projectedConfirmationCosts: Math.round(currentMetrics.projectedConfirmationCosts),
+                projectedCosts: Math.round(currentMetrics.projectedCosts),
+                projectedGrossProfit: Math.round(currentMetrics.projectedGrossProfit),
+                projectedGrossMargin: parseFloat(currentMetrics.projectedGrossMargin.toFixed(1)),
+                projectedNetProfit: Math.round(currentMetrics.projectedNetProfit),
+                projectedNetMargin: parseFloat(currentMetrics.projectedNetMargin.toFixed(1)),
+                inTransitOrders: currentMetrics.inTransitOrders,
+                inTransitGrossRevenue: Math.round(currentMetrics.inTransitGrossRevenue),
+                deliveryRateUsedForProjection: parseFloat((currentMetrics.deliveryRateUsedForProjection * 100).toFixed(1)),
                 roi: parseFloat(currentMetrics.roi.toFixed(2)),
                 roas: parseFloat(currentMetrics.roas.toFixed(2)),
                 realRoi: parseFloat(currentMetrics.realRoi.toFixed(2)),

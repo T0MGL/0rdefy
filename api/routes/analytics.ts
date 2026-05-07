@@ -21,6 +21,13 @@ import {
     getTodayInTimezone,
     startOfDayIso,
 } from '../utils/dateUtils';
+import {
+    IN_TRANSIT_STATUSES,
+    POST_PENDING_STATUSES,
+    isDelivered,
+    isDispatched,
+    isInTransit,
+} from '../utils/order-status';
 
 export const analyticsRouter = Router();
 
@@ -140,19 +147,26 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         const marketingExpenses = marketingExpensesData || [];
 
-        // Calculate gasto publicitario costs for current period
+        // FIX-7 (audit 2026-05-02): compare additional_values.date (YYYY-MM-DD
+        // strings) against store-local day strings, not Date objects. Doing
+        // `new Date('2026-04-30')` parses to UTC midnight, which lands one calendar
+        // day off for stores in negative-offset timezones (Asuncion is UTC-4) and
+        // mis-attributes spend at the period boundary.
+        const currentStartLocal = formatDateInTimezone(last7DaysStart, storeTz);
+        const currentEndLocal = formatDateInTimezone(currentPeriodEnd, storeTz);
+        const previousStartLocal = formatDateInTimezone(previous7DaysStart, storeTz);
+
         const currentGastoPublicitarioCosts = marketingExpenses
             .filter(m => {
-                const expenseDate = new Date(m.date);
-                return expenseDate >= last7DaysStart && expenseDate <= currentPeriodEnd;
+                const d = String(m.date).slice(0, 10);
+                return d >= currentStartLocal && d <= currentEndLocal;
             })
             .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
-        // Calculate gasto publicitario costs for previous period
         const previousGastoPublicitarioCosts = marketingExpenses
             .filter(m => {
-                const expenseDate = new Date(m.date);
-                return expenseDate >= previous7DaysStart && expenseDate < last7DaysStart;
+                const d = String(m.date).slice(0, 10);
+                return d >= previousStartLocal && d < currentStartLocal;
             })
             .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
@@ -196,65 +210,88 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // 1.5. REAL REVENUE (only from delivered orders - actual cash received)
             // This is the money that actually entered the business
             let realRevenue = ordersList
-                .filter(o => o.sleeves_status === 'delivered')
+                .filter(o => isDelivered(o.sleeves_status))
                 .reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
-            // 1.6. PROJECTED REVENUE (delivered + shipped adjusted by delivery rate)
-            // Calculate revenue from shipped orders (in transit)
-            const shippedRevenue = ordersList
-                .filter(o => o.sleeves_status === 'shipped')
+            // 1.6. PROJECTED REVENUE (delivered + in-transit pipeline, weighted)
+            // In-transit revenue is the gross value of every order still in the
+            // pipeline (post-confirmation, pre-terminal). We weight it by the
+            // store's historical delivery rate so the projection reflects realistic
+            // upside instead of a best-case scenario.
+            const inTransitOrdersList = ordersList.filter(o => isInTransit(o.sleeves_status));
+            const inTransitGrossRevenue = inTransitOrdersList
                 .reduce((sum, order) => sum + (Number(order.total_price) || 0), 0);
 
-            // Calculate delivery rate for projection
-            const shippedOrDelivered = ordersList.filter(o =>
-                o.sleeves_status === 'shipped' || o.sleeves_status === 'delivered'
-            ).length;
-            const delivered = ordersList.filter(o => o.sleeves_status === 'delivered').length;
-            // Use historical delivery rate if available, otherwise use 85% default
-            // If there are shipped orders but no deliveries yet, still use the 85% default
-            const deliveryRateDecimal = shippedOrDelivered > 0 && delivered > 0
-                ? (delivered / shippedOrDelivered)
+            // Calculate historical delivery rate from this period.
+            // Denominator = delivered + in_transit (what was actually shipped or arrived).
+            // We prefer this over a global lookup so the rate reflects the period
+            // the user is looking at (e.g., last 30d) and self-corrects for stores
+            // with seasonally different performance.
+            const deliveredCount = ordersList.filter(o => isDelivered(o.sleeves_status)).length;
+            const inTransitCount = inTransitOrdersList.length;
+            const deliveryRateDenominator = deliveredCount + inTransitCount;
+            const deliveryRateDecimal = deliveryRateDenominator > 0 && deliveredCount > 0
+                ? (deliveredCount / deliveryRateDenominator)
                 : 0.85; // Default 85% for new stores or when no deliveries yet
 
-            // Projected revenue = delivered (100%) + shipped (adjusted by delivery rate)
-            const projectedRevenue = realRevenue + (shippedRevenue * deliveryRateDecimal);
+            // Projected revenue = delivered (100%, already cash) + in_transit * deliveryRate
+            const inTransitProjectedRevenue = inTransitGrossRevenue * deliveryRateDecimal;
+            const projectedRevenue = realRevenue + inTransitProjectedRevenue;
 
             // 1.7. DELIVERY COSTS (shipping costs from orders)
-            // These are costs that must be subtracted from profit
+            // Real costs = costs already incurred (delivered orders only).
+            // Projected costs = real + (in-transit shipping cost * deliveryRate).
+            // Why weight in-transit shipping costs too: if 70% of in-transit orders
+            // get delivered, ~70% of their shipping fees become a real expense.
+            // The other 30% (failed/returned) usually still trigger a partial
+            // shipping fee but at a smaller scale; weighting matches the revenue
+            // side for a conservative, internally-consistent projection.
             let deliveryCosts = 0;
             let realDeliveryCosts = 0;
+            let inTransitDeliveryCosts = 0;
 
             for (const order of ordersList) {
                 const shippingCost = Number(order.shipping_cost) || 0;
                 deliveryCosts += shippingCost;
 
-                // Only count delivery costs for delivered orders
-                if (order.sleeves_status === 'delivered') {
+                if (isDelivered(order.sleeves_status)) {
                     realDeliveryCosts += shippingCost;
+                } else if (isInTransit(order.sleeves_status)) {
+                    inTransitDeliveryCosts += shippingCost;
                 }
             }
+            const projectedDeliveryCosts = realDeliveryCosts + (inTransitDeliveryCosts * deliveryRateDecimal);
 
             // 1.8. CONFIRMATION FEES (cost per confirmed order)
             // Count confirmed orders (all statuses except pending, cancelled, rejected)
+            // Confirmation fees are charged the moment an order leaves 'pending', so
+            // they are an incurred cost for every delivered + in-transit order, plus
+            // any orders that left pending and ended in returned / delivery_failed.
+            // For projection symmetry we account for delivered + (in_transit weighted).
             const confirmedOrders = ordersList.filter(o =>
                 !['pending', 'cancelled', 'rejected'].includes(o.sleeves_status)
             );
             const realConfirmedOrders = ordersList.filter(o =>
-                o.sleeves_status === 'delivered'
+                isDelivered(o.sleeves_status)
             );
+            const inTransitConfirmedCount = inTransitCount; // every in-transit order paid confirmation
 
             const confirmationCosts = confirmedOrders.length * confirmationFee;
             const realConfirmationCosts = realConfirmedOrders.length * confirmationFee;
+            const projectedConfirmationCosts = realConfirmationCosts + (inTransitConfirmedCount * confirmationFee * deliveryRateDecimal);
 
             // 2. TAX COLLECTED (IVA incluido en el precio de venta)
             // Fórmula: IVA = precio - (precio / (1 + tasa/100))
             // Ejemplo: Si precio = 11000 y tasa = 10%, entonces IVA = 11000 - (11000 / 1.10) = 1000
             const taxCollectedValue = taxRate > 0 ? (rev - (rev / (1 + taxRate / 100))) : 0;
+            const realTaxCollected = taxRate > 0 ? (realRevenue - (realRevenue / (1 + taxRate / 100))) : 0;
+            const projectedTaxCollected = taxRate > 0 ? (projectedRevenue - (projectedRevenue / (1 + taxRate / 100))) : 0;
 
             // 3. PRODUCT COSTS - Use pre-fetched line items map (no extra DB query)
-            // Calculate product costs
+            // Same weighting logic as delivery costs: real (incurred), projected (real + weighted in-transit).
             let productCosts = 0;
             let realProductCosts = 0;
+            let inTransitProductCosts = 0;
 
             for (const order of ordersList) {
                 const items = prebuiltLineItemsByOrder.get(order.id) || [];
@@ -267,11 +304,13 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     productCosts += itemCost;
                 }
 
-                // Only count costs for delivered orders (real money spent)
-                if (order.sleeves_status === 'delivered') {
+                if (isDelivered(order.sleeves_status)) {
                     realProductCosts += orderCost;
+                } else if (isInTransit(order.sleeves_status)) {
+                    inTransitProductCosts += orderCost;
                 }
             }
+            const projectedProductCosts = realProductCosts + (inTransitProductCosts * deliveryRateDecimal);
 
             // 3.5. ADDITIONAL VALUES FOR THIS PERIOD (from pre-fetched data)
             const additionalValues = allAdditionalValues.filter(av => {
@@ -292,27 +331,33 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Other expense categories (employees, operational) are display-only and not included in analytics.
 
             // 4. GASTO PUBLICITARIO (from additional_values table, category='marketing')
+            // Marketing spend is already incurred regardless of order outcome, so it
+            // is not weighted by the delivery rate; it appears in full in real,
+            // projected, and "all orders" buckets.
             const gastoPublicitario = gastoPublicitarioCosts;
 
             // 5. TOTAL OPERATIONAL COSTS
-            // Para e-commerce COD, los costos totales incluyen:
-            // - Costo de productos (COGS)
-            // - Costos de envío (shipping_cost)
-            // - Costos de confirmación (confirmation_fee × confirmed orders)
-            // - Gasto Publicitario (campaigns)
-            // IMPORTANTE: Estos son los costos TOTALES operativos
+            // Tres buckets distintos:
+            //   totalCosts          -> all-orders bucket, used for the legacy proyectado
+            //                          full (sum sin ponderar). Mantengo por backwards compat.
+            //   realTotalCosts      -> solo pedidos entregados, "money already spent".
+            //   projectedTotalCosts -> realTotalCosts + costos in-transit ponderados por
+            //                          la tasa de entrega historica del periodo.
             const totalCosts = productCosts + deliveryCosts + confirmationCosts + gastoPublicitario;
             const realTotalCosts = realProductCosts + realDeliveryCosts + realConfirmationCosts + gastoPublicitario;
+            const projectedTotalCosts = projectedProductCosts + projectedDeliveryCosts + projectedConfirmationCosts + gastoPublicitario;
 
             // 6. GROSS PROFIT & MARGIN
             // MARGEN BRUTO = Solo resta el costo de productos (COGS)
             // Esta métrica muestra cuánto ganamos después de pagar los productos
             const grossProfit = rev - productCosts;
             const realGrossProfit = realRevenue - realProductCosts;
+            const projectedGrossProfit = projectedRevenue - projectedProductCosts;
 
             // Gross margin = (Gross Profit / Revenue) × 100
             const grossMargin = rev > 0 ? ((grossProfit / rev) * 100) : 0;
             const realGrossMargin = realRevenue > 0 ? ((realGrossProfit / realRevenue) * 100) : 0;
+            const projectedGrossMargin = projectedRevenue > 0 ? ((projectedGrossProfit / projectedRevenue) * 100) : 0;
 
             // 7. NET PROFIT & MARGIN
             // MARGEN NETO = Resta TODOS los costos (productos + envío + gasto publicitario)
@@ -320,10 +365,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // IMPORTANTE: El margen neto SIEMPRE debe ser menor que el margen bruto
             const netProfit = rev - totalCosts;
             const realNetProfit = realRevenue - realTotalCosts;
+            const projectedNetProfit = projectedRevenue - projectedTotalCosts;
 
             // Net margin = (Net Profit / Revenue) × 100
             const netMargin = rev > 0 ? ((netProfit / rev) * 100) : 0;
             const realNetMargin = realRevenue > 0 ? ((realNetProfit / realRevenue) * 100) : 0;
+            const projectedNetMargin = projectedRevenue > 0 ? ((projectedNetProfit / projectedRevenue) * 100) : 0;
 
             // 8. ROI (Return on Investment)
             // Para proyecciones: usa todos los pedidos
@@ -342,17 +389,9 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             // Para métricas reales: usa solo pedidos entregados
             const realRoasValue = gastoPublicitario > 0 ? (realRevenue / gastoPublicitario) : 0;
 
-            // 10. DELIVERY RATE
-            // ✅ CORREGIDO: Tasa de entrega para COD
-            // Total despachados = todos los pedidos que salieron del almacén
-            // (ready_to_ship, shipped, delivered, returned, cancelled después de envío, delivery_failed)
-            const dispatched = ordersList.filter(o => {
-                const status = o.sleeves_status;
-                return ['ready_to_ship', 'shipped', 'delivered', 'returned', 'delivery_failed'].includes(status) ||
-                    (status === 'cancelled' && o.shipped_at); // Cancelados después de despacho
-            }).length;
-            // Tasa de entrega = (Entregados / Total Despachados) × 100
-            const delivRate = dispatched > 0 ? ((delivered / dispatched) * 100) : 0;
+            // 10. DELIVERY RATE for COD: entregados / despachados.
+            const dispatched = ordersList.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
+            const delivRate = dispatched > 0 ? ((deliveredCount / dispatched) * 100) : 0;
 
             return {
                 totalOrders: count,
@@ -362,24 +401,32 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 // Costos separados para transparencia
                 productCosts: productCosts,
                 realProductCosts: realProductCosts,
+                projectedProductCosts: projectedProductCosts,
                 deliveryCosts: deliveryCosts,
                 realDeliveryCosts: realDeliveryCosts,
+                projectedDeliveryCosts: projectedDeliveryCosts,
                 confirmationCosts: confirmationCosts,
                 realConfirmationCosts: realConfirmationCosts,
+                projectedConfirmationCosts: projectedConfirmationCosts,
                 gasto_publicitario: gastoPublicitario,
                 // Costos totales (para mostrar en dashboard)
                 costs: totalCosts,
                 realCosts: realTotalCosts,
+                projectedCosts: projectedTotalCosts,
                 // Gross profit and margin (solo costo de productos)
                 grossProfit: grossProfit,
                 grossMargin: grossMargin,
                 realGrossProfit: realGrossProfit,
                 realGrossMargin: realGrossMargin,
+                projectedGrossProfit: projectedGrossProfit,
+                projectedGrossMargin: projectedGrossMargin,
                 // Net profit and margin (todos los costos)
                 netProfit: netProfit,
                 netMargin: netMargin,
                 realNetProfit: realNetProfit,
                 realNetMargin: realNetMargin,
+                projectedNetProfit: projectedNetProfit,
+                projectedNetMargin: projectedNetMargin,
                 // ROI y ROAS
                 roi: roiValue,
                 roas: roasValue,
@@ -388,6 +435,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 // Otras métricas
                 deliveryRate: delivRate,
                 taxCollected: taxCollectedValue,
+                realTaxCollected: realTaxCollected,
+                projectedTaxCollected: projectedTaxCollected,
+                // Pipeline diagnostics, useful for tooltips and debugging
+                inTransitOrders: inTransitCount,
+                inTransitGrossRevenue,
+                deliveryRateUsedForProjection: deliveryRateDecimal,
             };
         };
 
@@ -457,6 +510,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
             realGrossMargin: calculateChange(currentMetrics.realGrossMargin, previousMetrics.realGrossMargin),
             realNetProfit: calculateChange(currentMetrics.realNetProfit, previousMetrics.realNetProfit),
             realNetMargin: calculateChange(currentMetrics.realNetMargin, previousMetrics.realNetMargin),
+            projectedRevenue: calculateChange(currentMetrics.projectedRevenue, previousMetrics.projectedRevenue),
+            projectedNetProfit: calculateChange(currentMetrics.projectedNetProfit, previousMetrics.projectedNetProfit),
+            projectedNetMargin: calculateChange(currentMetrics.projectedNetMargin, previousMetrics.projectedNetMargin),
+            projectedCosts: calculateChange(currentMetrics.projectedCosts, previousMetrics.projectedCosts),
             roi: calculateChange(currentMetrics.roi, previousMetrics.roi),
             roas: calculateChange(currentMetrics.roas, previousMetrics.roas),
             deliveryRate: calculateChange(currentMetrics.deliveryRate, previousMetrics.deliveryRate),
@@ -484,7 +541,6 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 profitMargin: parseFloat(netMargin.toFixed(1)), // Deprecated: same as netMargin for backwards compatibility
                 // Real cash metrics (only delivered orders)
                 realRevenue: Math.round(currentMetrics.realRevenue),
-                projectedRevenue: Math.round(currentMetrics.projectedRevenue),
                 realProductCosts: Math.round(currentMetrics.realProductCosts),
                 realDeliveryCosts: Math.round(currentMetrics.realDeliveryCosts),
                 realConfirmationCosts: Math.round(currentMetrics.realConfirmationCosts),
@@ -494,6 +550,22 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 realNetProfit: Math.round(currentMetrics.realNetProfit),
                 realNetMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)),
                 realProfitMargin: parseFloat(currentMetrics.realNetMargin.toFixed(1)), // Deprecated: same as realNetMargin for backwards compatibility
+                realTaxCollected: Math.round(currentMetrics.realTaxCollected),
+                // Projected metrics (delivered + in-transit weighted by historical delivery rate)
+                projectedRevenue: Math.round(currentMetrics.projectedRevenue),
+                projectedProductCosts: Math.round(currentMetrics.projectedProductCosts),
+                projectedDeliveryCosts: Math.round(currentMetrics.projectedDeliveryCosts),
+                projectedConfirmationCosts: Math.round(currentMetrics.projectedConfirmationCosts),
+                projectedCosts: Math.round(currentMetrics.projectedCosts),
+                projectedGrossProfit: Math.round(currentMetrics.projectedGrossProfit),
+                projectedGrossMargin: parseFloat(currentMetrics.projectedGrossMargin.toFixed(1)),
+                projectedNetProfit: Math.round(currentMetrics.projectedNetProfit),
+                projectedNetMargin: parseFloat(currentMetrics.projectedNetMargin.toFixed(1)),
+                projectedTaxCollected: Math.round(currentMetrics.projectedTaxCollected),
+                // Pipeline diagnostics
+                inTransitOrders: currentMetrics.inTransitOrders,
+                inTransitGrossRevenue: Math.round(currentMetrics.inTransitGrossRevenue),
+                deliveryRateUsedForProjection: parseFloat((currentMetrics.deliveryRateUsedForProjection * 100).toFixed(1)),
                 // ROI and ROAS metrics
                 roi: parseFloat(roi.toFixed(2)),
                 roas: parseFloat(roas.toFixed(2)),
@@ -506,8 +578,6 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                 taxCollected: Math.round(taxCollected), // IVA recolectado
                 taxRate: parseFloat(taxRate.toFixed(2)), // Tasa de IVA configurada
                 adSpend: gasto_publicitario, // Alias for compatibility
-                adRevenue: revenue, // Placeholder
-                conversionRate: deliveryRate, // Placeholder
 
                 // Percentage changes (current period vs previous period)
                 changes: {
@@ -531,6 +601,10 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
                     realGrossMargin: changes.realGrossMargin,
                     realNetProfit: changes.realNetProfit,
                     realNetMargin: changes.realNetMargin,
+                    projectedRevenue: changes.projectedRevenue,
+                    projectedNetProfit: changes.projectedNetProfit,
+                    projectedNetMargin: changes.projectedNetMargin,
+                    projectedCosts: changes.projectedCosts,
                     roi: changes.roi,
                     roas: changes.roas,
                     deliveryRate: changes.deliveryRate,
@@ -552,9 +626,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 // ================================================================
 // GET /api/analytics/chart - Chart data (daily aggregated)
 // ================================================================
-// Muestra datos de TODOS los pedidos para proyección de caja
-// Pero calcula costos SOLO de pedidos entregados (costos reales incurridos)
+// Devuelve series diarias con tres líneas:
+//   realRevenue       -> caja efectiva (solo entregados + ingresos adicionales)
+//   projectedRevenue  -> realRevenue + (in-transit * tasa de entrega histórica)
+//   revenue           -> alias legacy. Antes era "todos los pedidos sin filtrar"
+//                        (incluía cancelados/rechazados). Ahora apunta a
+//                        projectedRevenue para alinearlo con la card del overview.
+// Costos siguen calculándose solo sobre entregados (costos reales incurridos).
 // ================================================================
+//
 analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
     try {
         const { days = '7', startDate: startDateParam, endDate: endDateParam } = req.query;
@@ -659,47 +739,66 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
             }
         }
 
-        // Group orders by date
-        // Revenue proyectado = todos los pedidos (para saber cuánto puede entrar)
-        // Costos reales = solo pedidos entregados (dinero que ya salió)
+        // Group orders by date.
+        //   realRevenue        -> only delivered orders + additional income.
+        //   inTransitRevenue   -> gross revenue from live pipeline orders that day.
+        //   inTransitCount     -> count for that day's pipeline.
+        //   deliveredCount     -> for the per-day delivery rate calc.
+        // After the loop we compute a global delivery rate over the period and
+        // weight inTransitRevenue with it to produce projectedRevenue per day.
         const dailyData: Record<string, {
-            projectedRevenue: number; // Todos los pedidos
-            realRevenue: number;      // Solo entregados
-            productCosts: number;     // Solo entregados
-            shippingCosts: number;    // Solo entregados
+            realRevenue: number;
+            inTransitRevenue: number;
+            productCosts: number;
+            shippingCosts: number;
             gasto_publicitario: number;
         }> = {};
+
+        let totalDeliveredForRate = 0;
+        let totalInTransitForRate = 0;
 
         for (const order of orders) {
             const date = formatDateInTimezone(order.created_at, storeTz);
 
             if (!dailyData[date]) {
-                dailyData[date] = { projectedRevenue: 0, realRevenue: 0, productCosts: 0, shippingCosts: 0, gasto_publicitario: 0 };
+                dailyData[date] = { realRevenue: 0, inTransitRevenue: 0, productCosts: 0, shippingCosts: 0, gasto_publicitario: 0 };
             }
 
-            // Proyección: suma todos los pedidos
-            dailyData[date].projectedRevenue += Number(order.total_price) || 0;
+            const status = order.sleeves_status;
+            const total = Number(order.total_price) || 0;
 
-            // Solo sumar costos e ingresos reales para pedidos entregados
-            if (order.sleeves_status === 'delivered') {
-                dailyData[date].realRevenue += Number(order.total_price) || 0;
+            if (isDelivered(status)) {
+                dailyData[date].realRevenue += total;
                 dailyData[date].shippingCosts += Number(order.shipping_cost) || 0;
+                totalDeliveredForRate += 1;
 
                 // Migration 128: Use stored unit_cost snapshot
                 const orderLineItems = lineItemsByOrder.get(order.id) || [];
                 for (const item of orderLineItems) {
                     dailyData[date].productCosts += (Number(item.unit_cost) || 0) * (Number(item.quantity) || 1);
                 }
+            } else if (isInTransit(status)) {
+                dailyData[date].inTransitRevenue += total;
+                totalInTransitForRate += 1;
             }
+            // pending / cancelled / rejected / returned / delivery_failed se omiten
+            // del proyectado: no es plata "en camino", es ruido o fracaso.
         }
+
+        // Single delivery rate for the whole period, applied uniformly to every
+        // day's in-transit bucket. Mirrors the /overview logic.
+        const periodDeliveryDenominator = totalDeliveredForRate + totalInTransitForRate;
+        const deliveryRateDecimal = periodDeliveryDenominator > 0 && totalDeliveredForRate > 0
+            ? (totalDeliveredForRate / periodDeliveryDenominator)
+            : 0.85;
 
         // Add additional values to revenue and costs for each day
         for (const date in dailyAdditionalValues) {
             if (!dailyData[date]) {
-                dailyData[date] = { projectedRevenue: 0, realRevenue: 0, productCosts: 0, shippingCosts: 0, gasto_publicitario: 0 };
+                dailyData[date] = { realRevenue: 0, inTransitRevenue: 0, productCosts: 0, shippingCosts: 0, gasto_publicitario: 0 };
             }
-            // Los ingresos adicionales se suman a ambos (proyectado y real)
-            dailyData[date].projectedRevenue += dailyAdditionalValues[date].income;
+            // Ingresos adicionales son caja efectiva, van directo a real (y por
+            // construcción, también al proyectado al sumarlo abajo).
             dailyData[date].realRevenue += dailyAdditionalValues[date].income;
             // Los gastos adicionales se suman a costos de producto
             dailyData[date].productCosts += dailyAdditionalValues[date].expense;
@@ -715,13 +814,17 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         const chartData = Object.entries(dailyData).map(([date, data]) => {
             const totalCosts = data.productCosts + data.shippingCosts + data.gasto_publicitario;
             const realProfit = data.realRevenue - totalCosts;
+            const projectedRevenue = data.realRevenue + (data.inTransitRevenue * deliveryRateDecimal);
 
             return {
                 date,
-                // Revenue proyectado (todos los pedidos) para ver tendencia
-                revenue: Math.round(data.projectedRevenue),
-                // Revenue real (solo entregados)
+                // Legacy alias mantenido para consumidores que aún leen `revenue`.
+                // Apunta a projectedRevenue para alinear con la card del overview.
+                revenue: Math.round(projectedRevenue),
+                // Revenue real (solo entregados + ingresos adicionales)
                 realRevenue: Math.round(data.realRevenue),
+                // Revenue proyectado (entregados + in-transit ponderado)
+                projectedRevenue: Math.round(projectedRevenue),
                 // Costos totales (solo de entregados)
                 costs: Math.round(data.productCosts + data.shippingCosts),
                 productCosts: Math.round(data.productCosts),
@@ -774,9 +877,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
         const totalOrders = orders.length;
 
         const confirmedOrders = orders.filter(o =>
-            o.sleeves_status === 'confirmed' ||
-            o.sleeves_status === 'shipped' ||
-            o.sleeves_status === 'delivered'
+            POST_PENDING_STATUSES.has(o.sleeves_status)
         ).length;
 
         const pendingOrders = orders.filter(o => o.sleeves_status === 'pending').length;
@@ -908,104 +1009,171 @@ analyticsRouter.get('/top-products', async (req: AuthRequest, res: Response) => 
 
         const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId);
 
-        // Build query - SOLO pedidos entregados (ventas reales)
-        let query = supabaseAdmin
+        // FIX-1 (audit 2026-05-02): Source of truth is `order_line_items` joined to
+        // `products` and `product_variants`. The previous implementation read the
+        // legacy `orders.line_items` JSONB which was lossy (only one item per order
+        // for many historical rows) and undercounted real sales by ~50% on NOCTE.
+        //
+        // Aggregation rules:
+        //   - quantity counts physical units sold: pack_qty * units_per_pack when
+        //     the line is a shared-stock bundle, else pack_qty.
+        //   - revenue uses the line item's persisted unit_price * quantity.
+        //   - exclude lines that map to "service" products (is_service=true) or to
+        //     placeholder products with cost=0 AND price>0 (e.g. ENVIO PRIORITARIO),
+        //     they pollute rankings without representing inventory turnover.
+        //   - default window: 365 days, anchored to the store's local calendar.
+        const orderIdsQuery = supabaseAdmin
             .from('orders')
-            .select('line_items')
+            .select('id')
             .eq('store_id', req.storeId)
-            .eq('sleeves_status', 'delivered'); // Solo pedidos entregados
+            .eq('sleeves_status', 'delivered')
+            .is('deleted_at', null)
+            .or('is_test.is.null,is_test.eq.false');
 
-        // Apply date filters if provided (store-local day boundaries)
         if (startDate) {
-            query = query.gte('created_at', startOfDayIso(startDate as string, storeTz));
+            orderIdsQuery.gte('created_at', startOfDayIso(startDate as string, storeTz));
         }
         if (endDate) {
-            query = query.lte('created_at', endOfDayIso(endDate as string, storeTz));
+            orderIdsQuery.lte('created_at', endOfDayIso(endDate as string, storeTz));
         }
-
-        // Default 1-year window anchored to the store's local calendar
         if (!startDate && !endDate) {
-            query = query.gte('created_at', startOfDayIso(addDaysInTimezone(-365, storeTz), storeTz));
+            orderIdsQuery.gte('created_at', startOfDayIso(addDaysInTimezone(-365, storeTz), storeTz));
         }
 
-        const { data: ordersData, error: ordersError } = await query;
-
-        if (ordersError) {
-            logger.error('SERVER', '[GET /api/analytics/top-products] Orders query error:', ordersError);
-            throw ordersError;
+        const { data: deliveredOrderIds, error: ordersIdsError } = await orderIdsQuery;
+        if (ordersIdsError) {
+            logger.error('SERVER', '[GET /api/analytics/top-products] Order IDs query error:', ordersIdsError);
+            throw ordersIdsError;
         }
 
-        logger.info('SERVER', `[GET /api/analytics/top-products] Retrieved ${ordersData?.length || 0} orders`);
+        const orderIds = (deliveredOrderIds || []).map(o => o.id);
+        logger.info('SERVER', `[GET /api/analytics/top-products] ${orderIds.length} delivered orders in window`);
 
-        // Count product sales
-        const productSales: Record<string, { product_id: string; quantity: number; revenue: number }> = {};
-
-        for (const order of ordersData || []) {
-            if (order.line_items && Array.isArray(order.line_items)) {
-                for (const item of order.line_items) {
-                    // Skip items with missing or invalid product_id
-                    if (!item.product_id || typeof item.product_id !== 'string' || item.product_id === 'undefined' || item.product_id === 'null') {
-                        continue;
-                    }
-
-                    if (!productSales[item.product_id]) {
-                        productSales[item.product_id] = {
-                            product_id: item.product_id,
-                            quantity: 0,
-                            revenue: 0
-                        };
-                    }
-                    productSales[item.product_id].quantity += Number(item.quantity) || 0;
-                    productSales[item.product_id].revenue += (Number(item.price) || 0) * (Number(item.quantity) || 0);
-                }
-            }
-        }
-
-        // Get product details and sort by quantity
-        const topProductIds = Object.values(productSales)
-            .sort((a, b) => b.quantity - a.quantity)
-            .slice(0, parseInt(limit as string, 10))
-            .map(p => p.product_id)
-            .filter(id => {
-                // Validate UUID format (basic check)
-                if (!id || typeof id !== 'string') return false;
-                if (id === 'undefined' || id === 'null') return false;
-                // UUID should be 36 characters with dashes in specific positions
-                return id.length >= 36 && id.includes('-');
-            });
-
-        if (topProductIds.length === 0) {
+        if (orderIds.length === 0) {
             return res.json({ data: [] });
         }
 
-        logger.info('SERVER', `[GET /api/analytics/top-products] Querying ${topProductIds.length} product IDs:`, topProductIds);
+        // Fetch line items for all delivered orders in window. Joined to product
+        // and variant so we can resolve physical units and exclude services.
+        const { data: lineItemsData, error: lineItemsError } = await supabaseAdmin
+            .from('order_line_items')
+            .select(`
+                product_id,
+                variant_id,
+                quantity,
+                unit_price,
+                units_per_pack,
+                product:products!order_line_items_product_id_fkey (
+                    id, name, price, cost, packaging_cost, additional_costs,
+                    image_url, stock, is_service, sku
+                ),
+                variant:product_variants!order_line_items_variant_id_fkey (
+                    id, units_per_pack, uses_shared_stock, variant_type
+                )
+            `)
+            .in('order_id', orderIds);
 
-        // OPTIMIZATION: Only select required fields for top products
-        const { data: productsData, error: productsError } = await supabaseAdmin
-            .from('products')
-            .select('id, name, price, cost, packaging_cost, additional_costs, image_url, stock')
-            .in('id', topProductIds);
-
-        if (productsError) {
-            logger.error('SERVER', '[GET /api/analytics/top-products] Products query error:', productsError);
-            throw productsError;
+        if (lineItemsError) {
+            logger.error('SERVER', '[GET /api/analytics/top-products] Line items query error:', lineItemsError);
+            throw lineItemsError;
         }
 
-        // Combine product details with sales data and calculate profitability
-        const topProducts = (productsData || []).map(product => {
+        // Aggregate per product_id. Track BOTH pack quantity (what the customer
+        // bought as a SKU line) and physical units (what came out of inventory),
+        // because the frontend uses `sales` for revenue display (sales * price)
+        // and that has to match `pack_qty * unit_price`, not physical units.
+        type Aggregate = {
+            product_id: string;
+            product: any;
+            packQty: number;        // pack-level quantity = lines sold to customers
+            physicalUnits: number;  // unit-level quantity = inventory drained
+            revenue: number;        // sum unit_price * pack_qty (sales-side truth)
+        };
+
+        const productSales = new Map<string, Aggregate>();
+
+        for (const line of lineItemsData || []) {
+            const product: any = (line as any).product;
+            const variant: any = (line as any).variant;
+            const productId: string | null = (line as any).product_id;
+
+            if (!productId || !product) continue;
+
+            // Exclude service / placeholder products. `is_service=true` is the
+            // primary signal; cost=0 with price>0 is a fallback for legacy rows
+            // (NOCTE ENVIO PRIORITARIO is the canonical example).
+            const productCost = Number(product.cost) || 0;
+            const productPrice = Number(product.price) || 0;
+            if (product.is_service === true) continue;
+            if (productCost === 0 && productPrice > 0) continue;
+
+            const packQty = Number((line as any).quantity) || 0;
+            if (packQty <= 0) continue;
+
+            // Physical units: prefer the variant's units_per_pack when the line
+            // is a shared-stock bundle. Fall back to the line's persisted value
+            // (set when the order was created) and finally to 1.
+            let unitsPerPack = 1;
+            if (variant && variant.uses_shared_stock === true) {
+                unitsPerPack = Number(variant.units_per_pack) || 1;
+            } else if ((line as any).units_per_pack) {
+                unitsPerPack = Number((line as any).units_per_pack) || 1;
+            }
+            const physicalUnits = packQty * unitsPerPack;
+            const lineRevenue = (Number((line as any).unit_price) || 0) * packQty;
+
+            const existing = productSales.get(productId);
+            if (existing) {
+                existing.packQty += packQty;
+                existing.physicalUnits += physicalUnits;
+                existing.revenue += lineRevenue;
+            } else {
+                productSales.set(productId, {
+                    product_id: productId,
+                    product,
+                    packQty,
+                    physicalUnits,
+                    revenue: lineRevenue,
+                });
+            }
+        }
+
+        const topAggregates = Array.from(productSales.values())
+            .sort((a, b) => b.packQty - a.packQty)
+            .slice(0, parseInt(limit as string, 10));
+
+        if (topAggregates.length === 0) {
+            return res.json({ data: [] });
+        }
+
+        const topProducts = topAggregates.map(({ product, packQty, physicalUnits, revenue }) => {
             const price = Number(product.price) || 0;
             const baseCost = Number(product.cost) || 0;
             const packagingCost = Number(product.packaging_cost) || 0;
             const additionalCosts = Number(product.additional_costs) || 0;
-            // Total unit cost includes base cost + packaging + additional costs
             const totalCost = baseCost + packagingCost + additionalCosts;
-            const profitability = price > 0 ? parseFloat((((price - totalCost) / price) * 100).toFixed(1)) : 0;
+            const profitability = price > 0
+                ? parseFloat((((price - totalCost) / price) * 100).toFixed(1))
+                : 0;
 
             return {
-                ...product,
-                sales: productSales[product.id]?.quantity || 0,
-                sales_revenue: productSales[product.id]?.revenue || 0,
-                total_cost: totalCost, // Return total cost for frontend calculations
+                id: product.id,
+                name: product.name,
+                price,
+                cost: baseCost,
+                packaging_cost: packagingCost,
+                additional_costs: additionalCosts,
+                image_url: product.image_url,
+                stock: product.stock,
+                // `sales` keeps backwards-compatible meaning: pack quantity that
+                // the customer bought (one line item == one "sale"). Frontend
+                // multiplies sales * price for displayed revenue.
+                sales: packQty,
+                // physical_units is the new inventory-side number and is what
+                // the audit asked for (correct accounting of bundles).
+                physical_units: physicalUnits,
+                sales_revenue: revenue,
+                total_cost: totalCost,
                 profitability,
             };
         }).sort((a, b) => b.sales - a.sales);
@@ -1286,17 +1454,22 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
 
         const orders = activeOrders || [];
 
-        // 30-day marketing expense window for per-order proration (store-local dates)
+        // FIX-10 (audit 2026-05-02): marketing spend is no longer pre-allocated
+        // per order. The previous implementation pulled a 30-day expense window
+        // and divided uniformly across the 90-day order set, which prorated
+        // historical campaigns against future orders and inflated cost per order.
+        // Marketing is now subtracted at the aggregate level after the timeline
+        // is built (see "marketing distribution" block below).
+        const ninetyDaysAgoLocalDate = addDaysInTimezone(-90, storeTz);
         const { data: marketingExpensesData } = await supabaseAdmin
             .from('additional_values')
-            .select('amount')
+            .select('amount, date')
             .eq('store_id', req.storeId)
             .eq('category', 'marketing')
             .eq('type', 'expense')
-            .gte('date', addDaysInTimezone(-30, storeTz));
-
-        const totalGastoPublicitario = (marketingExpensesData || []).reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
-        const gastoPublicitarioPerOrder = orders.length > 0 ? totalGastoPublicitario / orders.length : 0;
+            .gte('date', ninetyDaysAgoLocalDate);
+        const marketingExpenses = (marketingExpensesData || []) as Array<{ amount: number | string; date: string }>;
+        const gastoPublicitarioPerOrder = 0; // not prorated per-order anymore
 
         // Migration 128: Fetch line items with stored unit_cost (fixes bug where order.line_items was undefined)
         const orderIds = orders.map(o => o.id);
@@ -1467,13 +1640,47 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
             };
         });
 
-        // Calculate summary
+        // FIX-11 (audit 2026-05-02): summary derives from the timeline that the
+        // client renders, not from arbitrary 0.6 / 0.75 / 0.9 multipliers.
+        // The multipliers ignored the actual probability and days-to-collect
+        // weighting applied per order, producing inflated optimistic and
+        // unrealistic conservative scenarios that did not match the chart.
+        const summaryRevenue = timelineWithCumulative.reduce(
+            (acc, p) => ({
+                conservative: acc.conservative + p.revenue.conservative,
+                moderate: acc.moderate + p.revenue.moderate,
+                optimistic: acc.optimistic + p.revenue.optimistic,
+            }),
+            { conservative: 0, moderate: 0, optimistic: 0 },
+        );
+        const summaryNet = timelineWithCumulative.reduce(
+            (acc, p) => ({
+                conservative: acc.conservative + p.netCashFlow.conservative,
+                moderate: acc.moderate + p.netCashFlow.moderate,
+                optimistic: acc.optimistic + p.netCashFlow.optimistic,
+            }),
+            { conservative: 0, moderate: 0, optimistic: 0 },
+        );
+
+        // FIX-10 (continued): marketing spend is subtracted at the aggregate
+        // level (against the 90-day window of expenses), not prorated per order.
+        const totalMarketingSpend = marketingExpenses.reduce(
+            (sum, m) => sum + (Number(m.amount) || 0),
+            0,
+        );
+
         const summary = {
             totalRevenue: {
-                conservative: Math.round(orders.reduce((sum, o) => sum + (Number(o.total_price) || 0) * 0.6, 0)),
-                moderate: Math.round(orders.reduce((sum, o) => sum + (Number(o.total_price) || 0) * 0.75, 0)),
-                optimistic: Math.round(orders.reduce((sum, o) => sum + (Number(o.total_price) || 0) * 0.9, 0)),
+                conservative: Math.round(summaryRevenue.conservative),
+                moderate: Math.round(summaryRevenue.moderate),
+                optimistic: Math.round(summaryRevenue.optimistic),
             },
+            totalNetCashFlow: {
+                conservative: Math.round(summaryNet.conservative - totalMarketingSpend),
+                moderate: Math.round(summaryNet.moderate - totalMarketingSpend),
+                optimistic: Math.round(summaryNet.optimistic - totalMarketingSpend),
+            },
+            totalMarketingSpend: Math.round(totalMarketingSpend),
             totalOrders: orders.length,
             periodType,
             periodsCount: timelineWithCumulative.length,
