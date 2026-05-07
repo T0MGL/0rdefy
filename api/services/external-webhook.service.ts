@@ -1266,34 +1266,73 @@ export class ExternalWebhookService {
   // ================================================================
 
   /**
-   * Encuentra una orden por número o ID dentro de una tienda
+   * Encuentra una orden por número o ID dentro de una tienda.
+   *
+   * order_number is NOT unique per store (NOCTE alone has ~36 duplicated
+   * order_numbers in 60d due to the daily ORD-YYYYMMDD scheme). Without an
+   * explicit ORDER BY, PostgREST returned an indeterminate row, which caused
+   * confirmable orders to be rejected with INVALID_STATUS when an older
+   * delivered order shared the same order_number.
+   *
+   * Strategy:
+   *   1. Fetch all matches ordered by created_at DESC (newest first).
+   *   2. If there are multiple matches in an active status (pending/contacted),
+   *      surface MULTIPLE_ORDERS so the caller can ask the user to disambiguate
+   *      (mirrors the phone lookup path).
+   *   3. Otherwise return the most recent match. This handles the common case
+   *      where an older delivered/cancelled row shares the number with today's
+   *      pending order.
    */
   private async findOrderByNumber(
     storeId: string,
     orderNumber: string
-  ): Promise<{ id: string; status: string } | null> {
+  ): Promise<
+    | { ok: true; order: { id: string; status: string } }
+    | { ok: false; code: 'NOT_FOUND' }
+    | { ok: false; code: 'MULTIPLE_ORDERS'; count: number }
+  > {
     try {
       // Sanitize to prevent PostgREST filter injection via .or() interpolation
       const rawNum = orderNumber.replace(/^#/, '').trim();
       const searchNum = sanitizeSearchInput(rawNum);
-      if (!searchNum) return null;
+      if (!searchNum) return { ok: false, code: 'NOT_FOUND' };
 
       const sanitizedOriginal = sanitizeSearchInput(orderNumber);
 
-      // Try shopify_order_name first (most common: #1315)
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from('orders')
-        .select('id, sleeves_status')
+        .select('id, sleeves_status, created_at')
         .eq('store_id', storeId)
         .is('deleted_at', null)
         .or(`shopify_order_name.eq.#${searchNum},shopify_order_name.eq.${searchNum},shopify_order_number.eq.${searchNum},order_number.eq.ORD-${searchNum.padStart(5, '0')},order_number.eq.${sanitizedOriginal}`)
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
 
-      return data ? { id: data.id, status: data.sleeves_status } : null;
+      if (error) {
+        logger.error('BACKEND', '❌ [ExternalWebhook] Error finding order:', error);
+        return { ok: false, code: 'NOT_FOUND' };
+      }
+
+      if (!data || data.length === 0) {
+        return { ok: false, code: 'NOT_FOUND' };
+      }
+
+      const activeStatuses = new Set(['pending', 'contacted']);
+      const activeMatches = data.filter(row => activeStatuses.has(row.sleeves_status));
+
+      // Ambiguous only when the caller would have a real decision to make:
+      // 2+ rows that the confirm endpoint would actually consider valid.
+      if (activeMatches.length > 1) {
+        return { ok: false, code: 'MULTIPLE_ORDERS', count: activeMatches.length };
+      }
+
+      // Prefer the active row when present (covers older delivered + newer pending).
+      // Otherwise fall back to the most recent row, which preserves the previous
+      // behaviour for non-confirm callers (eg. status updates on a delivered order).
+      const chosen = activeMatches[0] ?? data[0];
+      return { ok: true, order: { id: chosen.id, status: chosen.sleeves_status } };
     } catch (error) {
       logger.error('BACKEND', '❌ [ExternalWebhook] Error finding order:', error);
-      return null;
+      return { ok: false, code: 'NOT_FOUND' };
     }
   }
 
@@ -1469,10 +1508,20 @@ export class ExternalWebhookService {
 
       if (identifier.order_number) {
         // Primary path: find by order number (exact match)
-        order = await this.findOrderByNumber(storeId, identifier.order_number);
-        if (!order) {
+        const lookup = await this.findOrderByNumber(storeId, identifier.order_number);
+        if (!lookup.ok) {
+          if (lookup.code === 'MULTIPLE_ORDERS') {
+            return {
+              success: false,
+              error: 'Multiple confirmable orders share this order_number. Provide phone or contact support to disambiguate.',
+              code: 'MULTIPLE_ORDERS',
+              multiple_orders: lookup.count
+            };
+          }
           return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
         }
+
+        order = lookup.order;
 
         // Validate status
         if (order.status !== 'pending' && order.status !== 'contacted') {
@@ -2320,11 +2369,19 @@ export class ExternalWebhookService {
     multiple_orders?: number;
   }> {
     if (identifier.order_number) {
-      const order = await this.findOrderByNumber(storeId, identifier.order_number);
-      if (!order) {
+      const lookup = await this.findOrderByNumber(storeId, identifier.order_number);
+      if (!lookup.ok) {
+        if (lookup.code === 'MULTIPLE_ORDERS') {
+          return {
+            success: false,
+            error: 'Multiple confirmable orders share this order_number. Provide phone or contact support to disambiguate.',
+            code: 'MULTIPLE_ORDERS',
+            multiple_orders: lookup.count
+          };
+        }
         return { success: false, error: 'Order not found', code: 'ORDER_NOT_FOUND' };
       }
-      return { success: true, order };
+      return { success: true, order: lookup.order };
     }
 
     if (identifier.phone) {
