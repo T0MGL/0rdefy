@@ -507,6 +507,7 @@ export interface MetricCardProps {
   variant?: 'default' | 'primary' | 'secondary' | 'accent' | 'purple';
   subtitle?: string;
   onClick?: () => void;
+  dense?: boolean;
 }
 
 export interface ConfirmationMetrics {

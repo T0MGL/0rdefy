@@ -398,6 +398,7 @@ export default function Dashboard() {
             icon={<DollarSign className="text-primary" size={24} />}
             variant="primary"
             subtitle="Solo pedidos entregados"
+            dense
           />
           <MetricCard
             title={
@@ -418,6 +419,7 @@ export default function Dashboard() {
             icon={<Activity className="text-cyan-600" size={24} />}
             variant="secondary"
             subtitle="Entregados + en tránsito"
+            dense
           />
           <MetricCard
             title={
@@ -432,6 +434,7 @@ export default function Dashboard() {
             icon={<TrendingUp className="text-green-600" size={24} />}
             variant="accent"
             subtitle="Solo pedidos entregados"
+            dense
           />
           <MetricCard
             title={
@@ -448,6 +451,7 @@ export default function Dashboard() {
             icon={<TrendingUp className="text-emerald-600" size={24} />}
             variant="secondary"
             subtitle="Entregados + en tránsito"
+            dense
           />
           <MetricCard
             title={
@@ -461,6 +465,7 @@ export default function Dashboard() {
             trend={getTrend('deliveryRate')}
             icon={<Truck className="text-purple-600" size={24} />}
             variant="purple"
+            dense
           />
           <MetricCard
             title={
@@ -473,6 +478,7 @@ export default function Dashboard() {
             change={getChange('averageOrderValue')}
             trend={getTrend('averageOrderValue')}
             icon={<ShoppingCart className="text-orange-600" size={24} />}
+            dense
           />
         </div>
       </div>

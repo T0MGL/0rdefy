@@ -12,6 +12,7 @@ export function MetricCard({
   variant = 'default',
   subtitle,
   onClick,
+  dense = false,
 }: MetricCardProps) {
   // Extract numeric value to check if it's zero
   const numericValue = typeof value === 'number'
@@ -27,7 +28,8 @@ export function MetricCard({
   return (
     <Card
       className={cn(
-        "p-6 bg-card border border-border hover:shadow-elegant transition-all duration-200",
+        "bg-card border border-border hover:shadow-elegant transition-all duration-200",
+        dense ? "p-5" : "p-6",
         onClick && "cursor-pointer hover:scale-105"
       )}
       onClick={onClick}
@@ -53,7 +55,15 @@ export function MetricCard({
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
         {title}
       </p>
-      <p className="text-3xl font-bold text-card-foreground">{value}</p>
+      <p
+        className={cn(
+          "font-bold text-card-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis",
+          dense ? "text-2xl xl:text-xl 2xl:text-2xl" : "text-3xl"
+        )}
+        title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}
+      >
+        {value}
+      </p>
       {subtitle && (
         <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
       )}
