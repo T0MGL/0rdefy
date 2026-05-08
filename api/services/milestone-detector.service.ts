@@ -464,6 +464,71 @@ function slugify(s: string): string {
   );
 }
 
+/**
+ * Backfill helper: send a single milestone email for a store regardless of
+ * the live delivered_count. Used by api/scripts/backfill-milestone-emails.ts
+ * to catch up stores (NOCTE in particular) that crossed milestones before
+ * the feature shipped on 2026-04-30.
+ *
+ * Honors the founder_emails_sent UNIQUE (store, type, value) constraint:
+ *   - returns ok:true, reason:'already_sent' when the row already exists
+ *   - on PostgREST 23505 from concurrent inserts, treats as already_sent
+ *
+ * Computes stats "as of now" rather than as-of historical milestone date.
+ * This is a deliberate trade-off documented in the script header.
+ */
+export async function __sendBackfillMilestone(args: {
+  storeId: string;
+  milestoneValue: number;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const { storeId, milestoneValue } = args;
+
+  if (!isMilestone(milestoneValue)) {
+    return { ok: false, reason: `not a canonical milestone value: ${milestoneValue}` };
+  }
+
+  const { data: existing } = await supabaseAdmin
+    .from('founder_emails_sent')
+    .select('id')
+    .eq('store_id', storeId)
+    .eq('email_type', 'milestone')
+    .eq('milestone_value', milestoneValue)
+    .maybeSingle();
+  if (existing) return { ok: true, reason: 'already_sent' };
+
+  const owner = await resolveOwner(storeId);
+  if (!owner) return { ok: false, reason: 'no_owner' };
+
+  const stats = await computeStats(storeId);
+  const shareCardId = await createShareCard(storeId, milestoneValue, owner, stats);
+  const shareUrl = await buildShareUrl(shareCardId);
+
+  const emailData = buildEmailData({
+    milestoneValue,
+    owner,
+    stats,
+    shareUrl,
+  });
+
+  const result = await sendMilestoneEmail(owner.email, emailData);
+
+  const { error: logErr } = await supabaseAdmin.from('founder_emails_sent').insert({
+    store_id: storeId,
+    email_type: 'milestone',
+    milestone_value: milestoneValue,
+    share_card_id: shareCardId,
+    message_id: result.messageId ?? null,
+  });
+  if (logErr && logErr.code !== '23505') {
+    logger.warn('MILESTONE', `backfill log insert failed: ${logErr.message}`);
+  }
+
+  if (!result.success) {
+    return { ok: false, reason: `send_failed: ${result.error}` };
+  }
+  return { ok: true };
+}
+
 export const __test = {
   isMilestone,
   formatMoney,
