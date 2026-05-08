@@ -344,4 +344,150 @@ describe('milestone stats queries', () => {
       `expected exactly one courier_id select, got: ${JSON.stringify(seenColumns)}`,
     );
   });
+
+  it('caps delivery_rate at 100 even when delivered count exceeds dispatched count', async () => {
+    // This is the safety belt for the in_transit_at denominator bug. If
+    // delivered=231 and dispatched=10 (the prior NOCTE shape), the rate
+    // calculation must clamp at 100, not emit 2310.
+    let capturedPrivateData: Record<string, unknown> | null = null;
+
+    (supabaseAdmin as any).from = (table: string) => {
+      if (table === 'orders') {
+        return {
+          select(_columns?: string, opts?: any) {
+            const isCount = !!opts?.head;
+            return makeRateResponder(isCount);
+          },
+        };
+      }
+      if (table === 'founder_emails_sent') {
+        return {
+          select() {
+            return {
+              eq() { return this; },
+              maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+            };
+          },
+          insert() { return Promise.resolve({ data: null, error: null }); },
+        };
+      }
+      if (table === 'stores') {
+        return {
+          select() {
+            return {
+              eq() { return this; },
+              maybeSingle() {
+                return Promise.resolve({
+                  data: { name: 'NOCTE', country: 'PY', timezone: 'America/Asuncion', currency: 'PYG' },
+                  error: null,
+                });
+              },
+            };
+          },
+        };
+      }
+      if (table === 'user_stores') {
+        return {
+          select() {
+            return {
+              eq() { return this; },
+              order() { return this; },
+              limit() { return this; },
+              maybeSingle() { return Promise.resolve({ data: { user_id: 'user-1' }, error: null }); },
+            };
+          },
+        };
+      }
+      if (table === 'users') {
+        return {
+          select() {
+            return {
+              eq() { return this; },
+              maybeSingle() {
+                return Promise.resolve({
+                  data: { email: 'g@b.ai', name: 'Gaston' },
+                  error: null,
+                });
+              },
+            };
+          },
+        };
+      }
+      if (table === 'order_line_items') {
+        return {
+          select() { return { in() { return Promise.resolve({ data: [], error: null }); } }; },
+        };
+      }
+      if (table === 'products') {
+        return {
+          select() { return { in() { return Promise.resolve({ data: [], error: null }); } }; },
+        };
+      }
+      if (table === 'share_cards') {
+        return {
+          insert(row: any) {
+            capturedPrivateData = row?.private_data ?? null;
+            return {
+              select() {
+                return { single() { return Promise.resolve({ data: { id: 'sc-1' }, error: null }); } };
+              },
+            };
+          },
+          select() {
+            return {
+              eq() { return this; },
+              single() { return Promise.resolve({ data: { token: 'tok' }, error: null }); },
+            };
+          },
+        };
+      }
+      return originalFrom(table);
+    };
+
+    let callIdx = 0;
+    function makeRateResponder(isCount: boolean): any {
+      callIdx++;
+      const localIdx = callIdx;
+      const builder: any = {
+        eq() { return builder; },
+        in() { return builder; },
+        is() { return builder; },
+        not() { return builder; },
+        order() { return builder; },
+        limit() { return builder; },
+        maybeSingle() {
+          if (localIdx === 2) {
+            return Promise.resolve({
+              data: { created_at: '2026-01-01T10:00:00Z', total_price: 229000, currency: 'PYG' },
+              error: null,
+            });
+          }
+          return Promise.resolve({ data: null, error: null });
+        },
+        then(resolve: (v: any) => any) {
+          if (isCount) {
+            // 1: countDeliveredOrders -> 100 (milestone trigger)
+            // 4: dispatchedCount     -> 10 (worst-case denominator)
+            // 5: deliveredCount      -> 100 (numerator)
+            if (localIdx === 1) return Promise.resolve({ count: 100, error: null }).then(resolve);
+            if (localIdx === 4) return Promise.resolve({ count: 10, error: null }).then(resolve);
+            if (localIdx === 5) return Promise.resolve({ count: 100, error: null }).then(resolve);
+          }
+          // 3 = deliveredOrders list, 6 = couriers list
+          return Promise.resolve({ data: [], error: null }).then(resolve);
+        },
+      };
+      return builder;
+    }
+
+    const { checkAndSendMilestone } = await import('../milestone-detector.service');
+    await checkAndSendMilestone('store-1', 'order-1');
+
+    assert.ok(capturedPrivateData, 'share_card insert was not called');
+    assert.equal(
+      (capturedPrivateData as any).delivery_rate,
+      100,
+      `delivery_rate must clamp at 100 when delivered > dispatched, got ${(capturedPrivateData as any).delivery_rate}`,
+    );
+  });
 });
