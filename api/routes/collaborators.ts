@@ -406,7 +406,8 @@ collaboratorsRouter.get(
         .from('collaborator_invitations')
         .select(`
           *,
-          store:stores(name, country, timezone)
+          store:stores(name, country, timezone),
+          carrier:carriers(name)
         `)
         .eq('token', token)
         .eq('used', false)
@@ -422,7 +423,7 @@ collaboratorsRouter.get(
 
 
       // SECURITY: Only expose minimal information needed for the UI
-      // Don't reveal assigned_role (security-sensitive)
+      // Don't reveal assigned_role for team invites (security-sensitive)
       // Email is masked for privacy but shown so user can confirm it's for them
       const maskedEmail = maskEmail(invitation.invited_email);
 
@@ -433,15 +434,25 @@ collaboratorsRouter.get(
         .eq('email', invitation.invited_email)
         .single();
 
+      // For courier invitations, surfacing role + carrier is intentional and
+      // not a security regression: the invitee MUST know they're being onboarded
+      // as an external operator (different UX, different post-accept redirect).
+      // The token is a 64-char secret, so leaking metadata here only happens to
+      // someone who already has the link. Team-role invitations remain opaque.
+      const isCourierInvite = invitation.assigned_role === 'courier';
+
       res.json({
         valid: true,
         invitation: {
           name: invitation.invited_name,
           email: maskedEmail, // Masked email for privacy (e.g., j***@example.com)
-          // role intentionally omitted - revealed after password set
           storeName: invitation.store.name,
           expiresAt: invitation.expires_at,
-          userExists: !!existingUser // Indicates if user needs to enter existing password
+          userExists: !!existingUser, // Indicates if user needs to enter existing password
+          // Courier-only fields. Always present, null for team invites.
+          isCourierInvite,
+          carrierName: isCourierInvite ? (invitation.carrier?.name ?? null) : null,
+          assignedRole: isCourierInvite ? 'courier' : null
         }
       });
     } catch (error) {

@@ -78,6 +78,16 @@ const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Wrapped = lazy(() => import("./pages/Wrapped"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
+// Courier portal (Phase 4) - own layout, own guard, no admin shell.
+const CourierPortalLayout = lazy(() => import("./components/portal/CourierPortalLayout").then(m => ({ default: m.CourierPortalLayout })));
+const PortalGuard = lazy(() => import("./components/portal/PortalGuard").then(m => ({ default: m.PortalGuard })));
+const PortalLogin = lazy(() => import("./pages/portal/PortalLogin"));
+const PortalActive = lazy(() => import("./pages/portal/PortalActive"));
+const PortalToday = lazy(() => import("./pages/portal/PortalToday"));
+const PortalHistory = lazy(() => import("./pages/portal/PortalHistory"));
+const PortalOrderDetail = lazy(() => import("./pages/portal/PortalOrderDetail"));
+const PortalProfile = lazy(() => import("./pages/portal/PortalProfile"));
+
 // Optimized QueryClient configuration for production cost control
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -197,6 +207,26 @@ const App = () => {
                             <Route path="/r/:code" element={<Suspense fallback={<div className="hidden" />}><Referral /></Suspense>} />
                             <Route path="/wrapped/:token" element={<Suspense fallback={<div className="hidden" />}><Wrapped /></Suspense>} />
                             <Route path="/onboarding/plan" element={<PrivateRoute><Suspense fallback={<div className="hidden" />}><OnboardingPlan /></Suspense></PrivateRoute>} />
+
+                            {/* Courier portal - separate shell, separate auth gate */}
+                            <Route path="/portal/login" element={<Suspense fallback={<div className="hidden" />}><PortalLogin /></Suspense>} />
+                            <Route
+                              path="/portal"
+                              element={
+                                <Suspense fallback={<PageSkeleton />}>
+                                  <PortalGuard>
+                                    <CourierPortalLayout />
+                                  </PortalGuard>
+                                </Suspense>
+                              }
+                            >
+                              <Route index element={<Suspense fallback={<PageSkeleton />}><PortalActive /></Suspense>} />
+                              <Route path="today" element={<Suspense fallback={<PageSkeleton />}><PortalToday /></Suspense>} />
+                              <Route path="history" element={<Suspense fallback={<PageSkeleton />}><PortalHistory /></Suspense>} />
+                              <Route path="orders/:orderId" element={<Suspense fallback={<PageSkeleton />}><PortalOrderDetail /></Suspense>} />
+                              <Route path="profile" element={<Suspense fallback={<PageSkeleton />}><PortalProfile /></Suspense>} />
+                            </Route>
+
 
                             {/* Protected routes with layout and permission checks */}
                             {/* Dashboard - accessible to all authenticated users */}

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import axios, { CancelTokenSource } from 'axios';
 import { safeJsonParse } from '@/lib/utils';
@@ -33,7 +34,13 @@ export enum Role {
   LOGISTICS = 'logistics',
   CONFIRMADOR = 'confirmador',
   CONTADOR = 'contador',
-  INVENTARIO = 'inventario'
+  INVENTARIO = 'inventario',
+  // Courier role (Phase 4): scoped to the embedded courier portal.
+  // Couriers have no access to admin modules; the routing layer redirects
+  // them to /portal/*. ROLE_PERMISSIONS[Role.COURIER] keeps every module
+  // empty so any accidental admin route render shows a permission denial
+  // instead of leaking data.
+  COURIER = 'courier'
 }
 
 export enum Module {
@@ -170,6 +177,28 @@ const ROLE_PERMISSIONS: RolePermissions = {
     [Module.MERCHANDISE]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
     [Module.CUSTOMERS]: [],
     [Module.SUPPLIERS]: [Permission.VIEW, Permission.CREATE, Permission.EDIT, Permission.DELETE],
+    [Module.CARRIERS]: [],
+    [Module.CAMPAIGNS]: [],
+    [Module.ANALYTICS]: [],
+    [Module.SETTINGS]: [],
+    [Module.TEAM]: [],
+    [Module.BILLING]: [],
+    [Module.INTEGRATIONS]: [],
+    [Module.INVOICING]: [],
+  },
+  [Role.COURIER]: {
+    // Couriers have no admin module access; their UI lives entirely under
+    // /portal. The PermissionRoute on admin pages will treat them as
+    // unauthorized, but the role-based redirect below short-circuits that
+    // and sends them to the portal first.
+    [Module.DASHBOARD]: [],
+    [Module.ORDERS]: [],
+    [Module.PRODUCTS]: [],
+    [Module.WAREHOUSE]: [],
+    [Module.RETURNS]: [],
+    [Module.MERCHANDISE]: [],
+    [Module.CUSTOMERS]: [],
+    [Module.SUPPLIERS]: [],
     [Module.CARRIERS]: [],
     [Module.CAMPAIGNS]: [],
     [Module.ANALYTICS]: [],
@@ -385,6 +414,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
     };
   }, [signOut]); // Include signOut in dependencies to prevent stale closure
+
+  // ================================================================
+  // Role-based routing (Phase 4 — courier portal)
+  // ================================================================
+  // - Couriers landing on any non-portal route go to /portal.
+  // - Admins/owners landing on /portal go to /.
+  // - /portal/login and a small set of public routes are exempt.
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) return;
+
+    const role = currentStore?.role?.toLowerCase();
+    if (!role) return;
+
+    const path = location.pathname;
+    const isPortalRoute = path === '/portal' || path.startsWith('/portal/');
+    const isPortalLogin = path === '/portal/login';
+    // Public/standalone routes that any role can hit without redirect.
+    const isPublicSafe =
+      path.startsWith('/login') ||
+      path.startsWith('/signup') ||
+      path.startsWith('/forgot-password') ||
+      path.startsWith('/reset-password') ||
+      path.startsWith('/i/') ||
+      path.startsWith('/accept-invite/') ||
+      path.startsWith('/delivery/') ||
+      path.startsWith('/r/') ||
+      path.startsWith('/wrapped/') ||
+      path === '/shopify-oauth-callback';
+
+    if (role === 'courier') {
+      // Couriers belong in the portal. Anything else, redirect.
+      if (!isPortalRoute && !isPortalLogin && !isPublicSafe) {
+        navigate('/portal', { replace: true });
+      }
+    } else {
+      // Non-couriers should not see the portal shell.
+      if (isPortalRoute && !isPortalLogin) {
+        navigate('/', { replace: true });
+      }
+    }
+  }, [loading, user, currentStore?.role, location.pathname, navigate]);
 
   // NO periodic check - token validation happens ONLY in API interceptor
   // This saves resources and is sufficient for 7-day tokens

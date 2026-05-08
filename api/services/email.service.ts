@@ -5,6 +5,7 @@ import {
   emailVerificationTemplate,
   passwordResetTemplate,
   collaboratorInviteTemplate,
+  courierOperatorInviteTemplate,
   trialStartTemplate,
   trialEndingTemplate,
   planUpgradeTemplate,
@@ -18,6 +19,7 @@ import type {
   EmailVerificationTemplateData,
   PasswordResetTemplateData,
   CollaboratorInviteTemplateData,
+  CourierOperatorInviteTemplateData,
   TrialStartTemplateData,
   TrialEndingTemplateData,
   PlanUpgradeTemplateData,
@@ -134,6 +136,19 @@ export async function sendPasswordReset(to: string, data: PasswordResetTemplateD
 
 export async function sendCollaboratorInvite(to: string, data: CollaboratorInviteTemplateData): Promise<SendResult> {
   return send(to, collaboratorInviteTemplate(data), 'collaborator-invite');
+}
+
+/**
+ * Send a courier-operator invite. Distinct from sendCollaboratorInvite
+ * so the copy (and Resend tag) are courier-specific. Same SendResult
+ * contract: callers treat success=false as "log link, surface to admin
+ * for manual share". Never block the API call on email delivery.
+ */
+export async function sendCourierOperatorInvite(
+  to: string,
+  data: CourierOperatorInviteTemplateData,
+): Promise<SendResult> {
+  return send(to, courierOperatorInviteTemplate(data), 'courier-operator-invite');
 }
 
 export async function sendTrialStart(to: string, data: TrialStartTemplateData): Promise<SendResult> {

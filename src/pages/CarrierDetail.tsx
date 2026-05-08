@@ -36,6 +36,7 @@ import {
 import { Order } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { CarrierCoverageManager } from '@/components/CarrierCoverageManager';
+import { CarrierOperatorsManager } from '@/components/carriers/CarrierOperatorsManager';
 
 // Safe date formatting helpers
 const safeFormatDate = (dateString: string | null | undefined, formatStr: string): string => {
@@ -375,6 +376,7 @@ export default function CarrierDetail() {
         <TabsList className="bg-muted">
           <TabsTrigger value="reconciliation">Conciliaciones y Deuda</TabsTrigger>
           <TabsTrigger value="overview">Métricas</TabsTrigger>
+          <TabsTrigger value="operators">Operadores</TabsTrigger>
         </TabsList>
 
         {/* --- RECONCILIATION TAB --- */}
@@ -831,6 +833,16 @@ export default function CarrierDetail() {
               </div>
             )}
           </Card>
+        </TabsContent>
+
+        {/* --- OPERATORS TAB (Phase 2: courier portal admin) --- */}
+        <TabsContent value="operators" className="space-y-6">
+          {carrier && (
+            <CarrierOperatorsManager
+              carrierId={carrier.id}
+              carrierName={carrier.name || carrier.carrier_name || 'Transportadora'}
+            />
+          )}
         </TabsContent>
 
       </Tabs>

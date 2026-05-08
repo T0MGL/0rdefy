@@ -103,6 +103,12 @@ const ROLE_TAB_CONFIGS: Record<Role, { mainTabs: string[] }> = {
   [Role.INVENTARIO]: {
     mainTabs: ['/products', '/merchandise', '/suppliers'],
   },
+  // Couriers never see this admin nav; the global role redirect routes
+  // them to /portal/* before MobileBottomNav renders. Entry kept to satisfy
+  // the exhaustive Record<Role, …> type without changing admin behavior.
+  [Role.COURIER]: {
+    mainTabs: [],
+  },
 };
 
 // Sub-routes that should highlight a parent tab in the bottom nav

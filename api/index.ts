@@ -47,6 +47,8 @@ import securityRouter from './routes/security';
 import { incidentsRouter } from './routes/incidents';
 import { unifiedRouter } from './routes/unified';
 import { collaboratorsRouter } from './routes/collaborators';
+import { carrierOperatorsRouter } from './routes/carrier-operators';
+import { portalRouter } from './routes/portal';
 import { externalWebhooksRouter } from './routes/external-webhooks';
 import { outboundWebhooksRouter } from './routes/outbound-webhooks';
 // import phoneVerificationRouter from './routes/phone-verification'; // TODO: Enable when WhatsApp number is ready
@@ -651,6 +653,10 @@ app.use('/api/suppliers', suppliersRouter);
 app.use('/api/additional-values', additionalValuesRouter);
 app.use('/api/recurring-values', recurringValuesRouter);
 app.use('/api/campaigns', campaignsRouter);
+// Courier operators MUST mount before /api/carriers because Express
+// resolves mounts in registration order. The path is more specific so
+// it has to win over the parent carriers router.
+app.use('/api/carriers/:carrierId/operators', carrierOperatorsRouter);
 app.use('/api/carriers', carriersRouter);
 app.use('/api/couriers', couriersRouter); // Repartidores (delivery personnel)
 app.use('/api/merchandise', merchandiseRouter); // Inbound shipments / supplier purchases
@@ -699,6 +705,11 @@ app.use('/api/webhook', externalWebhooksRouter); // Public endpoint for receivin
 
 // Outbound Webhooks routes (Send notifications to external systems on events)
 app.use('/api/outbound-webhooks', outboundWebhooksRouter);
+
+// Courier Portal routes (Phase 3 - mobile-first portal for external couriers)
+// All endpoints under /api/portal require verifyToken + extractStoreId +
+// requireCourierRole (applied inside the router itself).
+app.use('/api/portal', portalRouter);
 
 // Phone verification routes (WhatsApp verification)
 // TODO: Enable when WhatsApp Business number is ready

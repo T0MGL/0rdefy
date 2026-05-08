@@ -367,6 +367,67 @@ export function collaboratorInviteTemplate(data: CollaboratorInviteTemplateData)
 }
 
 // ================================================================
+// TEMPLATE: Courier Operator Invite
+// ================================================================
+//
+// Distinct from collaboratorInviteTemplate so the copy can speak the
+// courier's language (operating deliveries) rather than team / store
+// vocabulary. The role label is fixed ("Operador de courier") and the
+// carrier name is featured front and center so the recipient knows
+// which fleet they were invited to operate for.
+// ================================================================
+
+export interface CourierOperatorInviteTemplateData {
+  inviteeName: string;
+  inviterName: string;
+  storeName: string;
+  carrierName: string;
+  inviteLink: string;
+  expiresAt: Date;
+}
+
+export function courierOperatorInviteTemplate(
+  data: CourierOperatorInviteTemplateData,
+): { html: string; text: string; subject: string } {
+  const expiresFormatted = data.expiresAt.toLocaleDateString('es-PY', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  const content = [
+    heading('Te invitaron a operar entregas'),
+    subheading(`${data.storeName} quiere que operes la flota de ${data.carrierName}.`),
+    paragraph(
+      `Hola ${data.inviteeName}, ${data.inviterName} de <strong>${data.storeName}</strong> te invita a usar el portal de couriers de Ordefy para gestionar las entregas asignadas a <strong>${data.carrierName}</strong>.`,
+    ),
+    paragraph(
+      'Vas a poder ver los pedidos asignados, marcarlos como entregados, no entregados o devueltos, reportar incidencias y consultar tu balance financiero en tiempo real. Todo desde el celular, sin WhatsApp.',
+    ),
+    infoTable([
+      { label: 'Tienda', value: data.storeName },
+      { label: 'Courier', value: data.carrierName },
+      { label: 'Rol', value: 'Operador de courier' },
+      { label: 'Invitado por', value: data.inviterName },
+    ]),
+    ctaButton('Aceptar y crear cuenta', data.inviteLink),
+    divider(),
+    smallText(
+      `Esta invitacion expira el ${expiresFormatted}. Si no esperabas este correo, ignoralo. El link es de un solo uso.`,
+    ),
+  ].join('');
+
+  return {
+    subject: `Te invitaron a operar entregas para ${data.carrierName}`,
+    html: baseLayout({
+      preheader: `${data.inviterName} te invito a operar la flota de ${data.carrierName} en ${data.storeName}.`,
+      content,
+    }),
+    text: `Te invitaron a operar entregas\n\nHola ${data.inviteeName},\n\n${data.inviterName} de "${data.storeName}" te invita a operar la flota de ${data.carrierName} usando el portal de couriers de Ordefy.\n\nVas a gestionar pedidos asignados, marcar entregas y ver tu balance financiero en tiempo real.\n\nAceptar invitacion: ${data.inviteLink}\n\nExpira el ${expiresFormatted}.\n\n(c) ${CURRENT_YEAR} Ordefy`,
+  };
+}
+
+// ================================================================
 // TEMPLATE: Trial Starting
 // ================================================================
 

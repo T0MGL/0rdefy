@@ -25,7 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, Users, Building2, AlertTriangle, LogOut } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, Users, Building2, AlertTriangle, LogOut, Truck, Package } from 'lucide-react';
 import { config } from '@/config';
 import { setTourPending } from '@/components/demo-tour';
 
@@ -36,6 +36,11 @@ interface InvitationData {
   storeName: string;
   expiresAt: string;
   userExists?: boolean; // Indicates if user already has an account
+  // Phase 2 (Courier Portal): courier-specific metadata. Present only
+  // when assignedRole='courier'. The team-invite flow leaves them null.
+  isCourierInvite?: boolean;
+  carrierName?: string | null;
+  assignedRole?: string | null;
 }
 
 interface ActiveSessionData {
@@ -195,11 +200,17 @@ export default function AcceptInvitation() {
       // Mark onboarding as completed for collaborators (they skip the onboarding flow)
       localStorage.setItem('onboarding_completed', 'true');
 
-      // Trigger demo tour for new collaborators
-      setTourPending();
+      // Trigger demo tour for new collaborators (skip for couriers - they
+      // have a dedicated portal-specific onboarding in Phase 4).
+      if (data.role !== 'courier') {
+        setTourPending();
+      }
 
-      // Redirect to dashboard with full page reload to initialize auth context
-      window.location.href = '/';
+      // Redirect: couriers go to the courier portal (will be live in
+      // Phase 4); team members go to the admin dashboard. Full page
+      // reload either way to bootstrap the auth context cleanly.
+      const redirectTarget = data.role === 'courier' ? '/portal' : '/';
+      window.location.href = redirectTarget;
     } catch (err: any) {
       logger.error('Error accepting invitation:', err);
       setError(err.message || 'Error al aceptar la invitación');
@@ -316,19 +327,40 @@ export default function AcceptInvitation() {
 
       <Card className="max-w-lg w-full">
         <CardHeader className="text-center space-y-4">
-          <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-            <Users className="h-8 w-8 text-primary" />
+          <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center ${
+            invitation?.isCourierInvite
+              ? 'bg-emerald-500/10'
+              : 'bg-primary/10'
+          }`}>
+            {invitation?.isCourierInvite ? (
+              <Truck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <Users className="h-8 w-8 text-primary" />
+            )}
           </div>
           <div>
             <Badge variant="secondary" className="mb-2">
-              <Building2 className="h-3 w-3 mr-1" />
-              Invitación de Equipo
+              {invitation?.isCourierInvite ? (
+                <>
+                  <Truck className="h-3 w-3 mr-1" />
+                  Invitación de Operador de Courier
+                </>
+              ) : (
+                <>
+                  <Building2 className="h-3 w-3 mr-1" />
+                  Invitación de Equipo
+                </>
+              )}
             </Badge>
             <CardTitle className="text-2xl font-bold">
-              Únete a {invitation?.storeName}
+              {invitation?.isCourierInvite
+                ? `Operá entregas para ${invitation?.carrierName ?? 'el courier'}`
+                : `Únete a ${invitation?.storeName}`}
             </CardTitle>
             <CardDescription className="text-base mt-2">
-              Has sido invitado a colaborar en esta tienda
+              {invitation?.isCourierInvite
+                ? `${invitation?.storeName} te invitó a operar la flota de ${invitation?.carrierName ?? 'su courier'}.`
+                : 'Has sido invitado a colaborar en esta tienda'}
             </CardDescription>
           </div>
         </CardHeader>
@@ -342,6 +374,22 @@ export default function AcceptInvitation() {
                   Sesión anterior cerrada correctamente. Puedes continuar con la invitación.
                 </AlertDescription>
               </Alert>
+            )}
+
+            {/* Courier-specific intro (Phase 2: Courier Portal) */}
+            {invitation?.isCourierInvite && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-50 dark:bg-emerald-950/20 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-medium text-sm">
+                  <Package className="w-4 h-4" />
+                  ¿Qué vas a poder hacer?
+                </div>
+                <ul className="text-sm text-emerald-900/80 dark:text-emerald-100/80 space-y-1 ml-6 list-disc">
+                  <li>Ver los pedidos asignados a {invitation?.carrierName ?? 'tu courier'}.</li>
+                  <li>Marcar entregas, no entregas y devoluciones desde el celular.</li>
+                  <li>Reportar incidencias en segundos, sin WhatsApp.</li>
+                  <li>Consultar tu balance financiero (COD cobrado, fletes a cobrar) en tiempo real.</li>
+                </ul>
+              </div>
             )}
 
             {/* Pre-filled Information */}
