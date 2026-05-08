@@ -490,26 +490,31 @@ export class ExternalWebhookService {
   // ================================================================
 
   /**
-   * Genera un número de orden único
+   * Generate a per-store unique order_number.
+   *
+   * Format: ORD-YYYYMMDD-XXXXXX, where XXXXXX is 6 hex chars derived from
+   * crypto.randomBytes. Aligns with the BEFORE INSERT trigger output and
+   * keeps a per-day human-scannable prefix without the racy SELECT MAX +1
+   * scheme that produced 61 duplicates per store under concurrency.
+   *
+   * The migration 173 partial unique index on (store_id, order_number)
+   * provides the hard guarantee. The caller (processIncomingOrder) catches
+   * 23505 unique_violation and retries with a fresh suffix.
    */
-  private async generateOrderNumber(storeId: string): Promise<string> {
-    const { data, error } = await supabaseAdmin
-      .from('orders')
-      .select('order_number')
-      .eq('store_id', storeId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+  private generateOrderNumber(_storeId: string): string {
+    return `ORD-${this.todayYYYYMMDD()}-${this.randomSuffix6()}`;
+  }
 
-    let nextNumber = 1;
-    if (data?.order_number) {
-      const match = data.order_number.match(/ORD-(\d+)/);
-      if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
-      }
-    }
+  private todayYYYYMMDD(): string {
+    const d = new Date();
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}${m}${day}`;
+  }
 
-    return `ORD-${nextNumber.toString().padStart(5, '0')}`;
+  private randomSuffix6(): string {
+    return crypto.randomBytes(4).toString('hex').slice(0, 6);
   }
 
   /**
@@ -594,8 +599,9 @@ export class ExternalWebhookService {
         storeId
       );
 
-      // 6. Generar número de orden
-      const orderNumber = await this.generateOrderNumber(storeId);
+      // 6. Generar número de orden inicial. La inserción reintenta con un
+      //    sufijo nuevo si el unique index (store_id, order_number) gatilla.
+      let orderNumber = this.generateOrderNumber(storeId);
 
       // 7. Construir objeto de orden
       const orderStatus = config.auto_confirm_orders ? 'confirmed' : 'pending';
@@ -685,24 +691,53 @@ export class ExternalWebhookService {
         notes: payload.metadata ? JSON.stringify(payload.metadata) : null
       };
 
-      // 8. Insertar orden
-      const { data: order, error: orderError } = await supabaseAdmin
-        .from('orders')
-        .insert(orderData)
-        .select('id, order_number')
-        .single();
+      // 8. Insertar orden con reintento sobre unique_violation (23505) del
+      //    índice orders_store_order_number_unique_idx introducido en
+      //    migration 173. La probabilidad de colisión por suffix aleatorio
+      //    es despreciable, pero el reintento blinda inserciones concurrentes.
+      const MAX_INSERT_ATTEMPTS = 3;
+      let order: { id: string; order_number: string } | null = null;
+      let orderError: { code?: string; message: string } | null = null;
+      for (let attempt = 1; attempt <= MAX_INSERT_ATTEMPTS; attempt++) {
+        const { data, error } = await supabaseAdmin
+          .from('orders')
+          .insert({ ...orderData, order_number: orderNumber })
+          .select('id, order_number')
+          .single();
+        if (!error && data) {
+          order = data as { id: string; order_number: string };
+          orderError = null;
+          break;
+        }
+        orderError = error;
+        if (error?.code === '23505' && attempt < MAX_INSERT_ATTEMPTS) {
+          const nextNumber = this.generateOrderNumber(storeId);
+          logger.warn(
+            'BACKEND',
+            `[ExternalWebhook] order_number collision on ${orderNumber} (attempt ${attempt}/${MAX_INSERT_ATTEMPTS}), retrying with ${nextNumber}`,
+          );
+          orderNumber = nextNumber;
+          continue;
+        }
+        break;
+      }
 
-      if (orderError) {
-        logger.error('BACKEND', '❌ [ExternalWebhook] Error creating order:', orderError);
+      if (orderError || !order) {
+        logger.error('BACKEND', '[ExternalWebhook] Error creating order:', orderError);
 
-        // Actualizar log
         if (logId) {
-          await this.updateLogStatus(logId, 'failed', null, orderError.message, Date.now() - startTime);
+          await this.updateLogStatus(
+            logId,
+            'failed',
+            null,
+            orderError?.message ?? 'Failed to create order',
+            Date.now() - startTime,
+          );
         }
 
         return {
           success: false,
-          error: 'Failed to create order'
+          error: 'Failed to create order',
         };
       }
 
