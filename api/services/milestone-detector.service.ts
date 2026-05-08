@@ -17,6 +17,7 @@
 
 import { customAlphabet } from 'nanoid';
 import { supabaseAdmin } from '../db/connection';
+import { DISPATCHED_STATUSES } from '../utils/order-status';
 import { logger } from '../utils/logger';
 import { sendMilestoneEmail } from './email.service';
 
@@ -204,13 +205,22 @@ async function computeStats(storeId: string): Promise<MilestoneStats> {
     .eq('sleeves_status', 'delivered')
     .is('deleted_at', null);
 
-  // Total shipped (delivered + cancelled-after-shipping etc) for delivery rate
-  const { count: shippedCount } = await supabaseAdmin
+  // Delivery rate: delivered / dispatched.
+  //
+  // Denominator must count orders that left the warehouse (any state past
+  // "ready_to_ship"), not orders with `in_transit_at IS NOT NULL`. In COD
+  // flows the operator routinely confirms delivery without recording an
+  // explicit in_transit transition, so `in_transit_at` is NULL on most
+  // delivered rows and produces a wildly inflated rate.
+  //
+  // Source of truth: api/utils/order-status.ts DISPATCHED_STATUSES.
+  const dispatchedStatuses = Array.from(DISPATCHED_STATUSES);
+  const { count: dispatchedCount } = await supabaseAdmin
     .from('orders')
     .select('id', { count: 'exact', head: true })
     .eq('store_id', storeId)
     .is('deleted_at', null)
-    .not('in_transit_at', 'is', null);
+    .in('sleeves_status', dispatchedStatuses);
 
   const { count: deliveredCount } = await supabaseAdmin
     .from('orders')
@@ -219,9 +229,11 @@ async function computeStats(storeId: string): Promise<MilestoneStats> {
     .eq('sleeves_status', 'delivered')
     .is('deleted_at', null);
 
+  const deliveredNum = deliveredCount ?? 0;
+  const dispatchedDen = dispatchedCount ?? 0;
   const deliveryRate =
-    shippedCount && shippedCount > 0
-      ? Math.round(((deliveredCount ?? 0) / shippedCount) * 100)
+    dispatchedDen > 0
+      ? Math.min(100, Math.round((deliveredNum / dispatchedDen) * 100))
       : 100;
 
   // Best day
@@ -279,17 +291,23 @@ async function computeStats(storeId: string): Promise<MilestoneStats> {
       }
     }
 
-    // Distinct carriers (carrier_id on orders, when present)
-    const { data: carrierRows } = await supabaseAdmin
+    // Distinct couriers used by delivered orders.
+    // The column is `courier_id`, not `carrier_id`. The previous wrong name
+    // returned a 42703 error, swallowed by supabase-js, leaving carrierCount
+    // pinned at 0 in every milestone email.
+    const { data: courierRows, error: courierErr } = await supabaseAdmin
       .from('orders')
-      .select('carrier_id')
+      .select('courier_id')
       .in('id', orderIds)
-      .not('carrier_id', 'is', null);
-    const carrierIds = new Set<string>();
-    for (const r of carrierRows ?? []) {
-      if (r.carrier_id) carrierIds.add(r.carrier_id as string);
+      .not('courier_id', 'is', null);
+    if (courierErr) {
+      logger.warn('MILESTONE', `courier query failed: ${courierErr.message}`);
     }
-    carrierCount = carrierIds.size;
+    const courierIds = new Set<string>();
+    for (const r of courierRows ?? []) {
+      if (r.courier_id) courierIds.add(r.courier_id as string);
+    }
+    carrierCount = courierIds.size;
   }
 
   return {
@@ -381,6 +399,7 @@ function buildEmailData({ milestoneValue, owner, stats, shareUrl }: BuildEmailAr
 
   return {
     firstName: owner.firstName,
+    storeName: owner.storeName,
     milestoneValue,
     firstOrderDate,
     firstOrderTime,

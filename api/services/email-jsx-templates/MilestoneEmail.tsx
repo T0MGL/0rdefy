@@ -10,6 +10,9 @@ export interface MilestoneStat {
 
 export interface MilestoneEmailData {
   firstName: string;
+  /** Store the milestone belongs to. Required: a multi-store owner needs to
+   *  know which tienda crossed the milestone. Used in subject + body. */
+  storeName: string;
   milestoneValue: number;
   firstOrderDate: string;
   firstOrderTime: string;
@@ -271,7 +274,10 @@ function FeatureStat({ value, label }: { value: string; label: string }) {
 export function MilestoneEmail(data: MilestoneEmailData) {
   const stats: MilestoneStat[] = [
     { value: String(data.productCount), label: 'productos diferentes vendidos' },
-    { value: String(data.carrierCount), label: 'carriers usados' },
+    {
+      value: String(data.carrierCount),
+      label: data.carrierCount === 1 ? 'courier usado' : 'couriers usados',
+    },
     { value: `${data.deliveryRate}%`, label: 'delivery rate' },
     {
       value: String(data.bestDayCount),
@@ -281,7 +287,7 @@ export function MilestoneEmail(data: MilestoneEmailData) {
 
   return (
     <BaseLayout
-      preheader={`El sistema funcionó ${data.milestoneValue} ${data.milestoneValue === 1 ? 'vez' : 'veces'} sin que toques nada. Estos son los números.`}
+      preheader={`${data.storeName}: el sistema funcionó ${data.milestoneValue} ${data.milestoneValue === 1 ? 'vez' : 'veces'} sin que toques nada.`}
     >
       {/* Hero image (URL-hosted) */}
       {data.heroImageUrl ? (
@@ -300,16 +306,17 @@ export function MilestoneEmail(data: MilestoneEmailData) {
         </Section>
       ) : null}
 
-      <Text style={introLine}>Esto pasó</Text>
+      <Text style={introLine}>Esto pasó en {data.storeName}</Text>
 
       <Text style={factLine}>
-        Tu primera orden entró el {data.firstOrderDate} a las {data.firstOrderTime}.
+        Tu primera orden en {data.storeName} entró el {data.firstOrderDate} a las{' '}
+        {data.firstOrderTime}.
       </Text>
       <Text style={factLine}>
         Era una compra de {data.firstOrderAmount}.
       </Text>
       <Text style={factLineLast}>
-        Hoy llegaste a la número {data.milestoneValue}.
+        Hoy llegaste a la número {data.milestoneValue} en {data.storeName}.
       </Text>
 
       <Hr style={{ borderColor: BRAND.divider, margin: '34px 0 26px' }} />
@@ -421,16 +428,16 @@ export function MilestoneEmail(data: MilestoneEmailData) {
 
 export function milestoneEmailText(data: MilestoneEmailData): string {
   return [
-    `${data.milestoneValue} órdenes, ${data.firstName}.`,
+    `${data.milestoneValue} órdenes en ${data.storeName}, ${data.firstName}.`,
     '',
-    'Esto pasó:',
+    `Esto pasó en ${data.storeName}:`,
     `Tu primera orden entró el ${data.firstOrderDate} a las ${data.firstOrderTime}.`,
     `Era una compra de ${data.firstOrderAmount}.`,
     `Hoy llegaste a la número ${data.milestoneValue}.`,
     '',
     'En el medio:',
     `- ${data.productCount} productos diferentes vendidos`,
-    `- ${data.carrierCount} carriers usados`,
+    `- ${data.carrierCount} ${data.carrierCount === 1 ? 'courier usado' : 'couriers usados'}`,
     `- ${data.deliveryRate}% delivery rate`,
     `- Tu mejor día fue el ${data.bestDay} (${data.bestDayCount} órdenes en 24h)`,
     `- Tu margen acumulado: ${data.marginAccumulated}`,
@@ -449,7 +456,7 @@ export function milestoneEmailText(data: MilestoneEmailData): string {
 }
 
 export function milestoneEmailSubject(
-  data: Pick<MilestoneEmailData, 'firstName' | 'milestoneValue'>,
+  data: Pick<MilestoneEmailData, 'firstName' | 'milestoneValue' | 'storeName'>,
 ): string {
-  return `${data.milestoneValue} órdenes, ${data.firstName}.`;
+  return `${data.milestoneValue} órdenes en ${data.storeName}, ${data.firstName}.`;
 }

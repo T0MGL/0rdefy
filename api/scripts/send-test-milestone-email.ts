@@ -68,6 +68,7 @@ function buildMockData(milestoneValue: number): MilestoneEmailData {
   // Mirrors the canonical example from the brief.
   return {
     firstName: 'Juan',
+    storeName: 'Tienda Demo',
     milestoneValue,
     firstOrderDate: '14 de marzo',
     firstOrderTime: '22:43',
