@@ -638,230 +638,11 @@ couriersRouter.get('/performance/underperforming', async (req: AuthRequest, res:
 });
 
 // ================================================================
-// CARRIER ZONES MANAGEMENT (Zone-based Pricing)
+// CARRIER ZONES MANAGEMENT (REMOVED in migration 174)
+// Carrier rates are now city based via carrier_coverage. Use the
+// coverage endpoints in /api/carriers/:id/coverage. Legacy zones
+// CRUD is unavailable.
 // ================================================================
-
-// ================================================================
-// GET /api/couriers/:id/zones - List zones for a courier
-// ================================================================
-couriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
-    try {
-        const { id } = req.params;
-
-        logger.info('API', `🗺️ [COURIERS] Fetching zones for courier ${id}`);
-
-        // Verify courier exists and belongs to store
-        const { data: courier, error: courierError } = await supabaseAdmin
-            .from('carriers')
-            .select('id, name, carrier_type')
-            .eq('id', id)
-            .eq('store_id', req.storeId)
-            .single();
-
-        if (courierError || !courier) {
-            return res.status(404).json({
-                error: 'Courier not found'
-            });
-        }
-
-        // Fetch zones
-        const { data: zones, error: zonesError } = await supabaseAdmin
-            .from('carrier_zones')
-            .select('id, carrier_id, zone_name, zone_code, rate, is_active, created_at')
-            .eq('carrier_id', id)
-            .eq('store_id', req.storeId)
-            .order('zone_name', { ascending: true });
-
-        if (zonesError) {
-            throw zonesError;
-        }
-
-        res.json({
-            courier: courier,
-            zones: zones || [],
-            count: zones?.length || 0
-        });
-    } catch (error: any) {
-        logger.error('API', `[GET /api/couriers/${req.params.id}/zones] Error:`, error);
-        res.status(500).json({
-            error: 'Error al obtener zonas del courier',
-            message: error.message
-        });
-    }
-});
-
-// ================================================================
-// POST /api/couriers/:id/zones - Create a zone for a courier
-// ================================================================
-couriersRouter.post('/:id/zones', validateUUIDParam('id'), requirePermission(Module.CARRIERS, Permission.CREATE), async (req: PermissionRequest, res: Response) => {
-    try {
-        const { id } = req.params;
-        const { zone_name, zone_code, rate, is_active = true } = req.body;
-
-        logger.info('API', `🗺️ [COURIERS] Creating zone for courier ${id}:`, { zone_name, rate });
-
-        // Validation
-        if (!zone_name) {
-            return res.status(400).json({
-                error: 'Validation failed',
-                message: 'zone_name is required'
-            });
-        }
-
-        if (!rate || isNaN(parseFloat(rate)) || parseFloat(rate) <= 0) {
-            return res.status(400).json({
-                error: 'Validation failed',
-                message: 'Valid rate is required (must be > 0)'
-            });
-        }
-
-        // Verify courier exists
-        const { data: courier, error: courierError } = await supabaseAdmin
-            .from('carriers')
-            .select('id')
-            .eq('id', id)
-            .eq('store_id', req.storeId)
-            .single();
-
-        if (courierError || !courier) {
-            return res.status(404).json({
-                error: 'Courier not found'
-            });
-        }
-
-        // Create zone
-        const { data, error } = await supabaseAdmin
-            .from('carrier_zones')
-            .insert([{
-                store_id: req.storeId,
-                carrier_id: id,
-                zone_name: zone_name.trim(),
-                zone_code: zone_code?.trim() || null,
-                rate: parseFloat(rate),
-                is_active
-            }])
-            .select()
-            .single();
-
-        if (error) {
-            // Handle duplicate zone name
-            if (error.code === '23505') {
-                return res.status(409).json({
-                    error: 'Duplicate zone',
-                    message: 'A zone with this name already exists for this courier'
-                });
-            }
-            throw error;
-        }
-
-        logger.info('API', `✅ [COURIERS] Zone created:`, data.id);
-
-        res.status(201).json({
-            message: 'Zone created successfully',
-            data
-        });
-    } catch (error: any) {
-        logger.error('API', `[POST /api/couriers/${req.params.id}/zones] Error:`, error);
-        res.status(500).json({
-            error: 'Error al crear zona',
-            message: error.message
-        });
-    }
-});
-
-// ================================================================
-// PUT /api/couriers/zones/:zoneId - Update a zone
-// ================================================================
-couriersRouter.put('/zones/:zoneId', validateUUIDParam('zoneId'), requirePermission(Module.CARRIERS, Permission.EDIT), async (req: PermissionRequest, res: Response) => {
-    try {
-        const { zoneId } = req.params;
-        const { zone_name, zone_code, rate, is_active } = req.body;
-
-        logger.info('API', `🗺️ [COURIERS] Updating zone ${zoneId}`);
-
-        const updateData: any = {
-            updated_at: new Date().toISOString()
-        };
-
-        if (zone_name !== undefined) updateData.zone_name = zone_name.trim();
-        if (zone_code !== undefined) updateData.zone_code = zone_code?.trim() || null;
-        if (rate !== undefined) {
-            if (isNaN(parseFloat(rate)) || parseFloat(rate) <= 0) {
-                return res.status(400).json({
-                    error: 'Validation failed',
-                    message: 'Valid rate is required (must be > 0)'
-                });
-            }
-            updateData.rate = parseFloat(rate);
-        }
-        if (is_active !== undefined) updateData.is_active = is_active;
-
-        const { data, error } = await supabaseAdmin
-            .from('carrier_zones')
-            .update(updateData)
-            .eq('id', zoneId)
-            .eq('store_id', req.storeId)
-            .select()
-            .single();
-
-        if (error || !data) {
-            return res.status(404).json({
-                error: 'Zone not found'
-            });
-        }
-
-        logger.info('API', `✅ [COURIERS] Zone updated:`, zoneId);
-
-        res.json({
-            message: 'Zone updated successfully',
-            data
-        });
-    } catch (error: any) {
-        logger.error('API', `[PUT /api/couriers/zones/${req.params.zoneId}] Error:`, error);
-        res.status(500).json({
-            error: 'Error al actualizar zona',
-            message: error.message
-        });
-    }
-});
-
-// ================================================================
-// DELETE /api/couriers/zones/:zoneId - Delete a zone
-// ================================================================
-couriersRouter.delete('/zones/:zoneId', validateUUIDParam('zoneId'), requirePermission(Module.CARRIERS, Permission.DELETE), async (req: PermissionRequest, res: Response) => {
-    try {
-        const { zoneId } = req.params;
-
-        logger.info('API', `🗑️ [COURIERS] Deleting zone ${zoneId}`);
-
-        const { data, error } = await supabaseAdmin
-            .from('carrier_zones')
-            .delete()
-            .eq('id', zoneId)
-            .eq('store_id', req.storeId)
-            .select('id')
-            .single();
-
-        if (error || !data) {
-            return res.status(404).json({
-                error: 'Zone not found'
-            });
-        }
-
-        logger.info('API', `✅ [COURIERS] Zone deleted:`, zoneId);
-
-        res.json({
-            message: 'Zone deleted successfully',
-            id: data.id
-        });
-    } catch (error: any) {
-        logger.error('API', `[DELETE /api/couriers/zones/${req.params.zoneId}] Error:`, error);
-        res.status(500).json({
-            error: 'Error al eliminar zona',
-            message: error.message
-        });
-    }
-});
 
 // ================================================================
 // GET /api/couriers/:id/reviews - Get customer reviews/ratings for courier
@@ -1041,7 +822,10 @@ couriersRouter.get('/:id/reviews', validateUUIDParam('id'), async (req: AuthRequ
 });
 
 // ================================================================
-// GET /api/couriers/:id/zones/calculate - Calculate shipping cost
+// GET /api/couriers/:id/zones/calculate - Legacy shim, reads from carrier_coverage
+// Migration 174 unified rate lookup. Frontend usages still call this path,
+// so we keep it as a compatibility shim that resolves rates via
+// calculate_shipping_cost (which now reads carrier_coverage).
 // ================================================================
 couriersRouter.get('/:id/zones/calculate', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
@@ -1055,29 +839,28 @@ couriersRouter.get('/:id/zones/calculate', validateUUIDParam('id'), async (req: 
             });
         }
 
-        logger.info('API', `💰 [COURIERS] Calculating shipping cost for courier ${id}, zone: ${zone_name}`);
+        logger.info('API', `[COURIERS] Calculating shipping cost for courier ${id}, city: ${zone_name}`);
 
-        // Get zone rate - only fields needed for calculation
-        const { data: zone, error } = await supabaseAdmin
-            .from('carrier_zones')
-            .select('id, zone_name, zone_code, rate')
-            .eq('carrier_id', id)
-            .eq('zone_name', zone_name)
-            .eq('is_active', true)
-            .single();
+        const { data: result, error } = await supabaseAdmin
+            .rpc('calculate_shipping_cost', {
+                p_carrier_id: id,
+                p_city: zone_name as string,
+                p_zone: null
+            });
 
-        if (error || !zone) {
+        if (error || !result || result.length === 0 || result[0].shipping_cost == null) {
             return res.status(404).json({
-                error: 'Zone not found',
-                message: `No active zone found with name "${zone_name}" for this courier`
+                error: 'City not covered',
+                message: `Carrier has no coverage for city "${zone_name}"`
             });
         }
 
+        const row = result[0];
         res.json({
             courier_id: id,
-            zone_name: zone.zone_name,
-            zone_code: zone.zone_code,
-            rate: zone.rate,
+            zone_name: row.zone_matched,
+            zone_code: null,
+            rate: row.shipping_cost,
             currency: 'PYG'
         });
     } catch (error: any) {

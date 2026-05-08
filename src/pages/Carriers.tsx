@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MetricCard } from '@/components/MetricCard';
 import { CarrierTable } from '@/components/carriers/CarrierTable';
-import { CarrierZonesDialog } from '@/components/CarrierZonesDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -22,7 +21,6 @@ import {
   CarrierReplicationResult,
 } from '@/services/carriers.service';
 import { Plus, Package, TrendingUp, Clock, Star, Search, Map as MapIcon, MapPin, ChevronRight } from 'lucide-react';
-import { carrierZonesService, CarrierZone } from '@/services/carrier-zones.service';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
 import apiClient from '@/services/api.client';
@@ -206,11 +204,9 @@ export default function Carriers() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedCarrier, setSelectedCarrier] = useState<Carrier | null>(null);
   const [performanceStats, setPerformanceStats] = useState<CourierPerformanceStat[] | null>(null);
-  const [zonesDialogOpen, setZonesDialogOpen] = useState(false);
-  const [zonesCarrier, setZonesCarrier] = useState<{ id: string; name: string } | null>(null);
   const [replicationTargets, setReplicationTargets] = useState<CarrierReplicationTarget[]>([]);
   const [coverageMapOpen, setCoverageMapOpen] = useState(false);
-  const [coverageByCarrier, setCoverageByCarrier] = useState<Map<string, { name: string; zones: CarrierZone[] }>>(new Map());
+  const [coverageByCarrier, setCoverageByCarrier] = useState<Map<string, { name: string; cities: Array<{ id: string; city: string; rate: number }> }>>(new Map());
   const [coverageLoading, setCoverageLoading] = useState(false);
 
   // Refs for memory leak prevention
@@ -330,8 +326,8 @@ export default function Carriers() {
   };
 
   const handleManageZones = (carrier: Carrier) => {
-    setZonesCarrier({ id: carrier.id, name: carrier.name || carrier.carrier_name || '' });
-    setZonesDialogOpen(true);
+    // Navigate to carrier detail where CarrierCoverageManager handles city based pricing.
+    navigate(`/carriers/${carrier.id}`);
   };
 
   const handleOpenCoverageMap = useCallback(async () => {
@@ -339,13 +335,14 @@ export default function Carriers() {
     if (coverageByCarrier.size > 0) return;
     setCoverageLoading(true);
     try {
-      const map = new Map<string, { name: string; zones: CarrierZone[] }>();
+      const map = new Map<string, { name: string; cities: Array<{ id: string; city: string; rate: number }> }>();
       await Promise.all(
         carriers.map(async (carrier) => {
-          const response = await carrierZonesService.getZonesByCarrier(carrier.id);
+          const response = await apiClient.get(`/carriers/${carrier.id}/coverage`);
+          const rows = (response.data?.data ?? response.data ?? []) as Array<{ id: string; city: string; rate: number }>;
           map.set(carrier.id, {
             name: carrier.name || carrier.carrier_name || carrier.id,
-            zones: response.zones,
+            cities: (rows || []).filter((r) => r.rate != null && Number(r.rate) > 0),
           });
         }),
       );
@@ -649,16 +646,6 @@ export default function Carriers() {
         </DialogContent>
       </Dialog>
 
-      {/* Zones Dialog */}
-      {zonesCarrier && (
-        <CarrierZonesDialog
-          open={zonesDialogOpen}
-          onOpenChange={setZonesDialogOpen}
-          carrierId={zonesCarrier.id}
-          carrierName={zonesCarrier.name}
-        />
-      )}
-
       {/* Coverage Map Dialog */}
       <Dialog open={coverageMapOpen} onOpenChange={setCoverageMapOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -685,7 +672,7 @@ export default function Carriers() {
               ) : (
                 carriers.map((carrier) => {
                   const entry = coverageByCarrier.get(carrier.id);
-                  const zones = entry?.zones ?? [];
+                  const cities = entry?.cities ?? [];
                   const name = carrier.name || carrier.carrier_name || carrier.id;
                   return (
                     <div
@@ -702,30 +689,34 @@ export default function Carriers() {
                         <button
                           onClick={() => {
                             setCoverageMapOpen(false);
-                            setZonesCarrier({ id: carrier.id, name });
-                            setZonesDialogOpen(true);
+                            navigate(`/carriers/${carrier.id}`);
                           }}
                           className="flex items-center gap-1 text-xs text-primary hover:underline"
                         >
-                          Editar zonas
+                          Editar cobertura
                           <ChevronRight size={12} />
                         </button>
                       </div>
 
-                      {zones.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">Sin zonas configuradas</p>
+                      {cities.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Sin cobertura configurada</p>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
-                          {zones.map((zone) => (
+                          {cities.slice(0, 24).map((row) => (
                             <Badge
-                              key={zone.id}
+                              key={row.id}
                               variant="outline"
                               className="text-xs font-normal gap-1"
                             >
                               <MapPin size={10} className="text-muted-foreground" />
-                              {zone.zone_name}
+                              {row.city}
                             </Badge>
                           ))}
+                          {cities.length > 24 && (
+                            <Badge variant="secondary" className="text-xs font-normal">
+                              +{cities.length - 24} ciudades
+                            </Badge>
+                          )}
                         </div>
                       )}
                     </div>

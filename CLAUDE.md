@@ -427,3 +427,4 @@ Revenue = Sum(total_price), Costs = Sum(cost*qty), Marketing = Sum(active campai
 | 130 | Outbound webhooks (status change notifications to external URLs) |
 | 161 | Fiscal identities refactor (3-table model: identities + activities + store link) |
 | 162 | stores.country NOT NULL + CHECK + index (invoicing country gate) |
+| 174 | Courier operators (carrier_id on user_stores, COURIER role, courier_role_requires_carrier CHECK, is_courier_of_carrier + get_user_courier_carrier_id RPCs, can_add_user_to_store excludes couriers from seat cap) |

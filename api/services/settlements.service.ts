@@ -127,17 +127,6 @@ export interface DailySettlement {
   carrier_name?: string;
 }
 
-export interface CarrierZone {
-  id: string;
-  store_id: string;
-  carrier_id: string;
-  zone_name: string;
-  zone_code: string | null;
-  rate: number;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
 
 export interface ImportRow {
   order_number: string;
@@ -470,45 +459,23 @@ export async function createDispatchSession(
   }
 
   // ============================================================
-  // VALIDATION 3: Get carrier zones and coverage (BLOCKING)
+  // VALIDATION 3: Carrier must have priced city coverage (BLOCKING)
+  // Source of truth is carrier_coverage (migration 090, unified in 174).
   // ============================================================
-  const { data: zones } = await supabaseAdmin
-    .from('carrier_zones')
-    .select('*')
-    .eq('carrier_id', carrierId)
-    .eq('is_active', true);
-
-  // Also get city-based coverage (new system - migration 090)
   const { data: coverage } = await supabaseAdmin
     .from('carrier_coverage')
     .select('city, rate')
     .eq('carrier_id', carrierId)
     .eq('is_active', true);
 
-  // Build coverage map from new system (city -> rate)
   const coverageMap = new Map<string, number>();
   (coverage || []).forEach(c => {
-    if (c.city && c.rate != null) {
+    if (c.city && c.rate != null && c.rate > 0) {
       coverageMap.set(normalizeCityText(c.city), c.rate);
     }
   });
 
-  const zoneMap = new Map<string, number>();
-  let hasDefaultZone = false;
-  const defaultZoneNames = ['default', 'otros', 'interior', 'general'];
-
-  // IMPORTANT: Normalize zone names to strip accents (e.g., "Asunción" → "asuncion")
-  (zones || []).forEach(z => {
-    const zoneNormalized = normalizeCityText(z.zone_name);
-    zoneMap.set(zoneNormalized, z.rate);
-    if (defaultZoneNames.includes(zoneNormalized)) {
-      hasDefaultZone = true;
-    }
-  });
-
-  // BLOCKING: Carrier must have at least one zone or coverage entry configured
-  if ((!zones || zones.length === 0) && (!coverage || coverage.length === 0)) {
-    // Get carrier name for better error message
+  if (coverageMap.size === 0) {
     const { data: carrier } = await supabaseAdmin
       .from('carriers')
       .select('name')
@@ -517,15 +484,10 @@ export async function createDispatchSession(
 
     const carrierName = carrier?.name || carrierId.slice(0, 8);
     throw new Error(
-      `El carrier "${carrierName}" no tiene zonas ni cobertura configuradas. ` +
-      `Configure al menos una zona/cobertura con tarifas antes de despachar. ` +
-      `Vaya a Configuración > Carriers > Zonas para agregar zonas.`
+      `El carrier "${carrierName}" no tiene cobertura con tarifas configurada. ` +
+      `Configure al menos una ciudad con tarifa antes de despachar. ` +
+      `Vaya a Configuración > Carriers > Cobertura.`
     );
-  }
-
-  // Warning if no default zone (but allow dispatch)
-  if (!hasDefaultZone) {
-    logger.warn('SETTLEMENTS', `[DISPATCH] Carrier ${carrierId} has no fallback zone (default/otros/interior/general). Orders to unconfigured cities will have 0 fees.`);
   }
 
   // Get orders with customer and product info
@@ -605,27 +567,15 @@ export async function createDispatchSession(
   let totalPrepaidCarrierFees = 0;
 
   const sessionOrders = orders.map(order => {
-    // Calculate fee: coverage (city) → zone (delivery_zone) → zone (shipping_city) → fallback zones → 0
+    // Rate lookup: carrier_coverage by normalized city (single source of truth, mig 174).
     const normalizedCity = order.shipping_city_normalized || normalizeCityText(order.shipping_city);
     const normalizedZone = normalizeCityText(order.delivery_zone);
 
     let rate: number | undefined;
-
     if (normalizedCity && coverageMap.has(normalizedCity)) {
       rate = coverageMap.get(normalizedCity);
-    } else if (normalizedZone && zoneMap.has(normalizedZone)) {
-      rate = zoneMap.get(normalizedZone);
-    } else if (normalizedCity && zoneMap.has(normalizedCity)) {
-      // Fallback: check shipping_city against zone names (for carriers that use city names as zone_names)
-      rate = zoneMap.get(normalizedCity);
-    } else {
-      // Try fallback zones in priority order
-      for (const fallback of defaultZoneNames) {
-        if (zoneMap.has(fallback)) {
-          rate = zoneMap.get(fallback);
-          break;
-        }
-      }
+    } else if (normalizedZone && coverageMap.has(normalizedZone)) {
+      rate = coverageMap.get(normalizedZone);
     }
     rate = rate || 0;
 
@@ -1589,117 +1539,10 @@ export async function markSettlementPaid(
 }
 
 // ============================================================
-// CARRIER ZONES
+// CARRIER ZONES (REMOVED in migration 174)
+// Carrier rates are now managed via carrier_coverage (city based).
+// See api/routes/carriers.ts coverage endpoints.
 // ============================================================
-
-/**
- * Get carrier zones
- */
-export async function getCarrierZones(
-  storeId: string,
-  carrierId?: string
-): Promise<CarrierZone[]> {
-  let query = supabaseAdmin
-    .from('carrier_zones')
-    .select('*')
-    .eq('store_id', storeId)
-    .order('zone_name');
-
-  if (carrierId) {
-    query = query.eq('carrier_id', carrierId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-
-  return data || [];
-}
-
-/**
- * Create or update carrier zone
- */
-export async function upsertCarrierZone(
-  storeId: string,
-  carrierId: string,
-  zone: {
-    zone_name: string;
-    zone_code?: string;
-    rate: number;
-    is_active?: boolean;
-  }
-): Promise<CarrierZone> {
-  const { data, error } = await supabaseAdmin
-    .from('carrier_zones')
-    .upsert({
-      store_id: storeId,
-      carrier_id: carrierId,
-      zone_name: zone.zone_name,
-      zone_code: zone.zone_code || null,
-      rate: zone.rate,
-      is_active: zone.is_active !== false
-    }, {
-      onConflict: 'carrier_id,zone_name'
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  return data;
-}
-
-/**
- * Bulk upsert carrier zones (for importing from Excel)
- */
-export async function bulkUpsertCarrierZones(
-  storeId: string,
-  carrierId: string,
-  zones: Array<{
-    zone_name: string;
-    zone_code?: string;
-    rate: number;
-  }>
-): Promise<{ created: number; updated: number }> {
-  let created = 0;
-  let updated = 0;
-
-  for (const zone of zones) {
-    // Check if exists
-    const { data: existing } = await supabaseAdmin
-      .from('carrier_zones')
-      .select('id')
-      .eq('carrier_id', carrierId)
-      .eq('zone_name', zone.zone_name)
-      .single();
-
-    if (existing) {
-      updated++;
-    } else {
-      created++;
-    }
-
-    await upsertCarrierZone(storeId, carrierId, zone);
-  }
-
-  return { created, updated };
-}
-
-/**
- * Delete carrier zone
- */
-export async function deleteCarrierZone(
-  zoneId: string,
-  storeId: string
-): Promise<void> {
-  const { error } = await supabaseAdmin
-    .from('carrier_zones')
-    .delete()
-    .eq('id', zoneId)
-    .eq('store_id', storeId);
-
-  if (error) throw error;
-}
 
 // ============================================================
 // DASHBOARD / ANALYTICS
@@ -2160,59 +2003,28 @@ async function processManualReconciliationLegacy(
     throw new Error(`${invalidOrders.length} pedido(s) no entregados sin motivo de falla: ${orderIds}`);
   }
 
-  // Get carrier zones for rate calculation (legacy system)
-  const { data: zones } = await supabaseAdmin
-    .from('carrier_zones')
-    .select('*')
-    .eq('carrier_id', carrier_id)
-    .eq('is_active', true);
-
-  // Get carrier coverage for rate calculation (new city-based system - migration 090)
+  // Rate calculation uses carrier_coverage exclusively (single source of truth, mig 174).
   const { data: coverage } = await supabaseAdmin
     .from('carrier_coverage')
     .select('city, rate')
     .eq('carrier_id', carrier_id)
     .eq('is_active', true);
 
-  // Build coverage map from new system (city -> rate)
   const coverageMap = new Map<string, number>();
   (coverage || []).forEach(c => {
-    if (c.city && c.rate != null) {
+    if (c.city && c.rate != null && c.rate > 0) {
       coverageMap.set(normalizeCityText(c.city), c.rate);
     }
   });
 
-  // Find default rate from fallback zones (priority: default > otros > interior > general)
-  const fallbackZoneNames = ['default', 'otros', 'interior', 'general'];
-  let defaultRate = 25000; // Fallback if no zones at all
-  const zoneMap = new Map<string, number>();
-
-  // IMPORTANT: Normalize zone names to strip accents (e.g., "Asunción" → "asuncion")
-  (zones || []).forEach(z => {
-    const zoneNormalized = normalizeCityText(z.zone_name);
-    zoneMap.set(zoneNormalized, z.rate);
-  });
-
-  // Find best fallback rate
-  for (const fallback of fallbackZoneNames) {
-    if (zoneMap.has(fallback)) {
-      defaultRate = zoneMap.get(fallback)!;
-      break;
-    }
-  }
-
-  // CRITICAL FIX: Safe array access - validate zones.length before accessing zones[0]
-  // If carrier has zones but none matched as default, use first zone's rate
-  if (zones && zones.length > 0 && !fallbackZoneNames.some(f => zoneMap.has(f))) {
-    defaultRate = zones[0].rate; // Safe: zones.length already validated > 0
-    logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has no fallback zone, using first zone rate: ${defaultRate}`);
-  } else if (!zones || zones.length === 0) {
-    logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has NO zones configured, using hardcoded fallback rate: ${defaultRate}`);
-  }
-
-  // Log coverage map status for debugging
+  // Conservative fallback for cities with no priced coverage entry: lowest configured rate.
+  // If the carrier has no priced coverage at all we cannot reconcile properly.
+  let defaultRate = 0;
   if (coverageMap.size > 0) {
-    logger.info('SETTLEMENTS', `[RECONCILIATION] Carrier has ${coverageMap.size} city-based coverage entries`);
+    defaultRate = Math.min(...Array.from(coverageMap.values()));
+    logger.info('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} coverage entries: ${coverageMap.size}, fallback rate: ${defaultRate}`);
+  } else {
+    logger.warn('SETTLEMENTS', `[RECONCILIATION] Carrier ${carrier_id} has NO priced coverage configured`);
   }
 
   // Get all orders from database and validate
@@ -2294,18 +2106,15 @@ async function processManualReconciliationLegacy(
     const baseCod = !dbOrder.prepaid_method && isCodPayment(dbOrder.payment_method);
     const isCod = baseCod && !orderInput.override_prepaid;
 
-    // Calculate fee: coverage (city) → zone (delivery_zone) → zone (shipping_city) → default
+    // Rate lookup: carrier_coverage by normalized city (single source of truth, mig 174).
     const normalizedCity = dbOrder.shipping_city_normalized || normalizeCityText(dbOrder.shipping_city);
     const normalizedZone = normalizeCityText(dbOrder.delivery_zone);
 
     let carrierFee = defaultRate;
     if (normalizedCity && coverageMap.has(normalizedCity)) {
       carrierFee = coverageMap.get(normalizedCity)!;
-    } else if (normalizedZone && zoneMap.has(normalizedZone)) {
-      carrierFee = zoneMap.get(normalizedZone)!;
-    } else if (normalizedCity && zoneMap.has(normalizedCity)) {
-      // Fallback: check shipping_city against zone names (for carriers that use city names as zone_names)
-      carrierFee = zoneMap.get(normalizedCity)!;
+    } else if (normalizedZone && coverageMap.has(normalizedZone)) {
+      carrierFee = coverageMap.get(normalizedZone)!;
     }
 
     if (orderInput.delivered) {
@@ -3334,30 +3143,21 @@ async function getPendingReconciliationOrdersFallback(
     return [];
   }
 
-  // Fetch carrier zone rates (legacy system)
-  const { data: zones } = await supabaseAdmin
-    .from('carrier_zones')
-    .select('zone_name, rate')
-    .eq('carrier_id', carrierId)
-    .eq('store_id', storeId);
-
-  // Fetch city-based coverage rates (new system - migration 090)
-  // IMPORTANT: Normalize city names to remove accents for consistent matching
+  // Rate calculation uses carrier_coverage exclusively (single source of truth, mig 174).
   const { data: coverage } = await supabaseAdmin
     .from('carrier_coverage')
     .select('city, rate')
     .eq('carrier_id', carrierId)
-    .eq('store_id', storeId) // Added for multi-tenant safety
+    .eq('store_id', storeId)
     .eq('is_active', true);
 
   const coverageRates = new Map<string, number>();
   (coverage || []).forEach(c => {
-    if (c.city && c.rate != null) {
+    if (c.city && c.rate != null && c.rate > 0) {
       coverageRates.set(normalizeCityText(c.city), c.rate);
     }
   });
 
-  // Debug: Log coverage keys for troubleshooting
   logger.debug('SETTLEMENTS', 'Coverage rates loaded', {
     carrierId,
     storeId,
@@ -3365,22 +3165,10 @@ async function getPendingReconciliationOrdersFallback(
     coverageKeys: Array.from(coverageRates.keys()).slice(0, 10).join(', ')
   });
 
-  // IMPORTANT: Normalize zone names to strip accents (e.g., "Asunción" → "asuncion")
-  const zoneRates = new Map(zones?.map(z => [normalizeCityText(z.zone_name), z.rate || 0]) || []);
-
-  // Find default rate from fallback zones (priority: default > otros > interior > general > first zone)
-  const fallbackZoneNames = ['default', 'otros', 'interior', 'general'];
+  // Conservative deterministic fallback: lowest priced rate in coverage.
   let defaultRate = 0;
-  for (const fallback of fallbackZoneNames) {
-    if (zoneRates.has(fallback)) {
-      defaultRate = zoneRates.get(fallback)!;
-      break;
-    }
-  }
-  // If no fallback zone found, use lowest zone rate as conservative default (deterministic)
-  if (defaultRate === 0 && zones && zones.length > 0) {
-    const sortedZones = [...zones].sort((a, b) => (a.rate || 0) - (b.rate || 0));
-    defaultRate = sortedZones[0].rate || 0;
+  if (coverageRates.size > 0) {
+    defaultRate = Math.min(...Array.from(coverageRates.values()));
   }
 
   return orders.map((order: any) => {
@@ -3398,22 +3186,18 @@ async function getPendingReconciliationOrdersFallback(
       displayOrderNumber = `#${order.id.slice(-4).toUpperCase()}`;
     }
 
-    // Calculate carrier fee: coverage (city) → zone (delivery_zone) → zone (shipping_city) → default
+    // Rate lookup: carrier_coverage by normalized city (single source of truth, mig 174).
     const normalizedCity = order.shipping_city_normalized || normalizeCityText(order.shipping_city);
     const normalizedZone = normalizeCityText(order.delivery_zone);
 
     let carrierFee = defaultRate;
-    let feeSource: 'coverage' | 'zone' | 'default' = 'default';
+    let feeSource: 'coverage' | 'coverage_zone' | 'default' = 'default';
     if (normalizedCity && coverageRates.has(normalizedCity)) {
       carrierFee = coverageRates.get(normalizedCity)!;
       feeSource = 'coverage';
-    } else if (normalizedZone && zoneRates.has(normalizedZone)) {
-      carrierFee = zoneRates.get(normalizedZone)!;
-      feeSource = 'zone';
-    } else if (normalizedCity && zoneRates.has(normalizedCity)) {
-      // Fallback: check shipping_city against zone names (for carriers that use city names as zone_names)
-      carrierFee = zoneRates.get(normalizedCity)!;
-      feeSource = 'zone';
+    } else if (normalizedZone && coverageRates.has(normalizedZone)) {
+      carrierFee = coverageRates.get(normalizedZone)!;
+      feeSource = 'coverage_zone';
     }
 
     logger.debug('SETTLEMENTS', `Fee calc for order ${order.id}`, {
@@ -3491,11 +3275,10 @@ export async function processDeliveryReconciliation(
   });
 
   try {
-    // NOTE: We always use the Node.js fallback instead of the DB RPC because:
-    // 1. The RPC (process_delivery_reconciliation) only uses legacy carrier_zones
-    // 2. It does NOT use carrier_coverage (city-based rates with accent normalization)
-    // 3. This causes incorrect carrier fee calculations for city-based coverage
-    // TODO: Update the RPC to use carrier_coverage (migration needed)
+    // We use the Node.js fallback rather than the DB RPC because the Node side
+    // performs richer logging and per-order error mapping. Both paths now read
+    // carrier_coverage exclusively (mig 174). The RPC remains available as a
+    // disaster recovery alternative.
     return await processDeliveryReconciliationFallback(storeId, userId, params);
   } catch (err: any) {
     logger.error('SETTLEMENTS', 'Error in processDeliveryReconciliation', {
@@ -3566,46 +3349,25 @@ async function processDeliveryReconciliationFallback(
 
   const failedFeePercent = carrier?.failed_attempt_fee_percent ?? 50;
 
-  // STEP 3: Get zone rates for this carrier (legacy system)
-  const { data: zones } = await supabaseAdmin
-    .from('carrier_zones')
-    .select('zone_name, rate')
-    .eq('carrier_id', params.carrier_id)
-    .eq('store_id', storeId);
-
-  // Also get city-based coverage (new system - migration 090)
+  // STEP 3: Rate calculation uses carrier_coverage exclusively (single source of truth, mig 174).
   const { data: coverage } = await supabaseAdmin
     .from('carrier_coverage')
     .select('city, rate')
     .eq('carrier_id', params.carrier_id)
-    .eq('store_id', storeId) // Added for multi-tenant safety
+    .eq('store_id', storeId)
     .eq('is_active', true);
 
-  // Build coverage map from new system (city -> rate)
-  // IMPORTANT: Normalize city names to remove accents for consistent matching
   const coverageRates = new Map<string, number>();
   (coverage || []).forEach(c => {
-    if (c.city && c.rate != null) {
+    if (c.city && c.rate != null && c.rate > 0) {
       coverageRates.set(normalizeCityText(c.city), c.rate);
     }
   });
 
-  // IMPORTANT: Normalize zone names to strip accents (e.g., "Asunción" → "asuncion")
-  const zoneRates = new Map(zones?.map(z => [normalizeCityText(z.zone_name), z.rate || 0]) || []);
-
-  // Find default rate from fallback zones (priority: default > otros > interior > general > first zone)
-  const fallbackZoneNames2 = ['default', 'otros', 'interior', 'general'];
+  // Conservative deterministic fallback: lowest priced rate in coverage.
   let defaultRate = 0;
-  for (const fallback of fallbackZoneNames2) {
-    if (zoneRates.has(fallback)) {
-      defaultRate = zoneRates.get(fallback)!;
-      break;
-    }
-  }
-  // If no fallback zone found, use lowest zone rate as conservative default (deterministic)
-  if (defaultRate === 0 && zones && zones.length > 0) {
-    const sortedZones = [...zones].sort((a, b) => (a.rate || 0) - (b.rate || 0));
-    defaultRate = sortedZones[0].rate || 0;
+  if (coverageRates.size > 0) {
+    defaultRate = Math.min(...Array.from(coverageRates.values()));
   }
 
   // STEP 4: Calculate totals (all in memory first, before any updates)
@@ -3636,7 +3398,7 @@ async function processDeliveryReconciliationFallback(
 
     totalOrders++;
 
-    // Calculate fee: coverage (city) → zone (delivery_zone) → zone (shipping_city) → default
+    // Rate lookup: carrier_coverage by normalized city (single source of truth, mig 174).
     const normalizedCity = order.shipping_city_normalized || normalizeCityText(order.shipping_city);
     const normalizedZone = normalizeCityText(order.delivery_zone);
 
@@ -3645,13 +3407,9 @@ async function processDeliveryReconciliationFallback(
     if (normalizedCity && coverageRates.has(normalizedCity)) {
       zoneRate = coverageRates.get(normalizedCity)!;
       feeSource = 'coverage';
-    } else if (normalizedZone && zoneRates.has(normalizedZone)) {
-      zoneRate = zoneRates.get(normalizedZone)!;
-      feeSource = 'zone';
-    } else if (normalizedCity && zoneRates.has(normalizedCity)) {
-      // Fallback: check shipping_city against zone names (for carriers that use city names as zone_names)
-      zoneRate = zoneRates.get(normalizedCity)!;
-      feeSource = 'zone';
+    } else if (normalizedZone && coverageRates.has(normalizedZone)) {
+      zoneRate = coverageRates.get(normalizedZone)!;
+      feeSource = 'coverage_zone';
     }
 
     logger.debug('SETTLEMENTS', `Process fee for order ${order.id}`, {

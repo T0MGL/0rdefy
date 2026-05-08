@@ -84,7 +84,7 @@ collaboratorsRouter.post(
   async (req: PermissionRequest, res: Response) => {
     try {
       const { storeId, userId } = req;
-      const { name, email, role } = req.body;
+      const { name, email, role, carrier_id: carrierIdRaw } = req.body;
 
 
       // Validations
@@ -107,8 +107,9 @@ collaboratorsRouter.post(
         });
       }
 
-      // Valid roles (cannot invite owners)
-      const validRoles = ['admin', 'logistics', 'confirmador', 'contador', 'inventario'];
+      // Valid roles (cannot invite owners). Courier is a courier-portal-only
+      // role bound to a specific carrier_id; team roles must NOT carry one.
+      const validRoles = ['admin', 'logistics', 'confirmador', 'contador', 'inventario', 'courier'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({
           error: 'Invalid role',
@@ -125,24 +126,56 @@ collaboratorsRouter.post(
         });
       }
 
-      // Check user limit for subscription plan
-      // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
-      const { data: planCheckRaw, error: canAddError } = await supabaseAdmin
-        .rpc('can_add_user_to_store', { p_store_id: storeId })
-        .single();
-      const planCheck = planCheckRaw as { can_add: boolean; current_users: number; max_users: number; reason: string } | null;
-
-      if (canAddError) {
-        return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
+      // Courier invariant (mirrors DB CHECK courier_invitation_requires_carrier).
+      // Reject at the API layer with a clear message before the DB rejects with
+      // a generic check_violation. Validate the carrier exists and belongs to
+      // this store so an attacker cannot bind a courier to a foreign carrier.
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      let carrierId: string | null = null;
+      if (role === 'courier') {
+        if (!carrierIdRaw || typeof carrierIdRaw !== 'string' || !UUID_REGEX.test(carrierIdRaw)) {
+          return res.status(400).json({
+            error: 'carrier_id es requerido y debe ser un UUID valido para invitar un courier'
+          });
+        }
+        const { data: carrier, error: carrierErr } = await supabaseAdmin
+          .from('carriers')
+          .select('id')
+          .eq('id', carrierIdRaw)
+          .eq('store_id', storeId)
+          .maybeSingle();
+        if (carrierErr || !carrier) {
+          return res.status(404).json({ error: 'Carrier no encontrado en esta tienda' });
+        }
+        carrierId = carrierIdRaw;
+      } else if (carrierIdRaw) {
+        return res.status(400).json({
+          error: 'carrier_id solo puede asignarse cuando role=courier'
+        });
       }
 
-      if (!planCheck?.can_add) {
-        return res.status(403).json({
-          error: 'User limit reached for your subscription plan',
-          current: planCheck?.current_users,
-          max: planCheck?.max_users,
-          plan: planCheck?.reason
-        });
+      // Plan-seat check applies only to TEAM invitations. Couriers (Migration
+      // 174) are external operators and do not consume seat caps. The DB
+      // function can_add_user_to_store also excludes them, but we skip the
+      // RPC entirely for couriers to keep the path obvious.
+      if (role !== 'courier') {
+        const { data: planCheckRaw, error: canAddError } = await supabaseAdmin
+          .rpc('can_add_user_to_store', { p_store_id: storeId })
+          .single();
+        const planCheck = planCheckRaw as { can_add: boolean; current_users: number; max_users: number; reason: string } | null;
+
+        if (canAddError) {
+          return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
+        }
+
+        if (!planCheck?.can_add) {
+          return res.status(403).json({
+            error: 'User limit reached for your subscription plan',
+            current: planCheck?.current_users,
+            max: planCheck?.max_users,
+            plan: planCheck?.reason
+          });
+        }
       }
 
       // Check if user already exists in this store
@@ -193,7 +226,7 @@ collaboratorsRouter.post(
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
 
-      // Create invitation
+      // Create invitation. carrier_id is set IFF role=courier (DB CHECK enforced).
       const { data: invitation, error } = await supabaseAdmin
         .from('collaborator_invitations')
         .insert({
@@ -203,6 +236,7 @@ collaboratorsRouter.post(
           invited_name: name,
           invited_email: email,
           assigned_role: role,
+          carrier_id: carrierId,
           expires_at: expiresAt.toISOString()
         })
         .select()
@@ -462,38 +496,57 @@ collaboratorsRouter.post(
         });
       }
 
-
-      // SECURITY FIX: Validate plan limit at acceptance time (not just at creation)
-      // This prevents race conditions where multiple invitations exceed the limit
-      // CRITICAL FIX: can_add_user_to_store returns TABLE (not BOOLEAN), must use .single()
-      const { data: planCheckRaw2, error: canAddError } = await supabaseAdmin
-        .rpc('can_add_user_to_store', { p_store_id: invitation.store_id })
-        .single();
-      const planCheck = planCheckRaw2 as { can_add: boolean; current_users: number; max_users: number; reason: string } | null;
-
-      if (canAddError) {
-        // Rollback: Mark invitation as unused
+      // Defense in depth: a courier invitation must carry carrier_id. The DB
+      // CHECK constraint courier_invitation_requires_carrier enforces this at
+      // INSERT time, so this branch only fires on a manually corrupted row.
+      const isCourierInvitation = invitation.assigned_role === 'courier';
+      if (isCourierInvitation && !invitation.carrier_id) {
         await supabaseAdmin
           .from('collaborator_invitations')
           .update({ used: false, used_at: null })
           .eq('id', invitation.id);
-        return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
+        logger.error('API', '[ACCEPT_INVITATION] Courier invitation without carrier_id', {
+          invitationId: invitation.id
+        });
+        return res.status(500).json({
+          error: 'Invitacion de courier mal configurada. Contacta al administrador.'
+        });
       }
 
-      if (!planCheck?.can_add) {
-        // Rollback: Mark invitation as unused so it can be used when space is available
-        await supabaseAdmin
-          .from('collaborator_invitations')
-          .update({ used: false, used_at: null })
-          .eq('id', invitation.id);
 
-        return res.status(403).json({
-          error: 'User limit reached for the store subscription plan',
-          message: 'The store has reached its maximum number of users. Please contact the store owner to upgrade the plan.',
-          current: planCheck?.current_users,
-          max: planCheck?.max_users,
-          plan: planCheck?.reason
-        });
+      // Plan limit check applies only to TEAM invitations. Couriers are
+      // external operators (Migration 174) and do not consume seat caps.
+      // The can_add_user_to_store function already excludes role=courier
+      // from the count, but we skip the RPC entirely for couriers to keep
+      // the path obvious and shave a round-trip.
+      if (!isCourierInvitation) {
+        const { data: planCheckRaw2, error: canAddError } = await supabaseAdmin
+          .rpc('can_add_user_to_store', { p_store_id: invitation.store_id })
+          .single();
+        const planCheck = planCheckRaw2 as { can_add: boolean; current_users: number; max_users: number; reason: string } | null;
+
+        if (canAddError) {
+          await supabaseAdmin
+            .from('collaborator_invitations')
+            .update({ used: false, used_at: null })
+            .eq('id', invitation.id);
+          return res.status(500).json({ error: 'Error al verificar límite de usuarios' });
+        }
+
+        if (!planCheck?.can_add) {
+          await supabaseAdmin
+            .from('collaborator_invitations')
+            .update({ used: false, used_at: null })
+            .eq('id', invitation.id);
+
+          return res.status(403).json({
+            error: 'User limit reached for the store subscription plan',
+            message: 'The store has reached its maximum number of users. Please contact the store owner to upgrade the plan.',
+            current: planCheck?.current_users,
+            max: planCheck?.max_users,
+            plan: planCheck?.reason
+          });
+        }
       }
 
       // Check if user already exists with this email
@@ -551,13 +604,15 @@ collaboratorsRouter.post(
       }
 
       // ATOMIC OPERATION: Create user_stores and mark invitation as used together
-      // If either fails, we need to rollback
+      // If either fails, we need to rollback. carrier_id is set IFF courier
+      // (DB CHECK courier_role_requires_carrier enforces the invariant).
       const { error: linkError } = await supabaseAdmin
         .from('user_stores')
         .insert({
           user_id: userId,
           store_id: invitation.store_id,
           role: invitation.assigned_role,
+          carrier_id: isCourierInvitation ? invitation.carrier_id : null,
           invited_by: invitation.inviting_user_id,
           invited_at: new Date().toISOString(),
           is_active: true
@@ -672,6 +727,7 @@ collaboratorsRouter.post(
         .from('user_stores')
         .select(`
           role,
+          carrier_id,
           store:stores(id, name, country, currency, timezone)
         `)
         .eq('user_id', userId)
@@ -683,14 +739,18 @@ collaboratorsRouter.post(
         country: us.store.country,
         currency: us.store.currency,
         timezone: us.store.timezone,
-        role: us.role
+        role: us.role,
+        carrier_id: us.carrier_id ?? null
       })) || [];
 
-
+      // Surface the role for THIS specific store at top level so the frontend
+      // can redirect couriers to /portal without inferring from stores[].
       res.json({
         success: true,
         token: authToken,
         storeId: invitation.store_id,
+        role: invitation.assigned_role,
+        carrier_id: isCourierInvitation ? invitation.carrier_id : null,
         user: {
           id: userData?.id || userId,
           email: userData?.email || invitation.invited_email,
@@ -812,11 +872,19 @@ collaboratorsRouter.patch(
       const { userId } = req.params;
       const { role } = req.body;
 
+      // Couriers and team roles are NOT interchangeable via role-change. The
+      // courier_role_requires_carrier CHECK on user_stores would reject any
+      // promotion/demotion because carrier_id wouldn't change atomically. To
+      // change a courier's role, revoke and re-invite. Same in the other
+      // direction. This is intentional, not a missing feature.
       const validRoles = ['admin', 'logistics', 'confirmador', 'contador', 'inventario'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({
           error: 'Invalid role',
-          validRoles
+          validRoles,
+          message: role === 'courier'
+            ? 'Para asignar el rol courier, usa el flujo de invitacion (requiere carrier)'
+            : undefined
         });
       }
 
@@ -824,6 +892,27 @@ collaboratorsRouter.patch(
       if (userId === currentUserId) {
         return res.status(400).json({
           error: 'Cannot change your own role'
+        });
+      }
+
+      // Reject if the target row is a courier. Promoting them would orphan
+      // carrier_id and trigger the CHECK constraint.
+      const { data: existing, error: fetchErr } = await supabaseAdmin
+        .from('user_stores')
+        .select('role')
+        .eq('user_id', userId)
+        .eq('store_id', storeId)
+        .maybeSingle();
+
+      if (fetchErr) {
+        return res.status(500).json({ error: 'Error al verificar usuario' });
+      }
+      if (!existing) {
+        return res.status(404).json({ error: 'Usuario no encontrado en esta tienda' });
+      }
+      if (existing.role === 'courier') {
+        return res.status(400).json({
+          error: 'No se puede cambiar el rol de un courier. Revoca el acceso y re-invita.'
         });
       }
 
@@ -900,9 +989,13 @@ collaboratorsRouter.patch(
         });
       }
 
-      // Validate new role if provided
+      // Validate new role if provided. Reactivating a courier keeps role=courier
+      // (and carrier_id, which the row already has). Cannot upgrade/downgrade
+      // across the courier boundary; that requires invite revoke and re-invite.
       const validRoles = ['admin', 'logistics', 'confirmador', 'contador', 'inventario'];
-      const newRole = role && validRoles.includes(role) ? role : userStore.role;
+      const newRole = role && validRoles.includes(role) && userStore.role !== 'courier'
+        ? role
+        : userStore.role;
 
       // Reactivate user
       const { error: updateError } = await supabaseAdmin

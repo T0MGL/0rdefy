@@ -1415,7 +1415,7 @@ export class ExternalWebhookService {
 
   /**
    * Finds the cheapest carrier with coverage for a given city.
-   * Uses get_carriers_for_city RPC (same as dashboard) + carrier_zones fallback.
+   * Uses get_carriers_for_city RPC (single source of truth, mig 174).
    * Returns null if no carrier has coverage.
    */
   private async findCheapestCarrierForCity(
@@ -1444,48 +1444,8 @@ export class ExternalWebhookService {
           }));
       }
 
-      // 2. If no RPC results, try carrier_zones fallback (legacy system)
-      if (candidates.length === 0) {
-        const normalizedCity = city
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase()
-          .trim();
-
-        const { data: zoneRows } = await supabaseAdmin
-          .from('carrier_zones')
-          .select('carrier_id, rate, zone_name, zone_code, carriers!inner(id, name, is_active)')
-          .eq('store_id', storeId)
-          .eq('is_active', true)
-          .eq('carriers.is_active', true);
-
-        if (zoneRows && zoneRows.length > 0) {
-          for (const zone of zoneRows) {
-            const zoneName = (zone.zone_name || '')
-              .normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '')
-              .toLowerCase()
-              .trim();
-            const zoneCode = (zone.zone_code || '')
-              .normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '')
-              .toLowerCase()
-              .trim();
-
-            if (zoneName === normalizedCity || zoneCode === normalizedCity) {
-              const rate = Number(zone.rate);
-              if (Number.isFinite(rate) && rate > 0) {
-                candidates.push({
-                  carrier_id: zone.carrier_id,
-                  carrier_name: (zone as any).carriers?.name || 'Carrier',
-                  rate,
-                  zone_code: zone.zone_code || null
-                });
-              }
-            }
-          }
-        }
-      }
+      // Migration 174 unified carrier rate lookup to carrier_coverage.
+      // The RPC above is now the single source of truth.
 
       if (candidates.length === 0) return null;
 

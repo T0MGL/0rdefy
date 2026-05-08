@@ -121,13 +121,15 @@ carriersRouter.get('/:id', validateUUIDParam('id'), async (req: AuthRequest, res
 });
 
 // ================================================================
-// GET /api/carriers/:id/zones - Get carrier zones with rates
+// GET /api/carriers/:id/zones - Legacy endpoint, returns coverage as zones
+// Migration 174 unified carrier rate lookup to carrier_coverage. This shim
+// keeps existing UIs that hit /zones working until they migrate to
+// /coverage. New code should use /api/carriers/:id/coverage.
 // ================================================================
 carriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
 
-        // Verify carrier exists and belongs to store
         const { data: carrier, error: carrierError } = await supabaseAdmin
             .from('carriers')
             .select('id, name')
@@ -141,30 +143,43 @@ carriersRouter.get('/:id/zones', validateUUIDParam('id'), async (req: AuthReques
             });
         }
 
-        // Get all active zones for this carrier
-        const { data: zones, error: zonesError } = await supabaseAdmin
-            .from('carrier_zones')
-            .select('*')
+        const { data: coverage, error: coverageError } = await supabaseAdmin
+            .from('carrier_coverage')
+            .select('id, carrier_id, store_id, city, rate, is_active, created_at, updated_at')
             .eq('carrier_id', id)
             .eq('is_active', true)
-            .order('zone_name', { ascending: true });
+            .gt('rate', 0)
+            .order('city', { ascending: true });
 
-        if (zonesError) {
-            logger.error('API', '[GET /api/carriers/:id/zones] Error:', zonesError);
+        if (coverageError) {
+            logger.error('API', '[GET /api/carriers/:id/zones] Error:', coverageError);
             return res.status(500).json({
-                error: 'Error al obtener zonas de transportadora',
-                message: zonesError.message
+                error: 'Error al obtener cobertura de transportadora',
+                message: coverageError.message
             });
         }
 
+        // Shape as legacy zones response so frontend keeps working until migrated.
+        const asZones = (coverage || []).map((c: any) => ({
+            id: c.id,
+            store_id: c.store_id,
+            carrier_id: c.carrier_id,
+            zone_name: c.city,
+            zone_code: null,
+            rate: c.rate,
+            is_active: c.is_active,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+        }));
+
         res.json({
             success: true,
-            data: zones || []
+            data: asZones
         });
     } catch (error: any) {
         logger.error('API', `[GET /api/carriers/${req.params.id}/zones] Error:`, error);
         res.status(500).json({
-            error: 'Error al obtener zonas de transportadora',
+            error: 'Error al obtener cobertura de transportadora',
             message: error.message
         });
     }
@@ -606,16 +621,6 @@ carriersRouter.get('/coverage/city', async (req: AuthRequest, res: Response) => 
             });
         }
 
-        const normalizeText = (value?: string | null): string =>
-            (value || '')
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .toLowerCase()
-                .trim();
-
-        const normalizedCity = normalizeText(city as string);
-        const normalizedZoneCode = normalizeText((zone_code as string) || '');
-
         const { data, error } = await supabaseAdmin.rpc('get_carriers_for_city', {
             p_store_id: req.storeId,
             p_city: city as string,
@@ -662,45 +667,11 @@ carriersRouter.get('/coverage/city', async (req: AuthRequest, res: Response) => 
             has_coverage: boolean;
         }>;
 
-        // Backward-compatible fallback:
-        // If city-based coverage is missing, allow legacy carrier_zones match
-        // by zone_code (preferred) or exact city name in zone_name.
-        const { data: zoneRows, error: zoneRowsError } = await supabaseAdmin
-            .from('carrier_zones')
-            .select('carrier_id, rate, zone_name, zone_code')
-            .eq('store_id', req.storeId)
-            .eq('is_active', true);
-
-        if (zoneRowsError) throw zoneRowsError;
-
-        const legacyZoneRates = new Map<string, number>();
-        (zoneRows || []).forEach((zone: any) => {
-            const zoneName = normalizeText(zone.zone_name);
-            const zoneCode = normalizeText(zone.zone_code);
-            const matchesByZoneCode = normalizedZoneCode && zoneCode === normalizedZoneCode;
-            const matchesByZoneName = zoneName && zoneName === normalizedCity;
-            if (!matchesByZoneCode && !matchesByZoneName) return;
-            const rate = Number(zone.rate);
-            if (!Number.isFinite(rate)) return;
-
-            const current = legacyZoneRates.get(zone.carrier_id);
-            if (current == null || rate < current) {
-                legacyZoneRates.set(zone.carrier_id, rate);
-            }
-        });
-
-        const enriched = carriersData.map((carrier) => {
-            if (carrier.has_coverage) return carrier;
-            const fallbackRate = legacyZoneRates.get(carrier.carrier_id);
-            if (fallbackRate == null) return carrier;
-            return {
-                ...carrier,
-                rate: fallbackRate,
-                has_coverage: true
-            };
-        });
-
-        const sorted = enriched.sort((a, b) => {
+        // Migration 174 unified rate lookup to carrier_coverage. The legacy
+        // carrier_zones fallback was removed. Carriers without coverage for a
+        // given city are returned as has_coverage: false so the UI can render
+        // them as SIN COBERTURA without selecting them.
+        const sorted = carriersData.sort((a, b) => {
             if (a.has_coverage && !b.has_coverage) return -1;
             if (!a.has_coverage && b.has_coverage) return 1;
             if (a.rate === null) return 1;
