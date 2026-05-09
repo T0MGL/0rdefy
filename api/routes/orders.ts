@@ -3082,7 +3082,7 @@ ordersRouter.post('/:id/mark-preparing', requirePermission(Module.ORDERS, Permis
         const { data, error } = await supabaseAdmin
             .from('orders')
             .update({
-                status: 'preparing',
+                sleeves_status: 'in_preparation',
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)
@@ -3118,7 +3118,7 @@ ordersRouter.post('/:id/mark-out-for-delivery', requirePermission(Module.ORDERS,
 
 
         const updates: any = {
-            status: 'out_for_delivery',
+            sleeves_status: 'out_for_delivery',
             updated_at: new Date().toISOString()
         };
 
@@ -3161,7 +3161,7 @@ ordersRouter.post('/:id/mark-delivered-paid', requirePermission(Module.ORDERS, P
 
 
         const updates: any = {
-            status: 'delivered',
+            sleeves_status: 'delivered',
             payment_status: 'collected',
             updated_at: new Date().toISOString()
         };
@@ -3378,7 +3378,7 @@ ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Respon
                 )
             `)
             .eq('store_id', req.storeId)
-            .in('status', ['confirmed', 'preparing', 'out_for_delivery'])
+            .in('sleeves_status', ['confirmed', 'in_preparation', 'out_for_delivery'])
             .order('created_at', { ascending: false });
 
         if (error) {
