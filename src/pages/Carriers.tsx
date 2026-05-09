@@ -21,6 +21,7 @@ import {
   CarrierReplicationResult,
 } from '@/services/carriers.service';
 import { carrierOperatorsService } from '@/services/carrier-operators.service';
+import { CarrierCoverageManager } from '@/components/CarrierCoverageManager';
 import { Plus, Package, TrendingUp, Clock, Star, Search, Map as MapIcon, MapPin, ChevronRight, UserPlus } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
@@ -325,6 +326,7 @@ export default function Carriers() {
   const [performanceStats, setPerformanceStats] = useState<CourierPerformanceStat[] | null>(null);
   const [replicationTargets, setReplicationTargets] = useState<CarrierReplicationTarget[]>([]);
   const [coverageMapOpen, setCoverageMapOpen] = useState(false);
+  const [coverageEditorCarrier, setCoverageEditorCarrier] = useState<Carrier | null>(null);
   const [coverageByCarrier, setCoverageByCarrier] = useState<Map<string, { name: string; cities: Array<{ id: string; city: string; rate: number }> }>>(new Map());
   const [coverageLoading, setCoverageLoading] = useState(false);
 
@@ -445,9 +447,13 @@ export default function Carriers() {
   };
 
   const handleManageZones = (carrier: Carrier) => {
-    // Navigate to carrier detail where CarrierCoverageManager handles city based pricing.
-    navigate(`/carriers/${carrier.id}`);
+    setCoverageEditorCarrier(carrier);
   };
+
+  const handleCoverageSaved = useCallback(() => {
+    // Invalidate cached coverage map so it reflects new rates if reopened.
+    setCoverageByCarrier(new Map());
+  }, []);
 
   const handleOpenCoverageMap = useCallback(async () => {
     setCoverageMapOpen(true);
@@ -903,6 +909,19 @@ export default function Carriers() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Per-carrier coverage editor: opens from the pin icon in the actions column. */}
+      {coverageEditorCarrier && (
+        <CarrierCoverageManager
+          open={Boolean(coverageEditorCarrier)}
+          onOpenChange={(open) => {
+            if (!open) setCoverageEditorCarrier(null);
+          }}
+          carrierId={coverageEditorCarrier.id}
+          carrierName={coverageEditorCarrier.name || 'Repartidor'}
+          onSaved={handleCoverageSaved}
+        />
+      )}
     </div>
   );
 }

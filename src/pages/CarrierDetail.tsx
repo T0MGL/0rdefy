@@ -579,51 +579,48 @@ export default function CarrierDetail() {
             </Card>
           </div>
 
-          {/* Rating Summary Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Average Rating Card */}
-            <Card className="p-6 bg-card">
-              <div className="flex items-center gap-2 mb-4">
-                <Star className="text-yellow-500" size={20} />
-                <h3 className="font-semibold text-card-foreground">Calificación Promedio</h3>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="text-5xl font-bold text-card-foreground">
-                  {safeNumber(carrier?.average_rating)}
+          {/* Rating Summary Section
+              Hidden entirely when there are no customer ratings yet. The QR rating flow
+              has to fire for any of these cards to have data, and showing eight zero-state
+              cards just adds noise. When ratings start coming in, the full breakdown
+              renders automatically. */}
+          {(carrier?.total_ratings || 0) > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <Card className="p-6 bg-card">
+                <div className="flex items-center gap-2 mb-4">
+                  <Star className="text-yellow-500" size={20} />
+                  <h3 className="font-semibold text-card-foreground">Calificación Promedio</h3>
                 </div>
-                <div className="flex flex-col">
-                  <div className="flex">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star
-                        key={star}
-                        size={20}
-                        className={
-                          star <= Math.round(carrier?.average_rating || 0)
-                            ? 'fill-yellow-400 text-yellow-400'
-                            : 'text-muted-foreground/30'
-                        }
-                      />
-                    ))}
+                <div className="flex items-center gap-4">
+                  <div className="text-5xl font-bold text-card-foreground">
+                    {safeNumber(carrier?.average_rating)}
                   </div>
-                  <span className="text-sm text-muted-foreground mt-1">
-                    {carrier?.total_ratings || 0} calificaciones
-                  </span>
+                  <div className="flex flex-col">
+                    <div className="flex">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          size={20}
+                          className={
+                            star <= Math.round(carrier?.average_rating || 0)
+                              ? 'fill-yellow-400 text-yellow-400'
+                              : 'text-muted-foreground/30'
+                          }
+                        />
+                      ))}
+                    </div>
+                    <span className="text-sm text-muted-foreground mt-1">
+                      {carrier?.total_ratings || 0} calificaciones
+                    </span>
+                  </div>
                 </div>
-              </div>
-              {(carrier?.total_ratings || 0) === 0 && (
-                <p className="text-sm text-muted-foreground mt-4">
-                  Aún no hay calificaciones de clientes
-                </p>
-              )}
-            </Card>
+              </Card>
 
-            {/* Rating Distribution Card */}
-            <Card className="p-6 bg-card lg:col-span-2">
-              <div className="flex items-center gap-2 mb-4">
-                <TrendingUp className="text-blue-500" size={20} />
-                <h3 className="font-semibold text-card-foreground">Distribución de Calificaciones</h3>
-              </div>
-              {(carrier?.total_ratings || 0) > 0 ? (
+              <Card className="p-6 bg-card lg:col-span-2">
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp className="text-blue-500" size={20} />
+                  <h3 className="font-semibold text-card-foreground">Distribución de Calificaciones</h3>
+                </div>
                 <div className="space-y-3">
                   {[5, 4, 3, 2, 1].map((rating) => {
                     const count = ratingDistribution[rating as keyof RatingDistribution] || 0;
@@ -636,10 +633,7 @@ export default function CarrierDetail() {
                           <Star size={14} className="fill-yellow-400 text-yellow-400" />
                         </div>
                         <div className="flex-1">
-                          <Progress
-                            value={percentage}
-                            className="h-2"
-                          />
+                          <Progress value={percentage} className="h-2" />
                         </div>
                         <span className="text-sm text-muted-foreground w-16 text-right">
                           {count} ({percentage.toFixed(0)}%)
@@ -648,13 +642,23 @@ export default function CarrierDetail() {
                     );
                   })}
                 </div>
-              ) : (
-                <div className="flex items-center justify-center h-32 text-muted-foreground">
-                  <p>Sin datos de distribución aún</p>
+              </Card>
+            </div>
+          ) : (
+            <Card className="p-6 bg-card border-dashed">
+              <div className="flex items-start gap-4">
+                <div className="rounded-full bg-muted p-2.5 shrink-0">
+                  <Star className="text-muted-foreground" size={18} />
                 </div>
-              )}
+                <div className="flex-1">
+                  <h3 className="font-semibold text-card-foreground">Calificaciones de clientes</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    El sistema de calificaciones se activa cuando los clientes puntúan sus entregas vía el link de seguimiento. Cuando lleguen las primeras puntuaciones, el promedio, la distribución y las reseñas aparecen acá.
+                  </p>
+                </div>
+              </div>
             </Card>
-          </div>
+          )}
 
           {/* Rating Insights Row */}
           {(carrier?.total_ratings || 0) > 0 && (
