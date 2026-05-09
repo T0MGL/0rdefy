@@ -3122,7 +3122,7 @@ ordersRouter.post('/:id/mark-out-for-delivery', requirePermission(Module.ORDERS,
             updated_at: new Date().toISOString()
         };
 
-        if (carrier_id) updates.carrier_id = carrier_id;
+        if (carrier_id) updates.courier_id = carrier_id;
         if (delivery_notes) updates.delivery_notes = delivery_notes;
 
         const { data, error } = await supabaseAdmin
@@ -3373,7 +3373,7 @@ ordersRouter.get('/stats/pending-delivery', async (req: AuthRequest, res: Respon
                     phone,
                     email
                 ),
-                carriers!orders_carrier_id_fkey (
+                carriers!orders_courier_id_fkey (
                     name
                 )
             `)

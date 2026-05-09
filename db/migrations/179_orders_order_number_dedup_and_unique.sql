@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration 173 — Dedupe orders.order_number and enforce uniqueness per store
+-- Migration 179 — Dedupe orders.order_number and enforce uniqueness per store
 -- ============================================================================
 -- Problem
 --   orders has no unique constraint on (store_id, order_number). The legacy
@@ -56,7 +56,7 @@ BEGIN
            GROUP BY 1, 2
           HAVING COUNT(*) > 1
       ) d;
-    RAISE NOTICE 'Migration 173: % duplicate (store_id, order_number) pairs found across % rows',
+    RAISE NOTICE 'Migration 179: % duplicate (store_id, order_number) pairs found across % rows',
         v_dupe_pairs, v_dupe_rows;
 END $$;
 
@@ -114,10 +114,10 @@ BEGIN
       ) d;
     IF v_remaining > 0 THEN
         RAISE EXCEPTION
-            'Migration 173 aborting: % duplicate (store_id, order_number) pairs survived the rename pass',
+            'Migration 179 aborting: % duplicate (store_id, order_number) pairs survived the rename pass',
             v_remaining;
     END IF;
-    RAISE NOTICE 'Migration 173: dedupe pass clean (0 duplicates)';
+    RAISE NOTICE 'Migration 179: dedupe pass clean (0 duplicates)';
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS orders_store_order_number_unique_idx
    AND order_number IS NOT NULL;
 
 COMMENT ON INDEX orders_store_order_number_unique_idx IS
-    'Migration 173: enforces unique order_number per store for live (not soft-deleted) rows. Backed by external-webhook.service.ts retry-on-23505 path.';
+    'Migration 179: enforces unique order_number per store for live (not soft-deleted) rows. Backed by external-webhook.service.ts retry-on-23505 path.';
 
 COMMIT;
 
