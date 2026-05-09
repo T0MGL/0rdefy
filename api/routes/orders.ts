@@ -64,6 +64,9 @@ const OrderListQuerySchema = z.object({
     show_deleted: z.enum(['true', 'false']).optional(),
     scheduled_filter: z.string().optional(),
     timezone: z.string().optional(),
+    // Wave Dispatch (Migration 178): comma-separated UUIDs to filter mono-product orders.
+    // Multi-product orders are excluded server-side via get_mono_product_order_ids RPC.
+    product_ids: z.string().max(2000).optional(),
 });
 
 const BundleSelectionSchema = z.object({
@@ -995,7 +998,8 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
             show_test = 'true',        // Filter for test orders
             show_deleted = 'true',     // Show soft-deleted orders (with opacity)
             scheduled_filter = 'all',  // Filter for scheduled deliveries: 'all' | 'scheduled' | 'ready'
-            timezone                   // Store IANA timezone (e.g. 'America/Asuncion') for date calculations
+            timezone,                  // Store IANA timezone (e.g. 'America/Asuncion') for date calculations
+            product_ids                // Wave Dispatch (Migration 178): CSV of product UUIDs (mono-product filter)
         } = req.query;
 
         // Prefer the client-supplied timezone (already sourced from currentStore.timezone);
@@ -1096,6 +1100,56 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
         // Set show_deleted=false to hide them completely
         if (show_deleted === 'false') {
             query = query.is('deleted_at', null);
+        }
+
+        // Wave Dispatch (Migration 178): mono-product filter.
+        // Returns only orders where every line item shares a single product_id
+        // and that product is in the supplied list. Multi-product orders are
+        // excluded server-side via the get_mono_product_order_ids RPC.
+        if (product_ids && typeof product_ids === 'string') {
+            const ids = product_ids
+                .split(',')
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && isValidUUID(s));
+
+            if (ids.length === 0) {
+                logger.debug('ORDERS', 'product_ids filter received with no valid UUIDs, returning empty');
+                return res.json({
+                    data: [],
+                    pagination: {
+                        total: 0,
+                        limit: Math.min(100, Math.max(1, safeNumber(limit, 25))),
+                        offset: Math.max(0, safeNumber(offset, 0)),
+                        hasMore: false,
+                    },
+                });
+            }
+
+            const { data: monoRows, error: monoError } = await supabaseAdmin.rpc(
+                'get_mono_product_order_ids',
+                { p_store_id: req.storeId, p_product_ids: ids }
+            );
+
+            if (monoError) {
+                logger.error('ORDERS', 'get_mono_product_order_ids RPC failed', monoError);
+                throw monoError;
+            }
+
+            const monoOrderIds = (monoRows || []).map((row: { order_id: string }) => row.order_id);
+
+            if (monoOrderIds.length === 0) {
+                return res.json({
+                    data: [],
+                    pagination: {
+                        total: 0,
+                        limit: Math.min(100, Math.max(1, safeNumber(limit, 25))),
+                        offset: Math.max(0, safeNumber(offset, 0)),
+                        hasMore: false,
+                    },
+                });
+            }
+
+            query = query.in('id', monoOrderIds);
         }
 
         if (status) {

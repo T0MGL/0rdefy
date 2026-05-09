@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FilterChips } from '@/components/FilterChips';
+import { ProductMultiSelect } from '@/components/ProductMultiSelect';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { invoicingService } from '@/services/invoicing.service';
@@ -278,6 +279,12 @@ export default function Orders() {
   }, [searchParams]);
   const carrierFilter = searchParams.get('carrier') || 'all';
   const scheduledFilter = (searchParams.get('scheduled') || 'all') as 'all' | 'scheduled' | 'ready';
+  // Wave Dispatch (Migration 178): mono-product filter, CSV of product UUIDs.
+  const productFilter = useMemo(() => {
+    const raw = searchParams.get('products');
+    if (!raw) return [] as string[];
+    return raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+  }, [searchParams]);
 
   // Stable setter helpers that update URL params without replacing other params.
   // Each setter merges into the existing params and removes keys when resetting to default.
@@ -325,6 +332,19 @@ export default function Orders() {
         next.set('scheduled', value);
       } else {
         next.delete('scheduled');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Wave Dispatch product filter setter. Stores CSV of UUIDs in `products`.
+  const setProductFilter = useCallback((ids: string[]) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (ids.length > 0) {
+        next.set('products', ids.join(','));
+      } else {
+        next.delete('products');
       }
       return next;
     }, { replace: true });
@@ -384,7 +404,14 @@ export default function Orders() {
 
   // Build server-side filter params (status + carrier + scheduled sent to API for correct pagination)
   const serverFilters = useMemo(() => {
-    const filters: { status?: string; carrier_id?: string; search?: string; scheduled_filter?: 'all' | 'scheduled' | 'ready'; timezone?: string } = {};
+    const filters: {
+      status?: string;
+      carrier_id?: string;
+      search?: string;
+      scheduled_filter?: 'all' | 'scheduled' | 'ready';
+      timezone?: string;
+      product_ids?: string[];
+    } = {};
     if (chipFilters.status) filters.status = chipFilters.status;
     if (carrierFilter !== 'all') filters.carrier_id = carrierFilter;
     if (debouncedSearch && debouncedSearch.length >= 2) filters.search = debouncedSearch;
@@ -394,8 +421,11 @@ export default function Orders() {
       // not UTC (which can differ by several hours from Paraguay time)
       filters.timezone = storeTimezone;
     }
+    if (productFilter.length > 0) {
+      filters.product_ids = productFilter;
+    }
     return filters;
-  }, [chipFilters.status, carrierFilter, debouncedSearch, scheduledFilter, storeTimezone]);
+  }, [chipFilters.status, carrierFilter, debouncedSearch, scheduledFilter, storeTimezone, productFilter]);
 
   // Use refs for stable queryFn (avoids recreating polling interval)
   const dateParamsRef = useRef(dateParams);
@@ -1983,7 +2013,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
 
   // Track whether any filter is active. Used to distinguish "no orders ever" from
   // "no orders matching current filters" and to show/hide the clear button.
-  const hasActiveFilters = !!(chipFilters.status || carrierFilter !== 'all' || search || scheduledFilter !== 'all');
+  const hasActiveFilters = !!(chipFilters.status || carrierFilter !== 'all' || search || scheduledFilter !== 'all' || productFilter.length > 0);
 
   if (orders.length === 0 && !hasActiveFilters) {
     return (
@@ -2066,6 +2096,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                     next.delete('carrier');
                     next.delete('q');
                     next.delete('scheduled');
+                    next.delete('products');
                     return next;
                   }, { replace: true });
                 }}
@@ -2279,6 +2310,12 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
               ))}
             </SelectContent>
           </Select>
+          <ProductMultiSelect
+            value={productFilter}
+            onChange={setProductFilter}
+            placeholder="Producto"
+            triggerClassName="w-full md:w-52"
+          />
           <Button
             variant={viewMode === 'calendar' ? 'default' : 'outline'}
             className="gap-2"
@@ -2387,6 +2424,24 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   </Badge>
                 </motion.div>
               )}
+              {productFilter.length > 0 && (
+                <motion.div
+                  key="products"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <Badge
+                    variant="secondary"
+                    className="gap-1.5 pl-2.5 pr-1.5 py-1 text-xs cursor-pointer hover:bg-secondary/80 transition-colors"
+                    onClick={() => setProductFilter([])}
+                  >
+                    Productos: {productFilter.length} seleccionado{productFilter.length === 1 ? '' : 's'}
+                    <X size={12} className="text-muted-foreground hover:text-foreground transition-colors" />
+                  </Badge>
+                </motion.div>
+              )}
             </AnimatePresence>
             <button
               onClick={() => {
@@ -2396,6 +2451,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                   next.delete('carrier');
                   next.delete('q');
                   next.delete('scheduled');
+                  next.delete('products');
                   return next;
                 }, { replace: true });
               }}

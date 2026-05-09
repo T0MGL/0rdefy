@@ -12,7 +12,7 @@ import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, PermissionRequest } from '../middleware/permissions';
 import { Module } from '../permissions';
 import * as shippingService from '../services/shipping.service';
-import { validateUUIDParam } from '../utils/sanitize';
+import { isValidUUID, validateUUIDParam } from '../utils/sanitize';
 
 const router = Router();
 
@@ -26,7 +26,15 @@ router.use(requireModule(Module.CARRIERS));
 
 /**
  * GET /api/shipping/ready-to-ship
- * Gets all orders ready to be dispatched to couriers
+ * Gets all orders ready to be dispatched to couriers.
+ *
+ * Query params (Wave Dispatch, Migration 178):
+ *   product_ids (optional): comma-separated UUIDs. When supplied, only
+ *     mono-product orders for those products are returned. Multi-product
+ *     orders are excluded server-side.
+ *   mixed (optional, 'true'/'false'): when true, returns only orders
+ *     that contain line items from 2 or more distinct products. Mutually
+ *     exclusive with product_ids; product_ids wins if both are present.
  */
 router.get('/ready-to-ship', async (req: PermissionRequest, res: Response) => {
   try {
@@ -36,13 +44,97 @@ router.get('/ready-to-ship', async (req: PermissionRequest, res: Response) => {
       return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
     }
 
-    const orders = await shippingService.getReadyToShipOrders(storeId);
+    let productIds: string[] | undefined;
+    const rawProductIds = req.query.product_ids;
+    if (rawProductIds && typeof rawProductIds === 'string') {
+      const ids = rawProductIds
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0 && isValidUUID(s));
+
+      if (ids.length === 0) {
+        return res.json([]);
+      }
+      productIds = ids;
+    }
+
+    const mixedOnly = req.query.mixed === 'true' && !productIds;
+
+    const orders = await shippingService.getReadyToShipOrders(storeId, productIds, mixedOnly);
 
     res.json(orders);
   } catch (error) {
     logger.error('API', 'Error fetching ready to ship orders:', error);
     res.status(500).json({
       error: 'Error al obtener pedidos listos para envío',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * GET /api/shipping/dispatch-summary
+ * Returns aggregated stats per product for the ready-to-ship dispatch view,
+ * plus a single "Mixtos" bucket aggregating multi-product orders. Powers
+ * the cards UI in /shipping (Migration 178).
+ */
+router.get('/dispatch-summary', async (req: PermissionRequest, res: Response) => {
+  try {
+    const storeId = req.storeId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
+    }
+
+    const summary = await shippingService.getDispatchSummary(storeId);
+
+    res.json(summary);
+  } catch (error) {
+    logger.error('API', 'Error fetching dispatch summary:', error);
+    res.status(500).json({
+      error: 'Error al obtener resumen de despacho',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * POST /api/shipping/pick-list
+ * Returns variant-level aggregated quantities for a given set of orders.
+ * Used by the printable pick list PDF. Body: { orderIds: string[] }.
+ *
+ * Validates every UUID before issuing the RPC. Returns [] on empty input.
+ */
+router.post('/pick-list', async (req: PermissionRequest, res: Response) => {
+  try {
+    const storeId = req.storeId;
+
+    if (!storeId) {
+      return res.status(400).json({ error: 'Se requiere el ID de la tienda' });
+    }
+
+    const { orderIds } = req.body as { orderIds?: unknown };
+
+    if (!Array.isArray(orderIds)) {
+      return res.status(400).json({ error: 'orderIds debe ser un array' });
+    }
+
+    const validIds = orderIds
+      .filter((id): id is string => typeof id === 'string')
+      .map(id => id.trim())
+      .filter(id => isValidUUID(id));
+
+    if (validIds.length === 0) {
+      return res.json([]);
+    }
+
+    const pickList = await shippingService.getPickList(storeId, validIds);
+
+    res.json(pickList);
+  } catch (error) {
+    logger.error('API', 'Error fetching pick list:', error);
+    res.status(500).json({
+      error: 'Error al obtener pick list',
       details: error instanceof Error ? error.message : String(error)
     });
   }

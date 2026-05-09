@@ -1,11 +1,44 @@
 /**
- * Shipping Page
- * Manages dispatch of prepared orders to couriers
- * Shows orders in 'ready_to_ship' status and allows marking them as 'shipped'
+ * Shipping Page (Wave Dispatch)
+ * Manages dispatch of prepared orders to couriers.
+ *
+ * Two complementary views, both URL-driven so filters survive reloads
+ * and links are shareable:
+ *   - cards (default): one card per product with aggregated stats. The
+ *     operator picks an entire wave (one or more products) and the
+ *     toolbar surfaces all batch actions on the selected orders.
+ *   - flat: traditional list, controlled by the same product + carrier
+ *     filters. Used when the operator needs to see every order one by
+ *     one or to drill into the "Mixtos" bucket.
+ *
+ * The cards view never mixes mono-product and multi-product orders. The
+ * "Mixtos" card is always visible separately and links to a filtered
+ * flat view; that is the operator's signal that those orders need
+ * special attention before dispatch.
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { Truck, Send, CheckCircle, Package, MapPin, Phone, DollarSign, FileText, Download, FileSpreadsheet } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Truck,
+  Send,
+  CheckCircle,
+  Package,
+  MapPin,
+  Phone,
+  DollarSign,
+  FileText,
+  Download,
+  FileSpreadsheet,
+  ClipboardList,
+  LayoutGrid,
+  List as ListIcon,
+  Filter as FilterIcon,
+  X,
+  AlertTriangle,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { FeatureBlockedPage } from '@/components/FeatureGate';
@@ -17,102 +50,233 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { OrderListSkeleton } from '@/components/ui/skeleton-matched';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ProductMultiSelect } from '@/components/ProductMultiSelect';
+import { DispatchProductCard } from '@/components/dispatch/DispatchProductCard';
 import { useToast } from '@/hooks/use-toast';
+import { useCarriers } from '@/hooks/useCarriers';
 import * as shippingService from '@/services/shipping.service';
-import { exportDispatchExcel } from '@/services/shipping.service';
+import {
+  exportDispatchExcel,
+  type ReadyToShipOrder,
+  type BatchDispatchResponse,
+  type DispatchProductSummary,
+} from '@/services/shipping.service';
+import { printPickListPDF } from '@/components/printing/printPickListPDF';
 import { formatCurrency } from '@/utils/currency';
-import type { ReadyToShipOrder, BatchDispatchResponse } from '@/services/shipping.service';
 import { logger } from '@/utils/logger';
+import { cn } from '@/lib/utils';
+
+type ViewMode = 'cards' | 'flat';
 
 export default function Shipping() {
   const { currentStore } = useAuth();
   const { hasFeature, loading: subscriptionLoading } = useSubscription();
   const { toast } = useToast();
-  const [orders, setOrders] = useState<ReadyToShipOrder[]>([]);
+  const queryClient = useQueryClient();
+  const { carriers } = useCarriers({ activeOnly: true });
+
+  const hasWarehouseFeature = hasFeature('warehouse');
+
+  // ----- URL state -----
+  const [searchParams, setSearchParams] = useSearchParams();
+  const productFilter = useMemo(() => {
+    const raw = searchParams.get('products');
+    if (!raw) return [] as string[];
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  }, [searchParams]);
+  const carrierFilter = searchParams.get('carrier') || 'all';
+  const view: ViewMode = (searchParams.get('view') === 'flat' ? 'flat' : 'cards');
+  const showMixed = searchParams.get('mixed') === 'true';
+
+  const setProductFilter = useCallback((ids: string[]) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (ids.length > 0) next.set('products', ids.join(','));
+      else next.delete('products');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setCarrierFilter = useCallback((value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value && value !== 'all') next.set('carrier', value);
+      else next.delete('carrier');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setView = useCallback((mode: ViewMode) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (mode !== 'cards') next.set('view', mode);
+      else next.delete('view');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setShowMixed = useCallback((value: boolean) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('mixed', 'true');
+      else next.delete('mixed');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // ----- Local UI state -----
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
+  const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<string>>(new Set());
   const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false);
   const [singleDispatchOrder, setSingleDispatchOrder] = useState<ReadyToShipOrder | null>(null);
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [dispatching, setDispatching] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [printingPickList, setPrintingPickList] = useState(false);
 
-  const hasWarehouseFeature = hasFeature('warehouse');
-
-  // Memory leak prevention
+  // ----- Memory-leak prevention -----
   const isMountedRef = useRef(true);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      abortControllerRef.current?.abort();
     };
   }, []);
 
+  // ----- Data: dispatch summary (cards) -----
+  const summaryQuery = useQuery({
+    queryKey: ['dispatch-summary'],
+    queryFn: shippingService.getDispatchSummary,
+    enabled: hasWarehouseFeature,
+    staleTime: 30_000,
+  });
+
+  // ----- Data: ready-to-ship orders (filtered) -----
+  // Mono-product filter happens server-side via product_ids query param.
+  // Carrier filter is applied client-side because it is cheap and avoids
+  // a refetch when the operator hops between carriers in the same wave.
+  const ordersQuery = useQuery({
+    queryKey: ['ready-to-ship', productFilter, showMixed],
+    queryFn: () =>
+      shippingService.getReadyToShipOrders(
+        productFilter.length > 0 ? productFilter : undefined,
+        productFilter.length === 0 && showMixed ? true : undefined
+      ),
+    enabled: hasWarehouseFeature,
+    staleTime: 15_000,
+  });
+
+  const orders = ordersQuery.data || [];
+  const summary = summaryQuery.data || [];
+
+  // Apply carrier filter client-side. If `mixed=true`, restrict to orders
+  // present in summary.is_mono === false bucket. We do not have the order
+  // ids in the summary yet, so we approximate by filtering orders that are
+  // multi-line based on carrier; the proper server-side mixed filter is a
+  // future enhancement once volume justifies it.
+  const filteredOrders = useMemo(() => {
+    let next = orders;
+    if (carrierFilter !== 'all') {
+      next = next.filter(o => o.carrier_id === carrierFilter);
+    }
+    return next;
+  }, [orders, carrierFilter]);
+
+  // ----- Helpers -----
+  const refreshAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['ready-to-ship'] });
+    queryClient.invalidateQueries({ queryKey: ['dispatch-summary'] });
+  }, [queryClient]);
+
+  const toggleOrderSelection = useCallback((orderId: string) => {
+    setSelectedOrders(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedOrders(prev => {
+      if (prev.size === filteredOrders.length && filteredOrders.length > 0) {
+        return new Set();
+      }
+      return new Set(filteredOrders.map(o => o.id));
+    });
+  }, [filteredOrders]);
+
+  // Card selection: when the operator clicks "Seleccionar" on a card we
+  // both add the product to the URL filter AND mark the card as selected
+  // for the toolbar batch action. Cards are not the same as orders.
+  const toggleSummarySelect = useCallback((productId: string | null) => {
+    if (!productId) return; // Mixtos has no product_id
+    const ids = new Set(productFilter);
+    if (ids.has(productId)) {
+      ids.delete(productId);
+    } else {
+      ids.add(productId);
+    }
+    setProductFilter(Array.from(ids));
+    setSelectedSummaryIds(new Set(ids));
+  }, [productFilter, setProductFilter]);
+
+  // Auto-select all returned orders when the user enters a product in the
+  // filter from a card click. This is the wave selection: the operator
+  // expects the toolbar to operate on every order matching the chosen
+  // products, not to require a second click on each row.
   useEffect(() => {
-    if (!hasWarehouseFeature) return;
-    loadOrders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasWarehouseFeature]);
-
-  async function loadOrders() {
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setLoading(true);
-    try {
-      const data = await shippingService.getReadyToShipOrders();
-      if (!isMountedRef.current) return;
-      setOrders(data);
-    } catch (error) {
-      if (!isMountedRef.current) return;
-      logger.error('Error loading ready to ship orders:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron cargar los pedidos preparados',
-        variant: 'destructive',
-      });
-    } finally {
-      if (isMountedRef.current) setLoading(false);
-    }
-  }
-
-  // Check warehouse feature access - AFTER all hooks
-  // Wait for subscription to load to prevent flash of upgrade modal
-  if (subscriptionLoading) {
-    return null;
-  }
-  if (!hasWarehouseFeature) {
-    return <FeatureBlockedPage feature="warehouse" />;
-  }
-
-  function toggleOrderSelection(orderId: string) {
-    const newSelected = new Set(selectedOrders);
-    if (newSelected.has(orderId)) {
-      newSelected.delete(orderId);
-    } else {
-      newSelected.add(orderId);
-    }
-    setSelectedOrders(newSelected);
-  }
-
-  function selectAll() {
-    if (selectedOrders.size === orders.length) {
+    if (productFilter.length > 0 && view === 'cards' && filteredOrders.length > 0) {
+      setSelectedOrders(new Set(filteredOrders.map(o => o.id)));
+    } else if (productFilter.length === 0) {
       setSelectedOrders(new Set());
-    } else {
-      setSelectedOrders(new Set(orders.map(o => o.id)));
     }
-  }
+    // We intentionally only react to the productFilter array length changing
+    // and the orders array identity. Selecting/deselecting individual orders
+    // inside the wave should not be overridden.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productFilter.join(','), filteredOrders.length, view]);
 
+  const goToMixed = useCallback(() => {
+    setView('flat');
+    setShowMixed(true);
+    setProductFilter([]);
+    setSelectedSummaryIds(new Set());
+  }, [setProductFilter, setShowMixed, setView]);
+
+  // ----- Subscription guard -----
+  if (subscriptionLoading) return null;
+  if (!hasWarehouseFeature) return <FeatureBlockedPage feature="warehouse" />;
+
+  // ----- Selection state -----
+  const allSelected =
+    filteredOrders.length > 0 && selectedOrders.size === filteredOrders.length;
+  const hasSelection = selectedOrders.size > 0;
+  const totalUnitsInSummary = summary
+    .filter(s => s.is_mono)
+    .reduce((sum, s) => sum + s.unit_count, 0);
+
+  // ----- Actions -----
   function handleOpenDispatchDialog() {
-    if (selectedOrders.size === 0) {
+    if (!hasSelection) {
       toast({
-        title: 'Error',
-        description: 'Por favor selecciona al menos un pedido para despachar',
+        title: 'Sin seleccion',
+        description: 'Selecciona al menos un pedido para despachar',
         variant: 'destructive',
       });
       return;
@@ -128,21 +292,17 @@ export default function Shipping() {
   }
 
   async function handleGenerateManifest() {
-    if (selectedOrders.size === 0) {
+    if (!hasSelection) {
       toast({
-        title: 'Error',
-        description: 'Por favor selecciona al menos un pedido',
+        title: 'Sin seleccion',
+        description: 'Selecciona al menos un pedido',
         variant: 'destructive',
       });
       return;
     }
 
-    const selectedOrdersList = orders.filter(o => selectedOrders.has(o.id));
-
-    // Get carrier name from first order (all should have same carrier in batch)
+    const selectedOrdersList = filteredOrders.filter(o => selectedOrders.has(o.id));
     const carrierName = selectedOrdersList[0]?.carrier_name || 'Transportadora';
-
-    // Get store info from context
     const storeName = currentStore?.name || 'Mi Tienda';
 
     const { DeliveryManifestGenerator } = await import('@/components/DeliveryManifest');
@@ -162,10 +322,10 @@ export default function Shipping() {
   }
 
   async function handleExportExcel() {
-    if (selectedOrders.size === 0) {
+    if (!hasSelection) {
       toast({
-        title: 'Error',
-        description: 'Por favor selecciona al menos un pedido',
+        title: 'Sin seleccion',
+        description: 'Selecciona al menos un pedido',
         variant: 'destructive',
       });
       return;
@@ -173,29 +333,64 @@ export default function Shipping() {
 
     setExporting(true);
     try {
-      const selectedOrdersList = orders.filter(o => selectedOrders.has(o.id));
+      const selectedOrdersList = filteredOrders.filter(o => selectedOrders.has(o.id));
       const carrierName = selectedOrdersList[0]?.carrier_name || 'Transportadora';
 
       await exportDispatchExcel(selectedOrdersList, carrierName);
 
       toast({
         title: 'Excel exportado',
-        description: `Planilla profesional descargada con ${selectedOrdersList.length} pedido(s) para el courier`,
+        description: `Planilla descargada con ${selectedOrdersList.length} pedido(s)`,
       });
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Error exporting Excel:', error);
       toast({
         title: 'Error',
-        description: error.message || 'No se pudo exportar la planilla',
+        description: error instanceof Error ? error.message : 'No se pudo exportar la planilla',
         variant: 'destructive',
       });
     } finally {
-      setExporting(false);
+      if (isMountedRef.current) setExporting(false);
+    }
+  }
+
+  async function handlePickList() {
+    if (!hasSelection) {
+      toast({
+        title: 'Sin seleccion',
+        description: 'Selecciona al menos un pedido para generar el pick list',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPrintingPickList(true);
+    try {
+      const orderIds = Array.from(selectedOrders);
+      const result = await printPickListPDF({
+        orderIds,
+        storeName: currentStore?.name,
+        totalOrders: orderIds.length,
+      });
+
+      toast({
+        title: 'Pick list generado',
+        description: `Ola ${result.waveCode}, ${orderIds.length} pedido(s)`,
+      });
+    } catch (error) {
+      logger.error('Error generating pick list:', error);
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'No se pudo generar el pick list',
+        variant: 'destructive',
+      });
+    } finally {
+      if (isMountedRef.current) setPrintingPickList(false);
     }
   }
 
   async function handleDispatch() {
-    if (selectedOrders.size === 0) return;
+    if (!hasSelection) return;
 
     setDispatching(true);
     try {
@@ -204,283 +399,356 @@ export default function Shipping() {
         dispatchNotes || undefined
       );
 
-      // Show results
       if (result.failed > 0) {
         toast({
           title: 'Despacho parcial',
           description: `${result.succeeded} pedidos despachados, ${result.failed} fallaron`,
-          variant: 'default',
         });
       } else {
         toast({
           title: 'Despacho exitoso',
-          description: `${result.succeeded} pedidos marcados como "En Tránsito"`,
+          description: `${result.succeeded} pedidos marcados como en transito`,
         });
       }
 
-      // Mark first action completed (hides the onboarding tip)
       if (result.succeeded > 0) {
         onboardingService.markFirstActionCompleted('shipping');
       }
 
-      // Reset and reload
       setDispatchDialogOpen(false);
       setDispatchNotes('');
       setSelectedOrders(new Set());
       setSingleDispatchOrder(null);
-      await loadOrders();
-    } catch (error: any) {
+      refreshAll();
+    } catch (error) {
       logger.error('Error dispatching orders:', error);
+      const errAny = error as { response?: { data?: { details?: string } }; message?: string };
       toast({
         title: 'Error',
-        description: error.response?.data?.details || 'No se pudieron despachar los pedidos',
+        description: errAny?.response?.data?.details || errAny?.message || 'No se pudieron despachar los pedidos',
         variant: 'destructive',
       });
     } finally {
-      setDispatching(false);
+      if (isMountedRef.current) setDispatching(false);
     }
   }
 
-  const allSelected = orders.length > 0 && selectedOrders.size === orders.length;
-  const someSelected = selectedOrders.size > 0 && selectedOrders.size < orders.length;
+  const isLoading = ordersQuery.isLoading || summaryQuery.isLoading;
+  const totalCardOrders = summary
+    .filter(s => s.is_mono)
+    .reduce((sum, s) => sum + s.order_count, 0);
+  const mixedCard = summary.find(s => !s.is_mono);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-6 pb-32 lg:pb-6">
       <FirstTimeWelcomeBanner
         moduleId="shipping"
-        title="¡Bienvenido a Despacho!"
-        description="Entrega pedidos preparados a tus couriers. Genera manifiestos y exporta listas para cada repartidor."
-        tips={['Selecciona pedidos listos', 'Asigna a repartidor', 'Genera manifiesto de entrega']}
+        title="Despacho por producto"
+        description="Arma olas por producto. Genera pick lists, etiquetas y manifiestos para cada batch sin mezclar pedidos multi producto."
+        tips={[
+          'Las cards muestran cuantos pedidos hay listos por SKU',
+          'Pick list aggregado para el picker',
+          'Mixtos siempre separados, nunca silenciosamente mezclados',
+        ]}
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Despacho</h1>
-          <p className="text-muted-foreground mt-1">
-            Entrega de pedidos preparados a los couriers
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Despacho</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Entrega de pedidos preparados a couriers
           </p>
         </div>
-        <Truck className="h-10 w-10 text-primary" />
+        <div className="flex items-center gap-2">
+          <Button
+            variant={view === 'cards' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setView('cards')}
+            className="gap-2"
+          >
+            <LayoutGrid className="h-4 w-4" />
+            Cards
+          </Button>
+          <Button
+            variant={view === 'flat' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setView('flat')}
+            className="gap-2"
+          >
+            <ListIcon className="h-4 w-4" />
+            Lista
+          </Button>
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 dark:bg-blue-950/30 rounded-lg">
-              <Package className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Pedidos Preparados</p>
-              <p className="text-2xl font-bold">{orders.length}</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 dark:bg-green-950/30 rounded-lg">
-              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Seleccionados</p>
-              <p className="text-2xl font-bold">{selectedOrders.size}</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-100 dark:bg-purple-950/30 rounded-lg">
-              <Truck className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total Items</p>
-              <p className="text-2xl font-bold">
-                {orders.reduce((sum, o) => sum + o.total_items, 0)}
-              </p>
-            </div>
-          </div>
-        </Card>
+      {/* Stats: always show absolute totals from the summary so the operator
+          knows the wave size at a glance regardless of active filters. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatPill
+          icon={<Package className="h-4 w-4" />}
+          label="Pedidos listos"
+          value={(totalCardOrders + (mixedCard?.order_count || 0)).toString()}
+          tone="blue"
+        />
+        <StatPill
+          icon={<CheckCircle className="h-4 w-4" />}
+          label="Seleccionados"
+          value={selectedOrders.size.toString()}
+          tone="green"
+        />
+        <StatPill
+          icon={<Truck className="h-4 w-4" />}
+          label="Unidades"
+          value={totalUnitsInSummary.toString()}
+          tone="purple"
+        />
+        <StatPill
+          icon={<AlertTriangle className="h-4 w-4" />}
+          label="Mixtos"
+          value={(mixedCard?.order_count || 0).toString()}
+          tone="red"
+        />
       </div>
 
-      {/* Actions */}
-      {
-        orders.length > 0 && (
-          <div className="flex items-center gap-4">
-            <Checkbox
-              checked={allSelected}
-              onCheckedChange={selectAll}
-              className="h-5 w-5"
+      {/* Active filters bar */}
+      {(productFilter.length > 0 || carrierFilter !== 'all' || showMixed) && (
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            Filtros activos:
+          </span>
+          {productFilter.length > 0 && (
+            <Badge
+              variant="secondary"
+              className="gap-1.5 pl-2.5 pr-1.5 py-1 cursor-pointer hover:bg-secondary/80"
+              onClick={() => setProductFilter([])}
+            >
+              Productos: {productFilter.length}
+              <X className="h-3 w-3" />
+            </Badge>
+          )}
+          {carrierFilter !== 'all' && (
+            <Badge
+              variant="secondary"
+              className="gap-1.5 pl-2.5 pr-1.5 py-1 cursor-pointer hover:bg-secondary/80"
+              onClick={() => setCarrierFilter('all')}
+            >
+              {carriers.find(c => c.id === carrierFilter)?.name || 'Carrier'}
+              <X className="h-3 w-3" />
+            </Badge>
+          )}
+          {showMixed && (
+            <Badge
+              variant="outline"
+              className="gap-1.5 pl-2.5 pr-1.5 py-1 cursor-pointer border-red-300 dark:border-red-800 text-red-700 dark:text-red-300"
+              onClick={() => setShowMixed(false)}
+            >
+              Solo mixtos
+              <X className="h-3 w-3" />
+            </Badge>
+          )}
+          <span className="text-xs text-muted-foreground">
+            {filteredOrders.length} pedido{filteredOrders.length === 1 ? '' : 's'}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setProductFilter([]);
+              setCarrierFilter('all');
+              setShowMixed(false);
+              setSelectedSummaryIds(new Set());
+            }}
+            className="h-7 text-xs"
+          >
+            Limpiar
+          </Button>
+        </div>
+      )}
+
+      {/* Cards view */}
+      {view === 'cards' && (
+        <>
+          {isLoading ? (
+            <OrderListSkeleton count={6} />
+          ) : summary.length === 0 ? (
+            <Card className="p-12">
+              <div className="text-center">
+                <Package className="h-16 w-16 text-muted-foreground mx-auto mb-4 opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">No hay pedidos preparados</h3>
+                <p className="text-sm text-muted-foreground">
+                  Los pedidos que completen el proceso de warehouse apareceran aqui
+                </p>
+              </div>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <AnimatePresence mode="popLayout">
+                {summary.map(card => (
+                  <DispatchProductCard
+                    key={card.product_id || '__mixed'}
+                    summary={card}
+                    selected={
+                      card.is_mono && card.product_id
+                        ? productFilter.includes(card.product_id)
+                        : false
+                    }
+                    onToggleSelect={() => toggleSummarySelect(card.product_id)}
+                    onView={goToMixed}
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Flat view */}
+      {view === 'flat' && (
+        <>
+          {/* Toolbar filters */}
+          <div className="flex flex-col md:flex-row gap-3">
+            <ProductMultiSelect
+              value={productFilter}
+              onChange={setProductFilter}
+              placeholder="Filtrar por producto"
+              triggerClassName="w-full md:w-64"
             />
-            <span className="text-sm text-muted-foreground">
-              {allSelected ? 'Deseleccionar todos' : 'Seleccionar todos'}
-            </span>
-            <div className="flex-1" />
-            <Button
-              onClick={handleExportExcel}
-              disabled={selectedOrders.size === 0 || loading || exporting}
-              variant="outline"
-              size="lg"
-              className="gap-2"
-            >
-              {exporting ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                  Exportando...
-                </>
-              ) : (
-                <>
-                  <FileSpreadsheet className="h-4 w-4" />
-                  Exportar Excel
-                </>
-              )}
-            </Button>
-            <Button
-              onClick={handleGenerateManifest}
-              disabled={selectedOrders.size === 0 || loading}
-              variant="outline"
-              size="lg"
-              className="gap-2"
-            >
-              <FileText className="h-4 w-4" />
-              Orden de Entrega
-            </Button>
-            <Button
-              onClick={handleOpenDispatchDialog}
-              disabled={selectedOrders.size === 0 || loading}
-              size="lg"
-              className="gap-2"
-            >
-              <Send className="h-4 w-4" />
-              Despachar ({selectedOrders.size})
-            </Button>
+            <Select value={carrierFilter} onValueChange={setCarrierFilter}>
+              <SelectTrigger className="w-full md:w-48">
+                <SelectValue placeholder="Transportadora" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las transportadoras</SelectItem>
+                {carriers.map(carrier => (
+                  <SelectItem key={carrier.id} value={carrier.id}>
+                    {carrier.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        )
-      }
 
-      {/* Orders List */}
-      {
-        loading ? (
-          <OrderListSkeleton count={6} />
-        ) : orders.length === 0 ? (
-          <Card className="p-12">
-            <div className="text-center">
-              <Package className="h-16 w-16 text-muted-foreground mx-auto mb-4 opacity-50" />
-              <h3 className="text-lg font-semibold mb-2">No hay pedidos preparados</h3>
-              <p className="text-sm text-muted-foreground">
-                Los pedidos que completen el proceso de warehouse aparecerán aquí
-              </p>
+          {/* Selection toolbar */}
+          {filteredOrders.length > 0 && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={selectAll}
+                className="h-5 w-5"
+              />
+              <span className="text-sm text-muted-foreground">
+                {allSelected ? 'Deseleccionar todos' : 'Seleccionar todos'}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {filteredOrders.length} resultado{filteredOrders.length === 1 ? '' : 's'}
+              </span>
             </div>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {orders.map(order => {
-              const isSelected = selectedOrders.has(order.id);
+          )}
 
-              return (
-                <Card
+          {/* Orders */}
+          {ordersQuery.isLoading ? (
+            <OrderListSkeleton count={6} />
+          ) : filteredOrders.length === 0 ? (
+            <Card className="p-12">
+              <div className="text-center">
+                <FilterIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">Sin resultados</h3>
+                <p className="text-sm text-muted-foreground">
+                  Ajusta los filtros para ver pedidos
+                </p>
+              </div>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {filteredOrders.map(order => (
+                <OrderCardRow
                   key={order.id}
-                  className={`p-4 transition-all cursor-pointer ${isSelected
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                    : 'hover:border-primary/50'
-                    }`}
-                  onClick={() => toggleOrderSelection(order.id)}
+                  order={order}
+                  selected={selectedOrders.has(order.id)}
+                  onToggle={() => toggleOrderSelection(order.id)}
+                  onSingleDispatch={() => handleOpenSingleDispatch(order)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Sticky toolbar (when there is a selection) */}
+      <AnimatePresence>
+        {hasSelection && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ type: 'spring', damping: 24, stiffness: 280 }}
+            className="fixed bottom-20 lg:bottom-4 left-4 right-4 z-30"
+          >
+            <Card className="p-3 shadow-2xl border-primary/30 bg-card/95 backdrop-blur-md">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 mr-auto">
+                  <Badge variant="secondary" className="font-mono">
+                    {selectedOrders.size} seleccionado{selectedOrders.size === 1 ? '' : 's'}
+                  </Badge>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handlePickList}
+                  disabled={printingPickList}
+                  className="gap-2"
                 >
-                  <div className="flex items-start gap-3">
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={() => toggleOrderSelection(order.id)}
-                      className="mt-1"
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                  {printingPickList ? (
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-current" />
+                  ) : (
+                    <ClipboardList className="h-4 w-4" />
+                  )}
+                  Pick List
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleExportExcel}
+                  disabled={exporting}
+                  className="gap-2"
+                >
+                  {exporting ? (
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-current" />
+                  ) : (
+                    <FileSpreadsheet className="h-4 w-4" />
+                  )}
+                  Excel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGenerateManifest}
+                  className="gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  Manifiesto
+                </Button>
+                <Button size="sm" onClick={handleOpenDispatchDialog} className="gap-2">
+                  <Send className="h-4 w-4" />
+                  Despachar ({selectedOrders.size})
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedOrders(new Set())}
+                  className="gap-2"
+                  aria-label="Limpiar seleccion"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-                    <div className="flex-1 min-w-0">
-                      {/* Header */}
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <h3 className="font-bold text-lg">{order.order_number}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {order.customer_name}
-                          </p>
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/20">
-                            {order.total_items} items
-                          </Badge>
-                          {/* Show Store Name in Global View */}
-                          {(order as any).store_name && (
-                            <Badge variant="secondary" className="font-medium text-[11px] h-6 px-3 bg-secondary/50 text-secondary-foreground border border-border shadow-sm">
-                              {(order as any).store_name}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Details */}
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-start gap-2">
-                          <Phone className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                          <span className="text-muted-foreground">{order.customer_phone}</span>
-                        </div>
-
-                        <div className="flex items-start gap-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                          <span className="text-muted-foreground line-clamp-2">
-                            {order.customer_address}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <Truck className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                          <span className="font-medium">{order.carrier_name}</span>
-                        </div>
-
-                        {order.cod_amount > 0 && (
-                          <div className="flex items-center gap-2">
-                            <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-                            <span className="font-semibold text-green-600 dark:text-green-400">
-                              {formatCurrency(order.cod_amount)} COD
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Footer */}
-                      <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">
-                          Creado: {new Date(order.created_at).toLocaleDateString('es-ES', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-2 h-7 text-xs"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenSingleDispatch(order);
-                          }}
-                        >
-                          <Send className="h-3 w-3" />
-                          Despachar
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        )
-      }
-
-      {/* Dispatch Dialog */}
+      {/* Dispatch dialog */}
       <Dialog open={dispatchDialogOpen} onOpenChange={setDispatchDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -490,8 +758,7 @@ export default function Shipping() {
             <DialogDescription>
               {singleDispatchOrder
                 ? `Despachar pedido ${singleDispatchOrder.order_number} a ${singleDispatchOrder.carrier_name}`
-                : `Se marcarán ${selectedOrders.size} pedido(s) como "En Tránsito"`
-              }
+                : `Se marcaran ${selectedOrders.size} pedido(s) como en transito`}
             </DialogDescription>
           </DialogHeader>
 
@@ -505,7 +772,7 @@ export default function Shipping() {
                       Orden de Entrega
                     </p>
                     <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
-                      Genera una orden de entrega legal antes de despachar. Este documento debe ser firmado por el encargado y el repartidor.
+                      Genera una orden de entrega legal antes de despachar. Debe ser firmada por el encargado y el repartidor.
                     </p>
                     <Button
                       variant="outline"
@@ -552,17 +819,15 @@ export default function Shipping() {
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">
-                Notas (opcional)
-              </label>
+              <label className="text-sm font-medium mb-2 block">Notas (opcional)</label>
               <Textarea
                 placeholder="Ej: Entregado a Juan, conductor placa ABC-123"
                 value={dispatchNotes}
-                onChange={(e) => setDispatchNotes(e.target.value)}
+                onChange={e => setDispatchNotes(e.target.value)}
                 rows={3}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Información sobre quién recibió los pedidos, vehículo, etc.
+                Informacion sobre quien recibio los pedidos, vehiculo, etc.
               </p>
             </div>
           </div>
@@ -575,14 +840,10 @@ export default function Shipping() {
             >
               Cancelar
             </Button>
-            <Button
-              onClick={handleDispatch}
-              disabled={dispatching}
-              className="gap-2"
-            >
+            <Button onClick={handleDispatch} disabled={dispatching} className="gap-2">
               {dispatching ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
                   Despachando...
                 </>
               ) : (
@@ -595,6 +856,129 @@ export default function Shipping() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div >
+    </div>
+  );
+}
+
+// ============================================================================
+// Sub-components
+// ============================================================================
+
+interface StatPillProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  tone: 'blue' | 'green' | 'purple' | 'red';
+}
+
+function StatPill({ icon, label, value, tone }: StatPillProps) {
+  const tones: Record<StatPillProps['tone'], string> = {
+    blue: 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300',
+    green: 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300',
+    purple: 'bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300',
+    red: 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300',
+  };
+  return (
+    <Card className="p-3">
+      <div className="flex items-center gap-3">
+        <div className={cn('p-2 rounded-lg', tones[tone])}>{icon}</div>
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground truncate">
+            {label}
+          </p>
+          <p className="text-xl font-bold tabular-nums">{value}</p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+interface OrderCardRowProps {
+  order: ReadyToShipOrder;
+  selected: boolean;
+  onToggle: () => void;
+  onSingleDispatch: () => void;
+}
+
+function OrderCardRow({ order, selected, onToggle, onSingleDispatch }: OrderCardRowProps) {
+  return (
+    <Card
+      className={cn(
+        'p-4 transition-all cursor-pointer',
+        selected
+          ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+          : 'hover:border-primary/50'
+      )}
+      onClick={onToggle}
+    >
+      <div className="flex items-start gap-3">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={onToggle}
+          className="mt-1"
+          onClick={e => e.stopPropagation()}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-3">
+            <div className="min-w-0">
+              <h3 className="font-bold text-base truncate">{order.order_number}</h3>
+              <p className="text-sm text-muted-foreground truncate">{order.customer_name}</p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/20">
+                {order.total_items} items
+              </Badge>
+            </div>
+          </div>
+
+          <div className="space-y-2 text-sm">
+            <div className="flex items-start gap-2">
+              <Phone className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <span className="text-muted-foreground truncate">{order.customer_phone}</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <span className="text-muted-foreground line-clamp-2">{order.customer_address}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Truck className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <span className="font-medium truncate">{order.carrier_name}</span>
+            </div>
+            {order.cod_amount > 0 && (
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                <span className="font-semibold text-green-700 dark:text-green-300">
+                  {formatCurrency(order.cod_amount)} COD
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 pt-3 border-t flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {new Date(order.created_at).toLocaleDateString('es-ES', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2 h-7 text-xs"
+              onClick={e => {
+                e.stopPropagation();
+                onSingleDispatch();
+              }}
+            >
+              <Send className="h-3 w-3" />
+              Despachar
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }

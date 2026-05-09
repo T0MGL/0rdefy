@@ -47,11 +47,27 @@ export interface ShipmentResult {
 }
 
 /**
- * Gets all orders ready to ship for a store
+ * Gets all orders ready to ship for a store.
+ *
+ * Filters (Wave Dispatch, Migration 178):
+ *   - productIds: restrict to mono-product orders for the given products
+ *     (uses get_mono_product_order_ids RPC). Multi-product orders are
+ *     excluded server-side. This is the safe path: a batch is never
+ *     silently mixed with multi-product orders.
+ *   - mixedOnly: restrict to orders that have line items belonging to
+ *     two or more distinct products. Used by the "Mixtos" deep link to
+ *     surface every order that needs special operator attention.
+ *
+ * The two filters are mutually exclusive at the call site; if both are
+ * supplied, productIds wins.
  */
-export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShipOrder[]> {
+export async function getReadyToShipOrders(
+  storeId: string,
+  productIds?: string[],
+  mixedOnly: boolean = false
+): Promise<ReadyToShipOrder[]> {
   try {
-    const { data: orders, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('orders')
       .select(`
         id,
@@ -74,6 +90,62 @@ export async function getReadyToShipOrders(storeId: string): Promise<ReadyToShip
       .eq('store_id', storeId)
       .eq('sleeves_status', 'ready_to_ship')
       .order('created_at', { ascending: true });
+
+    if (productIds && productIds.length > 0) {
+      const { data: monoRows, error: monoError } = await supabaseAdmin.rpc(
+        'get_mono_product_order_ids',
+        { p_store_id: storeId, p_product_ids: productIds }
+      );
+
+      if (monoError) {
+        logger.error('BACKEND', 'get_mono_product_order_ids RPC failed', monoError);
+        throw monoError;
+      }
+
+      const monoOrderIds = (monoRows || []).map((row: { order_id: string }) => row.order_id);
+      if (monoOrderIds.length === 0) {
+        return [];
+      }
+
+      query = query.in('id', monoOrderIds);
+    } else if (mixedOnly) {
+      // Find orders with 2+ distinct product_ids in their line items.
+      // The set is small (only ready_to_ship orders), so a single query
+      // resolves it with no RPC required.
+      const { data: liRows, error: liError } = await supabaseAdmin
+        .from('order_line_items')
+        .select('order_id, product_id, orders!inner(store_id, sleeves_status, deleted_at)')
+        .eq('orders.store_id', storeId)
+        .eq('orders.sleeves_status', 'ready_to_ship')
+        .is('orders.deleted_at', null);
+
+      if (liError) {
+        logger.error('BACKEND', 'mixed-only line-items query failed', liError);
+        throw liError;
+      }
+
+      const productsByOrder = new Map<string, Set<string>>();
+      for (const row of liRows || []) {
+        const orderId = (row as { order_id: string }).order_id;
+        const productId = (row as { product_id: string | null }).product_id;
+        if (!orderId || !productId) continue;
+        const set = productsByOrder.get(orderId) || new Set<string>();
+        set.add(productId);
+        productsByOrder.set(orderId, set);
+      }
+
+      const mixedOrderIds = Array.from(productsByOrder.entries())
+        .filter(([, set]) => set.size > 1)
+        .map(([orderId]) => orderId);
+
+      if (mixedOrderIds.length === 0) {
+        return [];
+      }
+
+      query = query.in('id', mixedOrderIds);
+    }
+
+    const { data: orders, error } = await query;
 
     if (error) throw error;
 
@@ -340,4 +412,114 @@ export async function exportOrdersExcel(
   });
 
   return await generateDispatchExcel(sessionInfo, dispatchOrders);
+}
+
+// ============================================================================
+// Wave Dispatch (Migration 178)
+// ============================================================================
+
+export interface DispatchProductSummary {
+  product_id: string | null;
+  product_name: string;
+  product_image: string | null;
+  order_count: number;
+  unit_count: number;
+  cod_total: number;
+  is_mono: boolean;
+}
+
+export interface PickListRow {
+  product_id: string | null;
+  product_name: string;
+  variant_id: string | null;
+  variant_title: string | null;
+  sku: string | null;
+  total_quantity: number;
+}
+
+/**
+ * Returns one row per product (plus a single "Mixtos" row for multi-product
+ * orders) for the ready-to-ship dispatch view. Source of truth for the cards
+ * UI in /shipping. Powered by get_dispatch_product_summary RPC.
+ */
+export async function getDispatchSummary(
+  storeId: string
+): Promise<DispatchProductSummary[]> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc('get_dispatch_product_summary', {
+      p_store_id: storeId,
+    });
+
+    if (error) {
+      logger.error('BACKEND', 'get_dispatch_product_summary RPC failed', error);
+      throw error;
+    }
+
+    return (data || []).map((row: {
+      product_id: string | null;
+      product_name: string;
+      product_image: string | null;
+      order_count: number | string;
+      unit_count: number | string;
+      cod_total: number | string;
+      is_mono: boolean;
+    }) => ({
+      product_id: row.product_id,
+      product_name: row.product_name,
+      product_image: row.product_image,
+      order_count: Number(row.order_count) || 0,
+      unit_count: Number(row.unit_count) || 0,
+      cod_total: Number(row.cod_total) || 0,
+      is_mono: row.is_mono,
+    }));
+  } catch (error) {
+    logger.error('BACKEND', 'Error getting dispatch summary:', error);
+    throw error;
+  }
+}
+
+/**
+ * Returns variant-level aggregated quantities for a given set of orders.
+ * Used by the printable pick list PDF. Quantities are summed across all
+ * line items that share the same variant_id (or product_id when no variant
+ * is set), giving the picker a single number per physical SKU to pull.
+ */
+export async function getPickList(
+  storeId: string,
+  orderIds: string[]
+): Promise<PickListRow[]> {
+  try {
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabaseAdmin.rpc('get_pick_list_for_orders', {
+      p_store_id: storeId,
+      p_order_ids: orderIds,
+    });
+
+    if (error) {
+      logger.error('BACKEND', 'get_pick_list_for_orders RPC failed', error);
+      throw error;
+    }
+
+    return (data || []).map((row: {
+      product_id: string | null;
+      product_name: string;
+      variant_id: string | null;
+      variant_title: string | null;
+      sku: string | null;
+      total_quantity: number | string;
+    }) => ({
+      product_id: row.product_id,
+      product_name: row.product_name,
+      variant_id: row.variant_id,
+      variant_title: row.variant_title,
+      sku: row.sku,
+      total_quantity: Number(row.total_quantity) || 0,
+    }));
+  } catch (error) {
+    logger.error('BACKEND', 'Error getting pick list:', error);
+    throw error;
+  }
 }

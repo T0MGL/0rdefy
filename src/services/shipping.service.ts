@@ -52,10 +52,77 @@ export interface BatchDispatchResponse {
 }
 
 /**
- * Gets all orders ready to ship (status: ready_to_ship)
+ * Gets all orders ready to ship (status: ready_to_ship).
+ *
+ * Filters (Wave Dispatch, Migration 178):
+ *   - productIds: restrict to mono-product orders for those products.
+ *     Multi-product orders are excluded server-side.
+ *   - mixedOnly: restrict to multi-product orders only. Used by the
+ *     "Mixtos" deep link. productIds takes precedence if both are set.
  */
-export async function getReadyToShipOrders(): Promise<ReadyToShipOrder[]> {
-  const response = await apiClient.get<ReadyToShipOrder[]>(`${BASE_URL}/ready-to-ship`);
+export async function getReadyToShipOrders(
+  productIds?: string[],
+  mixedOnly?: boolean
+): Promise<ReadyToShipOrder[]> {
+  const params = new URLSearchParams();
+  if (productIds && productIds.length > 0) {
+    params.append('product_ids', productIds.join(','));
+  } else if (mixedOnly) {
+    params.append('mixed', 'true');
+  }
+  const url = params.toString()
+    ? `${BASE_URL}/ready-to-ship?${params.toString()}`
+    : `${BASE_URL}/ready-to-ship`;
+  const response = await apiClient.get<ReadyToShipOrder[]>(url);
+  return response.data;
+}
+
+// ============================================================================
+// Wave Dispatch (Migration 178)
+// ============================================================================
+
+export interface DispatchProductSummary {
+  product_id: string | null;
+  product_name: string;
+  product_image: string | null;
+  order_count: number;
+  unit_count: number;
+  cod_total: number;
+  is_mono: boolean;
+}
+
+export interface PickListRow {
+  product_id: string | null;
+  product_name: string;
+  variant_id: string | null;
+  variant_title: string | null;
+  sku: string | null;
+  total_quantity: number;
+}
+
+/**
+ * Returns one aggregated row per product (plus a single "Mixtos" row for
+ * multi-product orders) for the ready-to-ship dispatch cards view.
+ */
+export async function getDispatchSummary(): Promise<DispatchProductSummary[]> {
+  const response = await apiClient.get<DispatchProductSummary[]>(
+    `${BASE_URL}/dispatch-summary`
+  );
+  return response.data;
+}
+
+/**
+ * Returns variant-level aggregated quantities for a given set of orders.
+ * Used to build the printable pick list PDF.
+ */
+export async function getPickList(orderIds: string[]): Promise<PickListRow[]> {
+  if (!orderIds || orderIds.length === 0) {
+    return [];
+  }
+  const response = await apiClient.post<PickListRow[]>(
+    `${BASE_URL}/pick-list`,
+    { orderIds }
+  );
   return response.data;
 }
 
