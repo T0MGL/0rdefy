@@ -1,34 +1,34 @@
 import { logger } from '../utils/logger';
 import { Resend } from 'resend';
 import {
-  welcomeTemplate,
-  emailVerificationTemplate,
-  passwordResetTemplate,
-  collaboratorInviteTemplate,
-  courierOperatorInviteTemplate,
-  trialStartTemplate,
-  trialEndingTemplate,
-  planUpgradeTemplate,
-  planCancellationTemplate,
-  orderConfirmationTemplate,
-  invoiceEmailTemplate,
-  genericTemplate,
-} from './email-templates';
-import type {
-  WelcomeTemplateData,
-  EmailVerificationTemplateData,
-  PasswordResetTemplateData,
-  CollaboratorInviteTemplateData,
-  CourierOperatorInviteTemplateData,
-  TrialStartTemplateData,
-  TrialEndingTemplateData,
-  PlanUpgradeTemplateData,
-  PlanCancellationTemplateData,
-  OrderConfirmationTemplateData,
-  InvoiceEmailTemplateData,
-  GenericEmailTemplateData,
-} from './email-templates';
-import { renderMilestoneEmail, type MilestoneEmailData } from './email-jsx-templates';
+  renderWelcomeEmail,
+  renderEmailVerificationEmail,
+  renderPasswordResetEmail,
+  renderCollaboratorInviteEmail,
+  renderCourierOperatorInviteEmail,
+  renderTrialStartEmail,
+  renderTrialEndingEmail,
+  renderPlanUpgradeEmail,
+  renderPlanCancellationEmail,
+  renderOrderConfirmationEmail,
+  renderInvoiceEmail,
+  renderGenericEmail,
+  renderMilestoneEmail,
+  type WelcomeEmailData,
+  type EmailVerificationEmailData,
+  type PasswordResetEmailData,
+  type CollaboratorInviteEmailData,
+  type CourierOperatorInviteEmailData,
+  type TrialStartEmailData,
+  type TrialEndingEmailData,
+  type PlanUpgradeEmailData,
+  type PlanCancellationEmailData,
+  type OrderConfirmationEmailData,
+  type InvoiceEmailData,
+  type GenericEmailData,
+  type MilestoneEmailData,
+  type RenderedEmail,
+} from './email-jsx-templates';
 
 let resendClient: Resend | null = null;
 
@@ -62,7 +62,7 @@ export interface EmailAttachment {
 
 async function send(
   to: string,
-  template: { html: string; text: string; subject: string },
+  rendered: RenderedEmail,
   tag: string,
   fromOverride?: string,
   attachments?: EmailAttachment[],
@@ -77,9 +77,9 @@ async function send(
     const payload: Record<string, unknown> = {
       from: fromOverride || FROM_EMAIL,
       to: [to],
-      subject: template.subject,
-      html: template.html,
-      text: template.text,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
     };
 
     if (attachments && attachments.length > 0) {
@@ -122,76 +122,116 @@ async function send(
 // Public email functions
 // ================================================================
 
-export async function sendWelcomeEmail(to: string, data: WelcomeTemplateData): Promise<SendResult> {
-  return send(to, welcomeTemplate(data), 'welcome');
+export async function sendWelcomeEmail(
+  to: string,
+  data: WelcomeEmailData,
+): Promise<SendResult> {
+  return send(to, await renderWelcomeEmail(data), 'welcome');
 }
 
-export async function sendEmailVerification(to: string, data: EmailVerificationTemplateData): Promise<SendResult> {
-  return send(to, emailVerificationTemplate(data), 'email-verification');
+export async function sendEmailVerification(
+  to: string,
+  data: EmailVerificationEmailData,
+): Promise<SendResult> {
+  return send(to, await renderEmailVerificationEmail(data), 'email-verification');
 }
 
-export async function sendPasswordReset(to: string, data: PasswordResetTemplateData): Promise<SendResult> {
-  return send(to, passwordResetTemplate(data), 'password-reset');
+export async function sendPasswordReset(
+  to: string,
+  data: PasswordResetEmailData,
+): Promise<SendResult> {
+  return send(to, await renderPasswordResetEmail(data), 'password-reset');
 }
 
-export async function sendCollaboratorInvite(to: string, data: CollaboratorInviteTemplateData): Promise<SendResult> {
-  return send(to, collaboratorInviteTemplate(data), 'collaborator-invite');
+export async function sendCollaboratorInvite(
+  to: string,
+  data: CollaboratorInviteEmailData,
+): Promise<SendResult> {
+  return send(to, await renderCollaboratorInviteEmail(data), 'collaborator-invite');
 }
 
 /**
- * Send a courier-operator invite. Distinct from sendCollaboratorInvite
- * so the copy (and Resend tag) are courier-specific. Same SendResult
- * contract: callers treat success=false as "log link, surface to admin
- * for manual share". Never block the API call on email delivery.
+ * Send a courier-operator invite. Distinct from sendCollaboratorInvite so the
+ * copy (and Resend tag) are courier-specific. Same SendResult contract:
+ * callers treat success=false as "log link, surface to admin for manual
+ * share". Never block the API call on email delivery.
  */
 export async function sendCourierOperatorInvite(
   to: string,
-  data: CourierOperatorInviteTemplateData,
+  data: CourierOperatorInviteEmailData,
 ): Promise<SendResult> {
-  return send(to, courierOperatorInviteTemplate(data), 'courier-operator-invite');
+  return send(
+    to,
+    await renderCourierOperatorInviteEmail(data),
+    'courier-operator-invite',
+  );
 }
 
-export async function sendTrialStart(to: string, data: TrialStartTemplateData): Promise<SendResult> {
-  return send(to, trialStartTemplate(data), 'trial-start');
+export async function sendTrialStart(
+  to: string,
+  data: TrialStartEmailData,
+): Promise<SendResult> {
+  return send(to, await renderTrialStartEmail(data), 'trial-start');
 }
 
-export async function sendTrialEnding(to: string, data: TrialEndingTemplateData): Promise<SendResult> {
-  return send(to, trialEndingTemplate(data), 'trial-ending');
+export async function sendTrialEnding(
+  to: string,
+  data: TrialEndingEmailData,
+): Promise<SendResult> {
+  return send(to, await renderTrialEndingEmail(data), 'trial-ending');
 }
 
-export async function sendPlanUpgrade(to: string, data: PlanUpgradeTemplateData): Promise<SendResult> {
-  return send(to, planUpgradeTemplate(data), 'plan-upgrade');
+export async function sendPlanUpgrade(
+  to: string,
+  data: PlanUpgradeEmailData,
+): Promise<SendResult> {
+  return send(to, await renderPlanUpgradeEmail(data), 'plan-upgrade');
 }
 
-export async function sendPlanCancellation(to: string, data: PlanCancellationTemplateData): Promise<SendResult> {
-  return send(to, planCancellationTemplate(data), 'plan-cancellation');
+export async function sendPlanCancellation(
+  to: string,
+  data: PlanCancellationEmailData,
+): Promise<SendResult> {
+  return send(to, await renderPlanCancellationEmail(data), 'plan-cancellation');
 }
 
-export async function sendOrderConfirmation(to: string, data: OrderConfirmationTemplateData): Promise<SendResult> {
-  return send(to, orderConfirmationTemplate(data), 'order-confirmation');
+export async function sendOrderConfirmation(
+  to: string,
+  data: OrderConfirmationEmailData,
+): Promise<SendResult> {
+  return send(to, await renderOrderConfirmationEmail(data), 'order-confirmation');
 }
 
 /**
- * Send an electronic invoice email to a store customer.
- * The "from" address uses the store name as display name so the customer
- * sees "NOCTE <noreply@ops.ordefy.io>" instead of the generic Ordefy sender.
+ * Send an electronic invoice email to a store customer. The "from" address
+ * uses the store name as display name so the customer sees
+ * "NOCTE <noreply@ops.ordefy.io>" instead of the generic Ordefy sender.
  *
  * Optionally attaches files (KUDE PDF in typical usage).
  */
 export async function sendInvoiceEmail(
   to: string,
-  data: InvoiceEmailTemplateData,
+  data: InvoiceEmailData,
   storeName: string,
   attachments?: EmailAttachment[],
 ): Promise<SendResult> {
   // Sanitize store name: strip angle brackets to prevent header injection
   const safeName = storeName.replace(/[<>]/g, '').trim();
   const fromAddress = `${safeName} <noreply@ops.ordefy.io>`;
-  return send(to, invoiceEmailTemplate(data), 'invoice-email', fromAddress, attachments);
+  return send(
+    to,
+    await renderInvoiceEmail(data),
+    'invoice-email',
+    fromAddress,
+    attachments,
+  );
 }
 
-export async function sendGenericEmail(to: string, data: GenericEmailTemplateData): Promise<SendResult> {
-  return send(to, genericTemplate(data), 'generic');
+export async function sendGenericEmail(
+  to: string,
+  data: GenericEmailData,
+): Promise<SendResult> {
+  return send(to, await renderGenericEmail(data), 'generic');
 }
 
 /**
@@ -213,12 +253,18 @@ export async function sendGenericEmail(to: string, data: GenericEmailTemplateDat
 export async function sendMilestoneEmail(
   to: string,
   data: MilestoneEmailData,
-  opts?: { chartPoints?: Array<{ label: string; value: number }>; storeId?: string },
+  opts?: {
+    chartPoints?: Array<{ label: string; value: number }>;
+    storeId?: string;
+  },
 ): Promise<SendResult> {
-  const { renderEmailHero, renderOrdersChart } = await import('./share-card-renderer');
+  const { renderEmailHero, renderOrdersChart } = await import(
+    './share-card-renderer'
+  );
 
   const heroSubtitle = data.milestoneValue === 1 ? 'PRIMERA' : 'ÓRDENES';
-  const points = opts?.chartPoints ?? buildSyntheticChartPoints(data.milestoneValue);
+  const points =
+    opts?.chartPoints ?? buildSyntheticChartPoints(data.milestoneValue);
 
   const [heroPng, chartPng] = await Promise.all([
     renderEmailHero({

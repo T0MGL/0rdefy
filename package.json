@@ -21,6 +21,8 @@
     "api:dev": "tsx watch api/index.ts",
     "api:build": "tsc -p api/tsconfig.json --noCheck",
     "api:start": "npx tsx api/index.ts",
+    "email:logo": "tsx api/scripts/generate-email-logo.tsx",
+    "email:preview": "tsx api/scripts/preview-transactional-emails.ts",
     "health:check": "tsx scripts/health-check.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",

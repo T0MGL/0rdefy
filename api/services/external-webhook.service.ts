@@ -1633,6 +1633,8 @@ export class ExternalWebhookService {
           confirmed_by: `api:${config.api_key_prefix}`,
           confirmation_method: 'external_api',
           customer_address: options.address || undefined,
+          latitude: options.latitude !== undefined ? Number(options.latitude) : undefined,
+          longitude: options.longitude !== undefined ? Number(options.longitude) : undefined,
           google_maps_link: options.google_maps_link || undefined,
           updated_at: now
         };

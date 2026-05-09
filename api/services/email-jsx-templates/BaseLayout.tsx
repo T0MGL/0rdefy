@@ -7,12 +7,37 @@ import {
   Link,
   Preview,
 } from '@react-email/components';
-import { APP_URL, BRAND, CURRENT_YEAR, LOGO_URL } from './brand';
+import {
+  APP_URL,
+  BRAND,
+  CURRENT_YEAR,
+  FONT_STACK,
+  LOGO_URL,
+  MARKETING_URL,
+  SUPPORT_EMAIL,
+} from './brand';
 
 interface BaseLayoutProps {
   preheader: string;
   children: React.ReactNode;
+  /**
+   * When true (default), the standard footer with App / Sitio / Soporte links
+   * renders below the card. Disable only for legal-style emails where a
+   * minimal footer is required.
+   */
+  footer?: boolean;
 }
+
+const footerLinkStyle: React.CSSProperties = {
+  color: BRAND.textMuted,
+  textDecoration: 'none',
+  fontSize: '12px',
+};
+
+const footerSeparatorStyle: React.CSSProperties = {
+  color: BRAND.divider,
+  fontSize: '12px',
+};
 
 /**
  * Bulletproof dark-mode email layout. Uses raw <table> elements with both the
@@ -21,7 +46,11 @@ interface BaseLayoutProps {
  * containers and force the client default (white). The bgcolor attribute
  * survives across every major client.
  */
-export function BaseLayout({ preheader, children }: BaseLayoutProps) {
+export function BaseLayout({
+  preheader,
+  children,
+  footer = true,
+}: BaseLayoutProps) {
   return (
     <Html lang="es">
       <Head>
@@ -36,8 +65,7 @@ export function BaseLayout({ preheader, children }: BaseLayoutProps) {
           margin: 0,
           padding: 0,
           backgroundColor: BRAND.bg,
-          fontFamily:
-            "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+          fontFamily: FONT_STACK,
           WebkitFontSmoothing: 'antialiased',
         }}
       >
@@ -97,10 +125,14 @@ export function BaseLayout({ preheader, children }: BaseLayoutProps) {
                             src={LOGO_URL}
                             alt="Ordefy"
                             width={140}
+                            height={40}
                             style={{
                               display: 'inline-block',
                               maxWidth: '140px',
                               height: 'auto',
+                              border: 0,
+                              outline: 'none',
+                              textDecoration: 'none',
                             }}
                           />
                         </Link>
@@ -123,21 +155,87 @@ export function BaseLayout({ preheader, children }: BaseLayoutProps) {
                     </tr>
 
                     {/* Footer */}
-                    <tr>
-                      <td
-                        bgcolor={BRAND.bg}
-                        align="center"
-                        style={{
-                          backgroundColor: BRAND.bg,
-                          padding: '28px 0 8px',
-                          fontSize: '11px',
-                          color: BRAND.textMuted,
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        &copy; {CURRENT_YEAR} Ordefy
-                      </td>
-                    </tr>
+                    {footer ? (
+                      <>
+                        <tr>
+                          <td
+                            bgcolor={BRAND.bg}
+                            align="center"
+                            style={{
+                              backgroundColor: BRAND.bg,
+                              padding: '28px 0 12px',
+                            }}
+                          >
+                            <table
+                              role="presentation"
+                              cellPadding={0}
+                              cellSpacing={0}
+                              border={0}
+                            >
+                              <tbody>
+                                <tr>
+                                  <td style={{ padding: '0 12px' }}>
+                                    <Link href={APP_URL} style={footerLinkStyle}>
+                                      App
+                                    </Link>
+                                  </td>
+                                  <td style={footerSeparatorStyle}>|</td>
+                                  <td style={{ padding: '0 12px' }}>
+                                    <Link
+                                      href={MARKETING_URL}
+                                      style={footerLinkStyle}
+                                    >
+                                      Sitio web
+                                    </Link>
+                                  </td>
+                                  <td style={footerSeparatorStyle}>|</td>
+                                  <td style={{ padding: '0 12px' }}>
+                                    <Link
+                                      href={`mailto:${SUPPORT_EMAIL}`}
+                                      style={footerLinkStyle}
+                                    >
+                                      Soporte
+                                    </Link>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td
+                            bgcolor={BRAND.bg}
+                            align="center"
+                            style={{
+                              backgroundColor: BRAND.bg,
+                              padding: '0 0 8px',
+                              fontSize: '11px',
+                              color: BRAND.textMuted,
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            &copy; {CURRENT_YEAR} Ordefy. Todos los derechos
+                            reservados.
+                          </td>
+                        </tr>
+                      </>
+                    ) : (
+                      <tr>
+                        <td
+                          bgcolor={BRAND.bg}
+                          align="center"
+                          style={{
+                            backgroundColor: BRAND.bg,
+                            padding: '28px 0 8px',
+                            fontSize: '11px',
+                            color: BRAND.textMuted,
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          &copy; {CURRENT_YEAR} Ordefy
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </td>
