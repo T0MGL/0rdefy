@@ -645,6 +645,7 @@ export const ordersService = {
       units_per_pack?: number;
       shopify_product_id?: string;
       shopify_variant_id?: string;
+      image_url?: string;
       products?: { id: string; name: string; image_url?: string };
     }
 
@@ -665,6 +666,7 @@ export const ordersService = {
             units_per_pack: item.units_per_pack,
             shopify_product_id: item.shopify_product_id,
             shopify_variant_id: item.shopify_variant_id,
+            image_url: item.image_url,
             products: item.products
               ? {
                   id: item.products.id,
@@ -686,7 +688,7 @@ export const ordersService = {
       status: data.sleeves_status,
       payment_status: data.payment_status,
       carrier: data.carriers?.name || data.shipping_address?.company || 'Sin transportadora',
-      carrier_id: data.carrier_id,
+      carrier_id: data.courier_id,
       date: data.created_at,
       phone: data.customer_phone || '',
       confirmedByWhatsApp: data.sleeves_status === 'confirmed',

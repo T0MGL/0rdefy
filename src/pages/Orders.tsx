@@ -492,10 +492,10 @@ export default function Orders() {
   }, []); // Empty deps - uses refs for all values to stay stable
 
   // Initial load + refetch on filter changes. Realtime handles live updates.
-  // 5-minute safety net poll in case Realtime disconnects (network change, laptop sleep).
+  // 30-minute safety net poll in case Realtime disconnects (network change, laptop sleep).
   const { refetch } = useSmartPolling({
     queryFn,
-    interval: 300000,
+    interval: 1800000,
     enabled: true,
     fetchOnMount: true,
   });
@@ -674,6 +674,7 @@ export default function Orders() {
     event: 'UPDATE',
     callback: handleRealtimeEvent,
     filterByStore: true,
+    storeId: currentStore?.id ?? null,
   });
 
   useRealtimeSubscription({
@@ -681,6 +682,7 @@ export default function Orders() {
     event: 'INSERT',
     callback: handleRealtimeEvent,
     filterByStore: true,
+    storeId: currentStore?.id ?? null,
   });
 
   // Load more orders (pagination)

@@ -55,6 +55,14 @@ export interface UseRealtimeSubscriptionOptions {
   filterByStore?: boolean;
 
   /**
+   * Explicit store_id to filter by. Overrides localStorage lookup so the
+   * subscription rebinds when the active store changes (multi-store users
+   * switching tenants without a page reload). Falls back to localStorage if
+   * omitted, for callers that don't have AuthContext access.
+   */
+  storeId?: string | null;
+
+  /**
    * Whether subscription is enabled
    * @default true
    */
@@ -67,6 +75,7 @@ export function useRealtimeSubscription({
   callback,
   filter,
   filterByStore = true,
+  storeId,
   enabled = true,
 }: UseRealtimeSubscriptionOptions) {
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -81,10 +90,10 @@ export function useRealtimeSubscription({
       return;
     }
 
-    const storeId = localStorage.getItem('current_store_id');
+    const resolvedStoreId = storeId ?? localStorage.getItem('current_store_id');
 
-    if (filterByStore && !storeId) {
-      logger.warn(`[Realtime] No store_id found in localStorage. Subscription to ${table} skipped.`);
+    if (filterByStore && !resolvedStoreId) {
+      logger.warn(`[Realtime] No store_id resolved. Subscription to ${table} skipped.`);
       return;
     }
 
@@ -99,16 +108,16 @@ export function useRealtimeSubscription({
       return;
     }
 
-    const channelName = `realtime:${table}:${event}:${storeId || 'global'}`;
+    const channelName = `realtime:${table}:${event}:${resolvedStoreId || 'global'}`;
 
-    logger.log(`[Realtime] Subscribing to ${table} (${event}) for store ${storeId}`);
+    logger.log(`[Realtime] Subscribing to ${table} (${event}) for store ${resolvedStoreId}`);
 
     let channel = supabase.channel(channelName);
 
     // Build filter string
     let filterString = '';
-    if (filterByStore && storeId) {
-      filterString = `store_id=eq.${storeId}`;
+    if (filterByStore && resolvedStoreId) {
+      filterString = `store_id=eq.${resolvedStoreId}`;
     }
     if (filter) {
       const additionalFilter = `${filter.column}=eq.${filter.value}`;
@@ -148,7 +157,7 @@ export function useRealtimeSubscription({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [table, event, filterByStore, enabled, filter?.column, filter?.value]);
+  }, [table, event, filterByStore, storeId, enabled, filter?.column, filter?.value]);
 
   return {
     channel: channelRef.current,
