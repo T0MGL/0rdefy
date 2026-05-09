@@ -548,6 +548,12 @@ export default function Orders() {
       delivery_preferences: (row.delivery_preferences ?? prev.delivery_preferences) as Order['delivery_preferences'],
       is_pickup: (row.is_pickup ?? prev.is_pickup) as boolean,
       invoice_id: (row.invoice_id ?? prev.invoice_id) as string | undefined,
+      // Geolocation: Helena/NOCTE webhook persists these on UPDATE. Without merging
+      // them here, the OrderQuickView Maps button stays hidden until a manual refetch.
+      latitude: (row.latitude ?? prev.latitude) as number | undefined,
+      longitude: (row.longitude ?? prev.longitude) as number | undefined,
+      google_maps_link: (row.google_maps_link ?? prev.google_maps_link) as string | undefined,
+      customer_address: (row.customer_address ?? prev.customer_address) as string | undefined,
     };
   }, []);
 

@@ -231,11 +231,18 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                   <span>{order.customer_ruc}{order.customer_ruc_dv !== undefined && order.customer_ruc_dv !== null ? `-${order.customer_ruc_dv}` : ''}</span>
                 </div>
               )}
-              {(order.address || order.google_maps_link) && (
+              {(() => {
+                // Defensive: the list endpoint exposes both `address` (renamed)
+                // and `customer_address` (raw column). Realtime UPDATE payloads
+                // arrive as raw columns, so a freshly merged order may only
+                // carry `customer_address` even though both fields are typed.
+                const addressText = order.address || order.customer_address;
+                if (!addressText && !order.google_maps_link) return null;
+                return (
                 <div className="flex items-start gap-2 text-sm text-muted-foreground mt-2">
                   <MapPin size={14} className="mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
-                    {order.address && <span>{order.address}</span>}
+                    {addressText && <span>{addressText}</span>}
                     {order.google_maps_link && (
                       <a
                         href={order.google_maps_link}
@@ -249,7 +256,8 @@ export function OrderQuickView({ order, open, onOpenChange, onStatusUpdate, onNo
                     )}
                   </div>
                 </div>
-              )}
+                );
+              })()}
               <div className="flex flex-wrap gap-2 mt-3">
                 <Button
                   size="sm"
