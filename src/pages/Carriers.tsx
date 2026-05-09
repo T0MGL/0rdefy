@@ -80,6 +80,10 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
   });
 
   const [courierInviteError, setCourierInviteError] = useState<string | null>(null);
+  // When true, the courier identity diverges from the carrier identity and the
+  // explicit name/email/phone fields are shown. Default false: 90% of single-
+  // operator carriers reuse the carrier's own contact info.
+  const [courierIsOtherPerson, setCourierIsOtherPerson] = useState(false);
 
   // Auto-format phone on paste
   const handlePhonePaste = usePhoneAutoPasteSimple((fullPhone) => {
@@ -90,24 +94,39 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
     e.preventDefault();
     setCourierInviteError(null);
 
+    // When the courier identity is collapsed (default), use the carrier's
+    // own name/email/phone for the invite. When expanded ("Es otra persona"),
+    // use the explicit courier fields. This keeps a single source of truth
+    // regardless of whether the admin edited the carrier fields after enabling
+    // the invite.
+    const courierName = (courierIsOtherPerson ? formData.courier_name : formData.name).trim();
+    const courierEmail = (courierIsOtherPerson ? formData.courier_email : formData.email).trim().toLowerCase();
+    const courierPhone = (courierIsOtherPerson ? formData.courier_phone : formData.phone).trim();
+
     if (formData.invite_courier) {
-      const emailNorm = formData.courier_email.trim().toLowerCase();
-      const nameNorm = formData.courier_name.trim();
-      if (!EMAIL_REGEX_FORM.test(emailNorm)) {
-        setCourierInviteError('El email del repartidor no es valido');
+      if (!EMAIL_REGEX_FORM.test(courierEmail)) {
+        setCourierInviteError(
+          courierIsOtherPerson
+            ? 'El email del repartidor no es valido'
+            : 'El email del carrier no es valido. Cargalo arriba o elegi "Es otra persona".'
+        );
         return;
       }
-      if (nameNorm.length < 2) {
-        setCourierInviteError('El nombre del repartidor debe tener al menos 2 caracteres');
+      if (courierName.length < 2) {
+        setCourierInviteError(
+          courierIsOtherPerson
+            ? 'El nombre del repartidor debe tener al menos 2 caracteres'
+            : 'El nombre del carrier debe tener al menos 2 caracteres'
+        );
         return;
       }
     }
 
     onSubmit({
       ...formData,
-      courier_email: formData.courier_email.trim().toLowerCase(),
-      courier_name: formData.courier_name.trim(),
-      courier_phone: formData.courier_phone.trim(),
+      courier_email: courierEmail,
+      courier_name: courierName,
+      courier_phone: courierPhone,
     });
   };
 
@@ -227,8 +246,22 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
               id="invite_courier"
               checked={formData.invite_courier}
               onChange={(e) => {
+                const checked = e.target.checked;
                 setCourierInviteError(null);
-                setFormData({ ...formData, invite_courier: e.target.checked });
+                // When enabling the invite, default the courier identity to the
+                // carrier's own contact info. 90% of the time the carrier IS
+                // the operator (one-person business). The admin can still
+                // expand "Es otra persona" if the operator is someone else.
+                setFormData((prev) => ({
+                  ...prev,
+                  invite_courier: checked,
+                  courier_name: checked && !prev.courier_name ? prev.name : prev.courier_name,
+                  courier_email: checked && !prev.courier_email ? prev.email : prev.courier_email,
+                  courier_phone: checked && !prev.courier_phone ? prev.phone : prev.courier_phone,
+                }));
+                if (!checked) {
+                  setCourierIsOtherPerson(false);
+                }
               }}
               className="mt-0.5 rounded border-gray-300"
             />
@@ -241,55 +274,92 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
                 Invitar primer repartidor
               </label>
               <p className="text-xs text-muted-foreground leading-snug">
-                El repartidor recibe un email con un link para crear su cuenta y
-                entrar al portal de couriers. Podes invitar mas despues desde
-                Settings o desde la pagina del carrier.
+                Le mandamos un email con el link para crear cuenta y entrar al portal.
               </p>
             </div>
           </div>
 
           {formData.invite_courier && (
             <div className="rounded-md border bg-muted/20 p-3 space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="courier_name">Nombre del repartidor *</Label>
-                <Input
-                  id="courier_name"
-                  placeholder="Ej: Juan Operador"
-                  value={formData.courier_name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, courier_name: e.target.value })
-                  }
-                  autoComplete="off"
-                  required={formData.invite_courier}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="courier_email">Email del repartidor *</Label>
-                <Input
-                  id="courier_email"
-                  type="email"
-                  placeholder="repartidor@ejemplo.com"
-                  value={formData.courier_email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, courier_email: e.target.value })
-                  }
-                  autoComplete="off"
-                  required={formData.invite_courier}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="courier_phone">Telefono (opcional)</Label>
-                <Input
-                  id="courier_phone"
-                  type="tel"
-                  placeholder="0981 234 567"
-                  value={formData.courier_phone}
-                  onChange={(e) =>
-                    setFormData({ ...formData, courier_phone: e.target.value })
-                  }
-                  autoComplete="off"
-                />
-              </div>
+              {!courierIsOtherPerson ? (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-sm leading-snug">
+                    <p className="text-card-foreground">
+                      Vamos a invitar a{' '}
+                      <span className="font-medium">{formData.courier_name || formData.name || 'este repartidor'}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formData.courier_email || formData.email || 'sin email'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline shrink-0"
+                    onClick={() => setCourierIsOtherPerson(true)}
+                  >
+                    Es otra persona
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="courier_name">Nombre del repartidor *</Label>
+                    <Input
+                      id="courier_name"
+                      placeholder="Ej: Juan Operador"
+                      value={formData.courier_name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, courier_name: e.target.value })
+                      }
+                      autoComplete="off"
+                      required={formData.invite_courier}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="courier_email">Email del repartidor *</Label>
+                    <Input
+                      id="courier_email"
+                      type="email"
+                      placeholder="repartidor@ejemplo.com"
+                      value={formData.courier_email}
+                      onChange={(e) =>
+                        setFormData({ ...formData, courier_email: e.target.value })
+                      }
+                      autoComplete="off"
+                      required={formData.invite_courier}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="courier_phone">Telefono (opcional)</Label>
+                    <Input
+                      id="courier_phone"
+                      type="tel"
+                      placeholder="0981 234 567"
+                      value={formData.courier_phone}
+                      onChange={(e) =>
+                        setFormData({ ...formData, courier_phone: e.target.value })
+                      }
+                      autoComplete="off"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-card-foreground"
+                    onClick={() => {
+                      setCourierIsOtherPerson(false);
+                      // Snap back to carrier identity so the collapsed view is consistent.
+                      setFormData((prev) => ({
+                        ...prev,
+                        courier_name: prev.name,
+                        courier_email: prev.email,
+                        courier_phone: prev.phone,
+                      }));
+                    }}
+                  >
+                    Usar los datos del carrier
+                  </button>
+                </>
+              )}
 
               {courierInviteError && (
                 <p className="text-xs text-destructive">{courierInviteError}</p>
