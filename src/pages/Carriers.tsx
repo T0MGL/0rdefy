@@ -20,7 +20,8 @@ import {
   CarrierReplicationTarget,
   CarrierReplicationResult,
 } from '@/services/carriers.service';
-import { Plus, Package, TrendingUp, Clock, Star, Search, Map as MapIcon, MapPin, ChevronRight } from 'lucide-react';
+import { carrierOperatorsService } from '@/services/carrier-operators.service';
+import { Plus, Package, TrendingUp, Clock, Star, Search, Map as MapIcon, MapPin, ChevronRight, UserPlus } from 'lucide-react';
 import { carriersExportColumns } from '@/utils/exportConfigs';
 import { logger } from '@/utils/logger';
 import apiClient from '@/services/api.client';
@@ -42,6 +43,11 @@ interface CarrierFormData {
   carrier_type: string;
   is_active: boolean;
   replicate_to_all_stores: boolean;
+  // Optional inline courier invite (only used on create).
+  invite_courier: boolean;
+  courier_email: string;
+  courier_name: string;
+  courier_phone: string;
 }
 
 interface CarrierFormProps {
@@ -51,9 +57,12 @@ interface CarrierFormProps {
   replicationTargets: CarrierReplicationTarget[];
 }
 
+const EMAIL_REGEX_FORM = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: CarrierFormProps) {
   const isEditing = Boolean(carrier);
   const canReplicate = !isEditing && replicationTargets.length > 0;
+  const canInviteCourier = !isEditing;
 
   const [formData, setFormData] = useState<CarrierFormData>({
     name: carrier?.name || '',
@@ -63,7 +72,13 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
     carrier_type: carrier?.carrier_type || 'internal',
     is_active: carrier?.is_active ?? true,
     replicate_to_all_stores: false,
+    invite_courier: false,
+    courier_email: '',
+    courier_name: '',
+    courier_phone: '',
   });
+
+  const [courierInviteError, setCourierInviteError] = useState<string | null>(null);
 
   // Auto-format phone on paste
   const handlePhonePaste = usePhoneAutoPasteSimple((fullPhone) => {
@@ -72,7 +87,27 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    setCourierInviteError(null);
+
+    if (formData.invite_courier) {
+      const emailNorm = formData.courier_email.trim().toLowerCase();
+      const nameNorm = formData.courier_name.trim();
+      if (!EMAIL_REGEX_FORM.test(emailNorm)) {
+        setCourierInviteError('El email del repartidor no es valido');
+        return;
+      }
+      if (nameNorm.length < 2) {
+        setCourierInviteError('El nombre del repartidor debe tener al menos 2 caracteres');
+        return;
+      }
+    }
+
+    onSubmit({
+      ...formData,
+      courier_email: formData.courier_email.trim().toLowerCase(),
+      courier_name: formData.courier_name.trim(),
+      courier_phone: formData.courier_phone.trim(),
+    });
   };
 
   return (
@@ -176,6 +211,90 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Optional courier invite. Visible only when creating a new carrier so
+          the admin can onboard the first operator in the same step. The
+          invite is fired AFTER the carrier is successfully created; if it
+          fails, the carrier is kept and the user gets a non-blocking warning. */}
+      {canInviteCourier && (
+        <div className="border-t pt-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              id="invite_courier"
+              checked={formData.invite_courier}
+              onChange={(e) => {
+                setCourierInviteError(null);
+                setFormData({ ...formData, invite_courier: e.target.checked });
+              }}
+              className="mt-0.5 rounded border-gray-300"
+            />
+            <div className="space-y-1">
+              <label
+                htmlFor="invite_courier"
+                className="text-sm font-medium leading-tight flex items-center gap-1.5"
+              >
+                <UserPlus className="h-3.5 w-3.5 text-muted-foreground" />
+                Invitar primer repartidor
+              </label>
+              <p className="text-xs text-muted-foreground leading-snug">
+                El repartidor recibe un email con un link para crear su cuenta y
+                entrar al portal de couriers. Podes invitar mas despues desde
+                Settings o desde la pagina del carrier.
+              </p>
+            </div>
+          </div>
+
+          {formData.invite_courier && (
+            <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="courier_name">Nombre del repartidor *</Label>
+                <Input
+                  id="courier_name"
+                  placeholder="Ej: Juan Operador"
+                  value={formData.courier_name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, courier_name: e.target.value })
+                  }
+                  autoComplete="off"
+                  required={formData.invite_courier}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="courier_email">Email del repartidor *</Label>
+                <Input
+                  id="courier_email"
+                  type="email"
+                  placeholder="repartidor@ejemplo.com"
+                  value={formData.courier_email}
+                  onChange={(e) =>
+                    setFormData({ ...formData, courier_email: e.target.value })
+                  }
+                  autoComplete="off"
+                  required={formData.invite_courier}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="courier_phone">Telefono (opcional)</Label>
+                <Input
+                  id="courier_phone"
+                  type="tel"
+                  placeholder="0981 234 567"
+                  value={formData.courier_phone}
+                  onChange={(e) =>
+                    setFormData({ ...formData, courier_phone: e.target.value })
+                  }
+                  autoComplete="off"
+                />
+              </div>
+
+              {courierInviteError && (
+                <p className="text-xs text-destructive">{courierInviteError}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -401,7 +520,14 @@ export default function Carriers() {
   );
 
   const handleSubmit = async (data: CarrierFormData) => {
-    const { replicate_to_all_stores: replicateToAllStores, ...payload } = data;
+    const {
+      replicate_to_all_stores: replicateToAllStores,
+      invite_courier: inviteCourier,
+      courier_email: courierEmail,
+      courier_name: courierName,
+      courier_phone: courierPhone,
+      ...payload
+    } = data;
 
     try {
       if (selectedCarrier) {
@@ -416,6 +542,7 @@ export default function Carriers() {
         // Mark first action completed (hides the onboarding tip)
         onboardingService.markFirstActionCompleted('carriers');
 
+        // Replication runs first since it lives in the same conceptual flow.
         if (replicateToAllStores && replicationTargets.length > 0 && createdCarrier?.id) {
           try {
             const replicationResult = await carriersService.replicateToStores(createdCarrier.id);
@@ -443,6 +570,55 @@ export default function Carriers() {
             title: 'Repartidor creado',
             description: 'El repartidor ha sido registrado exitosamente.',
           });
+        }
+
+        // Inline courier invite. We do NOT roll back the carrier on failure
+        // (no transactional cross-request boundary exists). Instead, we keep
+        // the carrier and surface a non-blocking warning so the admin can
+        // retry from Settings -> Equipo -> Repartidores or the carrier page.
+        if (inviteCourier && createdCarrier?.id) {
+          try {
+            const inviteResult = await carrierOperatorsService.invite(
+              createdCarrier.id,
+              {
+                email: courierEmail,
+                name: courierName,
+                phone: courierPhone.length > 0 ? courierPhone : undefined,
+              },
+            );
+
+            if (inviteResult.already_pending) {
+              toast({
+                title: 'Ya existia una invitacion pendiente',
+                description: `Mantuvimos la invitacion existente para ${inviteResult.invitation.email}.`,
+              });
+            } else if (inviteResult.email_sent) {
+              toast({
+                title: 'Invitacion enviada',
+                description: `Email enviado a ${inviteResult.invitation.email}. El link expira en 7 dias.`,
+              });
+            } else {
+              // Email service down: surface link so admin can copy it.
+              toast({
+                title: 'Carrier creado, pero el email no se envio',
+                description: inviteResult.link
+                  ? `Copia este link y mandaselo manualmente: ${inviteResult.link}`
+                  : 'No se pudo enviar el email del repartidor. Reintenta desde la pagina del carrier.',
+                variant: 'destructive',
+              });
+            }
+          } catch (inviteError: unknown) {
+            logger.error('Courier invite from carrier-create failed:', inviteError);
+            const message =
+              inviteError instanceof Error
+                ? inviteError.message
+                : 'No se pudo crear la invitacion';
+            toast({
+              title: 'Carrier creado, pero la invitacion fallo',
+              description: `${message}. Podes invitar al repartidor despues desde Settings -> Equipo o desde la pagina del carrier.`,
+              variant: 'destructive',
+            });
+          }
         }
       }
 

@@ -65,6 +65,7 @@ import { toast } from 'sonner';
 import apiClient from '@/services/api.client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { CollaboratorStats, CollaboratorInvitation, TeamMember } from '@/types';
+import { CourierOperatorsSection } from '@/components/team/CourierOperatorsSection';
 
 // Validation schema for invitation form
 const inviteSchema = z.object({
@@ -553,6 +554,18 @@ El link expira en 7 dias.`;
           )}
         </CardContent>
       </Card>
+
+      {/* Courier Operators - Cross-carrier invite & roster.
+          Only owners (today) can manage external couriers; admins see the rest
+          of the team but the carrier endpoints already enforce role on the
+          server. Keeping the gate symmetrical with team invitations above. */}
+      {isOwner && (
+        <Card className="bg-gradient-to-br from-purple-50/40 to-transparent dark:from-purple-950/20 dark:to-transparent">
+          <CardContent className="pt-6">
+            <CourierOperatorsSection />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Pending Invitations Only - Only visible to owners */}
       {isOwner && invitationsData?.invitations && invitationsData.invitations.filter(inv => inv.status === 'pending').length > 0 && (
