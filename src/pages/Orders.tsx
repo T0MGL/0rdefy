@@ -2499,6 +2499,26 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                 setIsQuickViewOpen(true);
               }}
               isHighlighted={isHighlighted}
+              onStatusUpdate={handleStatusUpdate}
+              onQuickCarrierChange={handleQuickCarrierChange}
+              onRequestFullAssign={handleRequestFullAssign}
+              onQuickPrepare={handleQuickPrepare}
+              onContact={handleContact}
+              onReject={handleReject}
+              onConfirmOrder={(order) => {
+                setOrderToConfirm(order);
+                setConfirmDialogOpen(true);
+              }}
+              onAssignCarrier={(order) => {
+                setOrderToAssignCarrier(order);
+                setCarrierAssignmentDialogOpen(true);
+              }}
+              generateWhatsAppConfirmationLink={generateWhatsAppConfirmationLink}
+              generateWhatsAppFollowUpLink={generateWhatsAppFollowUpLink}
+              getCarrierName={getCarrierName}
+              canEditOrders={canEditOrders}
+              hasWarehouseFeature={hasWarehouseFeature}
+              userRole={userRole}
             />
             {pagination.hasMore && (
               <div className="flex justify-center py-4">
