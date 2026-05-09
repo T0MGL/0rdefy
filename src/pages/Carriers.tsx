@@ -297,7 +297,7 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
                     className="text-xs text-primary hover:underline shrink-0"
                     onClick={() => setCourierIsOtherPerson(true)}
                   >
-                    Es otra persona
+                    Cambiar datos del dueno de la cuenta
                   </button>
                 </div>
               ) : (
@@ -356,7 +356,7 @@ function CarrierForm({ carrier, onSubmit, onCancel, replicationTargets }: Carrie
                       }));
                     }}
                   >
-                    Usar los datos del carrier
+                    Volver a usar los datos del carrier
                   </button>
                 </>
               )}
