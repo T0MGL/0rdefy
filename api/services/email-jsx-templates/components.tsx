@@ -55,19 +55,35 @@ export interface HeadingProps {
   children: React.ReactNode;
 }
 export function Heading({ children }: HeadingProps) {
-  return <Text style={headingStyle}>{children}</Text>;
+  return (
+    <Text className="ord-text" style={headingStyle}>
+      {children}
+    </Text>
+  );
 }
 
 export function SubHeading({ children }: HeadingProps) {
-  return <Text style={subheadingStyle}>{children}</Text>;
+  return (
+    <Text className="ord-text-secondary" style={subheadingStyle}>
+      {children}
+    </Text>
+  );
 }
 
 export function Paragraph({ children }: HeadingProps) {
-  return <Text style={paragraphStyle}>{children}</Text>;
+  return (
+    <Text className="ord-text" style={paragraphStyle}>
+      {children}
+    </Text>
+  );
 }
 
 export function SmallText({ children }: HeadingProps) {
-  return <Text style={smallTextStyle}>{children}</Text>;
+  return (
+    <Text className="ord-text-muted" style={smallTextStyle}>
+      {children}
+    </Text>
+  );
 }
 
 // ---------- Buttons ----------------------------------------------------------
@@ -78,19 +94,6 @@ export interface CTAButtonProps {
   /** Use 'secondary' for low-emphasis actions (outlined, dark). */
   variant?: 'primary' | 'secondary';
 }
-
-const primaryButtonAnchor: React.CSSProperties = {
-  display: 'inline-block',
-  backgroundColor: BRAND.primary,
-  color: BRAND.bg,
-  fontSize: '15px',
-  fontWeight: 700,
-  textDecoration: 'none',
-  padding: '14px 32px',
-  borderRadius: '8px',
-  letterSpacing: '-0.2px',
-  fontFamily: FONT_STACK,
-};
 
 const secondaryButtonAnchor: React.CSSProperties = {
   display: 'inline-block',
@@ -108,14 +111,82 @@ const secondaryButtonAnchor: React.CSSProperties = {
 /**
  * CTA button. Wrapped in a table so Outlook respects the padding (it strips
  * <a> inline padding without one).
+ *
+ * The primary variant carries:
+ *   - `bgcolor` HTML attribute on the wrapping <td> (Outlook desktop +
+ *     Yahoo only honor color via this legacy attribute, not via CSS).
+ *   - `!important` flags on the inline anchor color/background, so
+ *     Outlook.com web does not strip the brand lime.
+ *   - `ord-cta-anchor` class targeted by the [data-ogsc] / [data-ogsb]
+ *     selectors in BaseLayout, so the Outlook app and Outlook.com keep
+ *     the brand colors after their dark-mode transform.
  */
 export function CTAButton({
   href,
   children,
   variant = 'primary',
 }: CTAButtonProps) {
-  const anchor = variant === 'primary' ? primaryButtonAnchor : secondaryButtonAnchor;
   const margin = variant === 'primary' ? '28px 0' : '12px 0';
+
+  if (variant === 'primary') {
+    return (
+      <table
+        role="presentation"
+        cellPadding={0}
+        cellSpacing={0}
+        border={0}
+        width="100%"
+        style={{ margin, borderCollapse: 'collapse' }}
+      >
+        <tbody>
+          <tr>
+            <td align="center">
+              <table
+                role="presentation"
+                cellPadding={0}
+                cellSpacing={0}
+                border={0}
+                style={{ borderCollapse: 'separate' }}
+              >
+                <tbody>
+                  <tr>
+                    <td
+                      bgcolor={BRAND.primary}
+                      align="center"
+                      className="ord-primary-bg"
+                      style={{
+                        backgroundColor: BRAND.primary,
+                        borderRadius: '8px',
+                      }}
+                    >
+                      <a
+                        href={href}
+                        className="ord-cta-anchor"
+                        style={{
+                          display: 'inline-block',
+                          backgroundColor: BRAND.primary,
+                          color: BRAND.bg,
+                          fontSize: '15px',
+                          fontWeight: 700,
+                          textDecoration: 'none',
+                          padding: '14px 32px',
+                          borderRadius: '8px',
+                          letterSpacing: '-0.2px',
+                          fontFamily: FONT_STACK,
+                        }}
+                      >
+                        {children}
+                      </a>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    );
+  }
 
   return (
     <table
@@ -129,7 +200,11 @@ export function CTAButton({
       <tbody>
         <tr>
           <td align="center">
-            <a href={href} style={anchor}>
+            <a
+              href={href}
+              className="ord-text"
+              style={secondaryButtonAnchor}
+            >
               {children}
             </a>
           </td>
@@ -149,6 +224,7 @@ export function InlineLink({ href, children }: InlineLinkProps) {
   return (
     <REmailLink
       href={href}
+      className="ord-primary-fg"
       style={{
         color: BRAND.primary,
         textDecoration: 'none',
@@ -191,6 +267,8 @@ export function InfoTable({ rows }: InfoTableProps) {
       cellSpacing={0}
       border={0}
       width="100%"
+      bgcolor={BRAND.footerBg}
+      className="ord-footer-bg"
       style={{
         margin: '20px 0',
         backgroundColor: BRAND.footerBg,
@@ -202,6 +280,7 @@ export function InfoTable({ rows }: InfoTableProps) {
         {rows.map((r, i) => (
           <tr key={i}>
             <td
+              className="ord-text-muted"
               style={{
                 padding: i === 0 ? '14px 16px 6px' : '6px 16px 6px',
                 fontSize: '13px',
@@ -214,6 +293,7 @@ export function InfoTable({ rows }: InfoTableProps) {
               {r.label}
             </td>
             <td
+              className="ord-text"
               style={{
                 padding:
                   i === 0
@@ -263,23 +343,41 @@ export function StepsList({ steps }: StepsListProps) {
                 padding: '6px 0',
               }}
             >
-              <div
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '50%',
-                  backgroundColor: BRAND.primary,
-                  color: BRAND.bg,
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  lineHeight: '24px',
-                }}
+              <table
+                role="presentation"
+                cellPadding={0}
+                cellSpacing={0}
+                border={0}
+                style={{ borderCollapse: 'separate' }}
               >
-                {i + 1}
-              </div>
+                <tbody>
+                  <tr>
+                    <td
+                      bgcolor={BRAND.primary}
+                      align="center"
+                      width={24}
+                      height={24}
+                      className="ord-primary-bg ord-on-primary"
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        backgroundColor: BRAND.primary,
+                        color: BRAND.bg,
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        textAlign: 'center',
+                        lineHeight: '24px',
+                      }}
+                    >
+                      {i + 1}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </td>
             <td
+              className="ord-text"
               style={{
                 padding: '6px 0 6px 12px',
                 fontSize: '14px',

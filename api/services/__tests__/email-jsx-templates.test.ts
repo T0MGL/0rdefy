@@ -8,7 +8,8 @@
  *   - render*Email returns { subject, html, text } without throwing.
  *   - HTML contains the brand bgcolor (#09090b on outer container, never
  *     stripped by Gmail Android because we set the legacy `bgcolor` attr).
- *   - HTML contains the wordmark img URL (https://app.ordefy.io/email/logo.png).
+ *   - HTML contains the wordmark img URL (logo-dark.png variant, dark-baked
+ *     to survive forced dark-mode color inversion in Gmail iOS / Outlook).
  *   - HTML contains a key piece of dynamic copy (rules out a regression where
  *     a template renders but ignores its data).
  *   - Plain-text fallback is non-empty and contains the same key copy.
@@ -38,18 +39,41 @@ const {
   renderGenericEmail,
 } = await import('../email-jsx-templates');
 
-const LOGO = 'https://app.ordefy.io/email/logo.png';
+const LOGO_DARK = 'https://app.ordefy.io/email/logo-dark.png';
 const BG = '#09090b';
 const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
 function expectBaseShell(html: string, text: string, mustContain: string) {
   assert.ok(html.length > 1000, 'HTML must be non-trivial');
-  assert.ok(html.includes(LOGO), 'HTML must reference the wordmark URL');
+  assert.ok(
+    html.includes(LOGO_DARK),
+    'HTML must reference the dark-baked wordmark URL',
+  );
   assert.ok(
     html.toLowerCase().includes('bgcolor'),
     'HTML must use the legacy bgcolor attribute on outer table',
   );
   assert.ok(html.includes(BG), `HTML must contain dark bg ${BG}`);
+  assert.ok(
+    html.includes('color-scheme'),
+    'HTML must declare color-scheme meta for dark-mode signaling',
+  );
+  assert.ok(
+    html.includes('dark only'),
+    'HTML must opt into dark only via meta color-scheme',
+  );
+  assert.ok(
+    html.includes('prefers-color-scheme'),
+    'HTML must include the prefers-color-scheme media query for force-dark',
+  );
+  assert.ok(
+    html.includes('data-ogsc') && html.includes('data-ogsb'),
+    'HTML must include the [data-ogsc] / [data-ogsb] Outlook overrides',
+  );
+  assert.ok(
+    !html.includes('dark light') && !html.includes('light dark'),
+    'HTML must not advertise light support (dark-only emails)',
+  );
   assert.ok(html.includes(mustContain), `HTML must contain "${mustContain}"`);
   assert.ok(text.length > 0, 'Plain-text fallback must be non-empty');
   assert.ok(text.includes(mustContain), `Plain text must contain "${mustContain}"`);
