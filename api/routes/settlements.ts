@@ -5,7 +5,13 @@ import { extractUserRole, requireModule, requirePermission, PermissionRequest } 
 import { requireFeature } from '../middleware/planLimits';
 import { Module, Permission } from '../permissions';
 import * as settlementsService from '../services/settlements.service';
-import { getTodayInTimezone } from '../utils/dateUtils';
+import {
+  endOfDayIso,
+  getStoreTimezone,
+  getTodayInTimezone,
+  startOfDayIso,
+} from '../utils/dateUtils';
+import { isTerminalSuccess } from '../utils/metrics-canonical';
 import { logger } from '../utils/logger';
 import { parsePagination, validateUUIDParam } from '../utils/sanitize';
 
@@ -89,9 +95,19 @@ settlementsRouter.get('/', async (req: AuthRequest, res: Response) => {
 settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
   try {
     const { carrier_id } = req.query;
-    const today = getTodayInTimezone();
 
-    logger.info('SETTLEMENTS', 'Fetching today settlement', { today, carrier_id });
+    // Anchor "today" to the store's local timezone, not server UTC. The
+    // previous version compared `updated_at` (timestamptz, UTC instants)
+    // against a YYYY-MM-DD string which Postgres casts to UTC midnight, and
+    // computed "tomorrow" via server-local Date math. For Asuncion stores
+    // (UTC-4) that combination misses orders delivered between 20:00 and
+    // 23:59 local, undercounting expected_cash by up to 4 hours of pickups.
+    const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+    const today = getTodayInTimezone(storeTz);
+    const todayStartIso = startOfDayIso(today, storeTz);
+    const todayEndIso = endOfDayIso(today, storeTz);
+
+    logger.info('SETTLEMENTS', 'Fetching today settlement', { today, carrier_id, storeTz });
 
     let query = supabaseAdmin
       .from('daily_settlements')
@@ -110,30 +126,48 @@ settlementsRouter.get('/today', async (req: AuthRequest, res: Response) => {
     const { data, error } = await query;
 
     if (error) {
-      logger.error('❌ [SETTLEMENTS] Error:', error);
+      logger.error('SETTLEMENTS', 'Error fetching settlement', error);
       return res.status(500).json({ error: 'Error al obtener liquidación de hoy' });
     }
 
-    // Get delivered orders for today
+    // delivered orders for today: terminal-success states (delivered + settled)
+    // updated within the store-local day. Pre-148c stores see only delivered,
+    // post-148c stores see both. Either way no carrier or merchant ever
+    // settles before delivery, so the union is safe.
     const { data: deliveredOrders, error: ordersError } = await supabaseAdmin
       .from('orders')
-      .select('id, shopify_order_number, customer_first_name, customer_last_name, total_price, payment_status')
+      .select('id, shopify_order_number, customer_first_name, customer_last_name, total_price, payment_status, sleeves_status, currency')
       .eq('store_id', req.storeId)
-      .eq('sleeves_status', 'delivered')
-      .gte('updated_at', today)
-      .lt('updated_at', new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0]);
+      .in('sleeves_status', ['delivered', 'settled'])
+      .is('deleted_at', null)
+      .gte('updated_at', todayStartIso)
+      .lte('updated_at', todayEndIso);
 
     if (ordersError) {
-      logger.error('⚠️ [SETTLEMENTS] Error fetching orders:', ordersError);
+      logger.error('SETTLEMENTS', 'Error fetching delivered orders', ordersError);
     }
+
+    const list = (deliveredOrders || []).filter(o => isTerminalSuccess(o.sleeves_status));
+
+    // Group expected_cash by currency. Single-currency stores get a scalar
+    // (backwards compat); multi-currency stores get a dict.
+    const byCurrency: Record<string, number> = {};
+    for (const o of list) {
+      const c = (o.currency as string) || 'PYG';
+      byCurrency[c] = (byCurrency[c] || 0) + Number(o.total_price || 0);
+    }
+    const currencyKeys = Object.keys(byCurrency);
+    const expectedCashScalar = list.reduce((sum, o) => sum + Number(o.total_price || 0), 0);
+    const expectedCashByCurrency = currencyKeys.length > 1 ? byCurrency : null;
 
     res.json({
       settlement: data && data.length > 0 ? data[0] : null,
-      delivered_orders: deliveredOrders || [],
-      expected_cash: deliveredOrders?.reduce((sum, o) => sum + Number(o.total_price || 0), 0) || 0
+      delivered_orders: list,
+      expected_cash: expectedCashScalar,
+      expected_cash_by_currency: expectedCashByCurrency,
     });
   } catch (error: any) {
-    logger.error('💥 [SETTLEMENTS] Error:', error);
+    logger.error('SETTLEMENTS', 'Unexpected error in /today', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

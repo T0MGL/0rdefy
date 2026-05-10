@@ -27,6 +27,7 @@ import {
     isDelivered,
     isDispatched,
     isInTransit,
+    isPostPending,
 } from '../utils/order-status';
 
 export const analyticsRouter = Router();
@@ -890,11 +891,14 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             formatDateInTimezone(o.created_at, storeTz) === todayStr,
         );
 
-        const todayConfirmed = todayOrders.filter(o =>
-            o.sleeves_status === 'confirmed' ||
-            o.sleeves_status === 'shipped' ||
-            o.sleeves_status === 'delivered'
-        ).length;
+        // todayConfirmed uses the same set as totalConfirmed below: any state
+        // past pending, success or failure. Previously this list was hardcoded
+        // to ['confirmed','shipped','delivered'] which undercounted by 25-40%
+        // on a normal day for stores with in_transit/settled/returned/etc.
+        // Aligning the formula matches the canonical confirmation rate the
+        // /api/cod-metrics endpoint serves; the audit's CRITICAL-3 finding
+        // was exactly two endpoints disagreeing on this count.
+        const todayConfirmed = todayOrders.filter(o => isPostPending(o.sleeves_status)).length;
 
         const todayPending = todayOrders.filter(o => o.sleeves_status === 'pending').length;
 
@@ -941,17 +945,9 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             return date >= previous7Days && date < last7Days;
         });
 
-        const currentWeekConfirmed = currentWeekOrders.filter(o =>
-            o.sleeves_status === 'confirmed' ||
-            o.sleeves_status === 'shipped' ||
-            o.sleeves_status === 'delivered'
-        ).length;
+        const currentWeekConfirmed = currentWeekOrders.filter(o => isPostPending(o.sleeves_status)).length;
 
-        const previousWeekConfirmed = previousWeekOrders.filter(o =>
-            o.sleeves_status === 'confirmed' ||
-            o.sleeves_status === 'shipped' ||
-            o.sleeves_status === 'delivered'
-        ).length;
+        const previousWeekConfirmed = previousWeekOrders.filter(o => isPostPending(o.sleeves_status)).length;
 
         const currentConfirmRate = currentWeekOrders.length > 0
             ? (currentWeekConfirmed / currentWeekOrders.length) * 100
