@@ -46,6 +46,49 @@ analyticsRouter.use(verifyToken, extractStoreId, extractUserRole);
 // Apply module-level access check for all routes
 analyticsRouter.use(requireModule(Module.ANALYTICS));
 
+// ================================================================
+// Helpers: store currency + off-currency drop
+// ================================================================
+//
+// Every money-handling endpoint here loads the store's primary currency
+// at the start and drops orders that transact in a different one. This
+// is the multi-currency safety net: a store that test-runs USD orders
+// against a PYG primary configuration would otherwise see USD totals
+// folded into PYG headlines, producing a number that does not exist
+// in any one accounting reality.
+//
+// NULL currency on an order means "predates the column" and is treated
+// as matching the store currency. Every new write should populate it.
+async function loadStoreCurrency(storeId: string): Promise<string> {
+    const { data, error } = await supabaseAdmin
+        .from('stores')
+        .select('currency')
+        .eq('id', storeId)
+        .single();
+    if (error) {
+        logger.warn('SERVER', '[loadStoreCurrency] error', { storeId, error: error.message });
+    }
+    return (data?.currency as string | null) || 'PYG';
+}
+
+interface OffCurrencyDrop<T extends { currency?: string | null }> {
+    inCurrency: T[];
+    offCurrency: T[];
+}
+
+function dropOffCurrency<T extends { currency?: string | null }>(
+    orders: T[],
+    storeCurrency: string,
+): OffCurrencyDrop<T> {
+    const offCurrency = orders.filter(
+        o => o.currency != null && o.currency !== storeCurrency,
+    );
+    const inCurrency = orders.filter(
+        o => o.currency == null || o.currency === storeCurrency,
+    );
+    return { inCurrency, offCurrency };
+}
+
 
 // ================================================================
 // GET /api/analytics/overview - Dashboard overview metrics
@@ -54,10 +97,15 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
     try {
         const { startDate, endDate } = req.query;
 
-        // Get store tax rate, timezone and confirmation fee from store_config
+        // Get store tax rate, timezone, primary currency and confirmation
+        // fee from store_config. The store currency anchors money math:
+        // every aggregation is filtered to orders that match the store's
+        // primary currency. Cross-currency rows still appear in counters
+        // (totalOrders, etc) but never in revenue, profit, or cash totals,
+        // because mixing PYG with USD in a sum produces a meaningless number.
         const { data: storeData, error: storeError } = await supabaseAdmin
             .from('stores')
-            .select('tax_rate, timezone')
+            .select('tax_rate, timezone, currency')
             .eq('id', req.storeId)
             .single();
 
@@ -67,6 +115,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         const taxRate = Number(storeData?.tax_rate) || 0;
         const storeTz: string = (storeData?.timezone as string | null) || DEFAULT_TIMEZONE;
+        const storeCurrency: string = (storeData?.currency as string | null) || 'PYG';
 
         // Get confirmation fee from store_config
         const { data: configData } = await supabaseAdmin
@@ -111,7 +160,7 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
         // NOTE: Product costs are calculated from order_line_items table (normalized)
         const query = supabaseAdmin
             .from('orders')
-            .select('id, created_at, total_price, sleeves_status, shipping_cost, confirmed_at, delivered_at, shipped_at, deleted_at, is_test')
+            .select('id, created_at, total_price, sleeves_status, shipping_cost, confirmed_at, delivered_at, shipped_at, deleted_at, is_test, currency')
             .eq('store_id', req.storeId)
             .gte('created_at', previousPeriodStart.toISOString())
             .lte('created_at', currentPeriodEnd.toISOString());
@@ -120,10 +169,22 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         if (ordersError) throw ordersError;
 
-        // Filter out soft-deleted and test orders in memory (columns may not exist in all DBs)
-        const orders = (ordersData || []).filter(o =>
+        // Filter out soft-deleted and test orders, then drop off-currency
+        // rows from money aggregations. See loadStoreCurrency / dropOffCurrency
+        // module-level docs for rationale.
+        const allOrders = (ordersData || []).filter(o =>
             !o.deleted_at && o.is_test !== true
         );
+        const { inCurrency: orders, offCurrency: offCurrencyOrders } =
+            dropOffCurrency(allOrders, storeCurrency);
+        if (offCurrencyOrders.length > 0) {
+            logger.warn('SERVER', '[GET /api/analytics/overview] Off-currency orders dropped', {
+                storeId: req.storeId,
+                storeCurrency,
+                offCurrencyCount: offCurrencyOrders.length,
+                currencies: Array.from(new Set(offCurrencyOrders.map(o => o.currency))),
+            });
+        }
 
         const last7DaysStart = currentPeriodStart;
         const previous7DaysStart = previousPeriodStart;
@@ -534,6 +595,12 @@ analyticsRouter.get('/overview', async (req: AuthRequest, res: Response) => {
 
         res.json({
             data: {
+                // Currency for every money field in this response. Frontend
+                // formats with this hint instead of guessing from store
+                // settings, eliminating one class of cross-tenant rendering
+                // bugs (NOCTE accidentally rendering Solenne USD as PYG).
+                currency: storeCurrency,
+                offCurrencyDropped: offCurrencyOrders.length,
                 totalOrders,
                 revenue: Math.round(revenue),
                 // Costos separados para transparencia
@@ -650,11 +717,12 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         const { days = '7', startDate: startDateParam, endDate: endDateParam } = req.query;
 
         const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+        const storeCurrency = await loadStoreCurrency(req.storeId!);
 
         // OPTIMIZATION: Only select required fields for chart data
         let query = supabaseAdmin
             .from('orders')
-            .select('id, created_at, total_price, sleeves_status, shipping_cost, deleted_at, is_test')
+            .select('id, created_at, total_price, sleeves_status, shipping_cost, deleted_at, is_test, currency')
             .eq('store_id', req.storeId)
 
         // Apply date filters
@@ -672,8 +740,9 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
 
         if (ordersError) throw ordersError;
 
-        // Filter out soft-deleted and test orders (same as overview endpoint)
-        const orders = (ordersData || []).filter(o => !o.deleted_at && o.is_test !== true);
+        // Filter out soft-deleted, test, and off-currency orders.
+        const allOrders = (ordersData || []).filter(o => !o.deleted_at && o.is_test !== true);
+        const { inCurrency: orders } = dropOffCurrency(allOrders, storeCurrency);
 
         // Get gasto publicitario from additional_values table (category='marketing', type='expense')
         const { data: marketingExpensesData, error: marketingExpensesError } = await supabaseAdmin
@@ -846,7 +915,8 @@ analyticsRouter.get('/chart', async (req: AuthRequest, res: Response) => {
         }).sort((a, b) => a.date.localeCompare(b.date));
 
         res.json({
-            data: chartData
+            currency: storeCurrency,
+            data: chartData,
         });
     } catch (error: any) {
         logger.error('SERVER', '[GET /api/analytics/chart] Error:', error);
@@ -1207,6 +1277,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
     try {
         const { lookbackDays = '30' } = req.query;
         const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+        const storeCurrency = await loadStoreCurrency(req.storeId!);
 
         // Lookback window anchored to store-local midnight, not UTC. Same
         // window an Asuncion merchant sees on their dashboard.
@@ -1215,7 +1286,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
 
         const { data: historicalOrders, error: historicalError } = await supabaseAdmin
             .from('orders')
-            .select('id, created_at, total_price, sleeves_status, shipped_at')
+            .select('id, created_at, total_price, sleeves_status, shipped_at, currency')
             .eq('store_id', req.storeId)
             .is('deleted_at', null)
             .or('is_test.is.null,is_test.eq.false')
@@ -1234,8 +1305,9 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
 
         if (activeError) throw activeError;
 
-        const historical = historicalOrders || [];
-        const active = activeOrders || [];
+        // Drop off-currency rows so the projection sums make sense.
+        const { inCurrency: historical } = dropOffCurrency(historicalOrders || [], storeCurrency);
+        const { inCurrency: active } = dropOffCurrency(activeOrders || [], storeCurrency);
 
         // Historical delivery rate uses the canonical isDispatched + isDelivered
         // helpers. The previous formula (delivered / [shipped, delivered])
@@ -1323,6 +1395,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
 
         res.json({
             data: {
+                currency: storeCurrency,
                 // Current cash status
                 cashInHand: Math.round(deliveredRevenue),
                 cashInTransit: Math.round(shippedRevenue),
@@ -1450,20 +1523,21 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
     try {
         const { periodType = 'week' } = req.query; // 'day' or 'week'
         const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+        const storeCurrency = await loadStoreCurrency(req.storeId!);
 
         // Default 90-day projection window, anchored to the store's local calendar
         const ninetyDaysAgoIso = startOfDayIso(addDaysInTimezone(-90, storeTz), storeTz);
 
         const { data: activeOrders, error: ordersError } = await supabaseAdmin
             .from('orders')
-            .select('id, total_price, sleeves_status, shipping_cost')
+            .select('id, total_price, sleeves_status, shipping_cost, currency')
             .eq('store_id', req.storeId)
             .not('sleeves_status', 'in', '(cancelled,returned)')
             .gte('created_at', ninetyDaysAgoIso)
 
         if (ordersError) throw ordersError;
 
-        const orders = activeOrders || [];
+        const { inCurrency: orders } = dropOffCurrency(activeOrders || [], storeCurrency);
 
         // FIX-10 (audit 2026-05-02): marketing spend is no longer pre-allocated
         // per order. The previous implementation pulled a 30-day expense window
@@ -1699,6 +1773,7 @@ analyticsRouter.get('/cash-flow-timeline', async (req: AuthRequest, res: Respons
 
         res.json({
             data: {
+                currency: storeCurrency,
                 timeline: timelineWithCumulative,
                 summary,
             }
@@ -1725,6 +1800,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
     try {
         const { startDate, endDate } = req.query;
         const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+        const storeCurrency = await loadStoreCurrency(req.storeId!);
 
         // Build date filter with store-local day boundaries
         let dateFilter: { start: Date; end: Date };
@@ -1744,14 +1820,16 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
         // Get all orders in the period - OPTIMIZATION: Only required fields
         const { data: ordersData, error: ordersError } = await supabaseAdmin
             .from('orders')
-            .select('id, sleeves_status, shipped_at, total_price, delivery_status, failed_reason, payment_status, created_at, delivered_at, delivery_attempts, shipping_cost')
+            .select('id, sleeves_status, shipped_at, total_price, delivery_status, failed_reason, payment_status, created_at, delivered_at, delivery_attempts, shipping_cost, currency')
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
 
         if (ordersError) throw ordersError;
 
-        const orders = ordersData || [];
+        // Drop off-currency rows so failedOrdersValue / collectedCash sums
+        // stay coherent.
+        const { inCurrency: orders } = dropOffCurrency(ordersData || [], storeCurrency);
 
         // Pedidos despachados: canonical isDispatched. Includes the full set
         // (ready_to_ship, in_transit, shipped legacy, delivered, settled,
@@ -1860,6 +1938,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
 
         res.json({
             data: {
+                currency: storeCurrency,
                 // Pedidos despachados
                 totalDispatched,
                 dispatchedValue: Math.round(dispatchedOrders.reduce((sum, o) => sum + (Number(o.total_price) || 0), 0)),
@@ -1909,6 +1988,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
     try {
         const { startDate, endDate } = req.query;
         const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+        const storeCurrency = await loadStoreCurrency(req.storeId!);
 
         let dateFilter: { start: Date; end: Date };
         if (startDate && endDate) {
@@ -1926,14 +2006,14 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
         // Get all orders in the period - OPTIMIZATION: Only required fields
         const { data: ordersData, error: ordersError } = await supabaseAdmin
             .from('orders')
-            .select('id, sleeves_status, total_price')
+            .select('id, sleeves_status, total_price, currency')
             .eq('store_id', req.storeId)
             .gte('created_at', dateFilter.start.toISOString())
             .lte('created_at', dateFilter.end.toISOString())
 
         if (ordersError) throw ordersError;
 
-        const orders = ordersData || [];
+        const { inCurrency: orders } = dropOffCurrency(ordersData || [], storeCurrency);
 
         // ===== TASA DE DEVOLUCIÓN =====
         // Devoluciones sobre pedidos entregados
@@ -2000,6 +2080,7 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
 
         res.json({
             data: {
+                currency: storeCurrency,
                 // Tasa de devolución principal
                 returnRate,
                 returnedOrders: returnedOrders.length,
@@ -2132,6 +2213,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
     try {
         const { startDate, endDate } = req.query;
         const storeTz = await getStoreTimezone(supabaseAdmin, req.storeId!);
+        const storeCurrency = await loadStoreCurrency(req.storeId!);
 
         let dateFilter: { start: Date; end: Date };
         if (startDate && endDate) {
@@ -2162,6 +2244,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
                 delivered_at,
                 created_at,
                 reconciled_at,
+                currency,
                 carriers!left(id, name)
             `)
             .eq('store_id', req.storeId)
@@ -2169,7 +2252,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
             .lte('created_at', dateFilter.end.toISOString())
 
         if (ordersError) throw ordersError;
-        const orders = ordersData || [];
+        const { inCurrency: orders } = dropOffCurrency((ordersData || []) as any[], storeCurrency);
 
         // ===== 2. GET SETTLEMENTS DATA (actual payments to carriers) =====
         // settlement_date is a DATE column, so compare against store-local calendar days.
@@ -2356,6 +2439,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
         // ===== 9. RETURN RESPONSE =====
         res.json({
             data: {
+                currency: storeCurrency,
                 // Main Cost Metrics
                 costs: {
                     // Costs from UNRECONCILED delivered orders (pending reconciliation/payment)
