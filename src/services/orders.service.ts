@@ -478,7 +478,7 @@ export const ordersService = {
 
       // Transform backend response to frontend format
       const data = result.data;
-      const lineItems = data.line_items || [];
+      const lineItems = data.line_items || data.order_line_items || [];
       const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
 
       return {
@@ -489,7 +489,9 @@ export const ordersService = {
         quantity: firstItem?.quantity || 1,
         total: data.total_price || 0,
         status: 'confirmed',
-        carrier: data.shipping_address?.company || 'Sin transportadora',
+        carrier: data.carriers?.name || data.carrier_name || 'Sin transportadora',
+        carrier_id: data.courier_id,
+        image_url: firstItem?.image_url || firstItem?.products?.image_url,
         date: data.created_at,
         phone: data.customer_phone || '',
         confirmedByWhatsApp: true,
@@ -526,7 +528,7 @@ export const ordersService = {
 
       // Transform backend response to frontend format
       const data = result.data;
-      const lineItems = data.line_items || [];
+      const lineItems = data.line_items || data.order_line_items || [];
       const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
 
       return {
@@ -537,7 +539,9 @@ export const ordersService = {
         quantity: firstItem?.quantity || 1,
         total: data.total_price || 0,
         status: 'contacted',
-        carrier: data.shipping_address?.company || 'Sin transportadora',
+        carrier: data.carriers?.name || data.carrier_name || 'Sin transportadora',
+        carrier_id: data.courier_id,
+        image_url: firstItem?.image_url || firstItem?.products?.image_url,
         date: data.created_at,
         phone: data.customer_phone || '',
         confirmedByWhatsApp: false,
@@ -570,7 +574,7 @@ export const ordersService = {
 
       // Transform backend response to frontend format
       const data = result.data;
-      const lineItems = data.line_items || [];
+      const lineItems = data.line_items || data.order_line_items || [];
       const firstItem = Array.isArray(lineItems) && lineItems.length > 0 ? lineItems[0] : null;
 
       return {
@@ -581,7 +585,9 @@ export const ordersService = {
         quantity: firstItem?.quantity || 1,
         total: data.total_price || 0,
         status: 'cancelled',
-        carrier: data.shipping_address?.company || 'Sin transportadora',
+        carrier: data.carriers?.name || data.carrier_name || 'Sin transportadora',
+        carrier_id: data.courier_id,
+        image_url: firstItem?.image_url || firstItem?.products?.image_url,
         date: data.created_at,
         phone: data.customer_phone || '',
         confirmedByWhatsApp: false,
@@ -687,8 +693,9 @@ export const ordersService = {
       total: data.total_price || 0,
       status: data.sleeves_status,
       payment_status: data.payment_status,
-      carrier: data.carriers?.name || data.shipping_address?.company || 'Sin transportadora',
+      carrier: data.carriers?.name || data.carrier_name || data.shipping_address?.company || 'Sin transportadora',
       carrier_id: data.courier_id,
+      image_url: firstItem?.image_url || firstItem?.products?.image_url,
       date: data.created_at,
       phone: data.customer_phone || '',
       confirmedByWhatsApp: data.sleeves_status === 'confirmed',

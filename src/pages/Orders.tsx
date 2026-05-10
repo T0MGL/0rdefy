@@ -267,11 +267,11 @@ export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Pagination state. Limit kept tight by default to keep payloads small;
-  // the user can pull more pages with handleLoadMore.
+  // Pagination state. 50 matches backend default (api/routes/orders.ts) so a
+  // single page covers the common filtered view without forcing a Load More.
   const [pagination, setPagination] = useState({
     total: 0,
-    limit: 25,
+    limit: 50,
     offset: 0,
     hasMore: false
   });
@@ -283,18 +283,23 @@ export default function Orders() {
   // P0: URL params as the single source of truth for all filters.
   // This makes filters survive page reloads and enables shareable filter URLs.
   const search = searchParams.get('q') || '';
-  const chipFilters: Record<string, string> = useMemo(() => {
-    const status = searchParams.get('status');
-    return status ? { status } : {};
-  }, [searchParams]);
+  // Read individual params as primitives so derived memos stay referentially stable
+  // when an unrelated param (like `q=` typed by the user) changes. Depending on the
+  // whole `searchParams` object would invalidate every memo on each keystroke and
+  // bypass the search debounce, firing a backend request per character typed.
+  const statusParam = searchParams.get('status');
   const carrierFilter = searchParams.get('carrier') || 'all';
   const scheduledFilter = (searchParams.get('scheduled') || 'all') as 'all' | 'scheduled' | 'ready';
+  const productsParam = searchParams.get('products');
+
+  const chipFilters: Record<string, string> = useMemo(() => {
+    return statusParam ? { status: statusParam } : {};
+  }, [statusParam]);
   // Wave Dispatch (Migration 178): mono-product filter, CSV of product UUIDs.
   const productFilter = useMemo(() => {
-    const raw = searchParams.get('products');
-    if (!raw) return [] as string[];
-    return raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
-  }, [searchParams]);
+    if (!productsParam) return [] as string[];
+    return productsParam.split(',').map(s => s.trim()).filter(s => s.length > 0);
+  }, [productsParam]);
 
   // Stable setter helpers that update URL params without replacing other params.
   // Each setter merges into the existing params and removes keys when resetting to default.
@@ -581,7 +586,15 @@ export default function Orders() {
     if (eventType === 'DELETE') {
       const deletedId = oldRecord?.id as string | undefined;
       if (deletedId) {
-        setOrders(prev => prev.filter(o => o.id !== deletedId));
+        let removed = false;
+        setOrders(prev => {
+          if (!prev.some(o => o.id === deletedId)) return prev;
+          removed = true;
+          return prev.filter(o => o.id !== deletedId);
+        });
+        if (removed) {
+          setPagination(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+        }
       }
       return;
     }
@@ -598,15 +611,21 @@ export default function Orders() {
     if (eventType === 'UPDATE') {
       // Pure delta: no network call. If the order is on screen, merge in
       // place. If filters were toggled and the row no longer matches, drop
-      // it. Rows that are not on screen (paginated out) are ignored; the
-      // 5-minute safety poll picks them up if needed.
+      // it AND decrement pagination.total so the badge and Load More stay
+      // in sync (otherwise Load More skips rows because the server count
+      // shrinks but our offset doesn't).
+      let removedFromView = false;
       setOrders(prev => {
         if (!prev.some(o => o.id === changedId)) return prev;
         if (!matchesStatusFilter || !matchesCarrierFilter) {
+          removedFromView = true;
           return prev.filter(o => o.id !== changedId);
         }
         return prev.map(o => o.id === changedId ? mergeRealtimeRow(o, record) : o);
       });
+      if (removedFromView) {
+        setPagination(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+      }
       return;
     }
 
@@ -645,6 +664,10 @@ export default function Orders() {
     });
 
     if (!appendedNewOrder) return;
+
+    // Mirror the UPDATE branch: a prepended row also shifts pagination.total
+    // so Load More uses the correct cursor and the badge stays honest.
+    setPagination(prev => ({ ...prev, total: prev.total + 1 }));
 
     // Audible alerts only fire for external orders (Shopify, webhooks, integrations).
     // Manual orders keyed in by a coworker should be silent. The shopify webhook does
@@ -715,7 +738,13 @@ export default function Orders() {
 
     setIsLoadingMore(true);
     try {
-      const newOffset = pagination.offset + pagination.limit;
+      // Offset based on what we actually have in memory, not on the last
+      // pagination state. Realtime UPDATEs can drop rows out of the filter
+      // (e.g. an order goes pending -> confirmed while the user views the
+      // pending chip); using pagination.offset + limit would skip the rows
+      // that backfilled into the gap. orders.length always reflects the
+      // true cursor into the server's filtered list.
+      const newOffset = orders.length;
       // CRITICAL: When user searches, ignore date range (same as initial search behavior).
       // Load more must continue searching across all time, not just current date range.
       const isSearching = !!serverFilters.search;
@@ -730,8 +759,15 @@ export default function Orders() {
       // Abort guard: don't apply if filters changed while this request was in-flight
       if (abortController.signal.aborted) return;
 
-      // Append new orders to existing ones
-      setOrders(prev => [...prev, ...(result.data as Order[])]);
+      // Dedupe on append: with the orders.length offset above we can still
+      // overlap with a row that arrived via realtime INSERT between the
+      // last fetch and this one. Keeping the existing copy preserves any
+      // in-memory delta that hasn't been echoed back through the API yet.
+      setOrders(prev => {
+        const seen = new Set(prev.map(o => o.id));
+        const fresh = (result.data as Order[]).filter(o => !seen.has(o.id));
+        return [...prev, ...fresh];
+      });
       setPagination(result.pagination);
     } catch (error) {
       if (abortController.signal.aborted) return;
@@ -746,7 +782,7 @@ export default function Orders() {
         setIsLoadingMore(false);
       }
     }
-  }, [isLoadingMore, pagination, dateParams, serverFilters, toast]);
+  }, [isLoadingMore, pagination, orders.length, dateParams, serverFilters, toast]);
 
   // Store refetch in ref to avoid including it in effect dependencies
   const refetchRef = useRef(refetch);
