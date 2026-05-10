@@ -40,6 +40,7 @@ declare global {
 
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Intelligence = lazy(() => import("./pages/Intelligence"));
 const DashboardLogistics = lazy(() => import("./pages/DashboardLogistics"));
 const Logistics = lazy(() => import("./pages/Logistics"));
 const Orders = lazy(() => import("./pages/Orders"));
@@ -231,6 +232,7 @@ const App = () => {
                             {/* Protected routes with layout and permission checks */}
                             {/* Dashboard - accessible to all authenticated users */}
                             <Route path="/" element={<PermissionLayout module={Module.DASHBOARD} ><Dashboard /></PermissionLayout>} />
+                            <Route path="/intelligence" element={<PermissionLayout module={Module.DASHBOARD} ><Intelligence /></PermissionLayout>} />
                             <Route path="/dashboard-logistics" element={<PermissionLayout module={Module.WAREHOUSE} ><DashboardLogistics /></PermissionLayout>} />
                             <Route path="/logistics" element={<PermissionLayout module={Module.ANALYTICS} ><Logistics /></PermissionLayout>} />
 

@@ -58,7 +58,7 @@ export function MetricCard({
       <p
         className={cn(
           "font-bold text-card-foreground tabular-nums whitespace-nowrap overflow-hidden text-ellipsis",
-          dense ? "text-2xl xl:text-xl 2xl:text-2xl" : "text-3xl"
+          dense ? "text-2xl xl:text-base 2xl:text-lg" : "text-3xl"
         )}
         title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}
       >
