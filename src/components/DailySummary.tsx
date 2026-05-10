@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { logger } from '@/utils/logger';
 import { formatLocalDate } from '@/utils/timeUtils';
 import { formatCurrency } from '@/utils/currency';
+import { isInPreparation, isPending, isStrictDelivered } from '@/lib/status';
 import {
   Collapsible,
   CollapsibleContent,
@@ -144,7 +145,7 @@ export function DailySummary() {
           // For global view, use ordersData; for single-store, use counts
           const totalRevenue = ordersData.reduce((sum: number, o: Order) => sum + (o.total_price || 0), 0);
           const deliveredCount = useGlobalViewData
-            ? ordersData.filter((o: Order) => o.status === 'delivered').length
+            ? ordersData.filter((o: Order) => isStrictDelivered(o.status)).length
             : (countsData['delivered'] || 0);
           const deliveryRate = fetchedOrdersCount > 0
             ? Math.round((deliveredCount / fetchedOrdersCount) * 100)
@@ -212,11 +213,11 @@ export function DailySummary() {
 
   // Use statusCounts for single-store (lightweight), fall back to orders array for global view
   const pendingCount = useGlobalViewData
-    ? orders.filter(o => o.status === 'pending' && !o.confirmedByWhatsApp).length
+    ? orders.filter(o => isPending(o.status) && !o.confirmedByWhatsApp).length
     : (statusCounts['pending'] || 0);
 
   const inPreparationCount = useGlobalViewData
-    ? orders.filter(o => o.status === 'in_preparation').length
+    ? orders.filter(o => isInPreparation(o.status)).length
     : (statusCounts['in_preparation'] || 0);
 
   // Obtener el label correcto basado en el período seleccionado

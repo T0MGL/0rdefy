@@ -199,6 +199,45 @@ export function isDispatchedStatus(
   return status === 'cancelled' && !!shippedAt;
 }
 
+// Per-status helpers. Mirror api/utils/order-status.ts so server math and
+// client filters always agree. Always prefer these over inline ===
+// comparisons; legacy VARCHAR forms get normalized at the boundary.
+export const isPending = (s: string | null | undefined): boolean => s === 'pending';
+export const isConfirmed = (s: string | null | undefined): boolean => s === 'confirmed';
+export const isInPreparation = (s: string | null | undefined): boolean =>
+  s === 'in_preparation';
+export const isReadyToShip = (s: string | null | undefined): boolean =>
+  s === 'ready_to_ship';
+export const isStrictDelivered = (s: string | null | undefined): boolean =>
+  s === 'delivered';
+export const isSettled = (s: string | null | undefined): boolean => s === 'settled';
+export const isReturned = (s: string | null | undefined): boolean => s === 'returned';
+export const isCancelled = (s: string | null | undefined): boolean => s === 'cancelled';
+export const isRejected = (s: string | null | undefined): boolean => s === 'rejected';
+
+// Narrow "currently with the carrier" predicate. Excludes the warehouse-side
+// states (confirmed, in_preparation, ready_to_ship). Use this when the UI
+// needs to gate on "this parcel is physically out for delivery". Pre-148c
+// the canonical state was 'shipped'; post-148c it's 'in_transit'. Both
+// VARCHARs are accepted so the migration window keeps working.
+const STRICT_IN_TRANSIT_SET = new Set(['shipped', 'in_transit']);
+export const isStrictInTransit = (s: string | null | undefined): boolean =>
+  !!s && STRICT_IN_TRANSIT_SET.has(s);
+
+const FAILED_DELIVERY_SET = new Set(['delivery_failed', 'not_delivered', 'returned']);
+export const isFailedDelivery = (s: string | null | undefined): boolean =>
+  !!s && FAILED_DELIVERY_SET.has(s);
+
+const AWAITING_CARRIER_SET = new Set(['awaiting_carrier']);
+export const isAwaitingCarrier = (s: string | null | undefined): boolean =>
+  !!s && AWAITING_CARRIER_SET.has(s);
+
+// Settlement-record status (distinct enum from order_status). pending and
+// partial both mean "still owe money to merchant".
+const ACTIVE_SETTLEMENT_SET = new Set(['pending', 'partial']);
+export const isActiveSettlement = (s: string | null | undefined): boolean =>
+  !!s && ACTIVE_SETTLEMENT_SET.has(s);
+
 /**
  * Canonical delivery rate for an order list. Mirrors API formula 3.3.
  * Returns null when no orders are dispatched (caller renders 'n/a').

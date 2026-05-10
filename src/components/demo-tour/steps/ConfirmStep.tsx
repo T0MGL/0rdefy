@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useDemoTour } from '../DemoTourProvider';
 import { useDemoData } from '../hooks/useDemoData';
 import { Button } from '@/components/ui/button';
+import { isConfirmed as isConfirmedStatus } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import {
   CheckCircle,
@@ -34,7 +35,7 @@ export function ConfirmStep({ onComplete }: ConfirmStepProps) {
   const { nextStep, demoData } = useDemoTour();
   const { confirmDemoOrder } = useDemoData();
   const [isConfirming, setIsConfirming] = useState(false);
-  const [isConfirmed, setIsConfirmed] = useState(demoData.order?.status === 'confirmed');
+  const [isConfirmed, setIsConfirmed] = useState(isConfirmedStatus(demoData.order?.status));
 
   const handleConfirm = async () => {
     if (isConfirmed) {

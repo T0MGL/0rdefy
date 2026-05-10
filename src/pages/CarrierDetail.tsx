@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { carriersService, CarrierReview, CarrierReviewStats, RatingDistribution } from '@/services/carriers.service';
 import { ordersService } from '@/services/orders.service';
-import { deliveryRatePct, isDeliveredStatus } from '@/lib/status';
+import { deliveryRatePct, isDeliveredStatus, isStrictDelivered } from '@/lib/status';
 import { formatCurrency } from '@/utils/currency';
 import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -199,7 +199,7 @@ export default function CarrierDetail() {
     //    Let's stick to: Status = Delivered AND COD Amount > 0.
 
     let relevantOrders = orders.filter(o =>
-      o.status === 'delivered' &&
+      isStrictDelivered(o.status) &&
       (o.cod_amount || 0) > 0
     );
 

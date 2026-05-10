@@ -2,6 +2,7 @@ import { Notification, NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES
 import type { Order, Product, Ad } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
 import { isOlderThan, getHoursDifference, formatTimeAgo, getNow } from './timeUtils';
+import { isConfirmed, isPending, isReadyToShip } from '@/lib/status';
 import { logger } from '@/utils/logger';
 
 interface NotificationEngineData {
@@ -120,7 +121,7 @@ export function generateNotifications(
       // Critical: Orders pending >48h - These need URGENT attention
       const criticalPending = orders.filter(o => {
         try {
-          return o.status === 'pending' && isOlderThan(o.date, 48);
+          return isPending(o.status) && isOlderThan(o.date, 48);
         } catch {
           return false;
         }
@@ -168,7 +169,7 @@ export function generateNotifications(
       const warningPending = orders.filter(o => {
         try {
           return (
-            o.status === 'pending' &&
+            isPending(o.status) &&
             isOlderThan(o.date, preferences.pendingOrderHoursThreshold) &&
             !isOlderThan(o.date, 48)
           );
@@ -197,6 +198,7 @@ export function generateNotifications(
 
       // Medium priority: Orders awaiting carrier assignment (separate confirmation flow)
       // These are sales confirmed by confirmadores but need carrier assignment by admin
+      // 'awaiting_carrier' is a legacy pre-148c VARCHAR; explicit literal kept.
       const awaitingCarrier = orders.filter(o => {
         try {
           return o.status === 'awaiting_carrier';
@@ -233,7 +235,7 @@ export function generateNotifications(
 
         const tomorrowDeliveries = orders.filter(o => {
           try {
-            if (o.status !== 'confirmed' && o.status !== 'ready_to_ship') return false;
+            if (!isConfirmed(o.status) && !isReadyToShip(o.status)) return false;
             if (!o.delivery_date) return false;
             const deliveryDate = new Date(o.delivery_date);
             if (isNaN(deliveryDate.getTime())) return false;

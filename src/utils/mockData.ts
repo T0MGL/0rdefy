@@ -1,4 +1,5 @@
 import { DashboardOverview, Order, Product, Ad, AdditionalValue, Integration, Supplier, ChartData } from '@/types';
+import { isPending } from '@/lib/status';
 
 export const dashboardOverview: DashboardOverview = {
   totalOrders: 1234,
@@ -196,14 +197,14 @@ export const chartData: ChartData[] = [
 export function calculateConfirmationMetrics() {
   const totalOrders = orders.length;
   const confirmedOrders = orders.filter(o => o.confirmedByWhatsApp).length;
-  const pendingOrders = orders.filter(o => o.status === 'pending' && !o.confirmedByWhatsApp).length;
+  const pendingOrders = orders.filter(o => isPending(o.status) && !o.confirmedByWhatsApp).length;
   
   const today = new Date().toDateString();
   const todayConfirmed = orders.filter(
     o => o.confirmedByWhatsApp && new Date(o.date).toDateString() === today
   ).length;
   const todayPending = orders.filter(
-    o => o.status === 'pending' && !o.confirmedByWhatsApp && new Date(o.date).toDateString() === today
+    o => isPending(o.status) && !o.confirmedByWhatsApp && new Date(o.date).toDateString() === today
   ).length;
   
   return {

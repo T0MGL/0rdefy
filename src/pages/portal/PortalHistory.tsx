@@ -20,6 +20,7 @@ import {
 } from '@/services/portal.service';
 import { OrderCard } from '@/components/portal/OrderCard';
 import { EmptyState } from '@/components/portal/EmptyState';
+import { isCancelled, isReturned, isStrictDelivered } from '@/lib/status';
 import {
   Select,
   SelectContent,
@@ -47,12 +48,13 @@ const PAGE_SIZE = 30;
 
 function matchesFilter(order: PortalOrder, f: StatusFilter): boolean {
   if (f === 'all') return true;
-  if (f === 'delivered') return order.sleeves_status === 'delivered';
-  if (f === 'returned') return order.sleeves_status === 'returned';
+  if (f === 'delivered') return isStrictDelivered(order.sleeves_status);
+  if (f === 'returned') return isReturned(order.sleeves_status);
+  // 'incident' is a legacy pre-148c VARCHAR; explicit literal kept.
   if (f === 'incident') return order.sleeves_status === 'incident';
   if (f === 'failed') {
     return (
-      order.sleeves_status === 'cancelled' ||
+      isCancelled(order.sleeves_status) ||
       order.delivery_status === 'failed'
     );
   }

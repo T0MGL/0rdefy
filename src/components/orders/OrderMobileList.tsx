@@ -49,6 +49,13 @@ import {
   isCarrierQuickChangeEligible,
 } from '@/components/orders/CarrierQuickChangePopover';
 import { cn } from '@/lib/utils';
+import {
+  isCancelled,
+  isConfirmed,
+  isPending,
+  isReadyToShip,
+  isStrictDelivered,
+} from '@/lib/status';
 import { formatCurrency } from '@/utils/currency';
 import type { Order } from '@/types';
 
@@ -214,7 +221,7 @@ const OrderMobileCard = memo(function OrderMobileCard({
 
   const carrierEditable = canEditOrders && isCarrierQuickChangeEligible(order);
   const showAwaitingCarrierBadge =
-    !order.is_pickup && order.status === 'confirmed' && !order.carrier_id;
+    !order.is_pickup && isConfirmed(order.status) && !order.carrier_id;
 
   const handleCardClick = useCallback(() => {
     if (isDeleted) return;
@@ -448,7 +455,7 @@ const OrderMobileCard = memo(function OrderMobileCard({
             ) : null}
 
             {/* Delivery rating (only for delivered orders that got rated) */}
-            {status === 'delivered' && order.delivery_rating && (
+            {isStrictDelivered(status) && order.delivery_rating && (
               <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 h-5 rounded-md bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-300/60 dark:border-amber-800">
                 <Star size={10} className="fill-amber-500 text-amber-500" aria-hidden="true" />
                 {order.delivery_rating}/5
@@ -508,13 +515,14 @@ function NextStepRow({
   const status = order.status as string;
 
   // Status that have no inline next-step on desktop -> render nothing on mobile.
+  // 'contacted', 'awaiting_carrier', 'incident' are legacy pre-148c VARCHARs.
   const hasInlineCTA =
-    status === 'pending' ||
+    isPending(status) ||
     status === 'contacted' ||
     status === 'awaiting_carrier' ||
-    (status === 'confirmed' && hasWarehouseFeature) ||
-    (status === 'ready_to_ship' && hasWarehouseFeature) ||
-    status === 'cancelled' ||
+    (isConfirmed(status) && hasWarehouseFeature) ||
+    (isReadyToShip(status) && hasWarehouseFeature) ||
+    isCancelled(status) ||
     status === 'incident';
 
   if (!hasInlineCTA) return null;
@@ -524,7 +532,7 @@ function NextStepRow({
       className="mt-2 pt-2 border-t border-border/60 flex items-center gap-2"
       onClick={stop}
     >
-      {status === 'pending' && (
+      {isPending(status) && (
         <>
           <Button
             size="sm"
@@ -635,7 +643,7 @@ function NextStepRow({
         </>
       )}
 
-      {status === 'confirmed' && hasWarehouseFeature && (
+      {isConfirmed(status) && hasWarehouseFeature && (
         <Button
           size="sm"
           variant="outline"
@@ -650,7 +658,7 @@ function NextStepRow({
         </Button>
       )}
 
-      {status === 'ready_to_ship' && hasWarehouseFeature && (
+      {isReadyToShip(status) && hasWarehouseFeature && (
         <Button
           size="sm"
           variant="outline"
@@ -665,7 +673,7 @@ function NextStepRow({
         </Button>
       )}
 
-      {status === 'cancelled' && (
+      {isCancelled(status) && (
         <Button
           size="sm"
           variant="outline"

@@ -1,5 +1,6 @@
 import { Alert, Order, DashboardOverview } from '@/types';
 import type { Carrier } from '@/services/carriers.service';
+import { isPending } from '@/lib/status';
 
 interface AlertEngineData {
   orders: Order[];
@@ -113,7 +114,7 @@ export function generateAlerts(data: AlertEngineData): Alert[] {
   const now = new Date();
   const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
   const veryOldPending = orders.filter(o => {
-    if (o.status !== 'pending') return false;
+    if (!isPending(o.status)) return false;
     const orderDate = new Date(o.date);
     return orderDate < fortyEightHoursAgo;
   });

@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { MetricCard } from '@/components/MetricCard';
 import { formatCurrency } from '@/utils/currency';
 import { analyticsService, ReturnsMetrics } from '@/services/analytics.service';
+import { isStrictDelivered, isStrictInTransit } from '@/lib/status';
 import { logger } from '@/utils/logger';
 import {
   Select,
@@ -591,12 +592,12 @@ export default function Returns() {
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="font-semibold">#{order.order_number}</h3>
                       <Badge variant={
-                        order.status === 'delivered' ? 'default' :
-                        order.status === 'shipped' ? 'secondary' :
+                        isStrictDelivered(order.status) ? 'default' :
+                        isStrictInTransit(order.status) ? 'secondary' :
                         'destructive'
                       }>
-                        {order.status === 'delivered' ? 'Entregado' :
-                         order.status === 'shipped' ? 'Enviado' :
+                        {isStrictDelivered(order.status) ? 'Entregado' :
+                         isStrictInTransit(order.status) ? 'Enviado' :
                          'Cancelado'}
                       </Badge>
                       {isInActiveSession && (

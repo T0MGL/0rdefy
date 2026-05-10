@@ -16,6 +16,16 @@ import { FirstTimeWelcomeBanner } from '@/components/FirstTimeTooltip';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FilterChips } from '@/components/FilterChips';
 import { ProductMultiSelect } from '@/components/ProductMultiSelect';
+import {
+  isCancelled,
+  isConfirmed,
+  isInPreparation,
+  isPending,
+  isReadyToShip,
+  isReturned,
+  isStrictDelivered,
+  isStrictInTransit,
+} from '@/lib/status';
 import { ordersService } from '@/services/orders.service';
 import { productsService } from '@/services/products.service';
 import { invoicingService } from '@/services/invoicing.service';
@@ -940,7 +950,7 @@ export default function Orders() {
     let shouldProceed = false;
     setOrders(prev => {
       const orderToUpdate = prev.find(o => o.id === orderId);
-      if (!orderToUpdate || orderToUpdate.status !== 'pending') {
+      if (!orderToUpdate || !isPending(orderToUpdate.status)) {
         // Just open WhatsApp if not pending - don't modify state
         return prev;
       }
@@ -1412,7 +1422,9 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
     const isTest = order?.is_test === true;
 
     // Non-test orders that are shipped/in_transit should wait
-    if (!isTest && order && (order.status === 'shipped' || order.status === 'in_transit')) {
+    // Strict in-transit: only the two carrier-handoff states. Excludes
+    // confirmed/in_preparation/ready_to_ship which are still in the warehouse.
+    if (!isTest && order && isStrictInTransit(order.status)) {
       toast({
         title: '❌ No se puede eliminar',
         description: 'Los pedidos despachados no pueden ser eliminados. Espere a que se marquen como entregados o devueltos.',
@@ -1898,7 +1910,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
       // Only auto-transition orders currently at 'confirmed' to in_preparation.
       // Orders already past confirmed (in_preparation, ready_to_ship, in_transit, etc.)
       // are reprints: status must not go backwards.
-      const confirmedOnlyIds = printableOrders.filter(o => o.status === 'confirmed').map(o => o.id);
+      const confirmedOnlyIds = printableOrders.filter(o => isConfirmed(o.status)).map(o => o.id);
 
       let statusResult: Awaited<ReturnType<typeof ordersService.bulkStatusChange>> | null = null;
       if (confirmedOnlyIds.length > 0) {
@@ -2855,7 +2867,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             <Store size={12} />
                             Retiro en local
                           </span>
-                        ) : order.status === 'confirmed' && !order.carrier_id ? (
+                        ) : isConfirmed(order.status) && !order.carrier_id ? (
                           <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                             <AlertTriangle size={12} />
                             Necesita repartidor
@@ -2873,7 +2885,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                       <td className="py-4 px-6">
                         {/* Siguiente Paso - Acción principal + dropdown para secundarias */}
                         <div className="flex items-center justify-center gap-1">
-                        {order.status === 'pending' && (
+                        {isPending(order.status) && (
                           <>
                             <TooltipProvider>
                               <Tooltip>
@@ -2921,6 +2933,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             </DropdownMenu>
                           </>
                         )}
+                        {/* contacted is a legacy pre-148c VARCHAR; explicit literal kept */}
                         {order.status === 'contacted' && (
                           <>
                             <Button
@@ -2960,6 +2973,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             </DropdownMenu>
                           </>
                         )}
+                        {/* awaiting_carrier is a legacy pre-148c VARCHAR; explicit literal kept */}
                         {order.status === 'awaiting_carrier' && (
                           <>
                             {(userRole === 'owner' || userRole === 'admin') ? (
@@ -3001,7 +3015,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             )}
                           </>
                         )}
-                        {order.status === 'confirmed' && hasWarehouseFeature && (
+                        {isConfirmed(order.status) && hasWarehouseFeature && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -3012,19 +3026,19 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             Preparar
                           </Button>
                         )}
-                        {order.status === 'confirmed' && !hasWarehouseFeature && (
+                        {isConfirmed(order.status) && !hasWarehouseFeature && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                             <CheckCircle size={14} className="mr-1" />
                             Confirmado
                           </Badge>
                         )}
-                        {order.status === 'in_preparation' && (
+                        {isInPreparation(order.status) && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                             <PackageOpen size={14} className="mr-1" />
                             En Preparación
                           </Badge>
                         )}
-                        {order.status === 'ready_to_ship' && hasWarehouseFeature && (
+                        {isReadyToShip(order.status) && hasWarehouseFeature && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -3035,19 +3049,19 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             Despachar
                           </Button>
                         )}
-                        {order.status === 'ready_to_ship' && !hasWarehouseFeature && (
+                        {isReadyToShip(order.status) && !hasWarehouseFeature && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                             <Package size={14} className="mr-1" />
                             Preparado
                           </Badge>
                         )}
-                        {(order.status === 'shipped' || order.status === 'in_transit') && (
+                        {isStrictInTransit(order.status) && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                             <Truck size={14} className="mr-1" />
                             En Camino
                           </Badge>
                         )}
-                        {order.status === 'delivered' && (
+                        {isStrictDelivered(order.status) && (
                           <>
                             <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                               <CheckCircle size={14} className="mr-1" />
@@ -3103,13 +3117,13 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             )}
                           </>
                         )}
-                        {order.status === 'returned' && (
+                        {isReturned(order.status) && (
                           <Badge variant="outline" className={`${statusColors[order.status]} font-medium`}>
                             <RotateCcw size={14} className="mr-1" />
                             Devuelto
                           </Badge>
                         )}
-                        {order.status === 'cancelled' && (
+                        {isCancelled(order.status) && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -3120,6 +3134,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                             Reactivar
                           </Button>
                         )}
+                        {/* incident is a legacy pre-148c VARCHAR; explicit literal kept */}
                         {order.status === 'incident' && (
                           <Button
                             size="sm"
@@ -3225,7 +3240,7 @@ Tu pedido sigue reservado, pero necesitamos tu confirmación para enviarlo 📦
                               </DropdownMenuItem>
 
                               {/* Quick Prepare - solo para confirmed */}
-                              {order.status === 'confirmed' && !isDeleted && (
+                              {isConfirmed(order.status) && !isDeleted && (
                                 <DropdownMenuItem
                                   onClick={() => handleQuickPrepare(order.id)}
                                   className="text-blue-600 dark:text-blue-400"

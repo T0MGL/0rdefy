@@ -34,6 +34,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isCancelled, isReturned, isStrictDelivered } from '@/lib/status';
 import { formatCurrency } from '@/utils/currency';
 import {
   portalService,
@@ -509,9 +510,10 @@ function ActionButton({
 }
 
 function labelForTerminal(status: string): string {
-  if (status === 'delivered') return 'entregada';
-  if (status === 'returned') return 'devuelta';
-  if (status === 'cancelled') return 'cancelada';
+  if (isStrictDelivered(status)) return 'entregada';
+  if (isReturned(status)) return 'devuelta';
+  if (isCancelled(status)) return 'cancelada';
+  // 'incident' is a legacy pre-148c VARCHAR; explicit literal kept.
   if (status === 'incident') return 'con incidencia';
   return status;
 }

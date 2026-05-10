@@ -3,6 +3,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { analyticsService, LogisticsMetrics, IncidentsMetrics } from '@/services/analytics.service';
+import { isPending, isStrictDelivered } from '@/lib/status';
 import { codMetricsService } from '@/services/cod-metrics.service';
 import { ordersService } from '@/services/orders.service';
 import { InfoTooltip } from '@/components/InfoTooltip';
@@ -149,9 +150,9 @@ export default function DashboardLogistics() {
 
         // Calculate metrics from orders
         const totalOrders = orders.length;
-        const deliveredOrders = orders.filter((o: any) => o.status === 'delivered').length;
+        const deliveredOrders = orders.filter((o: any) => isStrictDelivered(o.status)).length;
         const confirmedOrders = orders.filter((o: any) => ['confirmed', 'in_preparation', 'ready_to_ship', 'shipped', 'delivered'].includes(o.status)).length;
-        const pendingOrders = orders.filter((o: any) => o.status === 'pending').length;
+        const pendingOrders = orders.filter((o: any) => isPending(o.status)).length;
         const shippedOrders = orders.filter((o: any) => ['shipped', 'delivered'].includes(o.status)).length;
         const deliveryRate = shippedOrders > 0 ? Math.round((deliveredOrders / shippedOrders) * 100) : 0;
         const confirmationRate = totalOrders > 0 ? Math.round((confirmedOrders / totalOrders) * 100) : 0;
