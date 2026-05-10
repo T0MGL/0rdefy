@@ -636,7 +636,15 @@ export default function Orders() {
 
     if (!appendedNewOrder) return;
 
-    playNewOrderSoundRef.current();
+    // Audible alerts only fire for external orders (Shopify, webhooks, integrations).
+    // Manual orders keyed in by a coworker should be silent. The shopify webhook does
+    // not stamp orders.source today, so they fall back to the DB default 'manual';
+    // we treat any record with a shopify_order_id as external regardless of source.
+    const isExternalOrder = record.source !== 'manual' || !!record.shopify_order_id;
+
+    if (isExternalOrder) {
+      playNewOrderSoundRef.current();
+    }
 
     if (!filters.status && !filters.carrier_id && !filters.search) {
       toastRef.current({
@@ -646,7 +654,8 @@ export default function Orders() {
     }
 
     if (
-      typeof window !== 'undefined'
+      isExternalOrder
+      && typeof window !== 'undefined'
       && 'Notification' in window
       && Notification.permission === 'granted'
       && document.visibilityState === 'hidden'
