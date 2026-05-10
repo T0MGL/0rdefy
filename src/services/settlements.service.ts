@@ -779,6 +779,12 @@ export interface CarrierPayment {
   notes: string | null;
   payment_date: string;
   created_at: string;
+  // Coverage range derived from the linked settlements (Migration 182).
+  // Min/max of the delivery dates the payment effectively covers. Backend
+  // computes this from settlement_ids; legacy settlements have min == max
+  // == settlement_date.
+  coverage_min_delivery_date?: string | null;
+  coverage_max_delivery_date?: string | null;
 }
 
 // ================================================================

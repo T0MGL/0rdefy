@@ -8,13 +8,26 @@ import {
   Truck,
   AlertTriangle,
   Loader2,
+  Calendar,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatCurrency } from '@/utils/currency';
 
 interface ReconciliationSummaryProps {
   carrierName: string;
+  /**
+   * Display label for the settlement header. For legacy single-day
+   * settlements this is the dispatch/delivery date. For carrier-grouped
+   * settlements (Migration 182) pass `coveredRangeLabel` instead and
+   * leave this empty.
+   */
   dispatchDate: string;
+  /**
+   * Optional pre-formatted range string ("4/5 al 9/5"). When provided,
+   * overrides `dispatchDate` for display purposes and renders a small
+   * "Cubre" sub-line for clarity.
+   */
+  coveredRangeLabel?: string;
   totalDispatched: number;
   totalDelivered: number;
   totalNotDelivered: number;
@@ -33,6 +46,7 @@ interface ReconciliationSummaryProps {
 export function ReconciliationSummary({
   carrierName,
   dispatchDate,
+  coveredRangeLabel,
   totalDispatched,
   totalDelivered,
   totalNotDelivered,
@@ -60,7 +74,13 @@ export function ReconciliationSummary({
           </div>
           <div>
             <h2 className="font-bold text-lg">{carrierName}</h2>
-            <p className="text-sm text-muted-foreground">{dispatchDate}</p>
+            <p className="text-sm text-muted-foreground">{coveredRangeLabel || dispatchDate}</p>
+            {coveredRangeLabel && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                <Calendar className="h-3 w-3" />
+                Cubre: {coveredRangeLabel}
+              </p>
+            )}
           </div>
         </div>
         <Badge variant="outline" className="text-sm">

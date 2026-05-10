@@ -1,16 +1,21 @@
 /**
- * PendingReconciliationView - Delivery-Based Reconciliation
+ * PendingReconciliationView - Carrier-Based Reconciliation (Migration 182)
  *
- * Simplified reconciliation workflow that groups by DELIVERY DATE
- * instead of dispatch date. This makes it easier for users to
- * reconcile all deliveries from a specific day.
+ * Replaces the legacy by-(delivery_date, carrier) grouping. In practice the
+ * courier rinde the WHOLE pending backlog when they come by, not one day at
+ * a time. Fecha de entrega becomes per-row metadata, not a grouping axis.
  *
  * Flow:
- * 1. View list of dates with pending deliveries
- * 2. Select a date/carrier combination
- * 3. Mark orders as delivered/not delivered
- * 4. Enter amount collected
- * 5. Confirm and create settlement
+ *   1. Selection: one card per carrier with non-zero backlog. Sorted by
+ *      urgency (days_oldest desc). Click a card -> reconciliation step.
+ *   2. Reconciliation: ALL pending orders for that carrier in one table,
+ *      with `Fecha entrega` as a sortable column (default ASC, oldest first).
+ *   3. Confirm: financial summary shows the date range the settlement covers.
+ *   4. Payment: register cash flow (unchanged vs legacy).
+ *   5. Complete: success state mentions the LIQ code AND the covered range.
+ *
+ * Robustness preserved from legacy: AbortController on `loadOrders`, draft
+ * persistence with 24h TTL, optimistic-free server-of-truth posting.
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -40,7 +45,6 @@ import {
 } from '@/components/ui/table';
 import {
   Loader2,
-  Calendar,
   Truck,
   CheckCircle2,
   XCircle,
@@ -54,6 +58,9 @@ import {
   Save,
   Trash2,
   Download,
+  Calendar,
+  Clock,
+  ArrowUpDown,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
@@ -70,16 +77,21 @@ const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
-
+// ============================================================
 // Types
-interface DeliveryDateGroup {
-  delivery_date: string;
+// ============================================================
+
+interface CarrierReconciliationGroup {
+  store_id: string;
   carrier_id: string;
   carrier_name: string;
   failed_attempt_fee_percent: number;
   total_orders: number;
   total_cod: number;
   total_prepaid: number;
+  oldest_delivery_date: string;
+  newest_delivery_date: string;
+  days_oldest: number;
 }
 
 interface PendingOrder {
@@ -96,45 +108,45 @@ interface PendingOrder {
   is_cod: boolean;
   delivered_at: string;
   carrier_fee: number;
-  fee_source: 'coverage' | 'zone' | 'default';
+  fee_source: 'coverage' | 'coverage_zone' | 'zone' | 'default';
   normalized_city: string;
 }
 
-/** Get display label for prepaid method */
+/** Friendly label for the prepaid payment method (or 'Prepago' fallback). */
 function getPrepaidMethodLabel(paymentMethod: string, prepaidMethod: string | null): string {
-  // If COD was marked as prepaid, use prepaid_method
   if (prepaidMethod) {
-    const method = prepaidMethod.toLowerCase().trim();
-    if (method === 'transfer' || method === 'transferencia') return 'Transferencia';
-    if (method === 'qr') return 'QR';
-    if (method === 'card' || method === 'tarjeta') return 'Tarjeta';
+    const m = prepaidMethod.toLowerCase().trim();
+    if (m === 'transfer' || m === 'transferencia') return 'Transferencia';
+    if (m === 'qr') return 'QR';
+    if (m === 'card' || m === 'tarjeta') return 'Tarjeta';
     return prepaidMethod.charAt(0).toUpperCase() + prepaidMethod.slice(1);
   }
-  // Otherwise use payment_method
-  const normalized = (paymentMethod || '').toLowerCase().trim();
-  if (normalized === 'transferencia' || normalized === 'transfer') return 'Transferencia';
-  if (normalized === 'qr') return 'QR';
-  if (normalized === 'tarjeta' || normalized === 'card') return 'Tarjeta';
-  if (normalized === 'online') return 'Online';
-  if (normalized === 'paypal') return 'PayPal';
-  if (normalized === 'stripe') return 'Stripe';
-  if (normalized === 'mercadopago') return 'MercadoPago';
+  const n = (paymentMethod || '').toLowerCase().trim();
+  if (n === 'transferencia' || n === 'transfer') return 'Transferencia';
+  if (n === 'qr') return 'QR';
+  if (n === 'tarjeta' || n === 'card') return 'Tarjeta';
+  if (n === 'online') return 'Online';
+  if (n === 'paypal') return 'PayPal';
+  if (n === 'stripe') return 'Stripe';
+  if (n === 'mercadopago') return 'MercadoPago';
   return 'Prepago';
 }
 
 interface OrderReconciliation {
   delivered: boolean;
   failure_reason?: string;
-  override_prepaid?: boolean; // Override COD to prepaid during reconciliation
+  override_prepaid?: boolean;
 }
 
 type WorkflowStep = 'selection' | 'reconciliation' | 'confirm' | 'payment' | 'complete';
-
 type PaymentOption = 'paid_by_carrier' | 'paid_to_carrier' | 'deducted_from_cod' | 'pending';
 
 interface ReconciliationResult {
   settlement_id: string;
   settlement_code: string;
+  settlement_date: string;
+  min_delivery_date: string;
+  max_delivery_date: string;
   total_orders: number;
   total_delivered: number;
   total_not_delivered: number;
@@ -145,7 +157,10 @@ interface ReconciliationResult {
   net_receivable: number;
 }
 
-// Draft persistence utilities (24h expiry)
+// ============================================================
+// Draft persistence (24h TTL, key scoped by store + carrier)
+// ============================================================
+
 const DRAFT_PREFIX = 'ordefy_reconciliation_draft_';
 const DRAFT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
@@ -156,32 +171,34 @@ interface ReconciliationDraft {
   savedAt: number;
 }
 
-function getDraftKey(date: string, carrierId: string) {
+function getDraftKey(carrierId: string) {
+  // Key is now scoped to (storeId, carrierId). Legacy keys with a date
+  // segment will simply expire on their own 24h TTL.
   const storeId = localStorage.getItem('current_store_id') || 'default';
-  return `${DRAFT_PREFIX}${storeId}_${date}_${carrierId}`;
+  return `${DRAFT_PREFIX}${storeId}_${carrierId}`;
 }
 
-function saveDraft(date: string, carrierId: string, draft: ReconciliationDraft) {
+function saveDraft(carrierId: string, draft: ReconciliationDraft) {
   try {
-    localStorage.setItem(getDraftKey(date, carrierId), JSON.stringify(draft));
+    localStorage.setItem(getDraftKey(carrierId), JSON.stringify(draft));
   } catch { /* quota exceeded - ignore */ }
 }
 
-function loadDraft(date: string, carrierId: string): ReconciliationDraft | null {
+function loadDraft(carrierId: string): ReconciliationDraft | null {
   try {
-    const raw = localStorage.getItem(getDraftKey(date, carrierId));
+    const raw = localStorage.getItem(getDraftKey(carrierId));
     if (!raw) return null;
     const draft: ReconciliationDraft = JSON.parse(raw);
     if (Date.now() - draft.savedAt > DRAFT_EXPIRY_MS) {
-      localStorage.removeItem(getDraftKey(date, carrierId));
+      localStorage.removeItem(getDraftKey(carrierId));
       return null;
     }
     return draft;
   } catch { return null; }
 }
 
-function clearDraft(date: string, carrierId: string) {
-  localStorage.removeItem(getDraftKey(date, carrierId));
+function clearDraft(carrierId: string) {
+  localStorage.removeItem(getDraftKey(carrierId));
 }
 
 const FAILURE_REASONS = [
@@ -194,24 +211,82 @@ const FAILURE_REASONS = [
   { value: 'other', label: 'Otro' },
 ];
 
+// ============================================================
+// Date helpers (locale-aware, defensive against bad ISO strings)
+// ============================================================
+
+function fmtDayMonth(iso: string): string {
+  try {
+    return format(parseISO(iso), 'd MMM', { locale: es });
+  } catch {
+    return iso;
+  }
+}
+
+function fmtFullDate(iso: string): string {
+  try {
+    return format(parseISO(iso), "d 'de' MMMM yyyy", { locale: es });
+  } catch {
+    return iso;
+  }
+}
+
+function fmtDateOnly(iso: string): string {
+  try {
+    return format(parseISO(iso), 'dd/MM', { locale: es });
+  } catch {
+    return iso;
+  }
+}
+
+/** Pick the badge tone for age-since-oldest. */
+function ageBadgeVariant(days: number): {
+  variant: 'secondary' | 'default' | 'destructive';
+  className: string;
+} {
+  if (days > 7) {
+    return {
+      variant: 'destructive',
+      className: '',
+    };
+  }
+  if (days >= 3) {
+    return {
+      variant: 'default',
+      className: 'bg-amber-500 hover:bg-amber-600 text-white border-transparent',
+    };
+  }
+  return {
+    variant: 'secondary',
+    className: '',
+  };
+}
+
+// ============================================================
+// Component
+// ============================================================
+
 export function PendingReconciliationView() {
   const { toast } = useToast();
 
-  // State
+  // Steps + data
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [groups, setGroups] = useState<DeliveryDateGroup[]>([]);
+  const [groups, setGroups] = useState<CarrierReconciliationGroup[]>([]);
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('selection');
-  const [selectedGroup, setSelectedGroup] = useState<DeliveryDateGroup | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<CarrierReconciliationGroup | null>(null);
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortDeliveredAtAsc, setSortDeliveredAtAsc] = useState(true);
 
   // Reconciliation state
-  const [reconciliationState, setReconciliationState] = useState<Map<string, OrderReconciliation>>(new Map());
+  const [reconciliationState, setReconciliationState] = useState<Map<string, OrderReconciliation>>(
+    new Map()
+  );
   const [totalAmountCollected, setTotalAmountCollected] = useState<number | null>(null);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
 
-  // Abort controller for cancelling stale order fetches on group switch
+  // Cancel stale order fetches on group switch
   const loadOrdersAbortRef = useRef<AbortController | null>(null);
 
   // Draft state
@@ -224,21 +299,23 @@ export function PendingReconciliationView() {
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentProcessing, setPaymentProcessing] = useState(false);
 
-  // Load pending reconciliation groups
+  // ----------------------------------------------------------
+  // Fetchers
+  // ----------------------------------------------------------
+
   const loadGroups = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/settlements/pending-reconciliation`, {
-        headers: getAuthHeaders(),
-      });
-
+      const response = await fetch(
+        `${API_BASE}/api/settlements/pending-reconciliation-by-carrier`,
+        { headers: getAuthHeaders() }
+      );
       if (!response.ok) {
         throw new Error('Error al cargar las conciliaciones pendientes');
       }
-
       const result = await response.json();
-      setGroups(result.data || []);
-    } catch (error: any) {
+      setGroups((result.data || []) as CarrierReconciliationGroup[]);
+    } catch (error) {
       logger.error('[PendingReconciliation] Error loading groups:', error);
       toast({
         title: 'Error',
@@ -250,76 +327,72 @@ export function PendingReconciliationView() {
     }
   }, [toast]);
 
-  // Load orders for a specific date/carrier
-  const loadOrders = useCallback(async (deliveryDate: string, carrierId: string) => {
-    // Cancel any in-flight request to prevent stale data from overwriting current state
-    if (loadOrdersAbortRef.current) {
-      loadOrdersAbortRef.current.abort();
-    }
-    const abortController = new AbortController();
-    loadOrdersAbortRef.current = abortController;
-
-    setLoading(true);
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/settlements/pending-reconciliation/${deliveryDate}/${carrierId}`,
-        { headers: getAuthHeaders(), signal: abortController.signal }
-      );
-
-      if (!response.ok) {
-        throw new Error('Error al cargar los pedidos');
+  const loadOrders = useCallback(
+    async (carrierId: string) => {
+      // Cancel any in-flight request to prevent stale data from overwriting state.
+      if (loadOrdersAbortRef.current) {
+        loadOrdersAbortRef.current.abort();
       }
+      const abortController = new AbortController();
+      loadOrdersAbortRef.current = abortController;
 
-      // If this request was aborted while awaiting json(), bail out
-      if (abortController.signal.aborted) return;
+      setLoading(true);
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/settlements/pending-reconciliation-by-carrier/${carrierId}`,
+          { headers: getAuthHeaders(), signal: abortController.signal }
+        );
+        if (!response.ok) {
+          throw new Error('Error al cargar los pedidos');
+        }
+        if (abortController.signal.aborted) return;
 
-      const result = await response.json();
-      const ordersData = result.data || [];
-      setOrders(ordersData);
+        const result = await response.json();
+        const ordersData = (result.data || []) as PendingOrder[];
+        setOrders(ordersData);
 
-      // Initialize reconciliation state - all delivered by default
-      const initialState = new Map<string, OrderReconciliation>();
-      ordersData.forEach((order: PendingOrder) => {
-        initialState.set(order.id, { delivered: true });
-      });
-
-      // Restore draft if available
-      const draft = loadDraft(deliveryDate, carrierId);
-      if (draft) {
-        const restoredState = new Map<string, OrderReconciliation>();
-        Object.entries(draft.reconciliationState).forEach(([k, v]) => {
-          if (initialState.has(k)) restoredState.set(k, v);
+        // Initialize reconciliation state: all delivered by default.
+        const initialState = new Map<string, OrderReconciliation>();
+        ordersData.forEach(order => {
+          initialState.set(order.id, { delivered: true });
         });
-        // Only restore if we matched at least some orders
-        if (restoredState.size > 0) {
-          // Fill any new orders not in draft with defaults
-          initialState.forEach((v, k) => { if (!restoredState.has(k)) restoredState.set(k, v); });
-          setReconciliationState(restoredState);
-          setTotalAmountCollected(draft.totalAmountCollected);
-          setDiscrepancyNotes(draft.discrepancyNotes);
-          setHasDraft(true);
+
+        // Restore draft if compatible.
+        const draft = loadDraft(carrierId);
+        if (draft) {
+          const restoredState = new Map<string, OrderReconciliation>();
+          Object.entries(draft.reconciliationState).forEach(([k, v]) => {
+            if (initialState.has(k)) restoredState.set(k, v);
+          });
+          if (restoredState.size > 0) {
+            initialState.forEach((v, k) => {
+              if (!restoredState.has(k)) restoredState.set(k, v);
+            });
+            setReconciliationState(restoredState);
+            setTotalAmountCollected(draft.totalAmountCollected);
+            setDiscrepancyNotes(draft.discrepancyNotes);
+            setHasDraft(true);
+          } else {
+            setReconciliationState(initialState);
+          }
         } else {
           setReconciliationState(initialState);
         }
-      } else {
-        setReconciliationState(initialState);
+      } catch (error: unknown) {
+        const e = error as { name?: string };
+        if (e?.name === 'AbortError') return;
+        logger.error('[PendingReconciliation] Error loading orders:', error);
+        toast({
+          title: 'Error',
+          description: 'No se pudieron cargar los pedidos',
+          variant: 'destructive',
+        });
+      } finally {
+        if (!abortController.signal.aborted) setLoading(false);
       }
-    } catch (error: any) {
-      // Don't show error toast for aborted requests (user switched groups)
-      if (error.name === 'AbortError') return;
-      logger.error('[PendingReconciliation] Error loading orders:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron cargar los pedidos',
-        variant: 'destructive',
-      });
-    } finally {
-      // Only clear loading if this is still the active request
-      if (!abortController.signal.aborted) {
-        setLoading(false);
-      }
-    }
-  }, [toast]);
+    },
+    [toast]
+  );
 
   // Initial load
   useEffect(() => {
@@ -330,7 +403,6 @@ export function PendingReconciliationView() {
   useEffect(() => {
     if (!selectedGroup || currentStep !== 'reconciliation' || orders.length === 0) return;
 
-    // Skip saving if all values are defaults (no user changes)
     const hasCustomState = Array.from(reconciliationState.values()).some(
       s => !s.delivered || s.failure_reason || s.override_prepaid
     );
@@ -341,8 +413,10 @@ export function PendingReconciliationView() {
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     draftSaveTimerRef.current = setTimeout(() => {
       const stateObj: Record<string, OrderReconciliation> = {};
-      reconciliationState.forEach((v, k) => { stateObj[k] = v; });
-      saveDraft(selectedGroup.delivery_date, selectedGroup.carrier_id, {
+      reconciliationState.forEach((v, k) => {
+        stateObj[k] = v;
+      });
+      saveDraft(selectedGroup.carrier_id, {
         reconciliationState: stateObj,
         totalAmountCollected,
         discrepancyNotes,
@@ -351,36 +425,35 @@ export function PendingReconciliationView() {
       setHasDraft(true);
     }, 500);
 
-    return () => { if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current); };
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
   }, [reconciliationState, totalAmountCollected, discrepancyNotes, selectedGroup, currentStep, orders.length]);
 
-  // Group by date for visual hierarchy
-  const groupedByDate = useMemo(() => {
-    const dateMap = new Map<string, DeliveryDateGroup[]>();
+  // ----------------------------------------------------------
+  // Derived state
+  // ----------------------------------------------------------
 
-    groups.forEach(group => {
-      const existing = dateMap.get(group.delivery_date) || [];
-      existing.push(group);
-      dateMap.set(group.delivery_date, existing);
+  // Filtered + sorted orders for the reconciliation table.
+  const visibleOrders = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const base = term
+      ? orders.filter(o =>
+          o.display_order_number.toLowerCase().includes(term) ||
+          o.customer_name.toLowerCase().includes(term) ||
+          o.customer_phone.includes(term)
+        )
+      : orders;
+
+    const sorted = [...base].sort((a, b) => {
+      const da = a.delivered_at ? new Date(a.delivered_at).getTime() : 0;
+      const db = b.delivered_at ? new Date(b.delivered_at).getTime() : 0;
+      return sortDeliveredAtAsc ? da - db : db - da;
     });
+    return sorted;
+  }, [orders, searchTerm, sortDeliveredAtAsc]);
 
-    return Array.from(dateMap.entries()).sort((a, b) =>
-      new Date(b[0]).getTime() - new Date(a[0]).getTime()
-    );
-  }, [groups]);
-
-  // Filtered orders
-  const filteredOrders = useMemo(() => {
-    if (!searchTerm) return orders;
-    const term = searchTerm.toLowerCase();
-    return orders.filter(order =>
-      order.display_order_number.toLowerCase().includes(term) ||
-      order.customer_name.toLowerCase().includes(term) ||
-      order.customer_phone.includes(term)
-    );
-  }, [orders, searchTerm]);
-
-  // Calculate stats
+  // Aggregate stats from reconciliation state.
   const stats = useMemo(() => {
     let delivered = 0;
     let notDelivered = 0;
@@ -395,7 +468,6 @@ export function PendingReconciliationView() {
       const state = reconciliationState.get(order.id);
       const isDelivered = state?.delivered ?? true;
       const fee = order.carrier_fee || 0;
-      // Allow user to override COD to prepaid during reconciliation
       const effectiveIsCod = state?.override_prepaid ? false : order.is_cod;
 
       if (isDelivered) {
@@ -410,106 +482,107 @@ export function PendingReconciliationView() {
       } else {
         notDelivered++;
         notDeliveredCarrierFees += fee;
-        if (!state?.failure_reason) {
-          missingReasons++;
-        }
+        if (!state?.failure_reason) missingReasons++;
       }
     });
 
-    return { delivered, notDelivered, codExpected, prepaidCount, prepaidValue, missingReasons, total: orders.length, deliveredCarrierFees, notDeliveredCarrierFees };
+    return {
+      delivered,
+      notDelivered,
+      codExpected,
+      prepaidCount,
+      prepaidValue,
+      missingReasons,
+      total: orders.length,
+      deliveredCarrierFees,
+      notDeliveredCarrierFees,
+    };
   }, [orders, reconciliationState]);
 
-  // Calculate financial summary using real per-order carrier fees from backend
+  // Financial summary
   const financialSummary = useMemo(() => {
     if (!selectedGroup) return null;
-
     const failedFeePercent = (selectedGroup.failed_attempt_fee_percent ?? 50) / 100;
-
     const totalCarrierFees = stats.deliveredCarrierFees;
     const failedAttemptFees = stats.notDeliveredCarrierFees * failedFeePercent;
     const codCollected = totalAmountCollected || 0;
-    // Net the courier still owes the store:
-    //   COD they collected from customers (codExpected)
-    //   minus their delivery fees (carrier + failed attempt)
-    //   minus cash they already handed over (codCollected).
-    // Positive = courier still owes store. Negative = store overpaid courier.
+    // Positive = courier still owes the store. Negative = store overpaid.
     const netReceivable = stats.codExpected - totalCarrierFees - failedAttemptFees - codCollected;
-
     const discrepancy = codCollected - stats.codExpected;
     const hasDiscrepancy = Math.abs(discrepancy) > 0.01;
-
-    return {
-      totalCarrierFees,
-      failedAttemptFees,
-      codCollected,
-      netReceivable,
-      discrepancy,
-      hasDiscrepancy,
-    };
+    return { totalCarrierFees, failedAttemptFees, codCollected, netReceivable, discrepancy, hasDiscrepancy };
   }, [selectedGroup, stats, totalAmountCollected]);
 
-  // Handle group selection
-  const handleSelectGroup = (group: DeliveryDateGroup) => {
+  // The covered date range as a human string ("4/5 -> 9/5"). Falls back to
+  // a single date when the range collapses to one day.
+  const coveredRangeLabel = useMemo(() => {
+    if (!selectedGroup) return '';
+    const oldest = selectedGroup.oldest_delivery_date;
+    const newest = selectedGroup.newest_delivery_date;
+    if (!oldest || !newest) return '';
+    if (oldest === newest) return fmtFullDate(oldest);
+    return `${fmtFullDate(oldest)} a ${fmtFullDate(newest)}`;
+  }, [selectedGroup]);
+
+  // ----------------------------------------------------------
+  // Handlers
+  // ----------------------------------------------------------
+
+  const handleSelectGroup = (group: CarrierReconciliationGroup) => {
     setSelectedGroup(group);
     setCurrentStep('reconciliation');
-    loadOrders(group.delivery_date, group.carrier_id);
+    setSortDeliveredAtAsc(true);
+    void loadOrders(group.carrier_id);
   };
 
-  // Handle toggle delivered
   const handleToggleDelivered = (orderId: string, delivered: boolean) => {
     setReconciliationState(prev => {
-      const newState = new Map(prev);
-      const current = newState.get(orderId) || { delivered: true };
-      newState.set(orderId, { ...current, delivered });
-      return newState;
+      const next = new Map(prev);
+      const cur = next.get(orderId) || { delivered: true };
+      next.set(orderId, { ...cur, delivered });
+      return next;
     });
   };
 
-  // Handle failure reason
   const handleSetFailureReason = (orderId: string, reason: string) => {
     setReconciliationState(prev => {
-      const newState = new Map(prev);
-      const current = newState.get(orderId) || { delivered: false };
-      newState.set(orderId, { ...current, failure_reason: reason });
-      return newState;
+      const next = new Map(prev);
+      const cur = next.get(orderId) || { delivered: false };
+      next.set(orderId, { ...cur, failure_reason: reason });
+      return next;
     });
   };
 
-  // Handle toggle all
   const handleToggleAll = (delivered: boolean) => {
     setReconciliationState(prev => {
-      const newState = new Map(prev);
+      const next = new Map(prev);
       orders.forEach(order => {
-        const current = newState.get(order.id) || { delivered: true };
-        newState.set(order.id, { ...current, delivered });
+        const cur = next.get(order.id) || { delivered: true };
+        next.set(order.id, { ...cur, delivered });
       });
-      return newState;
+      return next;
     });
   };
 
-  // Process reconciliation
   const handleProcessReconciliation = async () => {
     if (!selectedGroup || totalAmountCollected === null) return;
-
     setProcessing(true);
     try {
       const ordersData = orders.map(order => {
-        const state = reconciliationState.get(order.id);
+        const s = reconciliationState.get(order.id);
         return {
           order_id: order.id,
-          delivered: state?.delivered ?? true,
-          failure_reason: state?.failure_reason,
-          // Override: if user marked COD order as "Ya pagó", treat as prepaid for calculation
-          override_prepaid: state?.override_prepaid ?? false,
+          delivered: s?.delivered ?? true,
+          failure_reason: s?.failure_reason,
+          override_prepaid: s?.override_prepaid ?? false,
         };
       });
 
-      const response = await fetch(`${API_BASE}/api/settlements/reconcile-delivery`, {
+      const response = await fetch(`${API_BASE}/api/settlements/reconcile-by-carrier`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           carrier_id: selectedGroup.carrier_id,
-          delivery_date: selectedGroup.delivery_date,
           orders: ordersData,
           total_amount_collected: totalAmountCollected,
           discrepancy_notes: discrepancyNotes || null,
@@ -519,54 +592,55 @@ export function PendingReconciliationView() {
       if (!response.ok) {
         let errorMessage = 'Error al procesar la conciliacion';
         try {
-          const error = await response.json();
-          errorMessage = error.error || errorMessage;
+          const err = await response.json();
+          errorMessage = err.error || errorMessage;
         } catch {
-          // Response wasn't JSON
-          if (response.status === 401) {
-            errorMessage = 'Sesion expirada. Por favor, recarga la pagina.';
-          } else if (response.status === 500) {
-            errorMessage = 'Error del servidor. Intenta nuevamente.';
-          }
+          if (response.status === 401) errorMessage = 'Sesion expirada. Recarga la pagina.';
+          else if (response.status === 500) errorMessage = 'Error del servidor. Intenta nuevamente.';
         }
         throw new Error(errorMessage);
       }
 
       const result = await response.json();
 
-      // Show warnings if any (non-blocking issues like failed carrier movement creation)
       if (result.warnings?.length > 0) {
         toast({
           title: 'Advertencia',
-          description: result.warnings.join(' '),
+          description: (result.warnings as string[]).join(' '),
         });
       }
 
-      // Clear draft on successful reconciliation
-      if (selectedGroup) {
-        clearDraft(selectedGroup.delivery_date, selectedGroup.carrier_id);
-        setHasDraft(false);
-      }
+      clearDraft(selectedGroup.carrier_id);
+      setHasDraft(false);
 
-      // Save the result for payment step
-      setReconciliationResult(result.data);
+      const data = result.data as ReconciliationResult;
+      setReconciliationResult(data);
 
-      // If net_receivable is 0, skip payment step
-      if (Math.abs(result.data.net_receivable) < 1) {
+      // Toast with the covered range so the user sees what got included.
+      const rangeStr =
+        data.min_delivery_date === data.max_delivery_date
+          ? fmtFullDate(data.min_delivery_date)
+          : `${fmtDateOnly(data.min_delivery_date)} a ${fmtDateOnly(data.max_delivery_date)}`;
+
+      if (Math.abs(data.net_receivable) < 1) {
         toast({
           title: 'Conciliacion completada',
-          description: `Liquidacion ${result.data.settlement_code} creada. Balance en cero.`,
+          description: `${data.settlement_code} creada. Cubre ${rangeStr}. Balance en cero.`,
         });
         setCurrentStep('complete');
       } else {
-        // Go to payment step to determine how the balance was settled
+        toast({
+          title: 'Conciliacion lista',
+          description: `${data.settlement_code} cubre ${rangeStr}. ${data.total_delivered} entregados, ${data.total_not_delivered} fallidos.`,
+        });
         setCurrentStep('payment');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const e = error as { message?: string };
       logger.error('[PendingReconciliation] Error processing:', error);
       toast({
         title: 'Error',
-        description: error.message || 'No se pudo procesar la conciliacion',
+        description: e?.message || 'No se pudo procesar la conciliacion',
         variant: 'destructive',
       });
     } finally {
@@ -574,15 +648,13 @@ export function PendingReconciliationView() {
     }
   };
 
-  // Handle payment registration
   const handleRegisterPayment = async () => {
     if (!reconciliationResult || !selectedPaymentOption) return;
 
-    // If pending, settlement already exists in DB with status 'pending' — no API call needed
     if (selectedPaymentOption === 'pending') {
       toast({
         title: 'Liquidacion guardada',
-        description: `${reconciliationResult.settlement_code} creada exitosamente. Registra el pago desde la pestana "Pagos" cuando se concrete.`,
+        description: `${reconciliationResult.settlement_code} creada. Registra el pago desde "Pagos" cuando se concrete.`,
       });
       setCurrentStep('complete');
       return;
@@ -593,7 +665,6 @@ export function PendingReconciliationView() {
       const netReceivable = reconciliationResult.net_receivable;
       const amount = Math.abs(netReceivable);
 
-      // Determine payment direction and method based on selection
       let direction: 'from_carrier' | 'to_carrier';
       let method: string;
 
@@ -604,12 +675,11 @@ export function PendingReconciliationView() {
         direction = 'to_carrier';
         method = 'bank_transfer';
       } else {
-        // deducted_from_cod - courier already deducted, so it's effectively a payment
+        // deducted_from_cod
         direction = netReceivable > 0 ? 'from_carrier' : 'to_carrier';
         method = 'deduction';
       }
 
-      // Call the settlement payment API
       const response = await fetch(
         `${API_BASE}/api/settlements/v2/${reconciliationResult.settlement_id}/pay`,
         {
@@ -618,17 +688,20 @@ export function PendingReconciliationView() {
           body: JSON.stringify({
             amount,
             method,
-            reference: paymentReference || `${direction === 'from_carrier' ? 'Pago recibido' : 'Pago enviado'} - ${reconciliationResult.settlement_code}`,
-            notes: selectedPaymentOption === 'deducted_from_cod'
-              ? 'Descontado del COD por el courier'
-              : null,
+            reference:
+              paymentReference ||
+              `${direction === 'from_carrier' ? 'Pago recibido' : 'Pago enviado'} - ${reconciliationResult.settlement_code}`,
+            notes:
+              selectedPaymentOption === 'deducted_from_cod'
+                ? 'Descontado del COD por el courier'
+                : null,
           }),
         }
       );
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Error al registrar el pago');
+        const err = await response.json().catch(() => ({ error: 'Error al registrar el pago' }));
+        throw new Error(err.error || 'Error al registrar el pago');
       }
 
       toast({
@@ -637,11 +710,12 @@ export function PendingReconciliationView() {
       });
 
       setCurrentStep('complete');
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const e = error as { message?: string };
       logger.error('[PendingReconciliation] Error registering payment:', error);
       toast({
         title: 'Error',
-        description: error.message || 'No se pudo registrar el pago',
+        description: e?.message || 'No se pudo registrar el pago',
         variant: 'destructive',
       });
     } finally {
@@ -649,71 +723,73 @@ export function PendingReconciliationView() {
     }
   };
 
-  // Discard the current draft
   const handleDiscardDraft = () => {
     if (!selectedGroup) return;
-    clearDraft(selectedGroup.delivery_date, selectedGroup.carrier_id);
+    clearDraft(selectedGroup.carrier_id);
     setHasDraft(false);
-    // Reset reconciliation to defaults
     const initialState = new Map<string, OrderReconciliation>();
-    orders.forEach(order => { initialState.set(order.id, { delivered: true }); });
+    orders.forEach(order => initialState.set(order.id, { delivered: true }));
     setReconciliationState(initialState);
     setTotalAmountCollected(null);
     setDiscrepancyNotes('');
   };
 
-  // Reset and go back
+  const resetSelectionState = () => {
+    setSelectedGroup(null);
+    setOrders([]);
+    setReconciliationState(new Map());
+    setTotalAmountCollected(null);
+    setDiscrepancyNotes('');
+    setSearchTerm('');
+    setHasDraft(false);
+  };
+
   const handleBack = () => {
     if (currentStep === 'reconciliation') {
       setCurrentStep('selection');
-      setSelectedGroup(null);
-      setOrders([]);
-      setReconciliationState(new Map());
-      setTotalAmountCollected(null);
-      setDiscrepancyNotes('');
-      setSearchTerm('');
-      setHasDraft(false);
+      resetSelectionState();
     } else if (currentStep === 'confirm') {
       setCurrentStep('reconciliation');
     } else if (currentStep === 'payment') {
-      // Can't go back from payment - reconciliation already done
-      // Just complete without payment
+      // Can't go back from payment - reconciliation already done. Skip to complete.
       setCurrentStep('complete');
     } else if (currentStep === 'complete') {
       setCurrentStep('selection');
-      setSelectedGroup(null);
-      setOrders([]);
-      setReconciliationState(new Map());
-      setTotalAmountCollected(null);
-      setDiscrepancyNotes('');
-      setSearchTerm('');
+      resetSelectionState();
       setReconciliationResult(null);
       setSelectedPaymentOption(null);
       setPaymentReference('');
-      setHasDraft(false);
-      loadGroups();
+      void loadGroups();
     }
   };
 
-  // Can proceed to confirm
-  const canProceed = stats.missingReasons === 0 && totalAmountCollected !== null && totalAmountCollected >= 0;
+  // Confirm button gating + reason
+  const canProceed =
+    stats.missingReasons === 0 && totalAmountCollected !== null && totalAmountCollected >= 0;
 
-  // Reason the confirm button is blocked (shown to user to avoid the
-  // "boton deshabilitado sin explicacion" trap).
   const blockingReason = (() => {
     if (stats.missingReasons > 0) {
-      return `Falta indicar el motivo en ${stats.missingReasons} pedido${stats.missingReasons === 1 ? '' : 's'} no entregado${stats.missingReasons === 1 ? '' : 's'}.`;
+      return `Falta indicar el motivo en ${stats.missingReasons} pedido${
+        stats.missingReasons === 1 ? '' : 's'
+      } no entregado${stats.missingReasons === 1 ? '' : 's'}.`;
     }
-    if (totalAmountCollected === null) {
-      return 'Ingresa el monto total cobrado por el courier.';
-    }
-    if (totalAmountCollected < 0) {
-      return 'El monto cobrado no puede ser negativo.';
-    }
+    if (totalAmountCollected === null) return 'Ingresa el monto total cobrado por el courier.';
+    if (totalAmountCollected < 0) return 'El monto cobrado no puede ser negativo.';
     return null;
   })();
 
-  // Render selection view
+  // Aggregate totals shown on the selection summary cards.
+  const summaryTotals = useMemo(() => {
+    const carriers = groups.length;
+    const totalOrders = groups.reduce((s, g) => s + g.total_orders, 0);
+    const totalCod = groups.reduce((s, g) => s + g.total_cod, 0);
+    return { carriers, totalOrders, totalCod };
+  }, [groups]);
+
+  // ----------------------------------------------------------
+  // Renderers
+  // ----------------------------------------------------------
+
   const renderSelection = () => (
     <div className="space-y-6">
       {/* Header */}
@@ -721,7 +797,7 @@ export function PendingReconciliationView() {
         <div>
           <h2 className="text-lg font-semibold">Pendientes de Conciliar</h2>
           <p className="text-sm text-muted-foreground">
-            Selecciona una fecha y transportadora para conciliar
+            Una fila por courier con todo el backlog acumulado. Mas viejos primero.
           </p>
         </div>
         <Button variant="outline" onClick={loadGroups} disabled={loading}>
@@ -734,14 +810,12 @@ export function PendingReconciliationView() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Fechas Pendientes</CardTitle>
-            <Calendar className="h-4 w-4 text-blue-600" />
+            <CardTitle className="text-sm font-medium">Couriers Pendientes</CardTitle>
+            <Truck className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{groupedByDate.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Con entregas sin conciliar
-            </p>
+            <div className="text-2xl font-bold">{summaryTotals.carriers}</div>
+            <p className="text-xs text-muted-foreground">Con backlog sin conciliar</p>
           </CardContent>
         </Card>
 
@@ -751,12 +825,8 @@ export function PendingReconciliationView() {
             <Package className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {groups.reduce((sum, g) => sum + g.total_orders, 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Esperando conciliacion
-            </p>
+            <div className="text-2xl font-bold">{summaryTotals.totalOrders}</div>
+            <p className="text-xs text-muted-foreground">Esperando conciliacion</p>
           </CardContent>
         </Card>
 
@@ -766,98 +836,110 @@ export function PendingReconciliationView() {
             <DollarSign className="h-4 w-4 text-amber-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(groups.reduce((sum, g) => sum + g.total_cod, 0))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Por cobrar
-            </p>
+            <div className="text-2xl font-bold">{formatCurrency(summaryTotals.totalCod)}</div>
+            <p className="text-xs text-muted-foreground">Por cobrar al cliente</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Date Groups */}
+      {/* Carrier cards */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : groupedByDate.length === 0 ? (
+      ) : groups.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <CheckCircle2 className="h-12 w-12 text-green-500 mb-4" />
             <h3 className="text-lg font-medium">Todo conciliado</h3>
             <p className="text-muted-foreground text-center mt-2">
-              No hay entregas pendientes de conciliar
+              No hay couriers con entregas pendientes de conciliar
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-6">
-          {groupedByDate.map(([date, dateGroups]) => (
-            <div key={date} className="space-y-3">
-              {/* Date Header */}
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <h3 className="font-semibold capitalize">
-                  {format(parseISO(date), "EEEE d 'de' MMMM yyyy", { locale: es })}
-                </h3>
-              </div>
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {groups.map(group => {
+            const ageStyle = ageBadgeVariant(group.days_oldest);
+            const isCritical = group.days_oldest > 7;
+            return (
+              <Card
+                key={group.carrier_id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Conciliar ${group.carrier_name}, ${group.total_orders} pedidos`}
+                className="cursor-pointer hover:border-primary transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                onClick={() => handleSelectGroup(group)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleSelectGroup(group);
+                  }
+                }}
+              >
+                <CardContent className="p-4 space-y-3">
+                  {/* Header row */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Truck className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <span className="font-medium truncate">{group.carrier_name}</span>
+                    </div>
+                    <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  </div>
 
-              {/* Carrier Cards for this date */}
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {dateGroups.map(group => (
-                  <Card
-                    key={`${group.carrier_id}_${group.delivery_date}`}
-                    className="cursor-pointer hover:border-primary transition-colors"
-                    onClick={() => handleSelectGroup(group)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <Truck className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium">{group.carrier_name}</span>
-                          </div>
-                          <div className="text-2xl font-bold">
-                            {group.total_orders} pedidos
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            COD: {formatCurrency(group.total_cod)}
-                            {group.total_prepaid > 0 && (
-                              <span className="ml-2">
-                                + {group.total_prepaid} prepago
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          ))}
+                  {/* Body: totals */}
+                  <div>
+                    <div className="text-2xl font-bold">{group.total_orders} pedidos</div>
+                    <div className="text-sm text-muted-foreground space-x-2">
+                      <span>COD: {formatCurrency(group.total_cod)}</span>
+                      {group.total_prepaid > 0 && (
+                        <span>{group.total_prepaid} prepago</span>
+                      )}
+                      <span className="text-xs">
+                        Fee fallido {group.failed_attempt_fee_percent}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Footer: oldest age */}
+                  <div className="flex items-center justify-between pt-1 border-t">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5" />
+                      <span>
+                        Mas viejo hace {group.days_oldest}{' '}
+                        {group.days_oldest === 1 ? 'dia' : 'dias'}
+                      </span>
+                    </div>
+                    <Badge
+                      variant={ageStyle.variant}
+                      className={`text-xs gap-1 ${ageStyle.className}`}
+                    >
+                      {isCritical && <AlertTriangle className="h-3 w-3" />}
+                      {fmtDayMonth(group.oldest_delivery_date)}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
   );
 
-  // Render reconciliation view
   const renderReconciliation = () => {
     if (!selectedGroup) return null;
-
     return (
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={handleBack}>
+          <Button variant="ghost" size="icon" onClick={handleBack} aria-label="Volver">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold">
-                {selectedGroup.carrier_name} - {format(parseISO(selectedGroup.delivery_date), "d 'de' MMMM", { locale: es })}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg font-semibold truncate">
+                Conciliando con {selectedGroup.carrier_name}
               </h2>
               {hasDraft && (
                 <Badge variant="secondary" className="gap-1 text-xs">
@@ -866,11 +948,16 @@ export function PendingReconciliationView() {
               )}
             </div>
             <p className="text-sm text-muted-foreground">
-              {orders.length} pedidos entregados
+              {orders.length} pedidos · {coveredRangeLabel}
             </p>
           </div>
           {hasDraft && (
-            <Button variant="ghost" size="sm" className="text-muted-foreground gap-1" onClick={handleDiscardDraft}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground gap-1"
+              onClick={handleDiscardDraft}
+            >
               <Trash2 className="h-3.5 w-3.5" /> Descartar
             </Button>
           )}
@@ -878,15 +965,22 @@ export function PendingReconciliationView() {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() =>
-              generateReconciliationPDF({
+            onClick={() => {
+              if (!selectedGroup) return;
+              // Reuse the existing PDF renderer. It expects a `deliveryDate`
+              // string, so we pass the oldest covered date - the PDF can
+              // still display a single header date; per-row dates already
+              // appear in the body table.
+              void generateReconciliationPDF({
                 carrierName: selectedGroup.carrier_name,
-                deliveryDate: selectedGroup.delivery_date,
+                deliveryDate: selectedGroup.oldest_delivery_date,
                 orders,
                 reconciliationState,
                 totalAmountCollected,
-              })
-            }
+                minDeliveryDate: selectedGroup.oldest_delivery_date,
+                maxDeliveryDate: selectedGroup.newest_delivery_date,
+              });
+            }}
           >
             <Download className="h-3.5 w-3.5" />
             Descargar
@@ -894,7 +988,7 @@ export function PendingReconciliationView() {
         </div>
 
         {/* Stats Bar */}
-        <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+        <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg flex-wrap">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-green-600" />
             <span className="text-sm font-medium">{stats.delivered} entregados</span>
@@ -911,20 +1005,16 @@ export function PendingReconciliationView() {
               {stats.codExpected > 0 && stats.prepaidCount > 0
                 ? `COD: ${formatCurrency(stats.codExpected)} · ${stats.prepaidCount} prepago`
                 : stats.codExpected > 0
-                  ? `COD: ${formatCurrency(stats.codExpected)}`
-                  : stats.prepaidCount > 0
-                    ? `${stats.prepaidCount} prepago`
-                    : 'Sin monto a cobrar'
-              }
+                ? `COD: ${formatCurrency(stats.codExpected)}`
+                : stats.prepaidCount > 0
+                ? `${stats.prepaidCount} prepago`
+                : 'Sin monto a cobrar'}
             </span>
           </div>
-
           {stats.missingReasons > 0 && (
             <>
               <Separator orientation="vertical" className="h-4" />
-              <Badge variant="destructive">
-                {stats.missingReasons} sin motivo
-              </Badge>
+              <Badge variant="destructive">{stats.missingReasons} sin motivo</Badge>
             </>
           )}
         </div>
@@ -935,7 +1025,7 @@ export function PendingReconciliationView() {
           <Input
             placeholder="Buscar por numero, cliente o telefono..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={e => setSearchTerm(e.target.value)}
             className="pl-9"
           />
         </div>
@@ -948,12 +1038,25 @@ export function PendingReconciliationView() {
                 <TableRow>
                   <TableHead className="w-12">
                     <Checkbox
-                      checked={stats.delivered === orders.length}
-                      onCheckedChange={(checked) => handleToggleAll(!!checked)}
+                      checked={stats.delivered === orders.length && orders.length > 0}
+                      onCheckedChange={checked => handleToggleAll(!!checked)}
+                      aria-label="Marcar todos como entregados"
                     />
                   </TableHead>
                   <TableHead>Pedido</TableHead>
                   <TableHead>Cliente</TableHead>
+                  <TableHead>
+                    <button
+                      type="button"
+                      onClick={() => setSortDeliveredAtAsc(s => !s)}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                      aria-label="Ordenar por fecha de entrega"
+                    >
+                      <Calendar className="h-3.5 w-3.5" />
+                      Fecha entrega
+                      <ArrowUpDown className="h-3 w-3" />
+                    </button>
+                  </TableHead>
                   <TableHead className="hidden md:table-cell">Ciudad</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
                   <TableHead className="text-right hidden sm:table-cell">Tarifa</TableHead>
@@ -963,27 +1066,32 @@ export function PendingReconciliationView() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                     </TableCell>
                   </TableRow>
-                ) : filteredOrders.length === 0 ? (
+                ) : visibleOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No se encontraron pedidos
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredOrders.map(order => {
+                  visibleOrders.map(order => {
                     const state = reconciliationState.get(order.id);
                     const isDelivered = state?.delivered ?? true;
-
                     return (
-                      <TableRow key={order.id} className={!isDelivered ? 'bg-red-50 dark:bg-red-950/20' : ''}>
+                      <TableRow
+                        key={order.id}
+                        className={!isDelivered ? 'bg-red-50 dark:bg-red-950/20' : ''}
+                      >
                         <TableCell>
                           <Checkbox
                             checked={isDelivered}
-                            onCheckedChange={(checked) => handleToggleDelivered(order.id, !!checked)}
+                            onCheckedChange={checked =>
+                              handleToggleDelivered(order.id, !!checked)
+                            }
+                            aria-label={`Marcar ${order.display_order_number}`}
                           />
                         </TableCell>
                         <TableCell>
@@ -997,23 +1105,37 @@ export function PendingReconciliationView() {
                             <p className="text-xs text-muted-foreground">{order.customer_phone}</p>
                           </div>
                         </TableCell>
+                        <TableCell>
+                          <span className="text-sm font-mono">
+                            {fmtDateOnly(order.delivered_at)}
+                          </span>
+                        </TableCell>
                         <TableCell className="hidden md:table-cell">
                           <span className="text-sm">{order.customer_city}</span>
                         </TableCell>
                         <TableCell className="text-right">
                           {order.is_cod ? (
                             <div className="flex items-center justify-end gap-2">
-                              <span className={`font-semibold ${state?.override_prepaid ? 'line-through text-muted-foreground' : 'text-green-600'}`}>
+                              <span
+                                className={`font-semibold ${
+                                  state?.override_prepaid
+                                    ? 'line-through text-muted-foreground'
+                                    : 'text-green-600'
+                                }`}
+                              >
                                 {formatCurrency(order.cod_amount)}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => {
                                   setReconciliationState(prev => {
-                                    const newState = new Map(prev);
-                                    const current = newState.get(order.id) || { delivered: true };
-                                    newState.set(order.id, { ...current, override_prepaid: !current.override_prepaid });
-                                    return newState;
+                                    const next = new Map(prev);
+                                    const cur = next.get(order.id) || { delivered: true };
+                                    next.set(order.id, {
+                                      ...cur,
+                                      override_prepaid: !cur.override_prepaid,
+                                    });
+                                    return next;
                                   });
                                 }}
                                 className={`text-xs px-2 py-0.5 rounded border ${
@@ -1021,9 +1143,13 @@ export function PendingReconciliationView() {
                                     ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300'
                                     : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
                                 }`}
-                                title={state?.override_prepaid ? 'Click para marcar como COD' : 'Click si el cliente ya pagó por transferencia/QR'}
+                                title={
+                                  state?.override_prepaid
+                                    ? 'Click para marcar como COD'
+                                    : 'Click si el cliente ya pagó por transferencia/QR'
+                                }
                               >
-                                {state?.override_prepaid ? '✓ Pagó' : 'Ya pagó?'}
+                                {state?.override_prepaid ? 'Pagado' : '¿Ya pagó?'}
                               </button>
                             </div>
                           ) : (
@@ -1033,7 +1159,10 @@ export function PendingReconciliationView() {
                           )}
                         </TableCell>
                         <TableCell className="text-right hidden sm:table-cell">
-                          <span className="text-sm font-mono text-muted-foreground" title={`Ciudad normalizada: "${order.normalized_city}" | Fuente: ${order.fee_source}`}>
+                          <span
+                            className="text-sm font-mono text-muted-foreground"
+                            title={`Ciudad normalizada: "${order.normalized_city}" | Fuente: ${order.fee_source}`}
+                          >
                             {formatCurrency(order.carrier_fee)}
                           </span>
                         </TableCell>
@@ -1041,7 +1170,7 @@ export function PendingReconciliationView() {
                           {!isDelivered && (
                             <Select
                               value={state?.failure_reason || ''}
-                              onValueChange={(value) => handleSetFailureReason(order.id, value)}
+                              onValueChange={value => handleSetFailureReason(order.id, value)}
                             >
                               <SelectTrigger className="h-8">
                                 <SelectValue placeholder="Seleccionar motivo..." />
@@ -1079,8 +1208,10 @@ export function PendingReconciliationView() {
                   type="number"
                   placeholder="0"
                   value={totalAmountCollected ?? ''}
-                  onChange={(e) => setTotalAmountCollected(e.target.value ? Number(e.target.value) : null)}
-                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                  onChange={e =>
+                    setTotalAmountCollected(e.target.value ? Number(e.target.value) : null)
+                  }
+                  onWheel={e => (e.target as HTMLInputElement).blur()}
                   className="mt-1 text-lg font-mono"
                 />
               </div>
@@ -1103,17 +1234,28 @@ export function PendingReconciliationView() {
             </div>
 
             {totalAmountCollected !== null && financialSummary?.hasDiscrepancy && (
-              <div className={`p-3 rounded-lg ${financialSummary.discrepancy < 0 ? 'bg-red-50 dark:bg-red-950/20' : 'bg-green-50 dark:bg-green-950/20'}`}>
+              <div
+                className={`p-3 rounded-lg ${
+                  financialSummary.discrepancy < 0
+                    ? 'bg-red-50 dark:bg-red-950/20'
+                    : 'bg-green-50 dark:bg-green-950/20'
+                }`}
+              >
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className={`h-4 w-4 ${financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'}`} />
+                  <AlertTriangle
+                    className={`h-4 w-4 ${
+                      financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'
+                    }`}
+                  />
                   <span className="text-sm font-medium">
-                    Diferencia: {financialSummary.discrepancy > 0 ? '+' : ''}{formatCurrency(financialSummary.discrepancy)}
+                    Diferencia: {financialSummary.discrepancy > 0 ? '+' : ''}
+                    {formatCurrency(financialSummary.discrepancy)}
                   </span>
                 </div>
                 <Textarea
                   placeholder="Notas sobre la diferencia..."
                   value={discrepancyNotes}
-                  onChange={(e) => setDiscrepancyNotes(e.target.value)}
+                  onChange={e => setDiscrepancyNotes(e.target.value)}
                   className="mt-2"
                   rows={2}
                 />
@@ -1126,13 +1268,14 @@ export function PendingReconciliationView() {
         {totalAmountCollected !== null && financialSummary && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                Resumen Financiero
-              </CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">Resumen Financiero</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5 pb-2 border-b">
+                <Calendar className="h-3.5 w-3.5" />
+                Cubre: {coveredRangeLabel}
+              </div>
               <div className="space-y-2 text-sm">
-                {/* Delivery counts */}
                 {stats.codExpected > 0 && (
                   <div className="flex justify-between">
                     <span>COD entregados ({stats.delivered - stats.prepaidCount})</span>
@@ -1159,7 +1302,6 @@ export function PendingReconciliationView() {
                 )}
                 <Separator />
 
-                {/* COD section - only when there are COD orders */}
                 {stats.codExpected > 0 && (
                   <>
                     <div className="flex justify-between">
@@ -1171,16 +1313,22 @@ export function PendingReconciliationView() {
                       <span>{formatCurrency(financialSummary.codCollected)}</span>
                     </div>
                     {financialSummary.hasDiscrepancy && (
-                      <div className={`flex justify-between ${financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      <div
+                        className={`flex justify-between ${
+                          financialSummary.discrepancy < 0 ? 'text-red-600' : 'text-green-600'
+                        }`}
+                      >
                         <span>Diferencia</span>
-                        <span>{financialSummary.discrepancy > 0 ? '+' : ''}{formatCurrency(financialSummary.discrepancy)}</span>
+                        <span>
+                          {financialSummary.discrepancy > 0 ? '+' : ''}
+                          {formatCurrency(financialSummary.discrepancy)}
+                        </span>
                       </div>
                     )}
                     <Separator />
                   </>
                 )}
 
-                {/* Prepaid info - informational only, already collected by store */}
                 {stats.prepaidCount > 0 && (
                   <div className="flex justify-between text-muted-foreground text-xs">
                     <span>Prepago ({stats.prepaidCount} pedidos, ya en tu cuenta)</span>
@@ -1188,26 +1336,32 @@ export function PendingReconciliationView() {
                   </div>
                 )}
 
-                {/* Carrier fees */}
                 <div className="flex justify-between text-muted-foreground">
                   <span>Tarifas entregas ({stats.delivered} pedidos)</span>
                   <span>-{formatCurrency(financialSummary.totalCarrierFees)}</span>
                 </div>
                 {stats.notDelivered > 0 && (
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Tarifas fallidos ({stats.notDelivered} x {selectedGroup?.failed_attempt_fee_percent}%)</span>
+                    <span>
+                      Tarifas fallidos ({stats.notDelivered} x {selectedGroup?.failed_attempt_fee_percent}%)
+                    </span>
                     <span>-{formatCurrency(financialSummary.failedAttemptFees)}</span>
                   </div>
                 )}
 
-                {/* Net receivable */}
                 <Separator />
-                <div className={`flex justify-between text-lg font-bold ${financialSummary.netReceivable >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div
+                  className={`flex justify-between text-lg font-bold ${
+                    financialSummary.netReceivable >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
                   <span>NETO A RECIBIR</span>
                   <span>{formatCurrency(financialSummary.netReceivable)}</span>
                 </div>
                 <p className="text-xs text-muted-foreground text-right">
-                  {financialSummary.netReceivable >= 0 ? 'El courier te debe' : 'Le debes al courier'}
+                  {financialSummary.netReceivable >= 0
+                    ? 'El courier te debe'
+                    : 'Le debes al courier'}
                 </p>
               </div>
             </CardContent>
@@ -1249,34 +1403,40 @@ export function PendingReconciliationView() {
     );
   };
 
-  // Render payment step view
   const renderPayment = () => {
     if (!reconciliationResult) return null;
-
     const netReceivable = reconciliationResult.net_receivable;
-    const isPositive = netReceivable > 0; // Courier owes us
+    const isPositive = netReceivable > 0;
+    const range =
+      reconciliationResult.min_delivery_date === reconciliationResult.max_delivery_date
+        ? fmtFullDate(reconciliationResult.min_delivery_date)
+        : `${fmtDateOnly(reconciliationResult.min_delivery_date)} a ${fmtDateOnly(
+            reconciliationResult.max_delivery_date
+          )}`;
 
     return (
       <div className="space-y-6">
-        {/* Header */}
         <div className="text-center">
           <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-4">
             <DollarSign className="h-8 w-8 text-amber-600" />
           </div>
           <h2 className="text-xl font-semibold mb-2">Registrar Pago</h2>
           <p className="text-muted-foreground">
-            Liquidacion {reconciliationResult.settlement_code} creada exitosamente
+            Liquidacion {reconciliationResult.settlement_code} creada · cubre {range}
           </p>
         </div>
 
-        {/* Balance Summary */}
         <Card>
           <CardContent className="pt-6">
             <div className="text-center space-y-2">
               <p className="text-sm text-muted-foreground">
                 {isPositive ? 'El courier te debe:' : 'Le debes al courier:'}
               </p>
-              <p className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+              <p
+                className={`text-4xl font-bold ${
+                  isPositive ? 'text-green-600' : 'text-red-600'
+                }`}
+              >
                 {formatCurrency(Math.abs(netReceivable))}
               </p>
               <p className="text-xs text-muted-foreground">
@@ -1286,136 +1446,54 @@ export function PendingReconciliationView() {
           </CardContent>
         </Card>
 
-        {/* Payment Options */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Como se resolvio este saldo?</CardTitle>
+            <CardTitle className="text-base">¿Como se resolvio este saldo?</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {isPositive ? (
-              // Courier owes us - payment options
               <>
-                <label
-                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                    selectedPaymentOption === 'paid_by_carrier'
-                      ? 'border-primary bg-primary/5'
-                      : 'hover:bg-muted/50'
-                  }`}
-                  onClick={() => setSelectedPaymentOption('paid_by_carrier')}
-                >
-                  <input
-                    type="radio"
-                    name="paymentOption"
-                    checked={selectedPaymentOption === 'paid_by_carrier'}
-                    onChange={() => setSelectedPaymentOption('paid_by_carrier')}
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="font-medium">El courier me pago</p>
-                    <p className="text-sm text-muted-foreground">
-                      Recibi el dinero en efectivo o transferencia
-                    </p>
-                  </div>
-                </label>
-
-                <label
-                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                    selectedPaymentOption === 'deducted_from_cod'
-                      ? 'border-primary bg-primary/5'
-                      : 'hover:bg-muted/50'
-                  }`}
-                  onClick={() => setSelectedPaymentOption('deducted_from_cod')}
-                >
-                  <input
-                    type="radio"
-                    name="paymentOption"
-                    checked={selectedPaymentOption === 'deducted_from_cod'}
-                    onChange={() => setSelectedPaymentOption('deducted_from_cod')}
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="font-medium">Ya fue descontado del COD</p>
-                    <p className="text-sm text-muted-foreground">
-                      El courier me entrego el monto neto (ya descontadas las tarifas)
-                    </p>
-                  </div>
-                </label>
+                <PaymentRadio
+                  selected={selectedPaymentOption === 'paid_by_carrier'}
+                  onSelect={() => setSelectedPaymentOption('paid_by_carrier')}
+                  title="El courier me pago"
+                  subtitle="Recibi el dinero en efectivo o transferencia"
+                  name="paymentOption"
+                />
+                <PaymentRadio
+                  selected={selectedPaymentOption === 'deducted_from_cod'}
+                  onSelect={() => setSelectedPaymentOption('deducted_from_cod')}
+                  title="Ya fue descontado del COD"
+                  subtitle="El courier me entrego el monto neto (ya descontadas las tarifas)"
+                  name="paymentOption"
+                />
               </>
             ) : (
-              // We owe courier - payment options
               <>
-                <label
-                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                    selectedPaymentOption === 'paid_to_carrier'
-                      ? 'border-primary bg-primary/5'
-                      : 'hover:bg-muted/50'
-                  }`}
-                  onClick={() => setSelectedPaymentOption('paid_to_carrier')}
-                >
-                  <input
-                    type="radio"
-                    name="paymentOption"
-                    checked={selectedPaymentOption === 'paid_to_carrier'}
-                    onChange={() => setSelectedPaymentOption('paid_to_carrier')}
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="font-medium">Ya pague al courier</p>
-                    <p className="text-sm text-muted-foreground">
-                      Le pague las tarifas en efectivo o transferencia
-                    </p>
-                  </div>
-                </label>
-
-                <label
-                  className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                    selectedPaymentOption === 'deducted_from_cod'
-                      ? 'border-primary bg-primary/5'
-                      : 'hover:bg-muted/50'
-                  }`}
-                  onClick={() => setSelectedPaymentOption('deducted_from_cod')}
-                >
-                  <input
-                    type="radio"
-                    name="paymentOption"
-                    checked={selectedPaymentOption === 'deducted_from_cod'}
-                    onChange={() => setSelectedPaymentOption('deducted_from_cod')}
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="font-medium">Se descontara del proximo COD</p>
-                    <p className="text-sm text-muted-foreground">
-                      El courier lo descontara de entregas futuras
-                    </p>
-                  </div>
-                </label>
+                <PaymentRadio
+                  selected={selectedPaymentOption === 'paid_to_carrier'}
+                  onSelect={() => setSelectedPaymentOption('paid_to_carrier')}
+                  title="Ya pague al courier"
+                  subtitle="Le pague las tarifas en efectivo o transferencia"
+                  name="paymentOption"
+                />
+                <PaymentRadio
+                  selected={selectedPaymentOption === 'deducted_from_cod'}
+                  onSelect={() => setSelectedPaymentOption('deducted_from_cod')}
+                  title="Se descontara del proximo COD"
+                  subtitle="El courier lo descontara de entregas futuras"
+                  name="paymentOption"
+                />
               </>
             )}
+            <PaymentRadio
+              selected={selectedPaymentOption === 'pending'}
+              onSelect={() => setSelectedPaymentOption('pending')}
+              title="Pendiente de pago"
+              subtitle='Registrar el pago mas tarde desde la pestana "Pagos"'
+              name="paymentOption"
+            />
 
-            <label
-              className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                selectedPaymentOption === 'pending'
-                  ? 'border-primary bg-primary/5'
-                  : 'hover:bg-muted/50'
-              }`}
-              onClick={() => setSelectedPaymentOption('pending')}
-            >
-              <input
-                type="radio"
-                name="paymentOption"
-                checked={selectedPaymentOption === 'pending'}
-                onChange={() => setSelectedPaymentOption('pending')}
-                className="mt-1"
-              />
-              <div>
-                <p className="font-medium">Pendiente de pago</p>
-                <p className="text-sm text-muted-foreground">
-                  Registrar el pago mas tarde desde la seccion de Cuentas
-                </p>
-              </div>
-            </label>
-
-            {/* Reference input for paid options */}
             {selectedPaymentOption && selectedPaymentOption !== 'pending' && (
               <div className="pt-3 space-y-2">
                 <Label htmlFor="paymentRef">Referencia (opcional)</Label>
@@ -1423,20 +1501,19 @@ export function PendingReconciliationView() {
                   id="paymentRef"
                   placeholder="Numero de transferencia, recibo, etc."
                   value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
+                  onChange={e => setPaymentReference(e.target.value)}
                 />
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Actions */}
         <div className="flex justify-end gap-3">
           <Button
             variant="outline"
             onClick={() => {
               setSelectedPaymentOption('pending');
-              handleRegisterPayment();
+              void handleRegisterPayment();
             }}
             disabled={paymentProcessing}
           >
@@ -1463,25 +1540,30 @@ export function PendingReconciliationView() {
     );
   };
 
-  // Render complete view
-  const renderComplete = () => (
-    <div className="flex flex-col items-center justify-center py-12">
-      <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
-        <CheckCircle2 className="h-8 w-8 text-green-600" />
+  const renderComplete = () => {
+    const range = reconciliationResult
+      ? reconciliationResult.min_delivery_date === reconciliationResult.max_delivery_date
+        ? fmtFullDate(reconciliationResult.min_delivery_date)
+        : `del ${fmtDateOnly(reconciliationResult.min_delivery_date)} al ${fmtDateOnly(
+            reconciliationResult.max_delivery_date
+          )}`
+      : '';
+    return (
+      <div className="flex flex-col items-center justify-center py-12">
+        <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+          <CheckCircle2 className="h-8 w-8 text-green-600" />
+        </div>
+        <h2 className="text-xl font-semibold mb-2">Conciliacion Completada</h2>
+        <p className="text-muted-foreground text-center max-w-md mb-6">
+          {reconciliationResult?.settlement_code
+            ? `Liquidacion ${reconciliationResult.settlement_code} procesada${range ? ` · cubre ${range}` : ''}.`
+            : 'La liquidacion ha sido creada exitosamente.'}
+          {' '}Puedes ver el detalle en la pestana de Cuentas.
+        </p>
+        <Button onClick={handleBack}>Volver al Inicio</Button>
       </div>
-      <h2 className="text-xl font-semibold mb-2">Conciliacion Completada</h2>
-      <p className="text-muted-foreground text-center max-w-md mb-6">
-        {reconciliationResult?.settlement_code
-          ? `Liquidacion ${reconciliationResult.settlement_code} procesada.`
-          : 'La liquidacion ha sido creada exitosamente.'
-        }
-        {' '}Puedes ver el detalle en la seccion de Cuentas.
-      </p>
-      <Button onClick={handleBack}>
-        Volver al Inicio
-      </Button>
-    </div>
-  );
+    );
+  };
 
   // Main render
   return (
@@ -1491,5 +1573,40 @@ export function PendingReconciliationView() {
       {currentStep === 'payment' && renderPayment()}
       {currentStep === 'complete' && renderComplete()}
     </div>
+  );
+}
+
+// ============================================================
+// Small UI helpers
+// ============================================================
+
+interface PaymentRadioProps {
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  subtitle: string;
+  name: string;
+}
+function PaymentRadio({ selected, onSelect, title, subtitle, name }: PaymentRadioProps) {
+  return (
+    <label
+      className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+        selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+      }`}
+      onClick={onSelect}
+    >
+      <input
+        type="radio"
+        name={name}
+        checked={selected}
+        onChange={onSelect}
+        className="mt-1"
+        aria-label={title}
+      />
+      <div>
+        <p className="font-medium">{title}</p>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
+      </div>
+    </label>
   );
 }

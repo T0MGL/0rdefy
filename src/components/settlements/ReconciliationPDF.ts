@@ -17,6 +17,13 @@ export interface ReconciliationPDFOrder {
   cod_amount: number;
   is_cod: boolean;
   id: string;
+  /**
+   * ISO timestamp. Optional for back-compat with legacy callers; when
+   * present, rendered as a column in the orders table so the PDF shows
+   * "Fecha entrega" per row (essential now that a single settlement can
+   * span multiple delivery dates).
+   */
+  delivered_at?: string | null;
 }
 
 export interface ReconciliationPDFState {
@@ -27,10 +34,23 @@ export interface ReconciliationPDFState {
 
 export interface ReconciliationPDFData {
   carrierName: string;
+  /**
+   * Header display date. For single-day legacy settlements this is the
+   * delivery date. For carrier-grouped settlements (Migration 182) this is
+   * the OLDEST covered date; the explicit range is shown via
+   * `minDeliveryDate` + `maxDeliveryDate` when both are provided.
+   */
   deliveryDate: string;
   orders: ReconciliationPDFOrder[];
   reconciliationState: Map<string, ReconciliationPDFState>;
   totalAmountCollected: number | null;
+  /**
+   * Optional range bounds. When both are present AND differ from
+   * `deliveryDate`, the header renders the range and the orders table
+   * groups visually by date for readability.
+   */
+  minDeliveryDate?: string;
+  maxDeliveryDate?: string;
 }
 
 // PDF amount formatter. Uses the canonical formatter so the PDF stays in
@@ -41,7 +61,15 @@ function formatGs(amount: number): string {
 }
 
 export async function generateReconciliationPDF(data: ReconciliationPDFData): Promise<void> {
-  const { carrierName, deliveryDate, orders, reconciliationState, totalAmountCollected } = data;
+  const {
+    carrierName,
+    deliveryDate,
+    orders,
+    reconciliationState,
+    totalAmountCollected,
+    minDeliveryDate,
+    maxDeliveryDate,
+  } = data;
   const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -53,7 +81,24 @@ export async function generateReconciliationPDF(data: ReconciliationPDFData): Pr
   const margin = 20;
   let y = 20;
 
-  const formattedDate = format(parseISO(deliveryDate), "d 'de' MMMM 'de' yyyy", { locale: es });
+  // If both min/max are provided AND form a real range, render that.
+  // Otherwise fall back to the single-day legacy header.
+  const hasRange =
+    Boolean(minDeliveryDate) &&
+    Boolean(maxDeliveryDate) &&
+    minDeliveryDate !== maxDeliveryDate;
+
+  const safeParse = (iso: string) => {
+    try {
+      return format(parseISO(iso), "d 'de' MMMM 'de' yyyy", { locale: es });
+    } catch {
+      return iso;
+    }
+  };
+
+  const formattedDate = hasRange
+    ? `${safeParse(minDeliveryDate as string)} - ${safeParse(maxDeliveryDate as string)}`
+    : safeParse(deliveryDate);
 
   // Calculate stats
   let totalDelivered = 0;
@@ -154,7 +199,24 @@ export async function generateReconciliationPDF(data: ReconciliationPDFData): Pr
   doc.text('DETALLE DE PEDIDOS', margin, y);
   y += 4;
 
-  const tableRows = orders.map(order => {
+  // Sort by delivered_at ASC for readability (oldest first). Within the same
+  // day the order is preserved.
+  const ordersByDate = [...orders].sort((a, b) => {
+    const da = a.delivered_at ? new Date(a.delivered_at).getTime() : 0;
+    const db = b.delivered_at ? new Date(b.delivered_at).getTime() : 0;
+    return da - db;
+  });
+
+  const formatRowDate = (iso?: string | null): string => {
+    if (!iso) return '-';
+    try {
+      return format(parseISO(iso), 'dd/MM', { locale: es });
+    } catch {
+      return iso;
+    }
+  };
+
+  const tableRows = ordersByDate.map(order => {
     const state = reconciliationState.get(order.id);
     const isDelivered = state?.delivered ?? true;
     const effectiveIsCod = state?.override_prepaid ? false : order.is_cod;
@@ -170,6 +232,7 @@ export async function generateReconciliationPDF(data: ReconciliationPDFData): Pr
         : '-';
 
     return [
+      formatRowDate(order.delivered_at),
       order.display_order_number,
       order.customer_name,
       order.customer_phone,
@@ -182,7 +245,7 @@ export async function generateReconciliationPDF(data: ReconciliationPDFData): Pr
 
   autoTable(doc, {
     startY: y,
-    head: [['# Pedido', 'Cliente', 'Telefono', 'Zona', 'Total', 'Estado', 'Cobrado']],
+    head: [['Fecha', '# Pedido', 'Cliente', 'Telefono', 'Zona', 'Total', 'Estado', 'Cobrado']],
     body: tableRows,
     theme: 'grid',
     styles: {
@@ -199,17 +262,18 @@ export async function generateReconciliationPDF(data: ReconciliationPDFData): Pr
       fillColor: [250, 250, 250],
     },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 22 },
-      1: { cellWidth: 38 },
-      2: { cellWidth: 25 },
-      3: { cellWidth: 20 },
-      4: { halign: 'right', cellWidth: 22 },
-      5: { halign: 'center', cellWidth: 22 },
-      6: { halign: 'right', cellWidth: 22 },
+      0: { halign: 'center', cellWidth: 14 },
+      1: { halign: 'center', cellWidth: 20 },
+      2: { cellWidth: 32 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 18 },
+      5: { halign: 'right', cellWidth: 20 },
+      6: { halign: 'center', cellWidth: 20 },
+      7: { halign: 'right', cellWidth: 20 },
     },
     margin: { left: margin, right: margin },
     didParseCell: (hookData) => {
-      if (hookData.section === 'body' && hookData.column.index === 5) {
+      if (hookData.section === 'body' && hookData.column.index === 6) {
         const val = String(hookData.cell.raw ?? '');
         if (val === 'No entregado') {
           hookData.cell.styles.textColor = [180, 0, 0];
@@ -260,6 +324,10 @@ export async function generateReconciliationPDF(data: ReconciliationPDFData): Pr
 
   // ==================== SAVE ====================
   const safeCarrier = carrierName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
-  const safeDate = deliveryDate.replace(/[^0-9-]/g, '');
-  doc.save(`conciliacion-${safeCarrier}-${safeDate}.pdf`);
+  // If we have a real range use min_max for the filename, else fall back
+  // to the single header date.
+  const fileDate = hasRange
+    ? `${(minDeliveryDate as string).replace(/[^0-9-]/g, '')}_${(maxDeliveryDate as string).replace(/[^0-9-]/g, '')}`
+    : deliveryDate.replace(/[^0-9-]/g, '');
+  doc.save(`conciliacion-${safeCarrier}-${fileDate}.pdf`);
 }

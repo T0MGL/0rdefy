@@ -1798,13 +1798,31 @@ export default function Settlements() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {payments.map((payment) => (
+                      {payments.map((payment) => {
+                        // Migration 182: show the delivery-date range covered
+                        // by this payment when available (joined from the
+                        // linked settlements). Collapses to a single date if
+                        // min === max (legacy single-day settlement).
+                        const covMin = payment.coverage_min_delivery_date;
+                        const covMax = payment.coverage_max_delivery_date;
+                        const coverageLabel =
+                          covMin && covMax
+                            ? covMin === covMax
+                              ? format(new Date(`${covMin}T12:00:00`), 'dd/MM/yyyy', { locale: es })
+                              : `${format(new Date(`${covMin}T12:00:00`), 'dd/MM', { locale: es })} - ${format(new Date(`${covMax}T12:00:00`), 'dd/MM/yyyy', { locale: es })}`
+                            : null;
+                        return (
                         <TableRow key={payment.id}>
                           <TableCell className="font-mono text-xs">
                             {payment.payment_code}
                           </TableCell>
                           <TableCell className="text-sm">
-                            {format(new Date(payment.payment_date), 'dd/MM/yyyy', { locale: es })}
+                            <div>{format(new Date(payment.payment_date), 'dd/MM/yyyy', { locale: es })}</div>
+                            {coverageLabel && (
+                              <div className="text-xs text-muted-foreground" title="Rango de fechas de entrega cubierto por la liquidacion">
+                                Cubre: {coverageLabel}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="font-medium">
                             {payment.carrier_name}
@@ -1827,7 +1845,8 @@ export default function Settlements() {
                             </span>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </CardContent>

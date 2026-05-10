@@ -2433,6 +2433,14 @@ export interface CarrierPaymentRecord {
   payment_date: string;
   created_at: string;
   created_by: string | null;
+  // Joined from linked settlements (Migration 182). Min/max of the
+  // delivery dates the payment effectively covers. Optional because
+  // `period_start`/`period_end` are nullable and not all callers populate
+  // them; computed inside `getCarrierPayments` from `settlement_ids`.
+  coverage_min_delivery_date?: string | null;
+  coverage_max_delivery_date?: string | null;
+  // Optional joined name (added by `getCarrierPayments` for the UI).
+  carrier_name?: string;
 }
 
 export interface CarrierBalance {
@@ -2799,11 +2807,40 @@ export async function getCarrierPayments(
     throw new Error('Error al obtener pagos de transportadora');
   }
 
+  // Enrich each payment with the covered delivery range derived from its
+  // linked settlements (Migration 182). For legacy single-day settlements
+  // (backfilled), min == max == settlement_date. For new carrier-grouped
+  // settlements, this is the real range the courier rendered.
+  const enriched = await Promise.all(
+    (data || []).map(async (p: Record<string, unknown> & { carriers?: { name?: string }; settlement_ids?: string[] | null }) => {
+      let coverageMin: string | null = null;
+      let coverageMax: string | null = null;
+      const sids = Array.isArray(p.settlement_ids) ? p.settlement_ids : [];
+      if (sids.length > 0) {
+        const { data: settlements } = await supabaseAdmin
+          .from('daily_settlements')
+          .select('min_delivery_date, max_delivery_date, settlement_date')
+          .in('id', sids);
+        if (settlements && settlements.length > 0) {
+          for (const s of settlements) {
+            const lo = s.min_delivery_date || s.settlement_date;
+            const hi = s.max_delivery_date || s.settlement_date;
+            if (lo && (!coverageMin || lo < coverageMin)) coverageMin = lo;
+            if (hi && (!coverageMax || hi > coverageMax)) coverageMax = hi;
+          }
+        }
+      }
+      return {
+        ...p,
+        carrier_name: p.carriers?.name,
+        coverage_min_delivery_date: coverageMin,
+        coverage_max_delivery_date: coverageMax,
+      };
+    })
+  );
+
   return {
-    data: (data || []).map((p: any) => ({
-      ...p,
-      carrier_name: p.carriers?.name,
-    })),
+    data: enriched as CarrierPaymentRecord[],
     count: count || 0,
   };
 }
@@ -3756,5 +3793,540 @@ async function processOrderUpdatesAndReturn(
     failed_attempt_fee: failedAttemptFee,
     net_receivable: netReceivable,
     warnings
+  };
+}
+
+// ============================================================
+// Reconciliation BY CARRIER (Migration 182)
+// ============================================================
+//
+// Replaces the by-(delivery_date, carrier) grouping with a by-(carrier)
+// grouping. In practice the courier rinde the whole pending backlog when
+// they come by, not one day at a time. The legacy variant above is kept
+// alive for back-compat with older callers but is no longer used by the
+// new UI flow.
+
+export interface CarrierReconciliationGroup {
+  store_id: string;
+  carrier_id: string;
+  carrier_name: string;
+  failed_attempt_fee_percent: number;
+  total_orders: number;
+  total_cod: number;
+  total_prepaid: number;
+  oldest_delivery_date: string;
+  newest_delivery_date: string;
+  days_oldest: number;
+}
+
+export interface ReconciliationByCarrierResult {
+  settlement_id: string;
+  settlement_code: string;
+  settlement_date: string;
+  min_delivery_date: string;
+  max_delivery_date: string;
+  total_orders: number;
+  total_delivered: number;
+  total_not_delivered: number;
+  total_cod_expected: number;
+  total_cod_collected: number;
+  total_carrier_fees: number;
+  failed_attempt_fee: number;
+  net_receivable: number;
+  warnings: string[];
+}
+
+export interface ProcessReconciliationByCarrierParams {
+  carrier_id: string;
+  total_amount_collected: number;
+  discrepancy_notes?: string;
+  orders: Array<{
+    order_id: string;
+    delivered: boolean;
+    failure_reason?: string;
+    override_prepaid?: boolean;
+  }>;
+}
+
+/**
+ * List pending reconciliation groups, one row per carrier.
+ *
+ * Reads from `v_pending_reconciliation_by_carrier`. If the view does not
+ * exist (Migration 182 not yet applied to this environment) we degrade
+ * gracefully to an empty list so the UI can show "all clean" instead of
+ * blowing up. Real errors from PostgREST are surfaced via logger.
+ */
+export async function getPendingReconciliationByCarrier(
+  storeId: string
+): Promise<CarrierReconciliationGroup[]> {
+  logger.info('SETTLEMENTS', 'getPendingReconciliationByCarrier called', { storeId });
+
+  const { data, error } = await supabaseAdmin
+    .from('v_pending_reconciliation_by_carrier')
+    .select('*')
+    .eq('store_id', storeId)
+    .order('days_oldest', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    // PostgREST error code 42P01 = relation does not exist. Treat as empty,
+    // not as a 5xx, so a pre-migration env still renders.
+    const code = (error as { code?: string }).code;
+    if (code === '42P01') {
+      logger.warn('SETTLEMENTS', 'v_pending_reconciliation_by_carrier missing (pre Migration 182), returning empty');
+      return [];
+    }
+    logger.error('SETTLEMENTS', 'Error fetching pending reconciliation by carrier', error);
+    throw new Error('Error al obtener conciliaciones pendientes por courier');
+  }
+
+  // Coerce numerics returned as strings (Supabase returns NUMERIC as string).
+  return (data || []).map((row: Record<string, unknown>) => ({
+    store_id: String(row.store_id),
+    carrier_id: String(row.carrier_id),
+    carrier_name: String(row.carrier_name ?? 'Sin courier'),
+    failed_attempt_fee_percent: Number(row.failed_attempt_fee_percent ?? 50),
+    total_orders: Number(row.total_orders ?? 0),
+    total_cod: Number(row.total_cod ?? 0),
+    total_prepaid: Number(row.total_prepaid ?? 0),
+    oldest_delivery_date: String(row.oldest_delivery_date),
+    newest_delivery_date: String(row.newest_delivery_date),
+    days_oldest: Number(row.days_oldest ?? 0),
+  }));
+}
+
+/**
+ * List ALL pending orders for a carrier (no date filter).
+ *
+ * Mirrors the per-order fee-resolution logic of the by-date fallback but
+ * drops the calendar-day bound so every delivered+unreconciled order of
+ * the carrier comes back, sorted oldest first. The fee source priority is
+ * (a) coverage match on shipping_city, (b) coverage match on delivery_zone,
+ * (c) lowest configured coverage rate as deterministic fallback.
+ */
+export async function getPendingReconciliationOrdersByCarrier(
+  storeId: string,
+  carrierId: string
+): Promise<PendingReconciliationOrder[]> {
+  logger.info('SETTLEMENTS', 'getPendingReconciliationOrdersByCarrier called', {
+    storeId,
+    carrierId,
+  });
+
+  const { data: orders, error } = await supabaseAdmin
+    .from('orders')
+    .select(`
+      id,
+      shopify_order_name,
+      shopify_order_number,
+      customer_first_name,
+      customer_last_name,
+      customer_phone,
+      shipping_address,
+      delivery_zone,
+      shipping_city,
+      shipping_city_normalized,
+      total_price,
+      cod_amount,
+      payment_method,
+      prepaid_method,
+      delivered_at
+    `)
+    .eq('store_id', storeId)
+    .eq('courier_id', carrierId)
+    .eq('sleeves_status', 'delivered')
+    .is('reconciled_at', null)
+    .not('delivered_at', 'is', null)
+    .order('delivered_at', { ascending: true });
+
+  if (error) {
+    logger.error('SETTLEMENTS', 'Error fetching orders by carrier', error);
+    throw new Error('Error al obtener pedidos pendientes del courier');
+  }
+  if (!orders || orders.length === 0) return [];
+
+  const { data: coverage } = await supabaseAdmin
+    .from('carrier_coverage')
+    .select('city, rate')
+    .eq('carrier_id', carrierId)
+    .eq('store_id', storeId)
+    .eq('is_active', true);
+
+  const coverageRates = new Map<string, number>();
+  (coverage || []).forEach(c => {
+    if (c.city && c.rate != null && c.rate > 0) {
+      coverageRates.set(normalizeCityText(c.city), c.rate);
+    }
+  });
+
+  let defaultRate = 0;
+  if (coverageRates.size > 0) {
+    defaultRate = Math.min(...Array.from(coverageRates.values()));
+  }
+
+  return orders.map((order: Record<string, unknown>) => {
+    const isCod = !order.prepaid_method && isCodPayment(order.payment_method as string);
+
+    let displayOrderNumber: string;
+    if (order.shopify_order_name) {
+      displayOrderNumber = String(order.shopify_order_name);
+    } else if (order.shopify_order_number) {
+      displayOrderNumber = `#${order.shopify_order_number}`;
+    } else {
+      displayOrderNumber = `#${String(order.id).slice(-4).toUpperCase()}`;
+    }
+
+    const normalizedCity =
+      (order.shipping_city_normalized as string) || normalizeCityText(order.shipping_city as string);
+    const normalizedZone = normalizeCityText(order.delivery_zone as string);
+
+    let carrierFee = defaultRate;
+    let feeSource: 'coverage' | 'coverage_zone' | 'default' = 'default';
+    if (normalizedCity && coverageRates.has(normalizedCity)) {
+      carrierFee = coverageRates.get(normalizedCity)!;
+      feeSource = 'coverage';
+    } else if (normalizedZone && coverageRates.has(normalizedZone)) {
+      carrierFee = coverageRates.get(normalizedZone)!;
+      feeSource = 'coverage_zone';
+    }
+
+    const shippingAddress = order.shipping_address as { address1?: string } | string | null;
+    const customerAddress =
+      typeof shippingAddress === 'string'
+        ? shippingAddress
+        : (shippingAddress?.address1 || '');
+
+    const totalPrice = Number(order.total_price ?? 0);
+    const codAmount = isCod
+      ? Number(order.cod_amount ?? order.total_price ?? 0)
+      : 0;
+
+    return {
+      id: String(order.id),
+      display_order_number: displayOrderNumber,
+      customer_name:
+        `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Cliente',
+      customer_phone: (order.customer_phone as string) || '',
+      customer_address: customerAddress,
+      customer_city: (order.shipping_city as string) || (order.delivery_zone as string) || '',
+      total_price: totalPrice,
+      cod_amount: codAmount,
+      payment_method: (order.payment_method as string) || '',
+      prepaid_method: (order.prepaid_method as string) || null,
+      is_cod: isCod,
+      delivered_at: order.delivered_at as string,
+      carrier_fee: carrierFee,
+      // NOTE: PendingReconciliationOrder.fee_source declares 'coverage' | 'zone' | 'default'
+      // but the legacy implementation already returns 'coverage_zone' as well (pre-existing
+      // type drift in this module). We narrow via cast to stay consistent with the rest of
+      // the codebase without widening the interface in this scope.
+      fee_source: feeSource as 'coverage' | 'zone' | 'default',
+      normalized_city: normalizedCity,
+    };
+  }) as PendingReconciliationOrder[];
+}
+
+/**
+ * Process reconciliation for ALL pending orders of a carrier in one shot.
+ *
+ * Implementation strategy: reuse the in-Node fallback that already knows
+ * how to talk to `carrier_coverage`, compute fees, handle override_prepaid,
+ * and write `carrier_account_movements` after the settlement insert. The
+ * only structural difference vs the by-date variant is the absence of a
+ * delivery_date and the new min/max range fields on the settlement row.
+ */
+export async function processReconciliationByCarrier(
+  storeId: string,
+  userId: string,
+  params: ProcessReconciliationByCarrierParams
+): Promise<ReconciliationByCarrierResult> {
+  logger.info('SETTLEMENTS', 'processReconciliationByCarrier called', {
+    storeId,
+    carrierId: params.carrier_id,
+    orderCount: params.orders.length,
+  });
+
+  try {
+    return await processReconciliationByCarrierFallback(storeId, userId, params);
+  } catch (err: unknown) {
+    const e = err as { message?: string; stack?: string };
+    logger.error('SETTLEMENTS', 'Error in processReconciliationByCarrier', {
+      message: e.message,
+      stack: e.stack,
+    });
+    throw err;
+  }
+}
+
+/**
+ * Fallback implementation. Mirrors `processDeliveryReconciliationFallback`
+ * (above), with date-related branches removed. Kept inline here rather than
+ * refactored to share code because the function above is already in heavy
+ * production use and not in scope to touch.
+ */
+async function processReconciliationByCarrierFallback(
+  storeId: string,
+  userId: string,
+  params: ProcessReconciliationByCarrierParams
+): Promise<ReconciliationByCarrierResult> {
+  // ---- STEP 1: validate IDs ----
+  const orderIds = params.orders.map(o => o.order_id);
+  if (orderIds.length === 0) {
+    throw new Error('No hay pedidos para procesar');
+  }
+  for (const id of orderIds) {
+    if (!isValidUUID(id)) {
+      throw new Error(`order_id invalido: ${id}`);
+    }
+  }
+
+  // ---- STEP 2: fetch + lock the candidate orders ----
+  const { data: existingOrders, error: fetchError } = await supabaseAdmin
+    .from('orders')
+    .select(
+      'id, total_price, cod_amount, payment_method, prepaid_method, delivery_zone, shipping_city, shipping_city_normalized, delivered_at, reconciled_at, store_id'
+    )
+    .in('id', orderIds)
+    .eq('store_id', storeId);
+
+  if (fetchError) {
+    logger.error('SETTLEMENTS', 'Error fetching orders for by-carrier validation', fetchError);
+    throw new Error('Error al validar los pedidos');
+  }
+
+  const foundIds = new Set((existingOrders || []).map(o => o.id));
+  const missing = orderIds.filter(id => !foundIds.has(id));
+  if (missing.length > 0) {
+    throw new Error(`Pedidos no encontrados o no pertenecen a esta tienda: ${missing.length}`);
+  }
+
+  const already = (existingOrders || []).filter(o => o.reconciled_at !== null);
+  if (already.length > 0) {
+    throw new Error(`Algunos pedidos ya fueron conciliados: ${already.length}`);
+  }
+
+  const orderMap = new Map((existingOrders || []).map(o => [o.id, o]));
+
+  // ---- STEP 3: carrier info ----
+  const { data: carrier } = await supabaseAdmin
+    .from('carriers')
+    .select('name, failed_attempt_fee_percent')
+    .eq('id', params.carrier_id)
+    .single();
+
+  if (!carrier) {
+    throw new Error('Transportadora no encontrada');
+  }
+  const failedFeePercent = carrier.failed_attempt_fee_percent ?? 50;
+
+  // ---- STEP 4: coverage rates ----
+  const { data: coverage } = await supabaseAdmin
+    .from('carrier_coverage')
+    .select('city, rate')
+    .eq('carrier_id', params.carrier_id)
+    .eq('store_id', storeId)
+    .eq('is_active', true);
+
+  const coverageRates = new Map<string, number>();
+  (coverage || []).forEach(c => {
+    if (c.city && c.rate != null && c.rate > 0) {
+      coverageRates.set(normalizeCityText(c.city), c.rate);
+    }
+  });
+
+  let defaultRate = 0;
+  if (coverageRates.size > 0) {
+    defaultRate = Math.min(...Array.from(coverageRates.values()));
+  }
+
+  // ---- STEP 5: tally + queue updates ----
+  let totalOrders = 0;
+  let totalDelivered = 0;
+  let totalNotDelivered = 0;
+  let totalCodExpected = 0;
+  let totalCodDelivered = 0;
+  let totalPrepaidDelivered = 0;
+  let totalCarrierFees = 0;
+  let failedAttemptFee = 0;
+  let minDelivery: Date | null = null;
+  let maxDelivery: Date | null = null;
+
+  type Update = {
+    id: string;
+    reconciled_at: string;
+    delivered: boolean;
+    is_cod: boolean;
+    carrier_fee: number;
+    amount_collected: number;
+    failure_reason?: string;
+  };
+  const orderUpdates: Update[] = [];
+
+  for (const od of params.orders) {
+    const order = orderMap.get(od.order_id);
+    if (!order) continue;
+
+    totalOrders++;
+
+    const normalizedCity = order.shipping_city_normalized || normalizeCityText(order.shipping_city);
+    const normalizedZone = normalizeCityText(order.delivery_zone);
+
+    let zoneRate = defaultRate;
+    if (normalizedCity && coverageRates.has(normalizedCity)) {
+      zoneRate = coverageRates.get(normalizedCity)!;
+    } else if (normalizedZone && coverageRates.has(normalizedZone)) {
+      zoneRate = coverageRates.get(normalizedZone)!;
+    }
+
+    const baseCod = !order.prepaid_method && isCodPayment(order.payment_method);
+    const isCod = baseCod && !od.override_prepaid;
+    const codAmount = order.cod_amount ?? order.total_price ?? 0;
+
+    if (od.delivered) {
+      totalDelivered++;
+      totalCarrierFees += zoneRate;
+      if (isCod) {
+        totalCodExpected += codAmount;
+        totalCodDelivered++;
+      } else {
+        totalPrepaidDelivered++;
+      }
+    } else {
+      totalNotDelivered++;
+      failedAttemptFee += (zoneRate * failedFeePercent) / 100;
+    }
+
+    if (order.delivered_at) {
+      const d = new Date(order.delivered_at);
+      if (!isNaN(d.getTime())) {
+        if (!minDelivery || d < minDelivery) minDelivery = d;
+        if (!maxDelivery || d > maxDelivery) maxDelivery = d;
+      }
+    }
+
+    orderUpdates.push({
+      id: order.id,
+      reconciled_at: new Date().toISOString(),
+      delivered: od.delivered,
+      is_cod: isCod,
+      carrier_fee: zoneRate,
+      amount_collected: isCod ? codAmount : 0,
+      failure_reason: od.failure_reason,
+    });
+  }
+
+  if (totalOrders === 0) {
+    throw new Error('No hay pedidos válidos para procesar');
+  }
+  if (!minDelivery || !maxDelivery) {
+    // Shouldn't happen because each pending order has delivered_at != null,
+    // but guard anyway so the settlement insert never gets a NULL range.
+    throw new Error('No se pudo determinar el rango de fechas de entrega');
+  }
+
+  const netReceivable = totalCodExpected - totalCarrierFees - failedAttemptFee - params.total_amount_collected;
+
+  // ---- STEP 6: settlement code generation (CURRENT_DATE based) ----
+  const today = new Date();
+  const day = String(today.getUTCDate()).padStart(2, '0');
+  const month = String(today.getUTCMonth() + 1).padStart(2, '0');
+  const year = today.getUTCFullYear();
+  const codePrefix = `LIQ-${day}${month}${year}`;
+
+  const { data: existingSettlements } = await supabaseAdmin
+    .from('daily_settlements')
+    .select('settlement_code')
+    .eq('store_id', storeId)
+    .like('settlement_code', `${codePrefix}-%`)
+    .order('settlement_code', { ascending: false })
+    .limit(1);
+
+  let nextNumber = 1;
+  if (existingSettlements && existingSettlements.length > 0) {
+    const last = existingSettlements[0].settlement_code;
+    const lastN = parseInt((last.split('-').pop() || '0'), 10);
+    if (!isNaN(lastN) && lastN > 0) nextNumber = lastN + 1;
+  }
+
+  const isoDate = (d: Date) => {
+    const yy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  };
+  const todayIso = isoDate(today);
+  const minIso = isoDate(minDelivery);
+  const maxIso = isoDate(maxDelivery);
+
+  const insertSettlement = async (code: string) => supabaseAdmin
+    .from('daily_settlements')
+    .insert({
+      store_id: storeId,
+      carrier_id: params.carrier_id,
+      settlement_code: code,
+      settlement_date: todayIso,
+      min_delivery_date: minIso,
+      max_delivery_date: maxIso,
+      total_dispatched: totalOrders,
+      total_delivered: totalDelivered,
+      total_not_delivered: totalNotDelivered,
+      total_cod_delivered: totalCodDelivered,
+      total_prepaid_delivered: totalPrepaidDelivered,
+      total_cod_collected: params.total_amount_collected,
+      total_carrier_fees: totalCarrierFees,
+      failed_attempt_fee: failedAttemptFee,
+      net_receivable: netReceivable,
+      balance_due: netReceivable,
+      status: 'pending',
+      notes: params.discrepancy_notes,
+      created_by: userId,
+      expected_cash: totalCodExpected,
+      collected_cash: params.total_amount_collected,
+    })
+    .select()
+    .single();
+
+  let settlementCode = `${codePrefix}-${String(nextNumber).padStart(3, '0')}`;
+  let { data: settlement, error: settlementError } = await insertSettlement(settlementCode);
+
+  if (settlementError && (settlementError as { code?: string }).code === '23505') {
+    // Race on the LIQ-DDMMYYYY-NNN sequence: retry with +1 once.
+    logger.warn('SETTLEMENTS', 'Settlement code collision, retrying with incremented number', {
+      attempted: settlementCode,
+    });
+    settlementCode = `${codePrefix}-${String(nextNumber + 1).padStart(3, '0')}`;
+    const retry = await insertSettlement(settlementCode);
+    settlement = retry.data;
+    settlementError = retry.error;
+  }
+
+  if (settlementError || !settlement) {
+    logger.error('SETTLEMENTS', 'Error creating settlement (by-carrier)', settlementError);
+    throw new Error('Error al crear la liquidación');
+  }
+
+  // ---- STEP 7: apply order updates (batched), emit warnings, return ----
+  const base = await processOrderUpdatesAndReturn(
+    storeId,
+    userId,
+    settlement,
+    settlementCode,
+    totalOrders,
+    totalDelivered,
+    totalNotDelivered,
+    totalCodExpected,
+    params.total_amount_collected,
+    totalCarrierFees,
+    failedAttemptFee,
+    netReceivable,
+    failedFeePercent,
+    orderUpdates
+  );
+
+  return {
+    ...(base as Omit<ReconciliationByCarrierResult, 'settlement_date' | 'min_delivery_date' | 'max_delivery_date'>),
+    settlement_date: todayIso,
+    min_delivery_date: minIso,
+    max_delivery_date: maxIso,
   };
 }

@@ -688,6 +688,250 @@ settlementsRouter.post('/reconcile-delivery', requirePermission(Module.CARRIERS,
   }
 });
 
+// ================================================================
+// RECONCILIATION BY CARRIER (Migration 182)
+// ================================================================
+// New flow: agrupa todo el pending por carrier, sin fecha de entrega.
+// Reemplaza el flujo (delivery_date, carrier) para la UI. Los endpoints
+// viejos quedan vivos por back-compat pero no se invocan desde el nuevo UI.
+// ================================================================
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * GET /api/settlements/pending-reconciliation-by-carrier
+ * One row per carrier with non-zero pending backlog. Sorted by urgency
+ * (days_oldest desc). Max 200 carriers (no real-world store has more).
+ */
+settlementsRouter.get('/pending-reconciliation-by-carrier', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.storeId) {
+      return res.status(401).json({ error: 'Store ID requerido' });
+    }
+
+    logger.info('SETTLEMENTS', 'Fetching pending reconciliation by carrier', {
+      store_id: req.storeId,
+    });
+
+    const groups = await settlementsService.getPendingReconciliationByCarrier(req.storeId);
+
+    logger.info('SETTLEMENTS', 'Pending reconciliation by carrier fetched', {
+      store_id: req.storeId,
+      groups_count: groups.length,
+    });
+
+    return res.json({ data: groups });
+  } catch (error: unknown) {
+    const e = error as { message?: string; stack?: string };
+    logger.error('SETTLEMENTS', 'Error fetching pending reconciliation by carrier', {
+      message: e.message,
+      stack: e.stack,
+      store_id: req.storeId,
+    });
+    return res.status(500).json({ error: e.message || 'Error al obtener conciliaciones por courier' });
+  }
+});
+
+/**
+ * GET /api/settlements/pending-reconciliation-by-carrier/:carrierId
+ * All pending orders for that carrier, oldest first.
+ */
+settlementsRouter.get(
+  '/pending-reconciliation-by-carrier/:carrierId',
+  validateUUIDParam('carrierId'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { carrierId } = req.params;
+
+      if (!req.storeId) {
+        return res.status(401).json({ error: 'Store ID requerido' });
+      }
+
+      // validateUUIDParam already ran but double-check defensively. The
+      // middleware lives in api/utils/sanitize.ts so the check is identical.
+      if (!carrierId || !UUID_REGEX.test(carrierId)) {
+        return res.status(400).json({ error: 'ID de transportadora invalido' });
+      }
+
+      logger.info('SETTLEMENTS', 'Fetching pending orders by carrier', {
+        store_id: req.storeId,
+        carrier_id: carrierId,
+      });
+
+      const orders = await settlementsService.getPendingReconciliationOrdersByCarrier(
+        req.storeId,
+        carrierId
+      );
+
+      logger.info('SETTLEMENTS', 'Pending orders by carrier fetched', {
+        store_id: req.storeId,
+        carrier_id: carrierId,
+        orders_count: orders.length,
+      });
+
+      return res.json({ data: orders });
+    } catch (error: unknown) {
+      const e = error as { message?: string; stack?: string };
+      logger.error('SETTLEMENTS', 'Error fetching pending orders by carrier', {
+        message: e.message,
+        stack: e.stack,
+        store_id: req.storeId,
+        params: req.params,
+      });
+      return res
+        .status(500)
+        .json({ error: e.message || 'Error al obtener pedidos pendientes del courier' });
+    }
+  }
+);
+
+/**
+ * POST /api/settlements/reconcile-by-carrier
+ * Process reconciliation of ALL the carrier delivered+unreconciled orders
+ * the caller passes. No delivery_date. Settlement covers a date range
+ * computed from the actually processed orders.
+ */
+settlementsRouter.post(
+  '/reconcile-by-carrier',
+  requirePermission(Module.CARRIERS, Permission.EDIT),
+  async (req: PermissionRequest, res: Response) => {
+    try {
+      if (!req.storeId || !req.userId) {
+        return res.status(401).json({ error: 'Autenticacion requerida' });
+      }
+
+      const {
+        carrier_id,
+        orders,
+        total_amount_collected,
+        discrepancy_notes,
+      } = (req.body ?? {}) as {
+        carrier_id?: string;
+        orders?: Array<{ order_id?: string; delivered?: unknown; failure_reason?: string; override_prepaid?: boolean }>;
+        total_amount_collected?: number | string;
+        discrepancy_notes?: string;
+      };
+
+      // ---- body validation ----
+      if (!carrier_id || !UUID_REGEX.test(carrier_id)) {
+        return res.status(400).json({ error: 'ID de transportadora invalido' });
+      }
+
+      if (!Array.isArray(orders) || orders.length === 0) {
+        return res.status(400).json({ error: 'Se requiere al menos un pedido' });
+      }
+      if (orders.length > 1000) {
+        return res.status(400).json({ error: 'Maximo 1000 pedidos por conciliacion' });
+      }
+
+      for (let i = 0; i < orders.length; i++) {
+        const o = orders[i];
+        if (!o || !o.order_id || !UUID_REGEX.test(o.order_id)) {
+          return res.status(400).json({ error: `Pedido ${i + 1}: ID invalido` });
+        }
+        if (typeof o.delivered !== 'boolean') {
+          return res.status(400).json({ error: `Pedido ${i + 1}: campo 'delivered' debe ser booleano` });
+        }
+      }
+
+      if (total_amount_collected === undefined || total_amount_collected === null) {
+        return res.status(400).json({ error: 'Se requiere monto total cobrado' });
+      }
+      const amount = Number(total_amount_collected);
+      if (!Number.isFinite(amount) || amount < 0) {
+        return res.status(400).json({ error: 'Monto total cobrado invalido' });
+      }
+
+      let notes: string | undefined = undefined;
+      if (discrepancy_notes !== undefined && discrepancy_notes !== null) {
+        if (typeof discrepancy_notes !== 'string') {
+          return res.status(400).json({ error: 'discrepancy_notes debe ser string' });
+        }
+        if (discrepancy_notes.length > 2000) {
+          return res.status(400).json({ error: 'Notas demasiado largas (max 2000 caracteres)' });
+        }
+        // Basic sanitization: strip ASCII control characters (0x00-0x1F + 0x7F). Downstream
+        // queries are parameterized so SQLi is not a vector; this only keeps the notes
+        // display-safe (no weird control bytes leaking into PDFs or the UI).
+        const STRIP_CTRL = new RegExp('[\\u0000-\\u001F\\u007F]', 'g');
+        notes = discrepancy_notes.replace(STRIP_CTRL, '').trim();
+        if (notes.length === 0) notes = undefined;
+      }
+
+      logger.info('SETTLEMENTS', 'Processing reconciliation by carrier', {
+        store_id: req.storeId,
+        user_id: req.userId,
+        carrier_id,
+        orders_count: orders.length,
+        total_amount_collected: amount,
+      });
+
+      const result = await settlementsService.processReconciliationByCarrier(
+        req.storeId,
+        req.userId,
+        {
+          carrier_id,
+          total_amount_collected: amount,
+          discrepancy_notes: notes,
+          orders: orders.map(o => ({
+            order_id: o.order_id as string,
+            delivered: o.delivered as boolean,
+            failure_reason: o.failure_reason,
+            override_prepaid: o.override_prepaid ?? false,
+          })),
+        }
+      );
+
+      logger.info('SETTLEMENTS', 'Reconciliation by carrier completed', {
+        store_id: req.storeId,
+        settlement_id: result.settlement_id,
+        settlement_code: result.settlement_code,
+        total_orders: result.total_orders,
+        total_delivered: result.total_delivered,
+        min_delivery_date: result.min_delivery_date,
+        max_delivery_date: result.max_delivery_date,
+        net_receivable: result.net_receivable,
+      });
+
+      return res.json({
+        message: 'Conciliacion completada',
+        data: result,
+        warnings: result.warnings ?? [],
+      });
+    } catch (error: unknown) {
+      const e = error as { message?: string; stack?: string };
+      const msg = e.message || '';
+      logger.error('SETTLEMENTS', 'Error processing reconciliation by carrier', {
+        message: msg,
+        stack: e.stack,
+        store_id: req.storeId,
+        body: {
+          carrier_id: (req.body as { carrier_id?: string } | undefined)?.carrier_id,
+          orders_count: (req.body as { orders?: unknown[] } | undefined)?.orders?.length,
+        },
+      });
+
+      if (msg.includes('Carrier not found') || msg.includes('Transportadora no encontrada')) {
+        return res.status(404).json({ error: 'Transportadora no encontrada' });
+      }
+      if (msg.includes('already reconciled') || msg.includes('ya fueron conciliados')) {
+        return res.status(409).json({ error: msg });
+      }
+      if (msg.includes('no encontrados')) {
+        return res.status(404).json({ error: msg });
+      }
+      if (msg.includes('No valid orders to process') || msg.includes('No hay pedidos')) {
+        return res.status(400).json({ error: msg });
+      }
+      if (msg.includes('código duplicado') || msg.includes('código duplicado')) {
+        return res.status(409).json({ error: msg });
+      }
+
+      return res.status(500).json({ error: msg || 'Error al procesar la conciliacion' });
+    }
+  }
+);
+
 /**
  * POST /api/settlements/manual-reconciliation - Process manual reconciliation
  * Without CSV - using checkbox UI
