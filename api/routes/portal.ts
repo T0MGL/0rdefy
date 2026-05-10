@@ -70,6 +70,7 @@ import {
 import { supabaseAdmin } from '../db/connection';
 import { logger } from '../utils/logger';
 import { isCodPayment } from '../utils/payment';
+import { isCancelled, isDelivered, isRejected, isReturned } from '../utils/order-status';
 import { uploadFile } from '../services/storage.service';
 import { OutboundWebhookService } from '../services/outbound-webhook.service';
 import { sanitizeSearchInput } from '../utils/sanitize';
@@ -634,7 +635,7 @@ portalRouter.post(
     const notes = sanitizeNotes(parsed.data.notes ?? null);
 
     // ------------- idempotency: already delivered -----------------------
-    if (scoped.sleeves_status === 'delivered') {
+    if (isDelivered(scoped.sleeves_status)) {
       res.json({ already_delivered: true, order: { id: orderId, sleeves_status: 'delivered' } });
       return;
     }
@@ -664,7 +665,7 @@ portalRouter.post(
       return;
     }
 
-    if (extra.sleeves_status === 'delivered') {
+    if (isDelivered(extra.sleeves_status)) {
       // Race against a concurrent writer
       res.json({ already_delivered: true, order: { id: orderId, sleeves_status: 'delivered' } });
       return;
@@ -912,10 +913,10 @@ portalRouter.post(
 
     // Disallow logging a failed attempt on a terminal state.
     if (
-      scoped.sleeves_status === 'delivered' ||
-      scoped.sleeves_status === 'returned' ||
-      scoped.sleeves_status === 'cancelled' ||
-      scoped.sleeves_status === 'rejected'
+      isDelivered(scoped.sleeves_status) ||
+      isReturned(scoped.sleeves_status) ||
+      isCancelled(scoped.sleeves_status) ||
+      isRejected(scoped.sleeves_status)
     ) {
       res.status(400).json({
         error: 'Estado inválido',
@@ -1060,7 +1061,7 @@ portalRouter.post(
     const notes = sanitizeNotes(parsed.data.notes ?? null);
 
     // Idempotency
-    if (scoped.sleeves_status === 'returned') {
+    if (isReturned(scoped.sleeves_status)) {
       res.json({ already_returned: true, order: { id: orderId, sleeves_status: 'returned' } });
       return;
     }
@@ -1231,10 +1232,10 @@ portalRouter.post(
     }
 
     if (
-      scoped.sleeves_status === 'delivered' ||
-      scoped.sleeves_status === 'returned' ||
-      scoped.sleeves_status === 'cancelled' ||
-      scoped.sleeves_status === 'rejected'
+      isDelivered(scoped.sleeves_status) ||
+      isReturned(scoped.sleeves_status) ||
+      isCancelled(scoped.sleeves_status) ||
+      isRejected(scoped.sleeves_status)
     ) {
       res.status(400).json({
         error: 'Estado inválido',

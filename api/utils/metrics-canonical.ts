@@ -23,10 +23,13 @@ import {
     DISPATCHED_STATUSES,
     IN_TRANSIT_STATUSES,
     POST_PENDING_STATUSES,
+    isCancelled,
     isDelivered as isDeliveredBase,
     isDispatched as isDispatchedBase,
     isInTransit,
     isPostPending,
+    isRejected,
+    isReturned,
 } from './order-status';
 
 // `delivered` AND `settled` both count as terminal-success cash. `settled`
@@ -234,7 +237,7 @@ export function confirmationRate(orders: CanonicalOrder[]): number | null {
 export function cancellationRate(orders: CanonicalOrder[]): number | null {
     const total = orders.length;
     const cancelled = orders.filter(
-        (o) => o.sleeves_status === 'cancelled' || o.sleeves_status === 'rejected',
+        (o) => isCancelled(o.sleeves_status) || isRejected(o.sleeves_status),
     ).length;
     return ratePercent(cancelled, total);
 }
@@ -243,10 +246,10 @@ export function cancellationRate(orders: CanonicalOrder[]): number | null {
 // 3.6 Tasa de Devolucion
 // =====================================================================
 export function returnRate(orders: CanonicalOrder[]): number | null {
-    const returned = orders.filter((o) => o.sleeves_status === 'returned').length;
+    const returned = orders.filter((o) => isReturned(o.sleeves_status)).length;
     const den = orders.filter(
         (o) =>
-            isTerminalSuccess(o.sleeves_status) || o.sleeves_status === 'returned',
+            isTerminalSuccess(o.sleeves_status) || isReturned(o.sleeves_status),
     ).length;
     return ratePercent(returned, den);
 }
@@ -451,14 +454,17 @@ export function pendingCash(
     const filtered = currency
         ? orders.filter((o) => o.currency === currency)
         : orders;
+    // Live in-transit pipeline owed money: post-pending, not yet terminal-
+    // success, not failed-delivery (returned / delivery_failed / not_delivered),
+    // and the payment_status flag still says "pending" (the merchant has not
+    // collected from the customer yet). payment_status is a separate enum
+    // from order_status and the literal is intentional.
     return filtered
         .filter(
             (o) =>
                 isPostPending(o.sleeves_status) &&
                 !isTerminalSuccess(o.sleeves_status) &&
-                o.sleeves_status !== 'returned' &&
-                o.sleeves_status !== 'delivery_failed' &&
-                o.sleeves_status !== 'not_delivered' &&
+                !FAILED_AFTER_DISPATCH_STATUSES.has(o.sleeves_status ?? '') &&
                 o.payment_status === 'pending',
         )
         .reduce((s, o) => s + num(o.total_price), 0);

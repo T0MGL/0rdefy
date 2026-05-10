@@ -7,6 +7,7 @@
 import { logger } from '../utils/logger';
 import { supabaseAdmin } from '../db/connection';
 import { OutboundWebhookService } from './outbound-webhook.service';
+import { isConfirmed, isInPreparation } from '../utils/order-status';
 
 // ============================================================================
 // BATCHED QUERY UTILITY
@@ -473,7 +474,7 @@ export async function createSession(
         throw new Error('No se encontraron pedidos válidos');
       }
 
-      const nonConfirmedOrders = orders.filter((o: any) => o.sleeves_status !== 'confirmed');
+      const nonConfirmedOrders = orders.filter((o: any) => !isConfirmed(o.sleeves_status));
       if (nonConfirmedOrders.length > 0) {
         const statusCounts = nonConfirmedOrders.reduce((acc: Record<string, number>, o: any) => {
           const status = o.sleeves_status || 'sin_estado';
@@ -2223,7 +2224,7 @@ async function removeOrderFromSessionFallback(
 
   // Restore order to confirmed if still in_preparation
   // SECURITY FIX: Add store_id filter to prevent cross-store updates
-  if (order.sleeves_status === 'in_preparation') {
+  if (isInPreparation(order.sleeves_status)) {
     await supabaseAdmin
       .from('orders')
       .update({ sleeves_status: 'confirmed', updated_at: new Date().toISOString() })

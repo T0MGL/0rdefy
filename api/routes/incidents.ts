@@ -17,6 +17,7 @@ import { extractUserRole, requireModule } from '../middleware/permissions';
 import { getTodayInTimezone } from '../utils/dateUtils';
 import { Module } from '../permissions';
 import { validateUUIDParam } from '../utils/sanitize';
+import { isDelivered } from '../utils/order-status';
 
 export const incidentsRouter = Router();
 
@@ -161,7 +162,7 @@ incidentsRouter.post('/retry/:retry_id/complete', validateUUIDParam('retry_id'),
                 attempt_number: retryAttempt.retry_number,
                 scheduled_date: retryAttempt.scheduled_date || getTodayInTimezone(),
                 actual_date: getTodayInTimezone(),
-                status: status === 'delivered' ? 'delivered' : 'failed',
+                status: isDelivered(status) ? 'delivered' : 'failed',
                 notes: courier_notes,
                 failed_reason: failure_reason || null,
                 failure_notes: courier_notes,
@@ -184,7 +185,7 @@ incidentsRouter.post('/retry/:retry_id/complete', validateUUIDParam('retry_id'),
         logger.info('API', `✅ [INCIDENTS] Retry ${retry_id} marked as ${status}`);
 
         res.json({
-            message: status === 'delivered' ? 'Delivery confirmed' : 'Retry attempt failed',
+            message: isDelivered(status) ? 'Delivery confirmed' : 'Retry attempt failed',
             status,
             data: {
                 retry_id,

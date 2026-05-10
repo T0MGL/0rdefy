@@ -12,6 +12,7 @@ import { supabaseAdmin, getStore, getStoreConfig } from '../db/connection';
 import { verifyToken, extractStoreId, AuthRequest } from '../middleware/auth';
 import { extractUserRole, requireModule, requirePermission, PermissionRequest } from '../middleware/permissions';
 import { Module, Permission } from '../permissions';
+import { isConfirmed, isDelivered, isInTransit, isPending, isRejected } from '../utils/order-status';
 
 export const storesRouter = Router();
 
@@ -546,14 +547,15 @@ storesRouter.get('/:id/stats', verifyToken, extractStoreId, extractUserRole, req
             throw ordersError;
         }
 
-        // Calculate order stats
+        // Calculate order stats. shipped_orders uses isInTransit so the count
+        // includes both legacy 'shipped' VARCHAR rows and post-148c 'in_transit'.
         const orderStats = {
             total_orders: orders?.length || 0,
-            pending_orders: orders?.filter(o => o.sleeves_status === 'pending').length || 0,
-            confirmed_orders: orders?.filter(o => o.sleeves_status === 'confirmed').length || 0,
-            rejected_orders: orders?.filter(o => o.sleeves_status === 'rejected').length || 0,
-            shipped_orders: orders?.filter(o => o.sleeves_status === 'shipped').length || 0,
-            delivered_orders: orders?.filter(o => o.sleeves_status === 'delivered').length || 0,
+            pending_orders: orders?.filter(o => isPending(o.sleeves_status)).length || 0,
+            confirmed_orders: orders?.filter(o => isConfirmed(o.sleeves_status)).length || 0,
+            rejected_orders: orders?.filter(o => isRejected(o.sleeves_status)).length || 0,
+            shipped_orders: orders?.filter(o => isInTransit(o.sleeves_status)).length || 0,
+            delivered_orders: orders?.filter(o => isDelivered(o.sleeves_status)).length || 0,
             total_revenue: orders?.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0) || 0,
             average_order_value: orders?.length ?
                 orders.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0) / orders.length : 0

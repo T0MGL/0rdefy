@@ -9,6 +9,7 @@ import { logger } from '../utils/logger';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../db/connection';
 import { sanitizeSearchInput } from '../utils/sanitize';
+import { isCancelled, isConfirmed, isPending, isRejected } from '../utils/order-status';
 
 // ================================================================
 // TYPES
@@ -1518,8 +1519,10 @@ export class ExternalWebhookService {
 
         order = lookup.order;
 
-        // Validate status
-        if (order.status !== 'pending' && order.status !== 'contacted') {
+        // Validate status. 'contacted' is a legacy pre-148c VARCHAR (kept as
+        // an explicit literal so the migration window keeps working). isPending
+        // covers the canonical state.
+        if (!isPending(order.status) && order.status !== 'contacted') {
           return {
             success: false,
             error: `Order is already ${order.status}. Only pending or contacted orders can be confirmed.`,
@@ -1885,12 +1888,13 @@ export class ExternalWebhookService {
       };
 
       if (options.status === 'contacted') {
+        // 'contacted' is a legacy pre-148c VARCHAR not represented in helpers.
         updateData.contacted_at = now;
         updateData.contacted_by = `api:${config.api_key_prefix}`;
         updateData.contacted_method = 'external_api';
       }
 
-      if (options.status === 'cancelled' || options.status === 'rejected') {
+      if (isCancelled(options.status) || isRejected(options.status)) {
         updateData.cancelled_at = now;
         if (sanitizedReason) {
           updateData.cancel_reason = sanitizedReason;
@@ -1898,14 +1902,14 @@ export class ExternalWebhookService {
         }
       }
 
-      if (options.status === 'confirmed') {
+      if (isConfirmed(options.status)) {
         updateData.confirmed_at = now;
         updateData.confirmed_by = `api:${config.api_key_prefix}`;
         updateData.confirmation_method = 'external_api';
       }
 
-      // If reactivating from cancelled/rejected, reset delivery fields
-      if ((order.status === 'cancelled' || order.status === 'rejected') &&
+      // If reactivating from cancelled/rejected, reset delivery fields.
+      if ((isCancelled(order.status) || isRejected(order.status)) &&
           ['pending', 'contacted', 'confirmed'].includes(options.status)) {
         updateData.delivery_status = 'pending';
         updateData.delivery_failure_reason = null;

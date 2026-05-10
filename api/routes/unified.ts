@@ -886,7 +886,7 @@ unifiedRouter.get('/analytics/chart', async (req: AuthRequest, res: Response) =>
             const total = Number(order.total_price) || 0;
             dailyData[date].revenue += total;
 
-            if (order.sleeves_status === 'delivered') {
+            if (isDelivered(order.sleeves_status)) {
                 dailyData[date].realRevenue += total;
                 dailyData[date].costs += Number(order.shipping_cost) || 0;
 

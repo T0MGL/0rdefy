@@ -26,6 +26,7 @@ import {
 import { isValidUUID } from '../utils/sanitize';
 import { logger } from '../utils/logger';
 import { OutboundWebhookService } from './outbound-webhook.service';
+import { isInTransit, isPending } from '../utils/order-status';
 
 /**
  * Normalize city text for comparison: remove accents, lowercase, trim.
@@ -517,7 +518,7 @@ export async function createDispatchSession(
   // ============================================================
   // VALIDATION 4: Block pickup orders (no shipping needed)
   // ============================================================
-  const pickupOrders = orders.filter(o => o.is_pickup === true || (!o.courier_id && o.sleeves_status !== 'pending'));
+  const pickupOrders = orders.filter(o => o.is_pickup === true || (!o.courier_id && !isPending(o.sleeves_status)));
 
   if (pickupOrders.length > 0) {
     const details = pickupOrders.map(o =>
@@ -2051,13 +2052,14 @@ async function processManualReconciliationLegacy(
     throw new Error(`${missingIds.length} pedido(s) no encontrados: ${missingIds.map(id => id.slice(0, 8)).join(', ')}`);
   }
 
-  // CRITICAL: Validate all orders are in 'shipped' status (in transit)
-  // Only shipped orders can be reconciled - they're with the courier
-  // delivered orders are already completed, cancelled/returned are not valid
-  const invalidStatusOrders = dbOrders.filter(o => o.sleeves_status !== 'shipped');
+  // CRITICAL: only orders currently in transit can be reconciled. Pre-148c
+  // these were sleeves_status='shipped'; post-148c the canonical state is
+  // 'in_transit'. isInTransit also accepts the legacy 'shipped' VARCHAR for
+  // pre-148c stores so this works during the migration window.
+  const invalidStatusOrders = dbOrders.filter(o => !isInTransit(o.sleeves_status));
   if (invalidStatusOrders.length > 0) {
     const details = invalidStatusOrders.map(o => `${o.order_number || o.id.slice(0, 8)} (${o.sleeves_status})`).join(', ');
-    throw new Error(`${invalidStatusOrders.length} pedido(s) no están en estado 'shipped' (en tránsito): ${details}. Solo se pueden conciliar pedidos despachados.`);
+    throw new Error(`${invalidStatusOrders.length} pedido(s) no están en tránsito: ${details}. Solo se pueden conciliar pedidos despachados.`);
   }
 
   // CRITICAL: Validate all orders belong to the specified carrier

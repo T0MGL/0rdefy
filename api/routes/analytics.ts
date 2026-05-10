@@ -24,10 +24,19 @@ import {
 import {
     IN_TRANSIT_STATUSES,
     POST_PENDING_STATUSES,
+    isActiveSettlement,
+    isConfirmed,
     isDelivered,
+    isDeliveredOrSettled,
     isDispatched,
+    isFailedDelivery,
+    isInPreparation,
     isInTransit,
+    isPending,
     isPostPending,
+    isReadyToShip,
+    isReturned,
+    isSettled,
 } from '../utils/order-status';
 
 export const analyticsRouter = Router();
@@ -881,7 +890,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
             POST_PENDING_STATUSES.has(o.sleeves_status)
         ).length;
 
-        const pendingOrders = orders.filter(o => o.sleeves_status === 'pending').length;
+        const pendingOrders = orders.filter(o => isPending(o.sleeves_status)).length;
 
         // "Today" anchored to store's local timezone, not server UTC. An order
         // placed at 22:00 Asuncion must still count as "today" even if the
@@ -900,7 +909,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
         // was exactly two endpoints disagreeing on this count.
         const todayConfirmed = todayOrders.filter(o => isPostPending(o.sleeves_status)).length;
 
-        const todayPending = todayOrders.filter(o => o.sleeves_status === 'pending').length;
+        const todayPending = todayOrders.filter(o => isPending(o.sleeves_status)).length;
 
         // Calculate average confirmation time
         const confirmedOrdersWithTime = orders.filter(o => o.confirmed_at && o.created_at);
@@ -918,7 +927,7 @@ analyticsRouter.get('/confirmation-metrics', async (req: AuthRequest, res: Respo
         // Calculate average delivery time (from created_at to delivered_at)
         // Only for orders that have been delivered
         const deliveredOrders = orders.filter(o =>
-            o.sleeves_status === 'delivered' &&
+            isDelivered(o.sleeves_status) &&
             o.delivered_at &&
             o.created_at
         );
@@ -1234,14 +1243,14 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
         // legacy 'shipped' status. This produced a falsely optimistic cash
         // projection across the board.
         const dispatchedOrders = historical.filter(o => isDispatched(o.sleeves_status, o.shipped_at)).length;
-        const deliveredOrders = historical.filter(o => isDelivered(o.sleeves_status) || o.sleeves_status === 'settled').length;
+        const deliveredOrders = historical.filter(o => isDeliveredOrSettled(o.sleeves_status)).length;
         const historicalDeliveryRate = dispatchedOrders > 0
             ? (deliveredOrders / dispatchedOrders)
             : 0.85;
 
         // Cash already in: delivered + settled.
         const deliveredRevenue = active
-            .filter(o => isDelivered(o.sleeves_status) || o.sleeves_status === 'settled')
+            .filter(o => isDeliveredOrSettled(o.sleeves_status))
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
         // Cash in transit: any in_transit_statuses pipeline state. Previously
@@ -1254,19 +1263,20 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
 
         // ===== CASH PIPELINE (Ready to ship, In preparation, Confirmed) =====
         const readyToShipRevenue = active
-            .filter(o => o.sleeves_status === 'ready_to_ship')
+            .filter(o => isReadyToShip(o.sleeves_status))
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
         const inPreparationRevenue = active
-            .filter(o => o.sleeves_status === 'in_preparation')
+            .filter(o => isInPreparation(o.sleeves_status))
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
         const confirmedRevenue = active
-            .filter(o => o.sleeves_status === 'confirmed')
+            .filter(o => isConfirmed(o.sleeves_status))
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
 
-        // Orders awaiting carrier assignment (separate confirmation flow)
-        // These are confirmed sales pending carrier assignment
+        // Orders awaiting carrier assignment (separate confirmation flow).
+        // 'awaiting_carrier' is a legacy pre-148c status; helper-free direct
+        // comparison is intentional here so 148c-clean stores skip the filter.
         const awaitingCarrierRevenue = active
             .filter(o => o.sleeves_status === 'awaiting_carrier')
             .reduce((sum, o) => sum + (Number(o.total_price) || 0), 0);
@@ -1298,7 +1308,7 @@ analyticsRouter.get('/cash-projection', async (req: AuthRequest, res: Response) 
         const last30StartIso = startOfDayIso(last30LocalStart, storeTz);
 
         const recentDelivered = historical.filter(o =>
-            (isDelivered(o.sleeves_status) || o.sleeves_status === 'settled') &&
+            isDeliveredOrSettled(o.sleeves_status) &&
             o.created_at >= last30StartIso
         );
 
@@ -1751,14 +1761,12 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
         const dispatchedOrders = orders.filter(o => isDispatched(o.sleeves_status, o.shipped_at));
         const totalDispatched = dispatchedOrders.length;
 
-        // Failed after dispatch: returned, delivery_failed, not_delivered, plus
-        // cancelled-with-shipped_at. Pre-dispatch cancellations do not count.
+        // Failed after dispatch: isFailedDelivery (returned, delivery_failed,
+        // not_delivered) plus cancelled-with-shipped_at. Pre-dispatch
+        // cancellations do not count.
         const failedAfterDispatch = orders.filter(o => {
             if (o.sleeves_status === 'cancelled' && o.shipped_at) return true;
-            if (o.sleeves_status === 'returned') return true;
-            if (o.sleeves_status === 'delivery_failed') return true;
-            if (o.sleeves_status === 'not_delivered') return true;
-            return false;
+            return isFailedDelivery(o.sleeves_status);
         });
         const totalFailed = failedAfterDispatch.length;
 
@@ -1778,7 +1786,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
             const failedReason = (o.failed_reason || '').toLowerCase();
             const deliveryStatus = (o.delivery_status || '').toLowerCase();
 
-            return o.sleeves_status === 'delivery_failed' ||
+            return o.sleeves_status === 'delivery_failed' ||  // legacy pre-148c, not in canonical enum
                 rejectionReasons.some(r => failedReason.includes(r) || deliveryStatus.includes(r));
         });
 
@@ -1794,7 +1802,7 @@ analyticsRouter.get('/logistics-metrics', async (req: AuthRequest, res: Response
         // Cash collection: collected vs expected on terminal-success orders.
         // Includes settled because that is the post-148c paid state.
         const deliveredOrders = orders.filter(o =>
-            isDelivered(o.sleeves_status) || o.sleeves_status === 'settled'
+            isDeliveredOrSettled(o.sleeves_status)
         );
         const expectedCash = deliveredOrders.reduce((sum, o) =>
             sum + (Number(o.total_price) || 0), 0
@@ -1931,8 +1939,8 @@ analyticsRouter.get('/returns-metrics', async (req: AuthRequest, res: Response) 
         // Devoluciones sobre pedidos entregados
         // Tasa = (Pedidos Devueltos / Pedidos Entregados + Devueltos) × 100
 
-        const deliveredOrders = orders.filter(o => o.sleeves_status === 'delivered');
-        const returnedOrders = orders.filter(o => o.sleeves_status === 'returned');
+        const deliveredOrders = orders.filter(o => isDelivered(o.sleeves_status));
+        const returnedOrders = orders.filter(o => isReturned(o.sleeves_status));
 
         const totalDeliveredAndReturned = deliveredOrders.length + returnedOrders.length;
         const returnRate = totalDeliveredAndReturned > 0
@@ -2192,13 +2200,14 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
         // is reconciled by definition. We keep them in the headline count
         // because the merchant's "Total delivered" card includes them.
         const allDeliveredOrders = orders.filter(o =>
-            isDelivered(o.sleeves_status) || o.sleeves_status === 'settled'
+            isDeliveredOrSettled(o.sleeves_status)
         );
 
         // Unreconciled delivered orders: costs that MUST be paid to carriers.
         // Settled orders are already paid (by definition) so they drop out.
+        // Strict isDelivered (not isDeliveredOrSettled) is intentional here.
         const unreconciledDeliveredOrders = allDeliveredOrders.filter(o =>
-            !o.reconciled_at && o.sleeves_status === 'delivered'
+            !o.reconciled_at && isDelivered(o.sleeves_status)
         );
         const deliveredCosts = unreconciledDeliveredOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
 
@@ -2211,7 +2220,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
         const inTransitCosts = inTransitOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
 
         // Ready to ship - orders about to incur shipping costs
-        const readyToShipOrders = orders.filter(o => o.sleeves_status === 'ready_to_ship');
+        const readyToShipOrders = orders.filter(o => isReadyToShip(o.sleeves_status));
         const readyToShipCosts = readyToShipOrders.reduce((sum, o) => sum + (Number(o.shipping_cost) || 0), 0);
 
         // ===== 4. CALCULATE ACTUAL PAYMENTS FROM SETTLEMENTS =====
@@ -2224,9 +2233,10 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
             .filter(s => s.status === 'paid')
             .reduce((sum, s) => sum + (Number(s.total_carrier_fees) || 0), 0);
 
-        // Pending payment (settlements created but not yet paid)
+        // Pending payment (settlements created but not yet paid).
+        // isActiveSettlement = pending or partial (the two "still owe money" states).
         const pendingPayment = settlements
-            .filter(s => s.status === 'pending' || s.status === 'partial')
+            .filter(s => isActiveSettlement(s.status))
             .reduce((sum, s) => sum + (Number(s.balance_due) || 0), 0);
 
         // ===== 5. BREAKDOWN BY CARRIER =====
@@ -2264,11 +2274,11 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
 
             const carrier = carrierMap.get(carrierId)!;
 
-            if (isDelivered(order.sleeves_status) || order.sleeves_status === 'settled') {
+            if (isDeliveredOrSettled(order.sleeves_status)) {
                 // Only count unreconciled delivered orders in toPayCarriers.
                 // Settled orders are already paid (terminal state), so they
                 // drop out of the to-pay bucket regardless of reconciled_at.
-                if (!order.reconciled_at && order.sleeves_status === 'delivered') {
+                if (!order.reconciled_at && isDelivered(order.sleeves_status)) {
                     carrier.deliveredOrders++;
                     carrier.deliveredCosts += shippingCost;
                 }
@@ -2302,7 +2312,7 @@ analyticsRouter.get('/shipping-costs', async (req: AuthRequest, res: Response) =
 
             if (settlement.status === 'paid') {
                 carrier.paidCosts += Number(settlement.total_carrier_fees) || 0;
-            } else if (settlement.status === 'pending' || settlement.status === 'partial') {
+            } else if (isActiveSettlement(settlement.status)) {
                 carrier.pendingPaymentCosts += Number(settlement.balance_due) || 0;
             }
         });

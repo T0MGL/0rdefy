@@ -29,6 +29,7 @@ import {
     averageOrderValue,
     carrierSuccessRate,
     confirmationRate,
+    FAILED_AFTER_DISPATCH_STATUSES,
     isFailedAfterDispatch,
     isPostPending,
     isTerminalSuccess,
@@ -127,9 +128,7 @@ codMetricsRouter.get('/', async (req: AuthRequest, res: Response) => {
             (o) =>
                 isPostPending(o.sleeves_status) &&
                 !isTerminalSuccess(o.sleeves_status) &&
-                o.sleeves_status !== 'returned' &&
-                o.sleeves_status !== 'delivery_failed' &&
-                o.sleeves_status !== 'not_delivered' &&
+                !FAILED_AFTER_DISPATCH_STATUSES.has(o.sleeves_status ?? '') &&
                 o.payment_status === 'pending',
         ).length;
 
