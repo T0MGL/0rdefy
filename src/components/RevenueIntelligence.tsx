@@ -103,12 +103,17 @@ export function RevenueIntelligence() {
     loadData();
   }, [dateRange]);
 
-  // Calculate product profitability (must be before early return to respect Rules of Hooks)
+  // Per-product profitability. Revenue uses sales_revenue from the
+  // top-products endpoint (snapshot of unit_price * pack_qty at sale time)
+  // instead of multiplying current product.price by sales count. The old
+  // formula drifted whenever a merchant raised the price after the sale,
+  // overshooting historical revenue, and disagreed with the dashboard
+  // realRevenue card on the same screen.
   const productProfitability = useMemo(() => topProducts.map((product) => {
-    const revenue = product.sales * Number(product.price);
     const totalUnitCost = product.total_cost
       ? Number(product.total_cost)
       : (Number(product.cost || 0) + Number(product.packaging_cost || 0) + Number(product.additional_costs || 0));
+    const revenue = Number(product.sales_revenue ?? (product.sales * Number(product.price)));
     const cogs = product.sales * totalUnitCost;
     const margin = revenue - cogs;
     const marginPercent = revenue > 0 ? parseFloat(((margin / revenue) * 100).toFixed(1)) : 0;

@@ -113,6 +113,9 @@ export interface Order {
   payment_status?: 'pending' | 'collected' | 'failed';
   carrier: string;
   carrier_id?: string;
+  // First-line-item image, surfaced by status mutation responses for fast list rebind.
+  // Source of truth lives inside order_line_items[].image_url; this is a derived shortcut.
+  image_url?: string;
   date: string;
   phone: string;
   phone_backup?: string;
@@ -271,6 +274,13 @@ export interface Product {
   is_service?: boolean;
   profitability: number;
   sales: number;
+  // Returned by /api/analytics/top-products: snapshot of unit_price * pack_qty
+  // at sale time, NOT current product.price * sales. Frontends should prefer
+  // sales_revenue when present so historic per-product cards do not drift
+  // when prices change.
+  sales_revenue?: number;
+  total_cost?: number; // base cost + packaging + additional, returned by top-products
+  physical_units?: number;
   // Shopify integration fields
   shopify_product_id?: string;
   shopify_variant_id?: string;

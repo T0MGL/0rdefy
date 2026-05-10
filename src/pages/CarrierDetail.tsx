@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { carriersService, CarrierReview, CarrierReviewStats, RatingDistribution } from '@/services/carriers.service';
 import { ordersService } from '@/services/orders.service';
+import { deliveryRatePct, isDeliveredStatus } from '@/lib/status';
 import { formatCurrency } from '@/utils/currency';
 import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -173,19 +174,19 @@ export default function CarrierDetail() {
   }, [id, toast]);
 
   // --- METRICS CALCULATION ---
+  // Canonical formula: delivered+settled / dispatched. The previous version
+  // divided by total, which dragged the rate down by every pending and
+  // pre-dispatch cancellation a courier never even touched. The new
+  // denominator matches the dashboard's deliveryRate card to the unit.
   const metrics = useMemo(() => {
     const total = orders.length;
-    const delivered = orders.filter(o => o.status === 'delivered').length;
-    const deliveryRate = total > 0 ? (delivered / total) * 100 : 0;
-
-    // Average time (Mock logic or Real if dates exist)
-    // For now simple placeholder or basic calc if delivered_at exists
+    const delivered = orders.filter(o => isDeliveredStatus(o.status)).length;
+    const ratePct = deliveryRatePct(orders);
 
     return {
       total,
       delivered,
-      deliveryRate: deliveryRate.toFixed(1),
-      // delivered_at - date
+      deliveryRate: ratePct === null ? 'n/a' : ratePct.toFixed(1),
     };
   }, [orders]);
 

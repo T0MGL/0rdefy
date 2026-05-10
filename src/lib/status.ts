@@ -143,6 +143,78 @@ export function isTerminalStatus(status: OrderStatus): boolean {
 }
 
 /**
+ * Canonical client-side helpers. Mirror the API helpers in
+ * api/utils/order-status.ts. Use these inside components instead of writing
+ * `o.status === 'delivered'` literals so the dashboard, the COD module and
+ * any per-carrier card always agree on what each metric means.
+ *
+ * Accepts the legacy VARCHAR variants the data layer still emits for
+ * pre-148c stores.
+ */
+export function isDeliveredStatus(status: string | null | undefined): boolean {
+  return status === 'delivered' || status === 'settled';
+}
+
+export function isInTransitStatus(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return [
+    'confirmed',
+    'in_preparation',
+    'ready_to_ship',
+    'in_transit',
+    'shipped',
+    'contacted',
+    'incident',
+  ].includes(status);
+}
+
+export function isPostPendingStatus(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return (
+    isInTransitStatus(status) ||
+    isDeliveredStatus(status) ||
+    status === 'returned' ||
+    status === 'delivery_failed' ||
+    status === 'not_delivered'
+  );
+}
+
+const DISPATCHED_SET = new Set([
+  'ready_to_ship',
+  'shipped',
+  'in_transit',
+  'delivered',
+  'settled',
+  'returned',
+  'delivery_failed',
+  'not_delivered',
+]);
+
+export function isDispatchedStatus(
+  status: string | null | undefined,
+  shippedAt?: string | null,
+): boolean {
+  if (!status) return false;
+  if (DISPATCHED_SET.has(status)) return true;
+  return status === 'cancelled' && !!shippedAt;
+}
+
+/**
+ * Canonical delivery rate for an order list. Mirrors API formula 3.3.
+ * Returns null when no orders are dispatched (caller renders 'n/a').
+ */
+export function deliveryRatePct(
+  orders: { status?: string | null; sleeves_status?: string | null; shipped_at?: string | null }[],
+): number | null {
+  const delivered = orders.filter((o) => isDeliveredStatus(o.status ?? o.sleeves_status)).length;
+  const dispatched = orders.filter((o) =>
+    isDispatchedStatus(o.status ?? o.sleeves_status, o.shipped_at),
+  ).length;
+  if (dispatched <= 0) return null;
+  return (delivered / dispatched) * 100;
+}
+
+/**
  * State machine. Matches the Postgres reality enforced by the settlement
  * functions + triggers in 148b. Used by the manual override endpoint
  * (POST /api/orders/:id/settle) and future admin UIs to validate user driven
