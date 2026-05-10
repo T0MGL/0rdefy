@@ -88,6 +88,7 @@ const menuSections: MenuSection[] = [
       { path: '/shipping', label: 'Despacho', icon: Send, module: Module.WAREHOUSE },
       { path: '/merchandise', label: 'Mercadería', icon: PackageOpen, module: Module.MERCHANDISE, tourTarget: 'sidebar-merchandise' },
       { path: '/carriers', label: 'Transportadoras', icon: Truck, module: Module.CARRIERS, tourTarget: 'sidebar-carriers' },
+      { path: '/courier-performance', label: 'Rendimiento Repartidores', icon: BarChart3, module: Module.CARRIERS },
       { path: '/settlements', label: 'Conciliaciones', icon: DollarSign, module: Module.CARRIERS, tourTarget: 'sidebar-settlements' },
     ],
   },

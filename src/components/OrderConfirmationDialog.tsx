@@ -635,7 +635,7 @@ export function OrderConfirmationDialog({
           const token = localStorage.getItem('auth_token');
           const storeId = localStorage.getItem('current_store_id');
 
-          await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}`, {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/orders/${order.id}`, {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -645,12 +645,22 @@ export function OrderConfirmationDialog({
             body: JSON.stringify({ upsell_added: upsellAdded }),
           });
 
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.message || err.error || 'Error al actualizar upsell');
+          }
+
           toast({
             title: 'Upsell actualizado',
             description: upsellAdded ? 'Se agregó el upsell al pedido' : 'Se removió el upsell del pedido',
           });
-        } catch (error) {
+        } catch (error: any) {
           logger.error('Error updating upsell:', error);
+          toast({
+            title: 'No se pudo actualizar el upsell',
+            description: error?.message || 'Intenta nuevamente en unos segundos.',
+            variant: 'destructive',
+          });
         }
       };
 
