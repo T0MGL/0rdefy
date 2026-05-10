@@ -504,6 +504,19 @@ export default function Carriers() {
         setSearchParams(newParams, { replace: true });
       }
     }
+
+    // Open edit dialog when arriving from CarrierDetail with ?edit=<id>
+    const editId = searchParams.get('edit');
+    if (editId && dbCarriers.length > 0) {
+      const carrierToEdit = dbCarriers.find(c => c.id === editId);
+      if (carrierToEdit) {
+        setSelectedCarrier(carrierToEdit);
+        setDialogOpen(true);
+      }
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('edit');
+      setSearchParams(newParams, { replace: true });
+    }
   }, [searchParams, setSearchParams, dbCarriers, toast]);
 
   const handleCreate = () => {

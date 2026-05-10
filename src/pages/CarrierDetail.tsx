@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -62,14 +62,16 @@ const safeFormatDistance = (dateString: string | null | undefined): string => {
   }
 };
 
-const safeNumber = (value: any, decimals: number = 1): string => {
-  const num = parseFloat(value);
+const safeNumber = (value: number | string | null | undefined, decimals: number = 1): string => {
+  if (value === null || value === undefined) return '0.0';
+  const num = typeof value === 'number' ? value : parseFloat(value);
   if (isNaN(num)) return '0.0';
   return num.toFixed(decimals);
 };
 
 export default function CarrierDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [carrier, setCarrier] = useState<any>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -368,7 +370,13 @@ export default function CarrierDetail() {
             <Globe size={16} />
             Configurar Cobertura
           </Button>
-          <Button>Editar Transportadora</Button>
+          <Button
+            variant="outline"
+            onClick={() => carrier?.id && navigate(`/carriers?edit=${carrier.id}`)}
+            disabled={!carrier?.id}
+          >
+            Editar Transportadora
+          </Button>
         </div>
       </div>
 

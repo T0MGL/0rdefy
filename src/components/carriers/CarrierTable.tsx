@@ -4,20 +4,20 @@ import { Button } from '@/components/ui/button';
 import { Star, Eye, Edit, Power, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
-import { carriersService } from '@/services/carriers.service';
+import { carriersService, Carrier } from '@/services/carriers.service';
 
 interface CarrierTableProps {
-  carriers: any[];
-  onEdit?: (carrier: any) => void;
+  carriers: Carrier[];
+  onEdit?: (carrier: Carrier) => void;
   onRefresh?: () => void;
-  onManageZones?: (carrier: any) => void;
+  onManageZones?: (carrier: Carrier) => void;
   isHighlighted?: (id: string) => boolean;
 }
 
 export function CarrierTable({ carriers, onEdit, onRefresh, onManageZones, isHighlighted }: CarrierTableProps) {
   const { toast } = useToast();
 
-  const handleEdit = (carrier: any) => {
+  const handleEdit = (carrier: Carrier) => {
     if (onEdit) {
       onEdit(carrier);
     } else {
