@@ -2156,9 +2156,178 @@ ordersRouter.put('/:id', validateUUIDParam('id'), requirePermission(Module.ORDER
         }
 
         if (error || !data) {
+            // Map trigger error: "Cannot modify line_items" → 409 Conflict
+            const errMsg = (error?.message || '').toLowerCase();
+            if (errMsg.includes('cannot modify line_items') || errMsg.includes('stock has been decremented')) {
+                return res.status(409).json({
+                    error: 'Stock already decremented',
+                    code: 'LINE_ITEMS_LOCKED',
+                    message: 'No se pueden modificar los productos de este pedido porque ya se descontó stock. Cancela el pedido y crea uno nuevo.',
+                });
+            }
             return res.status(404).json({
-                error: 'Order not found'
+                error: 'Order not found',
+                details: error?.message
             });
+        }
+
+        // ================================================================
+        // CRITICAL: Sync normalized order_line_items table when JSONB changes
+        // The PUT updates orders.line_items (JSONB) but historically did NOT
+        // touch the normalized order_line_items rows. GET endpoints prefer the
+        // normalized table, so editing items would silently desync.
+        // Pattern: snapshot → delete → re-insert (with rollback on failure).
+        // ================================================================
+        if (line_items !== undefined && Array.isArray(line_items)) {
+            // 1) Snapshot existing rows for manual rollback if INSERT fails
+            const { data: existingItems } = await supabaseAdmin
+                .from('order_line_items')
+                .select('*')
+                .eq('order_id', id);
+
+            const snapshot = (existingItems || []).map((row: any) => {
+                // Drop server-managed fields so a re-insert doesn't conflict
+                const { created_at: _c, updated_at: _u, ...rest } = row;
+                return rest;
+            });
+
+            try {
+                // 2) Batch-fetch products/variants for derived fields (mirrors POST /)
+                const variantIds = line_items
+                    .map((item: any) => item.variant_id)
+                    .filter(Boolean);
+                const productIds = line_items
+                    .map((item: any) => item.product_id)
+                    .filter(Boolean);
+
+                const variantsMap = new Map<string, any>();
+                const productsMap = new Map<string, any>();
+
+                if (variantIds.length > 0) {
+                    const { data: variants } = await supabaseAdmin
+                        .from('product_variants')
+                        .select('id, product_id, variant_title, sku, price, cost, units_per_pack, image_url, variant_type, uses_shared_stock')
+                        .in('id', variantIds);
+                    (variants || []).forEach((v: any) => variantsMap.set(v.id, v));
+                }
+
+                if (productIds.length > 0) {
+                    const { data: products } = await supabaseAdmin
+                        .from('products')
+                        .select('id, name, image_url, cost, packaging_cost, additional_costs')
+                        .in('id', productIds)
+                        .eq('store_id', req.storeId);
+                    (products || []).forEach((p: any) => productsMap.set(p.id, p));
+                }
+
+                // 3) Map payload to normalized rows
+                const normalizedLineItems = line_items.map((item: any) => {
+                    const productId = item.product_id || null;
+                    const variantId = item.variant_id || null;
+                    let imageUrl: string | null = item.image_url || null;
+                    let variantTitle: string | null = item.variant_title || null;
+                    let variantSku: string | null = item.sku || null;
+                    let unitsPerPack = item.units_per_pack || 1;
+                    let unitPrice = safeNumber(item.unit_price ?? item.price, 0);
+                    let variantType: string | null = item.variant_type || null;
+                    let unitCost = safeNumber(item.unit_cost, 0);
+
+                    if (variantId) {
+                        const variant = variantsMap.get(variantId);
+                        if (variant) {
+                            variantTitle = variant.variant_title ?? variantTitle;
+                            variantSku = variant.sku || variantSku;
+                            unitPrice = unitPrice || safeNumber(variant.price, 0);
+                            unitsPerPack = variant.units_per_pack || unitsPerPack;
+                            imageUrl = imageUrl || variant.image_url;
+                            if (!variantType) {
+                                variantType = variant.variant_type || (variant.uses_shared_stock ? 'bundle' : 'variation');
+                            }
+                            if (!unitCost && variant.cost !== null && variant.cost !== undefined && Number(variant.cost) > 0) {
+                                unitCost = safeNumber(variant.cost, 0);
+                            }
+                        }
+                    }
+
+                    if (productId) {
+                        const product = productsMap.get(productId);
+                        if (product) {
+                            imageUrl = imageUrl || product.image_url;
+                            if (!unitCost && !variantId) {
+                                unitCost = safeNumber(product.cost, 0) + safeNumber(product.packaging_cost, 0) + safeNumber(product.additional_costs, 0);
+                            }
+                            if (!unitCost && variantId) {
+                                // Variant resolved but had no cost: fall back to product cost
+                                unitCost = safeNumber(product.cost, 0) + safeNumber(product.packaging_cost, 0) + safeNumber(product.additional_costs, 0);
+                            }
+                        }
+                    }
+
+                    const quantity = safeNumber(item.quantity, 1);
+                    return {
+                        order_id: id,
+                        product_id: productId,
+                        variant_id: variantId,
+                        variant_type: variantType,
+                        product_name: item.product_name || item.name || item.title || 'Producto',
+                        variant_title: variantTitle,
+                        sku: variantSku,
+                        quantity,
+                        unit_price: unitPrice,
+                        unit_cost: unitCost,
+                        total_price: safeNumber(item.total_price, quantity * unitPrice),
+                        units_per_pack: unitsPerPack,
+                        image_url: imageUrl,
+                        is_upsell: item.is_upsell || false,
+                        bundle_selections: item.bundle_selections || null,
+                    };
+                });
+
+                // 4) Replace rows: DELETE old → INSERT new
+                const { error: deleteErr } = await supabaseAdmin
+                    .from('order_line_items')
+                    .delete()
+                    .eq('order_id', id);
+
+                if (deleteErr) {
+                    throw deleteErr;
+                }
+
+                if (normalizedLineItems.length > 0) {
+                    const { error: insertErr } = await supabaseAdmin
+                        .from('order_line_items')
+                        .insert(normalizedLineItems);
+
+                    if (insertErr) {
+                        // Rollback: restore previous rows
+                        if (snapshot.length > 0) {
+                            await supabaseAdmin
+                                .from('order_line_items')
+                                .insert(snapshot);
+                        }
+                        return res.status(500).json({
+                            error: 'Failed to sync order line items',
+                            code: 'LINE_ITEMS_SYNC_FAILED',
+                            message: 'No se pudieron sincronizar los productos del pedido. El pedido fue actualizado pero los items quedan en estado anterior.',
+                            details: insertErr.message,
+                        });
+                    }
+                }
+            } catch (syncErr: any) {
+                // Best-effort rollback
+                if (snapshot.length > 0) {
+                    await supabaseAdmin
+                        .from('order_line_items')
+                        .insert(snapshot)
+                        .then(() => undefined, () => undefined);
+                }
+                return res.status(500).json({
+                    error: 'Failed to sync order line items',
+                    code: 'LINE_ITEMS_SYNC_FAILED',
+                    message: 'Error al sincronizar productos del pedido.',
+                    details: syncErr?.message,
+                });
+            }
         }
 
         // Transform response to match frontend format
@@ -2709,7 +2878,43 @@ ordersRouter.patch('/:id/status', requirePermission(Module.ORDERS, Permission.ED
             .update(updateData)
             .eq('id', id)
             .eq('store_id', req.storeId)
-            .select('*, carriers(name), order_line_items(id, quantity, product_id, product_name, sku, variant_title, unit_price, image_url)')
+            .select(`
+                *,
+                carriers!orders_courier_id_fkey (
+                    id,
+                    name
+                ),
+                customers!orders_customer_id_fkey (
+                    first_name,
+                    last_name,
+                    email,
+                    total_orders,
+                    total_spent
+                ),
+                order_line_items (
+                    id,
+                    product_id,
+                    variant_id,
+                    product_name,
+                    variant_title,
+                    sku,
+                    quantity,
+                    unit_price,
+                    total_price,
+                    discount_amount,
+                    tax_amount,
+                    shopify_product_id,
+                    shopify_variant_id,
+                    properties,
+                    image_url,
+                    is_upsell,
+                    products:product_id (
+                        id,
+                        name,
+                        image_url
+                    )
+                )
+            `)
             .single();
 
         if (error || !data) {
