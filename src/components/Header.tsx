@@ -7,10 +7,19 @@ import { useDateRange } from '@/contexts/DateRangeContext';
 import { useGlobalView } from '@/contexts/GlobalViewContext';
 import { formatTimeAgo } from '@/utils/timeUtils';
 import { preserveShopifyParams, isShopifyEmbedded } from '@/utils/shopifyNavigation';
-import { Bell, ChevronDown, ChevronLeft, Calendar } from 'lucide-react';
+import { Bell, ChevronDown, ChevronLeft, Calendar, ListChecks } from 'lucide-react';
 import { Button } from './ui/button';
 import { GlobalSearch } from './GlobalSearch';
 import { GlobalViewToggle } from './GlobalViewToggle';
+import { OnboardingChecklist, useOnboardingProgress } from './OnboardingChecklist';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from './ui/sheet';
 import { analyticsService } from '@/services/analytics.service';
 import { notificationsService } from '@/services/notifications.service';
 import type { Order, DashboardOverview } from '@/types';
@@ -75,6 +84,17 @@ export function Header() {
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [showCalendarView, setShowCalendarView] = useState(false);
   const [customSelection, setCustomSelection] = useState<CalendarDateRange | undefined>(undefined);
+  const [onboardingDrawerOpen, setOnboardingDrawerOpen] = useState(false);
+
+  // Subscribe to onboarding progress for the header indicator. Returns null
+  // for non-owners or while subscription/progress is loading: that's the
+  // signal to hide the trigger entirely.
+  const onboardingProgress = useOnboardingProgress();
+  const showOnboardingTrigger =
+    onboardingProgress !== null &&
+    !onboardingProgress.isComplete &&
+    !onboardingProgress.hasDismissed &&
+    onboardingProgress.totalCount > 0;
 
   // Subscribe to cross-tab notification updates
   useEffect(() => {
@@ -327,7 +347,7 @@ export function Header() {
           }}
         >
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-card-foreground truncate max-w-[200px] md:max-w-none">
-            Hola, {user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuario'}! 👋
+            Hola, {user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuario'}.
           </h1>
         </div>
 
@@ -357,6 +377,42 @@ export function Header() {
           <div className="hidden lg:block">
             <GlobalSearch />
           </div>
+
+          {/* Onboarding Checklist Trigger - hidden when complete or dismissed */}
+          {showOnboardingTrigger && onboardingProgress && (
+            <Sheet open={onboardingDrawerOpen} onOpenChange={setOnboardingDrawerOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative h-10 w-10 min-h-[44px] min-w-[44px]"
+                  aria-label={`Configura tu tienda, ${onboardingProgress.completedCount} de ${onboardingProgress.totalCount} pasos`}
+                >
+                  <ListChecks size={20} className="text-muted-foreground" />
+                  <Badge
+                    className={cn(
+                      'absolute -top-1 -right-1 h-5 min-w-[1.25rem] flex items-center justify-center px-1 text-[10px] border-2 border-card tabular-nums',
+                      onboardingProgress.percentage >= 80 ? 'bg-emerald-600' : 'bg-primary'
+                    )}
+                  >
+                    {onboardingProgress.completedCount}/{onboardingProgress.totalCount}
+                  </Badge>
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+                <SheetHeader className="mb-4">
+                  <SheetTitle>Pasos de configuración</SheetTitle>
+                  <SheetDescription>
+                    Completá estos pasos para sacar el máximo provecho de Ordefy.
+                  </SheetDescription>
+                </SheetHeader>
+                <OnboardingChecklist
+                  variant="drawer"
+                  onDismiss={() => setOnboardingDrawerOpen(false)}
+                />
+              </SheetContent>
+            </Sheet>
+          )}
 
           {/* Date Selector */}
           <Popover open={datePopoverOpen} onOpenChange={handleDatePopoverChange}>
